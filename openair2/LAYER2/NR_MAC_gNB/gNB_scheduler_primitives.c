@@ -2689,7 +2689,7 @@ void nr_csirs_scheduling(int Mod_idP,
         NR_CSI_RS_ResourceMapping_t  resourceMapping = nzpcsi->resourceMapping;
         csi_period_offset(NULL,nzpcsi->periodicityAndOffset,&period,&offset);
 
-        if((frame*n_slots_frame+slot-offset)%period == 0) {
+        if((frame*n_slots_frame+slot-offset) % period == 0) {
 
           LOG_D(NR_MAC,"Scheduling CSI-RS in frame %d slot %d\n",frame,slot);
           UE_info->sched_csirs = true;

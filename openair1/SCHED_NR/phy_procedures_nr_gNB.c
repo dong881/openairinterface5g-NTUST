@@ -115,8 +115,8 @@ void nr_common_signal_procedures (PHY_VARS_gNB *gNB,int frame,int slot,nfapi_nr_
 void phy_procedures_gNB_TX(processingData_L1tx_t *msgTx,
                            int frame,
                            int slot,
-                           int do_meas) {
-
+                           int do_meas)
+{
   int aa;
   PHY_VARS_gNB *gNB = msgTx->gNB;
   NR_DL_FRAME_PARMS *fp=&gNB->frame_parms;
@@ -125,18 +125,20 @@ void phy_procedures_gNB_TX(processingData_L1tx_t *msgTx,
   int txdataF_offset = slot*fp->samples_per_slot_wCP;
 
   if ((cfg->cell_config.frame_duplex_type.value == TDD) &&
-      (nr_slot_select(cfg,frame,slot) == NR_UPLINK_SLOT)) return;
+      (nr_slot_select(cfg,frame,slot) == NR_UPLINK_SLOT)) 
+      return;
 
-  VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_PROCEDURES_gNB_TX+offset,1);
+  VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_PROCEDURES_gNB_TX + offset, 1);
 
   // clear the transmit data array and beam index for the current slot
-  for (aa=0; aa<cfg->carrier_config.num_tx_ant.value; aa++) {
+  for (aa = 0; aa < cfg->carrier_config.num_tx_ant.value; aa++) {
     memset(&gNB->common_vars.txdataF[aa][txdataF_offset],0,fp->samples_per_slot_wCP*sizeof(int32_t));
     memset(&gNB->common_vars.beam_id[aa][slot*fp->symbols_per_slot],255,fp->symbols_per_slot*sizeof(uint8_t));
   }
 
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_PROCEDURES_gNB_COMMON_TX,1);
-  for (int i=0; i<fp->Lmax; i++) {
+
+  for (int i = 0; i < fp->Lmax; i++) {
     if (msgTx->ssb[i].active) {
       nr_common_signal_procedures(gNB,frame,slot,msgTx->ssb[i].ssb_pdu);
       msgTx->ssb[i].active = false;
@@ -149,13 +151,16 @@ void phy_procedures_gNB_TX(processingData_L1tx_t *msgTx,
 
   if (num_pdcch_pdus > 0) {
     LOG_D(PHY, "[gNB %d] Frame %d slot %d Calling nr_generate_dci_top (number of UL/DL PDCCH PDUs %d/%d)\n",
-	  gNB->Mod_id, frame, slot, msgTx->num_ul_pdcch, msgTx->num_dl_pdcch);
+	              gNB->Mod_id, frame, slot, msgTx->num_ul_pdcch, msgTx->num_dl_pdcch);
   
     VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_gNB_PDCCH_TX,1);
 
-    nr_generate_dci_top(msgTx, slot,
-			&gNB->common_vars.txdataF[0][txdataF_offset],
-			AMP, fp);
+    nr_generate_dci_top(msgTx, 
+                        slot,
+                        &gNB->common_vars.txdataF[0][txdataF_offset],
+                        AMP, 
+                        fp
+                        );
 
     VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_gNB_PDCCH_TX,0);
   }

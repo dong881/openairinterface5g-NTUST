@@ -673,7 +673,7 @@ void nr_schedule_RA(module_id_t module_idP, frame_t frameP, sub_frame_t slotP) {
           break;
         case Msg3_retransmission:
           nr_generate_Msg3_retransmission(module_idP, CC_id, frameP, slotP, ra);
-          break;
+          break;  
         case Msg4:
           nr_generate_Msg4(module_idP, CC_id, frameP, slotP, ra);
           break;

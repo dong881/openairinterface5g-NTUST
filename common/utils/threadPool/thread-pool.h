@@ -78,16 +78,17 @@ typedef struct notifiedFIFO_s {
 static inline notifiedFIFO_elt_t *newNotifiedFIFO_elt(int size,
     uint64_t key,
     notifiedFIFO_t *reponseFifo,
-    void (*processingFunc)(void *)) {
+    void (*processingFunc)(void *)) 
+{
   notifiedFIFO_elt_t *ret;
-  AssertFatal( NULL != (ret=(notifiedFIFO_elt_t *) calloc(1, sizeof(notifiedFIFO_elt_t)+size+32)), "");
+  AssertFatal( NULL != (ret = (notifiedFIFO_elt_t *) calloc(1, sizeof(notifiedFIFO_elt_t)+size+32)), "");
   ret->next=NULL;
   ret->key=key;
-  ret->reponseFifo=reponseFifo;
-  ret->processingFunc=processingFunc;
+  ret->reponseFifo = reponseFifo;
+  ret->processingFunc = processingFunc;
   // We set user data piece aligend 32 bytes to be able to process it with SIMD
-  ret->msgData=(void *)((uint8_t*)ret+(sizeof(notifiedFIFO_elt_t)/32+1)*32);
-  ret->malloced=true;
+  ret->msgData = (void *)((uint8_t*)ret + (sizeof(notifiedFIFO_elt_t)/32+1) * 32);
+  ret->malloced = true;
   return ret;
 }
 
@@ -138,7 +139,7 @@ static inline  notifiedFIFO_elt_t *pullNotifiedFIFO_nothreadSafe(notifiedFIFO_t 
   if (nf->outF == NULL)
     return NULL;
 
-  notifiedFIFO_elt_t *ret=nf->outF;
+  notifiedFIFO_elt_t *ret = nf->outF;
 
   AssertFatal(nf->outF != nf->outF->next,"Circular list in thread pool: push several times the same buffer is forbidden\n");
 
@@ -154,7 +155,7 @@ static inline  notifiedFIFO_elt_t *pullNotifiedFIFO(notifiedFIFO_t *nf) {
   mutexlock(nf->lockF);
   notifiedFIFO_elt_t *ret;
 
-  while((ret=pullNotifiedFIFO_nothreadSafe(nf)) == NULL)
+  while((ret = pullNotifiedFIFO_nothreadSafe(nf)) == NULL)
     condwait(nf->notifF, nf->lockF);
 
   mutexunlock(nf->lockF);
@@ -238,8 +239,9 @@ typedef struct thread_pool {
 static inline void pushTpool(tpool_t *t, notifiedFIFO_elt_t *msg) {
   if (t->measurePerf) msg->creationTime=rdtsc_oai();
 
-  if ( t->activated)
+  if ( t->activated){
     pushNotifiedFIFO(&t->incomingFifo, msg);
+  }
   else {
     if (t->measurePerf)
       msg->startProcessingTime=rdtsc_oai();
@@ -255,7 +257,7 @@ static inline void pushTpool(tpool_t *t, notifiedFIFO_elt_t *msg) {
 }
 
 static inline notifiedFIFO_elt_t *pullTpool(notifiedFIFO_t *responseFifo, tpool_t *t) {
-  notifiedFIFO_elt_t *msg= pullNotifiedFIFO(responseFifo);
+  notifiedFIFO_elt_t *msg = pullNotifiedFIFO(responseFifo);
   AssertFatal(t->traceFd, "Thread pool used while not initialized");
   if (t->measurePerf)
     msg->returnTime=rdtsc_oai();

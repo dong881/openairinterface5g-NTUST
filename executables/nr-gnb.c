@@ -110,11 +110,11 @@ time_stats_t softmodem_stats_rx_sf; // total rx time
 
 
 void tx_func(void *param) {
-
   processingData_L1tx_t *info = (processingData_L1tx_t *) param;
   int frame_tx = info->frame;
   int slot_tx = info->slot;
 
+  printf("[MWNL] %s frame %d  slot %d\n", __FUNCTION__, frame_tx, slot_tx);
   phy_procedures_gNB_TX(info,
                         frame_tx,
                         slot_tx,
@@ -138,6 +138,7 @@ void rx_func(void *param) {
     // I am a PNF and I need to let nFAPI know that we have a (sub)frame tick
     //LOG_D(PHY, "oai_nfapi_slot_ind(frame:%u, slot:%d) ********\n", frame_rx, slot_rx);
     start_meas(&nfapi_meas);
+    LOG_I(MAC, "[GNB]  the NFAPI_MODE_PNF in %s is about to send slot_ind sfn : %d, slot : %d\n", __FUNCTION__, frame_rx, slot_rx);
     handle_nr_slot_ind(frame_rx, slot_rx);
     stop_meas(&nfapi_meas);
 
@@ -252,7 +253,9 @@ void rx_func(void *param) {
     syncMsg->gNB = gNB;
     syncMsg->timestamp_tx = info->timestamp_tx;
     res->key = slot_tx;
-    pushTpool(gNB->threadPool, res);
+    pushNotifiedFIFO(gNB->L1_tx_out, res);
+    
+    // pushTpool(gNB->threadPool, res);
   } else if (get_softmodem_params()->continuous_tx) {
     notifiedFIFO_elt_t *res = pullTpool(gNB->L1_tx_free, gNB->threadPool);
     processingData_L1tx_t *syncMsg = (processingData_L1tx_t *)NotifiedFifoData(res);
@@ -304,6 +307,7 @@ void rx_func(void *param) {
        );
 #endif
 }
+
 static size_t dump_L1_meas_stats(PHY_VARS_gNB *gNB, RU_t *ru, char *output, size_t outputlen) {
   const char *begin = output;
   const char *end = output + outputlen;
@@ -371,50 +375,70 @@ void *nrL1_stats_thread(void *param) {
 // This thread reads the finished L1 tx jobs from threaPool
 // and pushes RU tx thread in the right order. It works only
 // two parallel L1 tx threads.
+
 void *tx_reorder_thread(void* param) {
   PHY_VARS_gNB *gNB = (PHY_VARS_gNB *)param;
-    notifiedFIFO_elt_t *resL1Reserve = NULL;
-  
-
-  resL1Reserve=pullTpool(gNB->L1_tx_out, gNB->threadPool);
-  int next_tx_slot=((processingData_L1tx_t *)NotifiedFifoData(resL1Reserve))->slot;
+  notifiedFIFO_elt_t *resL1Reserve = NULL;
+  resL1Reserve = pullTpool(gNB->L1_tx_out, gNB->threadPool);
+  int next_tx_slot = ((processingData_L1tx_t *) NotifiedFifoData(resL1Reserve))->slot;
+  // printf("=========== next_tx_slot = %d===========\n", next_tx_slot);
   
   while (!oai_exit) {
+
     notifiedFIFO_elt_t *resL1;
-    if (resL1Reserve) {
-       resL1=resL1Reserve;
-       if (((processingData_L1tx_t *)NotifiedFifoData(resL1))->slot != next_tx_slot) {
-         LOG_E(PHY,"order mistake\n");
-	 resL1Reserve=NULL;
-	 resL1 = pullTpool(gNB->L1_tx_out, gNB->threadPool);
-       }
-     } else { 
-       resL1 = pullTpool(gNB->L1_tx_out, gNB->threadPool);
-       if (((processingData_L1tx_t *)NotifiedFifoData(resL1))->slot != next_tx_slot) {
-          if (resL1Reserve)
-              LOG_E(PHY,"error, have a stored packet, then a second one\n");
-	  resL1Reserve=resL1;
+
+    if (resL1Reserve) 
+    {
+       resL1 = resL1Reserve;
+
+       if (((processingData_L1tx_t *) NotifiedFifoData (resL1))->slot != next_tx_slot) 
+       {
+          LOG_E(PHY,"order mistake\n");
+          resL1Reserve = NULL;
           resL1 = pullTpool(gNB->L1_tx_out, gNB->threadPool);
-          if (((processingData_L1tx_t *)NotifiedFifoData(resL1))->slot != next_tx_slot)
-	    LOG_E(PHY,"error, pull two msg, none is good\n");
+          printf("[mwnl test] im alive\n");
+       }
+    } 
+    else 
+    { 
+       resL1 = pullTpool(gNB->L1_tx_out, gNB->threadPool);
+
+       if (((processingData_L1tx_t *)NotifiedFifoData(resL1))->slot != next_tx_slot) // mwnl test
+       {
+          printf("slot: %d, expected slot: %d\n",((processingData_L1tx_t *)NotifiedFifoData(resL1))->slot, next_tx_slot);
+          if (resL1Reserve) LOG_E(PHY,"error, have a stored packet, then a second one\n");
+	        resL1Reserve = resL1;
+          resL1 = pullTpool(gNB->L1_tx_out, gNB->threadPool);
+          if (((processingData_L1tx_t *) NotifiedFifoData(resL1))->slot != next_tx_slot)
+	        LOG_E(PHY,"error, pull two msg, none is good\n");
        }
     }
-    processingData_L1tx_t *syncMsgL1= (processingData_L1tx_t *)NotifiedFifoData(resL1);
+
+    processingData_L1tx_t *syncMsgL1 = (processingData_L1tx_t *)NotifiedFifoData(resL1);
     processingData_RU_t syncMsgRU;
+    
     syncMsgRU.frame_tx = syncMsgL1->frame;
     syncMsgRU.slot_tx = syncMsgL1->slot;
     syncMsgRU.timestamp_tx = syncMsgL1->timestamp_tx;
     syncMsgRU.ru = gNB->RU_list[0];
-    if (get_softmodem_params()->continuous_tx) {
+
+    if (get_softmodem_params()->continuous_tx) 
+    {
       int slots_per_frame = gNB->frame_parms.slots_per_frame;
-      next_tx_slot = (syncMsgRU.slot_tx + 1) % slots_per_frame;
+      next_tx_slot = (syncMsgRU.slot_tx+1) % slots_per_frame;
+      // printf("LINE: %d, slot: %d, next slot: %d\n", __LINE__, syncMsgL1->slot, next_tx_slot);
     } else
+    {
       next_tx_slot = get_next_downlink_slot(gNB, &gNB->gNB_config, syncMsgRU.frame_tx, syncMsgRU.slot_tx);
+      // printf("LINE: %d, slot: %d, next slot: %d\n", __LINE__, syncMsgL1->slot, next_tx_slot);
+    }
+
     pushNotifiedFIFO(gNB->L1_tx_free, resL1);
-    if (resL1==resL1Reserve)
-       resL1Reserve=NULL;
+    if (resL1 == resL1Reserve) resL1Reserve = NULL; 
+
     ru_tx_func((void*)&syncMsgRU);
   }
+
   return(NULL);
 }
 
@@ -458,16 +482,16 @@ void init_gNB_Tpool(int inst) {
   
   // we create 2 threads for L1 tx processing
   for (int i=0; i < 2; i++) {
-    notifiedFIFO_elt_t *msgL1Tx = newNotifiedFIFO_elt(sizeof(processingData_L1tx_t),0,gNB->L1_tx_out,tx_func);
-    processingData_L1tx_t *msgDataTx = (processingData_L1tx_t *)NotifiedFifoData(msgL1Tx);
+    notifiedFIFO_elt_t *msgL1Tx = newNotifiedFIFO_elt(sizeof(processingData_L1tx_t), 0, gNB->L1_tx_out, tx_func);
+    processingData_L1tx_t *msgDataTx = (processingData_L1tx_t *) NotifiedFifoData(msgL1Tx);
     memset(msgDataTx,0, sizeof(processingData_L1tx_t));
     init_DLSCH_struct(gNB, msgDataTx);
     memset(msgDataTx->ssb, 0, 64*sizeof(NR_gNB_SSB_t));
-    pushNotifiedFIFO(gNB->L1_tx_free,msgL1Tx); // to unblock the process in the beginning
+    pushNotifiedFIFO(gNB->L1_tx_free, msgL1Tx); // to unblock the process in the beginning
   }
 
   if ((!get_softmodem_params()->emulate_l1) && (!IS_SOFTMODEM_NOSTATS_BIT))
-     threadCreate(&proc->L1_stats_thread,nrL1_stats_thread,(void*)gNB,"L1_stats",-1,OAI_PRIORITY_RT_LOW);
+     threadCreate(&proc->L1_stats_thread, nrL1_stats_thread, (void*)gNB,"L1_stats", -1, OAI_PRIORITY_RT_LOW);
 
   threadCreate(&proc->pthread_tx_reorder, tx_reorder_thread, (void *)gNB, "thread_tx_reorder", -1, OAI_PRIORITY_RT_MAX);
 
@@ -563,7 +587,6 @@ printf("after %p\n", gNB->common_vars.rxdataF[aa]);
 }
 
 void init_gNB(int single_thread_flag,int wait_for_sync) {
-
   int inst;
   PHY_VARS_gNB *gNB;
 
@@ -587,7 +610,6 @@ void init_gNB(int single_thread_flag,int wait_for_sync) {
       NR_POLAR_PBCH_AGGREGATION_LEVEL);*/
     LOG_I(PHY,"Initializing gNB %d single_thread_flag:%d\n",inst,gNB->single_thread_flag);
     LOG_I(PHY,"Initializing gNB %d\n",inst);
-
     LOG_I(PHY,"Registering with MAC interface module (before %p)\n",gNB->if_inst);
     AssertFatal((gNB->if_inst         = NR_IF_Module_init(inst))!=NULL,"Cannot register interface");
     LOG_I(PHY,"Registering with MAC interface module (after %p)\n",gNB->if_inst);

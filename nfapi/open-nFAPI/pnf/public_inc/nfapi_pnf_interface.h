@@ -574,10 +574,10 @@ typedef struct
 	int16_t sfn;
 	int16_t slot;
 	//TODO: Change P7 structs to NR
-	nfapi_nr_dl_tti_request_t* dl_tti_req;//nfapi_dl_config_request_t* dl_config_req; 
-	nfapi_nr_ul_tti_request_t* ul_tti_req;//nfapi_ul_config_request_t* ul_config_req;
-	nfapi_nr_ul_dci_request_t* ul_dci_req;//nfapi_hi_dci0_request_t* hi_dci0_req;
-	nfapi_nr_tx_data_request_t* tx_data_req;//nfapi_tx_request_t* tx_req;
+	nfapi_nr_dl_tti_request_t  * dl_tti_req;	//nfapi_dl_config_request_t* dl_config_req; 
+	nfapi_nr_ul_tti_request_t  * ul_tti_req;	//nfapi_ul_config_request_t* ul_config_req;
+	nfapi_nr_ul_dci_request_t  * ul_dci_req;	//nfapi_hi_dci0_request_t* hi_dci0_req;
+	nfapi_nr_tx_data_request_t * tx_data_req;	//nfapi_tx_request_t* tx_req;
 
 	//TODO: check these two later
 	//nfapi_lbt_dl_config_request_t* lbt_dl_config_req;
@@ -687,7 +687,7 @@ typedef struct nfapi_pnf_p7_config
 	 */
 	int (*tx_data_req_fn)(nfapi_pnf_p7_config_t* config, nfapi_nr_tx_data_request_t* req);
 	int (*tx_req)(nfapi_pnf_p7_config_t* config, nfapi_tx_request_t* req);
-	
+
 	/*! A callback for the LBT_DL_CONFIG.request
 	 * \param config A poiner to the PNF P7 config
 	 * \param req A pointer to the lbt dl request message structure
@@ -726,9 +726,6 @@ typedef struct nfapi_pnf_p7_config
 	 * \param header A pointer to a p7 vendor extention message
 	 */
 	void (*deallocate_p7_vendor_ext)(nfapi_p7_message_header_t* header);
-
-
-
 } nfapi_pnf_p7_config_t;
 
 /*! Create and initialise a nfapi_pnf_p7_config structure

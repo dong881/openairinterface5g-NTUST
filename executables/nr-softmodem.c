@@ -669,7 +669,7 @@ int main( int argc, char **argv ) {
     RCconfig_NR_L1();
 
   // don't create if node doesn't connect to RRC/S1/GTP
-  int ret=create_gNB_tasks(1);
+  int ret = create_gNB_tasks(1);
   AssertFatal(ret==0,"cannot create ITTI tasks\n");
 
   /* Start the agent. If it is turned off in the configuration, it won't start */

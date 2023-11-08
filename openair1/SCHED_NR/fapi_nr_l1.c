@@ -47,15 +47,16 @@ extern uint8_t nfapi_mode;
 void handle_nr_nfapi_ssb_pdu(processingData_L1tx_t *msgTx,int frame,int slot,
                              nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdu)
 {
-
   AssertFatal(dl_tti_pdu->ssb_pdu.ssb_pdu_rel15.bchPayloadFlag== 1, "bchPayloadFlat %d != 1\n",
               dl_tti_pdu->ssb_pdu.ssb_pdu_rel15.bchPayloadFlag);
 
   uint8_t i_ssb = dl_tti_pdu->ssb_pdu.ssb_pdu_rel15.SsbBlockIndex;
 
   LOG_D(PHY,"%d.%d : ssb index %d pbch_pdu: %x\n",frame,slot,i_ssb,dl_tti_pdu->ssb_pdu.ssb_pdu_rel15.bchPayload);
-  if (msgTx->ssb[i_ssb].active)
+  if (msgTx->ssb[i_ssb].active){
     AssertFatal(1==0,"SSB PDU with index %d already active\n",i_ssb);
+    // printf("[MWNL] Skip\n");
+  }
   else {
     msgTx->ssb[i_ssb].active = true;
     memcpy((void*)&msgTx->ssb[i_ssb].ssb_pdu,&dl_tti_pdu->ssb_pdu,sizeof(dl_tti_pdu->ssb_pdu));
@@ -133,7 +134,6 @@ void handle_nr_nfapi_pdsch_pdu(processingData_L1tx_t *msgTx,
 }
 
 void nr_schedule_response(NR_Sched_Rsp_t *Sched_INFO){
-  
   PHY_VARS_gNB *gNB;
   // copy data from L2 interface into L1 structures
   module_id_t                   Mod_id       = Sched_INFO->module_id;
@@ -144,7 +144,7 @@ void nr_schedule_response(NR_Sched_Rsp_t *Sched_INFO){
   frame_t                       frame        = Sched_INFO->frame;
   sub_frame_t                   slot         = Sched_INFO->slot;
 
-  AssertFatal(RC.gNB!=NULL,"RC.gNB is null\n");
+  AssertFatal(RC.gNB != NULL,"RC.gNB is null\n");
   AssertFatal(RC.gNB[Mod_id]!=NULL,"RC.gNB[%d] is null\n",Mod_id);
 
   gNB = RC.gNB[Mod_id];
@@ -160,7 +160,6 @@ void nr_schedule_response(NR_Sched_Rsp_t *Sched_INFO){
   uint8_t number_tx_data_pdu        = (TX_req == NULL) ? 0 : TX_req->Number_of_PDUs;
 
   if (NFAPI_MODE == NFAPI_MONOLITHIC){
-
     if (slot_type == NR_DOWNLINK_SLOT || slot_type == NR_MIXED_SLOT) {
       notifiedFIFO_elt_t *res;
       res = pullTpool(gNB->L1_tx_free, gNB->threadPool);
@@ -179,8 +178,7 @@ void nr_schedule_response(NR_Sched_Rsp_t *Sched_INFO){
         LOG_D(PHY,"NFAPI: dl_pdu %d : type %d\n",i,dl_tti_pdu->PDUType);
         switch (dl_tti_pdu->PDUType) {
           case NFAPI_NR_DL_TTI_SSB_PDU_TYPE:
-            handle_nr_nfapi_ssb_pdu(msgTx,frame,slot,
-                                    dl_tti_pdu);
+            handle_nr_nfapi_ssb_pdu(msgTx,frame,slot, dl_tti_pdu);
             break;
 
           case NFAPI_NR_DL_TTI_PDCCH_PDU_TYPE:
@@ -238,8 +236,8 @@ void nr_schedule_response(NR_Sched_Rsp_t *Sched_INFO){
     }
   }
 
-  if (NFAPI_MODE == NFAPI_MODE_VNF) { //If VNF, oai_nfapi functions send respective p7 msgs to PNF for which nPDUs is greater than 0
-
+  if (NFAPI_MODE == NFAPI_MODE_VNF) { 
+    //If VNF, oai_nfapi functions send respective p7 msgs to PNF for which nPDUs is greater than 0
     if(number_ul_tti_pdu>0)
       oai_nfapi_ul_tti_req(UL_tti_req);
 

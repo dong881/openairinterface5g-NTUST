@@ -174,8 +174,7 @@ int nfapi_nr_vnf_p7_start(nfapi_vnf_p7_config_t* config)
 		setup_time = curr_time.tv_sec - ref_time.tv_sec;
 
 		nfapi_nr_slot_indication_scf_t *slot_ind = get_queue(&gnb_slot_ind_queue);
-		NFAPI_TRACE(NFAPI_TRACE_DEBUG, "This is the slot_ind queue size %ld in %s():%d\n",
-			    gnb_slot_ind_queue.num_items, __FUNCTION__, __LINE__);
+
 		if (slot_ind) {
 			pthread_mutex_lock(&gNB->UL_INFO_mutex);
 			gNB->UL_INFO.frame     = slot_ind->sfn;
@@ -183,13 +182,11 @@ int nfapi_nr_vnf_p7_start(nfapi_vnf_p7_config_t* config)
 
 			NFAPI_TRACE(NFAPI_TRACE_DEBUG, "gNB->UL_INFO.frame = %d and slot %d, prev_slot = %d, setup_time = %d\n",
 				    gNB->UL_INFO.frame, gNB->UL_INFO.slot, prev_slot, setup_time);
-			if (setup_time > 3 && prev_slot != gNB->UL_INFO.slot) { //Give the VNF sufficient time to setup before starting scheduling  && prev_slot != gNB->UL_INFO.slot
-
+			if (setup_time > 3 && prev_slot != gNB->UL_INFO.slot) { 
+				//Give the VNF sufficient time to setup before starting scheduling  && prev_slot != gNB->UL_INFO.slot
 				//Call the scheduler
 				gNB->UL_INFO.module_id = gNB->Mod_id;
 				gNB->UL_INFO.CC_id     = gNB->CC_id;
-				NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Calling NR_UL_indication for gNB->UL_INFO.frame = %d and slot %d\n",
-					    gNB->UL_INFO.frame, gNB->UL_INFO.slot);
 				gNB->if_inst->NR_UL_indication(&gNB->UL_INFO);
 				prev_slot = gNB->UL_INFO.slot;
 			}
