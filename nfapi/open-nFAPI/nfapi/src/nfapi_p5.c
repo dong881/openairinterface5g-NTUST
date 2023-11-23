@@ -3075,7 +3075,7 @@ static uint8_t unpack_nr_config_request(uint8_t **ppReadPackedMsg, uint8_t *end,
         (nfapi_nr_max_num_of_symbol_per_slot_t *)malloc(14 * sizeof(nfapi_nr_max_num_of_symbol_per_slot_t));
   }
   pNfapiMsg->prach_config.num_prach_fd_occasions_list =
-      (nfapi_nr_num_prach_fd_occasions_t *)malloc(sizeof(nfapi_nr_num_prach_fd_occasions_t));
+      (nfapi_nr_num_prach_fd_occasions_t *)calloc(10, sizeof(nfapi_nr_num_prach_fd_occasions_t));
   // unpack TLVs
 
   unpack_tlv_t unpack_fns[] = {
