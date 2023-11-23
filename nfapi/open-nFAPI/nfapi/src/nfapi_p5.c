@@ -2828,14 +2828,8 @@ static uint8_t unpack_nr_param_response(uint8_t **ppReadPackedMsg, uint8_t *end,
   };
   // print ppReadPackedMsg
   uint8_t *ptr = *ppReadPackedMsg;
-  printf("\n Read message unpack_param_response: ");
 
-  while (ptr < end) {
-    printf(" %02x ", *ptr);
-    ptr++;
-  }
 
-  printf("\n");
   return (pull8(ppReadPackedMsg, &pNfapiMsg->error_code, end) && pull8(ppReadPackedMsg, &pNfapiMsg->num_tlv, end)
           && unpack_nr_tlv_list(unpack_fns,
                                 sizeof(unpack_fns) / sizeof(unpack_tlv_t),
@@ -3717,14 +3711,7 @@ int nfapi_nr_p5_message_unpack(void *pMessageBuf,
   }
 
   uint8_t *ptr = pReadPackedMessage;
-  printf("\n Read NR message unpack: ");
 
-  while (ptr < end) {
-    printf(" %02x ", *ptr);
-    ptr++;
-  }
-
-  printf("\n");
   // clean the supplied buffer for - tag value blanking
   (void)memset(pUnpackedBuf, 0, unpackedBufLen);
 
