@@ -1898,18 +1898,6 @@ static void NRRCconfig_RU(configmodule_interface_t *cfg)
   paramlist_def_t RUParamList = {CONFIG_STRING_RU_LIST,NULL,0};
   config_getlist(cfg, &RUParamList, RUParams, sizeofArray(RUParams), NULL);
 
-  paramdef_t GNBSParams[] = GNBSPARAMS_DESC;
-  paramdef_t GNBParams[] = GNBPARAMS_DESC;
-  paramlist_def_t GNBParamList = {GNB_CONFIG_STRING_GNB_LIST, NULL, 0};
-  config_get(cfg, GNBSParams, sizeofArray(GNBSParams), NULL);
-  int num_gnbs = GNBSParams[GNB_ACTIVE_GNBS_IDX].numelt;
-  AssertFatal(num_gnbs > 0, "Failed to parse config file no gnbs %s \n", GNB_CONFIG_STRING_ACTIVE_GNBS);
-  config_getlist(cfg, &GNBParamList, GNBParams, sizeofArray(GNBParams), NULL);
-  int N1 = *GNBParamList.paramarray[0][GNB_PDSCH_ANTENNAPORTS_N1_IDX].iptr;
-  int N2 = *GNBParamList.paramarray[0][GNB_PDSCH_ANTENNAPORTS_N2_IDX].iptr;
-  int XP = *GNBParamList.paramarray[0][GNB_PDSCH_ANTENNAPORTS_XP_IDX].iptr;
-  int num_logical_antennas = N1 * N2 * XP;
-
   if (RUParamList.numelt > 0) {
     RC.ru = (RU_t **)malloc(RC.nb_RU*sizeof(RU_t *));
     RC.ru_mask = (1 << NB_RU) - 1;
@@ -2076,8 +2064,6 @@ static void NRRCconfig_RU(configmodule_interface_t *cfg)
       }  /* strcmp(local_rf, "yes") != 0 */
 
       RC.ru[j]->nb_tx                             = *(RUParamList.paramarray[j][RU_NB_TX_IDX].uptr);
-      AssertFatal(RC.ru[j]->nb_tx >= num_logical_antennas,
-      "Number of logical antenna ports (set in config file with pdsch_AntennaPorts) cannot be larger than physical antennas (nb_tx)\n");
       RC.ru[j]->nb_rx                             = *(RUParamList.paramarray[j][RU_NB_RX_IDX].uptr);
       RC.ru[j]->att_tx                            = *(RUParamList.paramarray[j][RU_ATT_TX_IDX].uptr);
       RC.ru[j]->att_rx                            = *(RUParamList.paramarray[j][RU_ATT_RX_IDX].uptr);
