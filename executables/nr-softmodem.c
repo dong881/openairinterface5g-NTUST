@@ -741,16 +741,16 @@ int main( int argc, char **argv ) {
 #endif // E2_AGENT
 
 
-  if (NFAPI_MODE==NFAPI_MODE_PNF) {
-    wait_nfapi_init("main?");
-  }
-
   // wait for F1 Setup Response before starting L1 for real
-  if (NODE_IS_DU(node_type) || NODE_IS_MONOLITHIC(node_type))
+  if (NFAPI_MODE != NFAPI_MODE_PNF && (NODE_IS_DU(node_type) || NODE_IS_MONOLITHIC(node_type)))
     wait_f1_setup_response();
 
   if (RC.nb_RU > 0)
     start_NR_RU();
+
+  if (NFAPI_MODE==NFAPI_MODE_PNF) {
+    wait_nfapi_init("main?");
+  }
 
   if (RC.nb_nr_L1_inst > 0) {
     printf("wait RUs\n");
