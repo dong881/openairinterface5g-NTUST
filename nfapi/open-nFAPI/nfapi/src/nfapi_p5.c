@@ -3085,19 +3085,21 @@ static uint8_t unpack_nr_config_request(uint8_t **ppReadPackedMsg, uint8_t *end,
   // unpack TLVs
 
   unpack_tlv_t unpack_fns[] = {
-      {NFAPI_NR_CONFIG_DL_BANDWIDTH_TAG, &(pNfapiMsg->carrier_config.dl_bandwidth), &unpack_uint16_tlv_value},
+      {NFAPI_NR_CONFIG_DL_BANDWIDTH_TAG, &(pNfapiMsg->carrier_config.dl_bandwidth), &unpack_uint32_tlv_value},
       {NFAPI_NR_CONFIG_DL_FREQUENCY_TAG, &(pNfapiMsg->carrier_config.dl_frequency), &unpack_uint32_tlv_value},
       {NFAPI_NR_CONFIG_DL_GRID_SIZE_TAG, &(pNfapiMsg->carrier_config.dl_grid_size[1]), &unpack_uint16_tlv_value},
       {NFAPI_NR_CONFIG_DL_K0_TAG, &(pNfapiMsg->carrier_config.dl_k0[1]), &unpack_uint16_tlv_value},
       {NFAPI_NR_CONFIG_NUM_TX_ANT_TAG, &(pNfapiMsg->carrier_config.num_tx_ant), &unpack_uint16_tlv_value},
-      {NFAPI_NR_CONFIG_UPLINK_BANDWIDTH_TAG, &(pNfapiMsg->carrier_config.uplink_bandwidth), &unpack_uint16_tlv_value},
+      {NFAPI_NR_CONFIG_UPLINK_BANDWIDTH_TAG, &(pNfapiMsg->carrier_config.uplink_bandwidth), &unpack_uint32_tlv_value},
       {NFAPI_NR_CONFIG_UPLINK_FREQUENCY_TAG, &(pNfapiMsg->carrier_config.uplink_frequency), &unpack_uint32_tlv_value},
       {NFAPI_NR_CONFIG_UL_GRID_SIZE_TAG, &(pNfapiMsg->carrier_config.ul_grid_size[1]), &unpack_uint16_tlv_value},
       {NFAPI_NR_CONFIG_UL_K0_TAG, &(pNfapiMsg->carrier_config.ul_k0[1]), &unpack_uint16_tlv_value},
       {NFAPI_NR_CONFIG_NUM_RX_ANT_TAG, &(pNfapiMsg->carrier_config.num_rx_ant), &unpack_uint16_tlv_value},
       {NFAPI_NR_CONFIG_FREQUENCY_SHIFT_7P5KHZ_TAG, &(pNfapiMsg->carrier_config.frequency_shift_7p5khz), &unpack_uint8_tlv_value},
-      {NFAPI_NR_CONFIG_PHY_CELL_ID_TAG, &(pNfapiMsg->cell_config.phy_cell_id), &unpack_uint16_tlv_value},
+      
+      {NFAPI_NR_CONFIG_PHY_CELL_ID_TAG, &(pNfapiMsg->cell_config.phy_cell_id), &unpack_uint8_tlv_value},
       {NFAPI_NR_CONFIG_FRAME_DUPLEX_TYPE_TAG, &(pNfapiMsg->cell_config.frame_duplex_type), &unpack_uint8_tlv_value},
+      
       {NFAPI_NR_CONFIG_SS_PBCH_POWER_TAG, &(pNfapiMsg->ssb_config.ss_pbch_power), &unpack_uint32_tlv_value},
       {NFAPI_NR_CONFIG_BCH_PAYLOAD_TAG, &(pNfapiMsg->ssb_config.bch_payload), &unpack_uint8_tlv_value},
       {NFAPI_NR_CONFIG_SCS_COMMON_TAG, &(pNfapiMsg->ssb_config.scs_common), &unpack_uint8_tlv_value},
@@ -3159,12 +3161,14 @@ static uint8_t unpack_nr_config_request(uint8_t **ppReadPackedMsg, uint8_t *end,
   nfapi_tl_t generic_tl;
   uint8_t numBadTags = 0;
   unsigned long idx = 0;
+  printf("\nNTUST test : The ppReadPackedMsg value is: %u\n", ppReadPackedMsg);
   while ((uint8_t *)(*ppReadPackedMsg) < end) {
     // unpack the tl and process the values accordingly
     if (unpack_tl(ppReadPackedMsg, &generic_tl, end) == 0)
       return 0;
     uint8_t tagMatch = 0;
     uint8_t *pStartOfValue = 0;
+    printf("\nNTUST test : TAG value: 0x%04x\n", generic_tl.tag);
     for (idx = 0; idx < sizeof(unpack_fns) / sizeof(unpack_tlv_t); ++idx) {
       if (unpack_fns[idx].tag == generic_tl.tag) { // match the extracted tag value with all the tags in unpack_fn list
         pStartOfValue = *ppReadPackedMsg;
