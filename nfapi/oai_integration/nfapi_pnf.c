@@ -1040,7 +1040,7 @@ int nr_config_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, n
     phy_info->dl_channel_bw_support = req->carrier_config.dl_bandwidth.value; // rf_config.dl_channel_bandwidth.value;
     fp->N_RB_DL = req->carrier_config.dl_bandwidth.value; // rf_config.dl_channel_bandwidth.value;
     num_tlv++;
-    NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s() NFAPI_NR_CONFIG_DL_BANDWIDTH_TAG N_RB_DL:%u\n", __FUNCTION__, fp->N_RB_DL);
+    printf("%s() NFAPI_NR_CONFIG_DL_BANDWIDTH_TAG N_RB_DL:%u\n", __FUNCTION__, fp->N_RB_DL);
   } else {
     NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s() Missing NFAPI_NR_CONFIG_DL_BANDWIDTH_TAG\n", __FUNCTION__);
   }
