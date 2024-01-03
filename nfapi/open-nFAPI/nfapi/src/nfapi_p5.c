@@ -3356,7 +3356,7 @@ static uint8_t unpack_nr_config_request(uint8_t **ppReadPackedMsg, uint8_t *end,
     }
   }
   struct sockaddr_in vnf_p7_sockaddr;
-  memcpy(&vnf_p7_sockaddr.sin_addr.s_addr, &(pNfapiMsg->nfapi_config.p7_vnf_address_ipv4), 4);
+  memcpy(&vnf_p7_sockaddr.sin_addr.s_addr, &(pNfapiMsg->nfapi_config.p7_vnf_address_ipv4.address[0]), 4);
 
   printf("[PNF] vnf p7 %s:%d\n", inet_ntoa(vnf_p7_sockaddr.sin_addr), pNfapiMsg->nfapi_config.p7_vnf_port.value);
   return 1;
