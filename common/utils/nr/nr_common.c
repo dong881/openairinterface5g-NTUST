@@ -193,8 +193,8 @@ bool compare_relative_ul_channel_bw(int nr_band, int scs, int nb_ul, frame_type_
 
 uint16_t get_band(uint64_t downlink_frequency, int32_t delta_duplex)
 {
-  const int64_t dl_freq_khz = downlink_frequency / 1000;
-  const int32_t  delta_duplex_khz = delta_duplex / 1000;
+  const int64_t dl_freq_khz = downlink_frequency / 1000; 
+  const int32_t  delta_duplex_khz = delta_duplex / 1000; 
 
   uint64_t center_freq_diff_khz = UINT64_MAX; // 2^64
   uint16_t current_band = 0;
@@ -204,16 +204,25 @@ uint16_t get_band(uint64_t downlink_frequency, int32_t delta_duplex)
     if (dl_freq_khz < nr_bandtable[ind].dl_min || dl_freq_khz > nr_bandtable[ind].dl_max)
       continue;
 
+    printf("\n[NTUST] match table:(%d)! dl_freq_khz:%lu",ind,dl_freq_khz);
+
     int32_t current_offset_khz = nr_bandtable[ind].ul_min - nr_bandtable[ind].dl_min;
+    
+    printf("\n[NTUST] current_offset_khz:%ld", current_offset_khz);
+    printf("\n[NTUST] delta_duplex_khz:%ld", delta_duplex_khz);
+    printf("\n[NTUST] ul_min:%lu", nr_bandtable[ind].ul_min);
+    printf("\n[NTUST] dl_min:%lu", nr_bandtable[ind].dl_min);
 
     if (current_offset_khz != delta_duplex_khz)
       continue;
 
     int64_t center_frequency_khz = (nr_bandtable[ind].dl_max + nr_bandtable[ind].dl_min) / 2;
+    printf("\n[NTUST] center_frequency_khz:%ld", center_frequency_khz);
 
     if (labs(dl_freq_khz - center_frequency_khz) < center_freq_diff_khz){
       current_band = nr_bandtable[ind].band;
       center_freq_diff_khz = labs(dl_freq_khz - center_frequency_khz);
+      printf("\n[NTUST] center_freq_diff_khz:%ld", center_freq_diff_khz);
     }
   }
 
