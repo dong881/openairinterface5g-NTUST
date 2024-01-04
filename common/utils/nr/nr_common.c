@@ -211,7 +211,7 @@ uint16_t get_band(uint64_t downlink_frequency, int32_t delta_duplex)
     printf("\n[NTUST] current_offset_khz:%ld", current_offset_khz);
     printf("\n[NTUST] delta_duplex_khz:%ld", delta_duplex_khz);
     printf("\n[NTUST] ul_min:%lu", nr_bandtable[ind].ul_min);
-    printf("\n[NTUST] dl_min:%lu", nr_bandtable[ind].dl_min);
+    printf("\n[NTUST] dl_min:%lu\n", nr_bandtable[ind].dl_min);
 
     if (current_offset_khz != delta_duplex_khz)
       continue;
@@ -222,7 +222,7 @@ uint16_t get_band(uint64_t downlink_frequency, int32_t delta_duplex)
     if (labs(dl_freq_khz - center_frequency_khz) < center_freq_diff_khz){
       current_band = nr_bandtable[ind].band;
       center_freq_diff_khz = labs(dl_freq_khz - center_frequency_khz);
-      printf("\n[NTUST] center_freq_diff_khz:%ld", center_freq_diff_khz);
+      printf("\n[NTUST] center_freq_diff_khz:%ld\n", center_freq_diff_khz);
     }
   }
 
