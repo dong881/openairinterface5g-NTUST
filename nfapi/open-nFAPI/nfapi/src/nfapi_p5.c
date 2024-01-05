@@ -3243,21 +3243,21 @@ static uint8_t unpack_nr_config_request(uint8_t **ppReadPackedMsg, uint8_t *end,
             result = unpack_uint32_tlv_value(&pNfapiMsg->ssb_table.ssb_mask_list[ssb_mask_idx].ssb_mask, ppReadPackedMsg, end);
             ssb_mask_idx++;
             break;
-          case NFAPI_NR_CONFIG_DL_GRID_SIZE_TAG:
-            for (int i = 0; i < 5; i++) {
-              result = unpack_uint16_tlv_value(&pNfapiMsg->carrier_config.dl_grid_size[i], ppReadPackedMsg, end);
-            }
-            break;
+          // case NFAPI_NR_CONFIG_DL_GRID_SIZE_TAG:
+          //   for (int i = 0; i < 5; i++) {
+          //     result = unpack_uint16_tlv_value(&pNfapiMsg->carrier_config.dl_grid_size[i], ppReadPackedMsg, end);
+          //   }
+          //   break;
           case NFAPI_NR_CONFIG_DL_K0_TAG:
             for (int i = 0; i < 5; i++) {
               result = unpack_uint16_tlv_value(&pNfapiMsg->carrier_config.dl_k0[i], ppReadPackedMsg, end);
             }
             break;
-          case NFAPI_NR_CONFIG_UL_GRID_SIZE_TAG:
-            for (int i = 0; i < 5; i++) {
-              result = unpack_uint16_tlv_value(&pNfapiMsg->carrier_config.ul_grid_size[i], ppReadPackedMsg, end);
-            }
-            break;
+          // case NFAPI_NR_CONFIG_UL_GRID_SIZE_TAG:
+          //   for (int i = 0; i < 5; i++) {
+          //     result = unpack_uint16_tlv_value(&pNfapiMsg->carrier_config.ul_grid_size[i], ppReadPackedMsg, end);
+          //   }
+          //   break;
           case NFAPI_NR_CONFIG_UL_K0_TAG:
             for (int i = 0; i < 5; i++) {
               result = unpack_uint16_tlv_value(&pNfapiMsg->carrier_config.ul_k0[i], ppReadPackedMsg, end);
