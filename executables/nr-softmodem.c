@@ -296,11 +296,16 @@ static int create_gNB_tasks(ngran_node_t node_type, configmodule_interface_t *cf
   LOG_D(GNB_APP, "%s(gnb_nb:%d)\n", __FUNCTION__, gnb_nb);
   itti_wait_ready(1);
   LOG_I(PHY, "%s() Task ready initialize structures\n", __FUNCTION__);
+  printf("\n[NTUST] Task ready initialize structures");
 
   RCconfig_verify(cfg, node_type);
+  printf("\n[NTUST] Finish RCconfig_verify()");
 
   RCconfig_NR_L1();
+  printf("\n[NTUST] Finish RCconfig_NR_L1()");
   RCconfig_nr_prs();
+
+  printf("\n[NTUST] RC.nb_nr_macrlc_inst:%d",RC.nb_nr_macrlc_inst);
 
   if (RC.nb_nr_macrlc_inst > 0)
     RCconfig_nr_macrlc(cfg);
