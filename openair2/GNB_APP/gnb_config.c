@@ -1286,7 +1286,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
         printf("**************** vnf_port:%d\n", RC.nrmac[j]->eth_params_s.my_portc);
         configure_nr_nfapi_vnf(
             RC.nrmac[j]->eth_params_s.my_addr, RC.nrmac[j]->eth_params_s.my_portc, RC.nrmac[j]->eth_params_s.remote_addr, RC.nrmac[j]->eth_params_s.remote_portd, RC.nrmac[j]->eth_params_s.my_portd);
-        printf("**************** RETURNED FROM configure_nfapi_vnf() vnf_port:%d\n", RC.nrmac[j]->eth_params_s.my_portc);
+        printf("**************** RETURNED FROM configure_nr_nfapi_vnf() vnf_port:%d\n", RC.nrmac[j]->eth_params_s.my_portc);
       } else { // other midhaul
         AssertFatal(1 == 0, "MACRLC %d: %s unknown southbound midhaul\n", j, *(MacRLC_ParamList.paramarray[j][MACRLC_TRANSPORT_S_PREFERENCE_IDX].strptr));
       }
