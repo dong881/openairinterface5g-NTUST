@@ -1594,15 +1594,17 @@ uint8_t is_p7_request_in_window(uint16_t sfnsf, const char* name, pnf_p7_t* phy)
 
 
 // P7 messages 
-void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
+// void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
+int pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 {
+	int timing_idx = -1;
 	//NFAPI_TRACE(NFAPI_TRACE_INFO, "DL_CONFIG.req Received\n");
 	nfapi_nr_dl_tti_request_t* req  = allocate_nfapi_dl_tti_request(pnf_p7);
 
 	if(req == NULL)
 	{
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to allocate nfapi_dl_tti_request structure\n");
-		return;
+		return timing_idx;
 	}
 	int unpack_result = nfapi_nr_p7_message_unpack(pRecvMsg, recvMsgLen, req, sizeof(nfapi_nr_dl_tti_request_t), &(pnf_p7->_public.codec_config));
 
@@ -1611,7 +1613,7 @@ void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 		if(pthread_mutex_lock(&(pnf_p7->mutex)) != 0)
 		{
 			NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to lock mutex\n");
-			return;
+			return timing_idx;
 		}
 
         if(is_nr_p7_request_in_window(req->SFN,req->Slot, "dl_tti_request", pnf_p7))
@@ -1635,6 +1637,7 @@ void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 			}
 
 			// filling dl_tti_request in slot buffer
+			timing_idx = buffer_index;
 			pnf_p7->slot_buffer[buffer_index].sfn = req->SFN;
 			pnf_p7->slot_buffer[buffer_index].slot = req->Slot;
 			pnf_p7->slot_buffer[buffer_index].dl_tti_req = req;
@@ -1656,7 +1659,7 @@ void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 		if(pthread_mutex_unlock(&(pnf_p7->mutex)) != 0)
 		{
 			NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to unlock mutex\n");
-			return;
+			return timing_idx;
 		}
 	}
 	else
@@ -1664,6 +1667,7 @@ void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack dl_tti_req");
 		deallocate_nfapi_dl_tti_request(req, pnf_p7);
 	}
+	return timing_idx;
 }
 
 
@@ -1758,7 +1762,8 @@ void pnf_handle_dl_config_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_
 }
 
 
-void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
+//void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
+int pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 {
 	//NFAPI_TRACE(NFAPI_TRACE_INFO, "UL_CONFIG.req Received\n");
 
