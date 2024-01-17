@@ -29,6 +29,10 @@
 
 #include "pnf_p7.h"
 
+/* ======== small cell integration ======== */
+#include "nfapi/oai_integration/vendor_ext.h"
+/* ======================================== */	
+
 #define FAPI2_IP_DSCP	0
 
 extern uint16_t sf_ahead;
@@ -1597,7 +1601,7 @@ uint8_t is_p7_request_in_window(uint16_t sfnsf, const char* name, pnf_p7_t* phy)
 // void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 int pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 {
-	int timing_idx = -1;
+	uint8_t timing_idx = -1;
 	//NFAPI_TRACE(NFAPI_TRACE_INFO, "DL_CONFIG.req Received\n");
 	nfapi_nr_dl_tti_request_t* req  = allocate_nfapi_dl_tti_request(pnf_p7);
 
@@ -1765,7 +1769,7 @@ void pnf_handle_dl_config_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_
 //void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 int pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 {
-	int timing_idx = -1;
+	uint8_t timing_idx = -1;
 	//NFAPI_TRACE(NFAPI_TRACE_INFO, "UL_CONFIG.req Received\n");
 
 	nfapi_nr_ul_tti_request_t* req  = allocate_nfapi_ul_tti_request(pnf_p7);
@@ -1916,7 +1920,7 @@ void pnf_handle_ul_config_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_
 //void pnf_handle_ul_dci_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 int pnf_handle_ul_dci_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 {
-	int timing_idx = -1;
+	uint8_t timing_idx = -1;
 	//NFAPI_TRACE(NFAPI_TRACE_INFO, "HI_DCI0.req Received\n");
 
 	nfapi_nr_ul_dci_request_t* req  = allocate_nfapi_ul_dci_request(pnf_p7);
@@ -2060,7 +2064,7 @@ void pnf_handle_hi_dci0_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 //void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 int pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 {
-	int timing_idx = -1;
+	uint8_t timing_idx = -1;
 	//NFAPI_TRACE(NFAPI_TRACE_INFO, "TX.req Received\n");
 	
 	nfapi_nr_tx_data_request_t* req = allocate_nfapi_tx_data_request(pnf_p7);
@@ -2647,22 +2651,47 @@ void pnf_nr_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 		return;
 	}
 
+	uint8_t timing_idx = -1;
 	switch (header.message_id)
 	{
 		case NFAPI_NR_PHY_MSG_TYPE_DL_NODE_SYNC:
 			pnf_nr_handle_dl_node_sync(pRecvMsg, recvMsgLen, pnf_p7, rx_hr_time);
 			break;
 		case NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST:
-			pnf_handle_dl_tti_request(pRecvMsg, recvMsgLen, pnf_p7);
+			// pnf_handle_dl_tti_request(pRecvMsg, recvMsgLen, pnf_p7);
+			/* ======== small cell integration ======== */
+			timing_idx = pnf_handle_dl_tti_request(pRecvMsg, recvMsgLen, pnf_p7);
+			if(NFAPI_MODE == NFAPI_MODE_PNF && pnf_p7->_public.dl_tti_req_fn && timing_idx!=-1){
+				pnf_p7->_public.dl_tti_req_fn(NULL, (nfapi_pnf_p7_config_t *)pnf_p7, pnf_p7->slot_buffer[timing_idx].dl_tti_req);
+			}
+			/* ======================================== */			
 			break;
 		case NFAPI_NR_PHY_MSG_TYPE_UL_TTI_REQUEST:
-			pnf_handle_ul_tti_request(pRecvMsg, recvMsgLen, pnf_p7);
+			// pnf_handle_ul_tti_request(pRecvMsg, recvMsgLen, pnf_p7);
+			timing_idx = pnf_handle_ul_tti_request(pRecvMsg, recvMsgLen, pnf_p7);
+			/* ======== small cell integration ======== */
+			if(NFAPI_MODE == NFAPI_MODE_PNF && pnf_p7->_public.ul_tti_req_fn && timing_idx!=-1){
+				pnf_p7->_public.dl_tti_req_fn(NULL, (nfapi_pnf_p7_config_t *)pnf_p7, pnf_p7->slot_buffer[timing_idx].ul_tti_req);
+			}
+			/* ======================================== */	
 			break;
 		case NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST:
-			pnf_handle_ul_dci_request(pRecvMsg, recvMsgLen, pnf_p7);
+			// pnf_handle_ul_dci_request(pRecvMsg, recvMsgLen, pnf_p7);
+			/* ======== small cell integration ======== */
+			timing_idx = pnf_handle_ul_dci_request(pRecvMsg, recvMsgLen, pnf_p7);
+			if(NFAPI_MODE == NFAPI_MODE_PNF && pnf_p7->_public.ul_dci_req_fn && timing_idx!=-1){
+				pnf_p7->_public.dl_tti_req_fn(NULL, (nfapi_pnf_p7_config_t *)pnf_p7, pnf_p7->slot_buffer[timing_idx].ul_dci_req);
+			}
+			/* ======================================== */				
 			break;
 		case NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST:
-			pnf_handle_tx_data_request(pRecvMsg, recvMsgLen, pnf_p7);
+			// pnf_handle_tx_data_request(pRecvMsg, recvMsgLen, pnf_p7);
+			/* ======== small cell integration ======== */
+			timing_idx = pnf_handle_tx_data_request(pRecvMsg, recvMsgLen, pnf_p7);
+			if(NFAPI_MODE == NFAPI_MODE_PNF && pnf_p7->_public.tx_data_req_fn && timing_idx!=-1){
+				pnf_p7->_public.dl_tti_req_fn(NULL, (nfapi_pnf_p7_config_t *)pnf_p7, pnf_p7->slot_buffer[timing_idx].tx_data_req);
+			}
+			/* ======================================== */	
 			break;
 		default:
 			{
