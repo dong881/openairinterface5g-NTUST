@@ -1,4 +1,8 @@
 <h1 align="center">
+    <a href="https://hackmd.io/_uploads/S1ViD24tT.png"><img src="https://hackmd.io/_uploads/S1ViD24tT.png" alt="BMW LAB" width="550"></a>
+</h1>
+
+<h1 align="center">
     <a href="https://openairinterface.org/"><img src="https://openairinterface.org/wp-content/uploads/2015/06/cropped-oai_final_logo.png" alt="OAI" width="550"></a>
 </h1>
 
