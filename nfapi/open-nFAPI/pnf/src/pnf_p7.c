@@ -1765,6 +1765,7 @@ void pnf_handle_dl_config_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_
 //void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 int pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 {
+	int timing_idx = -1;
 	//NFAPI_TRACE(NFAPI_TRACE_INFO, "UL_CONFIG.req Received\n");
 
 	nfapi_nr_ul_tti_request_t* req  = allocate_nfapi_ul_tti_request(pnf_p7);
@@ -1772,7 +1773,7 @@ int pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 	if(req == NULL)
 	{
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to allocate nfapi_ul_tti_request structure\n");
-		return;
+		return timing_idx;
 	}
 
 	int unpack_result = nfapi_nr_p7_message_unpack(pRecvMsg, recvMsgLen, req, sizeof(nfapi_nr_ul_tti_request_t), &(pnf_p7->_public.codec_config));
@@ -1782,7 +1783,7 @@ int pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 		if(pthread_mutex_lock(&(pnf_p7->mutex)) != 0)
 		{
 			NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to lock mutex\n");
-			return;
+			return timing_idx;
 		}
 
 		if(is_nr_p7_request_in_window(req->SFN,req->Slot, "ul_tti_request", pnf_p7))
@@ -1805,7 +1806,7 @@ int pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 			}
 			
 			//filling slot buffer
-
+			timing_idx = buffer_index;
 			pnf_p7->slot_buffer[buffer_index].sfn = req->SFN;
 			pnf_p7->slot_buffer[buffer_index].slot = req->Slot;
 			pnf_p7->slot_buffer[buffer_index].ul_tti_req = req;
@@ -1828,7 +1829,7 @@ int pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 		if(pthread_mutex_unlock(&(pnf_p7->mutex)) != 0)
 		{
 			NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to unlock mutex\n");
-			return;
+			return timing_idx;
 		}
 	}
 	else
@@ -1836,6 +1837,7 @@ int pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack ul_tti_req\n");
 		deallocate_nfapi_ul_tti_request(req, pnf_p7);
 	}
+	return timing_idx;
 }
 
 void pnf_handle_ul_config_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
