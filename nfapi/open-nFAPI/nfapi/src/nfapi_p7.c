@@ -5624,25 +5624,25 @@ static uint8_t unpack_hi_dci0_request(uint8_t **ppReadPackedMsg, uint8_t *end, v
 static uint8_t unpack_tx_data_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg) {
   nfapi_nr_pdu_t *pNfapiMsg = (nfapi_nr_pdu_t *)msg;
 
-  if(!(pull32(ppReadPackedMsg, &pNfapiMsg->num_TLV, end) &&
+  if(!(pull16(ppReadPackedMsg, &pNfapiMsg->PDU_length, end) &&
        pull16(ppReadPackedMsg, &pNfapiMsg->PDU_index, end) &&
-       pull16(ppReadPackedMsg, &pNfapiMsg->PDU_length, end)
-      ))
+       pull32(ppReadPackedMsg, &pNfapiMsg->num_TLV, end)
+  ))
     return 0;
 
   uint16_t i = 0;
   uint16_t total_number_of_tlvs = pNfapiMsg->num_TLV;
 
   for(; i < total_number_of_tlvs; ++i) {
-    if (!(pull16(ppReadPackedMsg, &pNfapiMsg->TLVs[i].length, end) &&
-          pull16(ppReadPackedMsg, &pNfapiMsg->TLVs[i].tag, end)))
+    if (!(pull16(ppReadPackedMsg, &pNfapiMsg->TLVs[i].tag, end) &&
+          pull16(ppReadPackedMsg, &pNfapiMsg->TLVs[i].length, end)))
       return 0;
 
     switch(pNfapiMsg->TLVs[i].tag) {
       case 0: {
         if (!pullarray32(ppReadPackedMsg, pNfapiMsg->TLVs[i].value.direct,
-                        sizeof(pNfapiMsg->TLVs[i].value.direct) / sizeof(uint32_t),
-                        pNfapiMsg->TLVs[i].length / sizeof(uint32_t), end))
+                         sizeof(pNfapiMsg->TLVs[i].value.direct) / sizeof(uint32_t),
+                         (pNfapiMsg->TLVs[i].length+3)/4, end))
           return 0;
 
         break;
@@ -5650,8 +5650,8 @@ static uint8_t unpack_tx_data_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t 
 
       case 1: {
         if (!pullarray32(ppReadPackedMsg,pNfapiMsg->TLVs[i].value.ptr,
-                        pNfapiMsg->TLVs[i].length / sizeof(uint32_t),
-                        pNfapiMsg->TLVs[i].length / sizeof(uint32_t), end))
+                         pNfapiMsg->TLVs[i].length,
+                         pNfapiMsg->TLVs[i].length, end))
           return 0;
 
         break;

@@ -1200,7 +1200,8 @@ int pnf_phy_dl_tti_req(gNB_L1_rxtx_proc_t *proc, nfapi_pnf_p7_config_t *pnf_p7, 
   nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdu_list = req->dl_tti_request_body.dl_tti_pdu_list;
 
   if (req->dl_tti_request_body.nPDUs)
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() TX:%d/%d RX:%d/%d; sfn:%d, slot:%d, nGroup:%u, nPDUs: %u, nUE: %p, PduIdx: %p,\n",
+  {
+    printf("%s() TX:%d/%d RX:%d/%d; sfn:%d, slot:%d, nGroup:%u, nPDUs: %u, nUE: %p, PduIdx: %p,\n",
                 __FUNCTION__, proc->frame_tx, proc->slot_tx, proc->frame_rx, proc->slot_rx, // TODO: change subframes to slot
                 req->SFN,
                 req->Slot,
@@ -1208,6 +1209,13 @@ int pnf_phy_dl_tti_req(gNB_L1_rxtx_proc_t *proc, nfapi_pnf_p7_config_t *pnf_p7, 
                 req->dl_tti_request_body.nPDUs,
                 req->dl_tti_request_body.nUe,
                 req->dl_tti_request_body.PduIdx);
+  }else if (NFAPI_MODE == NFAPI_MODE_PNF){
+    printf("[NFAPI PNF] number of pdu is 0\n");
+    notifiedFIFO_elt_t *res;
+    res = l1tx_message_extract(gNB, sfn, slot); 
+    pushNotifiedFIFO(gNB->L1_tx_filled, res);
+    return 0;
+  }
 
   for (int i=0; i<req->dl_tti_request_body.nPDUs; i++) {
     // NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() sfn/sf:%d PDU[%d] size:%d pdcch_vars->num_dci:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(req->sfn_sf), i, dl_config_pdu_list[i].pdu_size,pdcch_vars->num_dci);
@@ -1310,7 +1318,7 @@ int pnf_phy_dl_config_req(L1_rxtx_proc_t *proc, nfapi_pnf_p7_config_t *pnf_p7, n
         handle_nfapi_bch_pdu(eNB, proc, &dl_config_pdu_list[i], tx_request_pdu[sfn][sf][pdu_index]->segments[0].segment_data);
         eNB->pbch_configured=1;
       } else {
-        NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s() BCH NULL TX PDU SFN/SF:%d PDU_INDEX:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(req->sfn_sf), pdu_index);
+        printf("%s() BCH NULL TX PDU SFN/SF:%d PDU_INDEX:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(req->sfn_sf), pdu_index);
       }
     } else if (dl_config_pdu_list[i].pdu_type == NFAPI_DL_CONFIG_DLSCH_PDU_TYPE) {
       nfapi_dl_config_dlsch_pdu *dlsch_pdu = &dl_config_pdu_list[i].dlsch_pdu;
@@ -1335,7 +1343,7 @@ int pnf_phy_dl_config_req(L1_rxtx_proc_t *proc, nfapi_pnf_p7_config_t *pnf_p7, n
         //NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() DLSCH:pdu_index:%d handle_nfapi_dlsch_pdu(eNB, proc_rxtx, dlsch_pdu, transport_blocks:%d sdu:%p) eNB->pdcch_vars[proc->subframe_tx & 1].num_pdcch_symbols:%d\n", __FUNCTION__, rel8_pdu->pdu_index, rel8_pdu->transport_blocks, dlsch_sdu, eNB->pdcch_vars[proc->subframe_tx & 1].num_pdcch_symbols);
         handle_nfapi_dlsch_pdu( eNB, sfn,sf, proc, &dl_config_pdu_list[i], rel8_pdu->transport_blocks-1, dlsch_sdu);
       } else {
-        NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s() DLSCH NULL TX PDU SFN/SF:%d PDU_INDEX:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(req->sfn_sf), rel8_pdu->pdu_index);
+        printf("%s() DLSCH NULL TX PDU SFN/SF:%d PDU_INDEX:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(req->sfn_sf), rel8_pdu->pdu_index);
       }
     } else {
       NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s() UNKNOWN:%d\n", __FUNCTION__, dl_config_pdu_list[i].pdu_type);
@@ -1873,12 +1881,12 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy,  n
     printf("[PNF] waiting for OAI to be started\n");
   }
 
-  printf("[PNF] Sending PNF_START_RESP\n");
-  nfapi_nr_send_pnf_start_resp(config, p7_config->phy_id);
-  printf("[PNF] Sending first P7 slot indication\n");
+  // printf("[PNF] Sending PNF_START_RESP\n");
+  // nfapi_nr_send_pnf_start_resp(config, p7_config->phy_id);
+  // printf("[PNF] Sending first P7 slot indication\n");
 #if 1
-  nfapi_pnf_p7_slot_ind(p7_config, p7_config->phy_id, 0, 0);
-  printf("[PNF] Sent first P7 slot ind\n");
+  // nfapi_pnf_p7_slot_ind(p7_config, p7_config->phy_id, 0, 0);
+  // printf("[PNF] Sent first P7 slot ind\n");
 #else
   nfapi_pnf_p7_subframe_ind(p7_config, p7_config->phy_id, 0); // SFN_SF set to zero - correct???
   printf("[PNF] Sent first P7 subframe ind\n");
