@@ -165,26 +165,42 @@ project (OpenAirInterface)
 ##############################################
 # Base CUDA setting
 ##############################################
-find_package(CUDA)
-if (CUDA_FOUND)
-    message ("cuda include ${CUDA_INCLUDE_DIRS}")
-    message ("cuda library ${CUDA_LIBRARY_DIRS}")
+# Base CUDA setting
+find_package(CUDAToolkit)
+if (CUDAToolkit_FOUND)
+    message("CUDA include ${CUDAToolkit_INCLUDE_DIRS}")
+    message("CUDA library ${CUDAToolkit_LIBRARY_DIRS}")
 
-    add_definitions("-L/usr/local/cuda/lib64")
+    # Remove the deprecated line: add_definitions("-L/usr/local/cuda/lib64")
 
-    SET(CUDA_NVCC_FLAGS
-      "${CUDA_NVCC_FLAGS};-arch=sm_60;")
+    # Set CUDA architecture and flags
+    set(CMAKE_CUDA_ARCHITECTURES 60)  # Adjust the architecture version as needed
 
-    # Disable warnings for CUDA
-    SET(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS};-lpthread;-w;-O3;--default-stream;per-thread;-I/usr/local/cuda/inc;-L/usr/local/cuda/lib -lcutil;-rdc=true;-lcudadevrt")
-    SET(CUDA_VERBOSE_BUILD ON)
-    SET(CUDA_HOST_COMPILER "/usr/bin/g++")
+    # No need to set CUDA_NVCC_FLAGS directly, let CMake handle it
+    # CMake automatically adds necessary flags and includes for CUDA
 
-    SET(CUDA_SEPARABLE_COMPILATION ON)
+    # Remove the deprecated lines for disabling warnings and other flags
+    # They are handled automatically by CMake
 
-else (CUDA_FOUND)
-   message ("No CUDA tool installed")
+    # Remove the deprecated line: SET(CUDA_HOST_COMPILER "/usr/bin/g++")
+
+    # Enable separable compilation
+    set(CMAKE_CUDA_SEPARABLE_COMPILATION ON)
+
+    # Add your CUDA source files to your target
+    add_executable(MyExecutable main.cpp my_cuda_kernel.cu)
+
+    # Include CUDA directories and link against CUDA libraries
+    target_include_directories(MyExecutable PRIVATE ${CUDAToolkit_INCLUDE_DIRS})
+    target_link_libraries(MyExecutable PRIVATE ${CUDAToolkit_LIBRARIES})
+
+    # Optionally, you can set additional properties for your CUDA target
+    set_target_properties(MyExecutable PROPERTIES CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+
+else (CUDAToolkit_FOUND)
+   message("No CUDA toolkit installed")
 endif ()
+
 
 ####################################################
 # compilation flags
