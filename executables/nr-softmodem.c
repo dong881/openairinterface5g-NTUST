@@ -669,6 +669,7 @@ int main( int argc, char **argv ) {
   number_of_cards = 1;
   printf("RC.nb_nr_L1_inst:%d\n", RC.nb_nr_L1_inst);
 
+  /*[Ming-Note] RC.nb_nr_L1_inst  is only 1 when in PNF mode.*/
   if (RC.nb_nr_L1_inst > 0) {
     printf("Initializing gNB threads single_thread_flag:%d wait_for_sync:%d\n", single_thread_flag,wait_for_sync);
     init_gNB(single_thread_flag,wait_for_sync);
