@@ -914,6 +914,7 @@ void send_dummy_subframe(pnf_p7_t* pnf_p7, uint16_t sfn_sf)
 
 int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t slot)
 {	
+	// printf("\n[NTUST] pnf_p7_slot_ind(): sfn/slot: (%d/%d)",sfn,slot);
 	//This function is aligned with rx sfn/slot
 
 	// We could either send an event to the p7 thread have have it run the
