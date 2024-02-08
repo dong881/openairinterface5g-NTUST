@@ -299,7 +299,7 @@ static int create_gNB_tasks(ngran_node_t node_type, configmodule_interface_t *cf
   printf("\n[NTUST] Task ready initialize structures");
 
   RCconfig_verify(cfg, node_type);
-  printf("\n[NTUST] Finish RCconfig_verify()");
+  printf("\n[NTUST] Finish RCconfig_verify(), node_type:%d",node_type);
 
   RCconfig_NR_L1();
   printf("\n[NTUST] Finish RCconfig_NR_L1()");
