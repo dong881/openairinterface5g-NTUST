@@ -203,6 +203,7 @@ int nfapi_nr_vnf_p7_start(nfapi_vnf_p7_config_t* config)
 			slot_ind = NULL;
 		}
 
+		// printf("\n[NTUST] Ready to pselect(%d,%d,NULL,NULL,%d:%d,NULL);",maxSock+1,rfds,pselect_timeout.tv_sec,pselect_timeout.tv_nsec);
 		selectRetval = pselect(maxSock+1, &rfds, NULL, NULL, &pselect_timeout, NULL);
 
 		if(selectRetval == 0)
