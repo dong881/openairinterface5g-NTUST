@@ -94,6 +94,7 @@ void *pnf_allocate(size_t size) {
 }
 
 void pnf_deallocate(void *ptr) {
+  printf("\n[NTUST] [nfapi_pnf.c] pnf_deallocate() -> free(ptr)");
   free(ptr);
 }
 
@@ -1175,15 +1176,19 @@ int pnf_phy_hi_dci0_req(L1_rxtx_proc_t *proc, nfapi_pnf_p7_config_t *pnf_p7, nfa
 
 
 int pnf_phy_dl_tti_req(gNB_L1_rxtx_proc_t *proc, nfapi_pnf_p7_config_t *pnf_p7, nfapi_nr_dl_tti_request_t *req) {
+  printf("\nDEBUG  -->  %s() -->  number of PDU: %d\n",__FUNCTION__,req->dl_tti_request_body.nPDUs);
   if (RC.ru == 0) {
+    printf("[NFAPI PNF] the RU is NULL\n");
     return -1;
   }
 
   if (RC.gNB == 0) {
+    printf("[NFAPI PNF] the gNB is NULL\n");
     return -2;
   }
 
   if (RC.gNB[0] == 0) {
+    printf("[NFAPI PNF] the gNB[0] is NULL\n");
     return -3;
   }
 
@@ -1879,19 +1884,19 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy,  n
 
   while(sync_var<0) {
     usleep(5000000);
-    printf("[PNF] waiting for OAI to be started\n");
+    printf("\n[PNF] waiting for OAI to be started\n");
   }
 
-  // printf("[PNF] Sending PNF_START_RESP\n");
-  // nfapi_nr_send_pnf_start_resp(config, p7_config->phy_id);
-  // printf("[PNF] Sending first P7 slot indication\n");
-#if 1
-  // nfapi_pnf_p7_slot_ind(p7_config, p7_config->phy_id, 0, 0);
-  // printf("[PNF] Sent first P7 slot ind\n");
-#else
-  nfapi_pnf_p7_subframe_ind(p7_config, p7_config->phy_id, 0); // SFN_SF set to zero - correct???
-  printf("[PNF] Sent first P7 subframe ind\n");
-#endif
+  printf("\n[NTUST] waiting for OAI to be started end!\n");
+  //Outcome : fail
+//   printf("[PNF] Sending first P7 slot indication\n");
+// #if 1
+//   nfapi_pnf_p7_slot_ind(p7_config, p7_config->phy_id, 0, 0);
+//   printf("[PNF] Sent first P7 slot ind\n");
+// #else
+//   nfapi_pnf_p7_subframe_ind(p7_config, p7_config->phy_id, 0); // SFN_SF set to zero - correct???
+//   printf("[PNF] Sent first P7 subframe ind\n");
+// #endif
   
   
   return 0;

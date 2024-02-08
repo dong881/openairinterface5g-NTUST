@@ -73,6 +73,7 @@ void* pnf_allocate(size_t size)
 
 void pnf_deallocate(void* ptr)
 {
+	printf("\n[NTUST] [main.cpp] pnf_deallocate() -> memory_pool::deallocate((uint8_t*)ptr)");
 	memory_pool::deallocate((uint8_t*)ptr);
 }
 
