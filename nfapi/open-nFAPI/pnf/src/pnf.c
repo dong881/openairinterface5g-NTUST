@@ -860,9 +860,12 @@ void pnf_nr_handle_start_request(pnf_t* pnf, void *pRecvMsg, int recvMsgLen)
 			NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: Unpack message failed, ignoring\n", __FUNCTION__);
 		}
 
-		if(req.vendor_extension)
-			pnf->_public.codec_config.deallocate(req.vendor_extension);
-
+		printf("\n[NTUST] Finish unpack the message and config->nr_start_req");
+		printf("\n[NTUST] req.vendor_extension=%d (tag:%d,length:%d)",req.vendor_extension ,req.vendor_extension->tag,req.vendor_extension->length);
+		// if(req.vendor_extension)
+		// 	pnf->_public.codec_config.deallocate(req.vendor_extension);
+		
+		printf("\n[NTUST] Finish pnf_nr_handle_start_request()");
 	}
 }
 

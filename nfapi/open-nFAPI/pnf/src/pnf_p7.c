@@ -1474,8 +1474,12 @@ uint8_t is_nr_p7_request_in_window(uint16_t sfn,uint16_t slot, const char* name,
 	uint32_t recv_sfn_slot_dec = NFAPI_SFNSLOT2DEC(sfn,slot);
 	uint32_t current_sfn_slot_dec = NFAPI_SFNSLOT2DEC(phy->sfn,phy->slot);
 	//printf("p7_msg_sfn: %d, p7_msg_slot: %d, phy_sfn:%d , phy_slot:%d \n",sfn,slot,phy->sfn,phy->slot);
+	printf("[NFAPI PNF P7] p7_msg_sfn  : %d, p7_msg_slot: %d\n",sfn, slot);
+	printf("[NFAPI PNF P7] phy_sfn     : %d, phy_slot   : %d\n", phy->sfn, phy->slot );
 	uint8_t in_window = 0;
 	uint8_t timing_window = phy->_public.slot_buffer_size;
+	printf("[NFAPI PNF P7] [%s] The current_sfn_slot_dec : %ld <= recv_sfn_slot_dec + timing_window: %ld\n",name , 
+	current_sfn_slot_dec, recv_sfn_slot_dec + timing_window);
 
 	// if(recv_sfn_slot_dec <= current_sfn_slot_dec)
 	// {

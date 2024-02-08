@@ -5552,69 +5552,46 @@ static uint8_t unpack_hi_dci0_request_body_value(void *tlv, uint8_t **ppReadPack
   return 1;
 }
 //unpack_ul_dci_pdu_list_value
-
+//To be solved unpack_dci_payload ...
 static uint8_t unpack_ul_dci_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg)
 {
-  nfapi_nr_ul_dci_request_pdus_t *value = (nfapi_nr_ul_dci_request_pdus_t *)msg;
+	nfapi_nr_ul_dci_request_pdus_t* value = (nfapi_nr_ul_dci_request_pdus_t*)msg;
+	for(uint8_t i = 0; i < MAX_DCI_CORESET; ++i)
+	{
+		if(!(pull16(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].RNTI,  end) &&
+		pull16(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].ScramblingId, end) &&
 
-  if (!(pull16(ppReadPackedMsg, &value->PDUType, end) && pull16(ppReadPackedMsg, &value->PDUSize, end)
-        && pull16(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.BWPSize, end)
-        && pull16(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.BWPStart, end)
-        && pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.SubcarrierSpacing, end)
-        && pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.CyclicPrefix, end)
-        && pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.StartSymbolIndex, end)
-        && pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.DurationSymbols, end)
-        && pullarray8(ppReadPackedMsg, value->pdcch_pdu.pdcch_pdu_rel15.FreqDomainResource, 6, 6, end)
-        && pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.CceRegMappingType, end)
-        && pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.RegBundleSize, end)
-        && pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.InterleaverSize, end)
-        && pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.CoreSetType, end)
-        && pull16(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.ShiftIndex, end)
-        && pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.precoderGranularity, end)
-        && pull16(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.numDlDci, end))) {
-    return 0;
-  }
+		pull16(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].ScramblingRNTI, end) &&
+		pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].CceIndex, end) &&
+		pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].AggregationLevel, end) &&
+		pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].beta_PDCCH_1_0, end) &&
 
-  for (uint16_t i = 0; i < value->pdcch_pdu.pdcch_pdu_rel15.numDlDci; ++i) {
-    if (!(pull16(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].RNTI, end)
-          && pull16(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].ScramblingId, end)
-          && pull16(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].ScramblingRNTI, end)
-          && pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].CceIndex, end)
-          && pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].AggregationLevel, end)
-          && pull16(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].precodingAndBeamforming.num_prgs, end)
-          && pull16(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].precodingAndBeamforming.prg_size, end)
-          && pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].precodingAndBeamforming.dig_bf_interfaces, end))) {
-      return 0;
-    }
-    for (int prg = 0; prg < value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].precodingAndBeamforming.num_prgs; prg++) {
-      if (!pull16(ppReadPackedMsg,
-                  &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].precodingAndBeamforming.prgs_list[prg].pm_idx,
-                  end)) {
-        return 0;
-      }
-      for (int digInt = 0; digInt < value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].precodingAndBeamforming.dig_bf_interfaces;
-           digInt++) {
-        if (!pull16(ppReadPackedMsg,
-                    &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i]
-                         .precodingAndBeamforming.prgs_list[prg]
-                         .dig_bf_interface_list[digInt]
-                         .beam_idx,
-                    end)) {
-          return 0;
-        }
-      }
-    }
-    if (!(pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].beta_PDCCH_1_0, end)
-          && pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].powerControlOffsetSS, end)
-          && pull16(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].PayloadSizeBits, end)
-          && unpack_dci_payload(value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].Payload,
-                                value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].PayloadSizeBits,
-                                ppReadPackedMsg,
-                                end))) {
-      return 0;
-    }
-  }
-  return 1;
+		pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].powerControlOffsetSS, end) &&
+		pull16(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].PayloadSizeBits, end) &&
+
+		pullarray8(ppReadPackedMsg, value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].Payload, value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].PayloadSizeBits, value->pdcch_pdu.pdcch_pdu_rel15.dci_pdu[i].PayloadSizeBits, end)))
+
+		return 0;
+	}
+
+	return (pull16(ppReadPackedMsg, &value->PDUType, end) &&
+	   	    pull16(ppReadPackedMsg, &value->PDUSize, end) &&
+			pull16(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.BWPSize, end) &&
+			pull16(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.BWPStart, end) &&
+			pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.SubcarrierSpacing, end) &&
+			pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.CyclicPrefix, end) &&
+
+			pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.StartSymbolIndex, end) &&
+			pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.DurationSymbols, end) &&
+			pullarray8(ppReadPackedMsg, value->pdcch_pdu.pdcch_pdu_rel15.FreqDomainResource, 6, 6, end) &&
+			pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.CceRegMappingType, end) &&
+
+			pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.RegBundleSize, end) &&
+			pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.InterleaverSize, end) &&
+			pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.CoreSetType, end) &&
+			pull16(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.ShiftIndex, end) &&
+			pull8(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.precoderGranularity, end) &&
+			pull16(ppReadPackedMsg, &value->pdcch_pdu.pdcch_pdu_rel15.numDlDci, end));
 }
 
 static uint8_t unpack_ul_dci_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg, nfapi_p7_codec_config_t *config) {
