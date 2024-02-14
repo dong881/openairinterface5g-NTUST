@@ -1210,6 +1210,7 @@ void send_dl_subframe_msgs_interleaved(int p7Sock, int phy_id, struct sockaddr_i
 	//free(req.tx_request_body.tx_pdu_list);
 }
 
+/*send_slot_indication never use*/
 void send_slot_indication(phy_info_t* phy_info)
 {
 	// DONE: add sfn and slot as members in the phy_info

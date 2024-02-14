@@ -912,6 +912,10 @@ void send_dummy_subframe(pnf_p7_t* pnf_p7, uint16_t sfn_sf)
 }
 
 
+/*[Ming Note] Here is original send slot.indication
+only NTUST/nfapi-fixes/openairinterface5g/nfapi/open-nFAPI/pnf/src/pnf_p7_interface.c
+function: nfapi_pnf_p7_slot_ind use
+*/
 int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t slot)
 {	
 	// printf("\n[NTUST] pnf_p7_slot_ind(): sfn/slot: (%d/%d)",sfn,slot);
