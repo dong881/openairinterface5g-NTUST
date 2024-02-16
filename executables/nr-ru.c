@@ -94,16 +94,13 @@ extern void  nr_phy_config_request(NR_PHY_Config_t *gNB);
 //extern PARALLEL_CONF_t get_thread_parallel_conf(void);
 //extern WORKER_CONF_t   get_thread_worker_conf(void);
 
-void init_NR_RU(char *);
 void stop_RU(int nb_ru);
-void do_ru_sync(RU_t *ru);
 
 void configure_ru(int idx, void *arg);
 void configure_rru(int idx, void *arg);
 int attach_rru(RU_t *ru);
 int connect_rau(RU_t *ru);
-static void NRRCconfig_RU(void);
-
+static void NRRCconfig_RU(configmodule_interface_t *cfg);
 
 extern int emulate_rf;
 extern int numerology;
@@ -1398,7 +1395,6 @@ int start_write_thread(RU_t *ru) {
 void init_RU_proc(RU_t *ru) {
   int i=0;
   RU_proc_t *proc;
-  LOG_I(PHY,"Initializing RU proc %d (%s,%s),\n",ru->idx,NB_functions[ru->function],NB_timing[ru->if_timing]);
   proc = &ru->proc;
   memset((void *)proc,0,sizeof(RU_proc_t));
   proc->ru = ru;
@@ -1413,7 +1409,6 @@ void init_RU_proc(RU_t *ru) {
 
   pthread_mutex_init( &proc->mutex_emulateRF,NULL);
   pthread_cond_init( &proc->cond_emulateRF, NULL);
-  threadCreate( &proc->pthread_FH, ru_thread, (void *)ru, "ru_thread", ru->ru_thread_core, OAI_PRIORITY_RT_MAX );
 
   if(emulate_rf)
     threadCreate( &proc->pthread_emulateRF, emulatedRF_thread, (void *)proc, "emulateRF", -1, OAI_PRIORITY_RT );
@@ -1421,7 +1416,12 @@ void init_RU_proc(RU_t *ru) {
     threadCreate( &ru->ru_stats_thread, ru_stats_thread, (void *)ru,"ru_stats", -1, OAI_PRIORITY_RT );
   if (get_thread_worker_conf() == WORKER_ENABLE) {
   }
+  LOG_I(PHY, "Initialized RU proc %d (%s,%s),\n", ru->idx, NB_functions[ru->function], NB_timing[ru->if_timing]);
+}
 
+void start_RU_proc(RU_t *ru)
+{
+  threadCreate(&ru->proc.pthread_FH, ru_thread, (void *)ru, "ru_thread", ru->ru_thread_core, OAI_PRIORITY_RT_MAX);
 }
 
 
@@ -1781,7 +1781,8 @@ void set_function_spec_param(RU_t *ru) {
   } // switch on interface type
 }
 
-void init_NR_RU(char *rf_config_file) {
+void init_NR_RU(configmodule_interface_t *cfg, char *rf_config_file)
+{
   int ru_id;
   RU_t *ru;
   PHY_VARS_gNB *gNB_RC;
@@ -1794,7 +1795,7 @@ void init_NR_RU(char *rf_config_file) {
   pthread_cond_init(&RC.ru_cond,NULL);
   // read in configuration file)
   printf("configuring RU from file\n");
-  NRRCconfig_RU();
+  NRRCconfig_RU(cfg);
   LOG_I(PHY,"number of L1 instances %d, number of RU %d, number of CPU cores %d\n",RC.nb_nr_L1_inst,RC.nb_RU,get_nprocs());
   LOG_D(PHY,"Process RUs RC.nb_RU:%d\n",RC.nb_RU);
 
@@ -1875,6 +1876,11 @@ void init_NR_RU(char *rf_config_file) {
   LOG_D(HW,"[nr-softmodem.c] RU threads created\n");
 }
 
+void start_NR_RU()
+{
+  RU_t *ru = RC.ru[0];
+  start_RU_proc(ru);
+}
 
 void stop_RU(int nb_ru) {
   for (int inst = 0; inst < nb_ru; inst++) {
@@ -1886,19 +1892,19 @@ void stop_RU(int nb_ru) {
 
 /* --------------------------------------------------------*/
 /* from here function to use configuration module          */
-static void NRRCconfig_RU(void)
+static void NRRCconfig_RU(configmodule_interface_t *cfg)
 {
   paramdef_t RUParams[] = RUPARAMS_DESC;
   paramlist_def_t RUParamList = {CONFIG_STRING_RU_LIST,NULL,0};
-  config_getlist(&RUParamList, RUParams, sizeof(RUParams)/sizeof(paramdef_t), NULL);
+  config_getlist(cfg, &RUParamList, RUParams, sizeofArray(RUParams), NULL);
 
   paramdef_t GNBSParams[] = GNBSPARAMS_DESC;
   paramdef_t GNBParams[] = GNBPARAMS_DESC;
   paramlist_def_t GNBParamList = {GNB_CONFIG_STRING_GNB_LIST, NULL, 0};
-  config_get(GNBSParams, sizeof(GNBSParams) / sizeof(paramdef_t), NULL);
+  config_get(cfg, GNBSParams, sizeofArray(GNBSParams), NULL);
   int num_gnbs = GNBSParams[GNB_ACTIVE_GNBS_IDX].numelt;
   AssertFatal(num_gnbs > 0, "Failed to parse config file no gnbs %s \n", GNB_CONFIG_STRING_ACTIVE_GNBS);
-  config_getlist(&GNBParamList, GNBParams, sizeof(GNBParams) / sizeof(paramdef_t), NULL);
+  config_getlist(cfg, &GNBParamList, GNBParams, sizeofArray(GNBParams), NULL);
   int N1 = *GNBParamList.paramarray[0][GNB_PDSCH_ANTENNAPORTS_N1_IDX].iptr;
   int N2 = *GNBParamList.paramarray[0][GNB_PDSCH_ANTENNAPORTS_N2_IDX].iptr;
   int XP = *GNBParamList.paramarray[0][GNB_PDSCH_ANTENNAPORTS_XP_IDX].iptr;

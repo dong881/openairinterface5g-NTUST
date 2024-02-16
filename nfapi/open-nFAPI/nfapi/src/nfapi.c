@@ -49,6 +49,7 @@
 #include <execinfo.h>
 
 #include <nfapi_interface.h>
+#include <nfapi_nr_interface_scf.h>
 #include <nfapi.h>
 #include <debug.h>
 

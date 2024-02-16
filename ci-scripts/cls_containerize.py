@@ -289,6 +289,7 @@ class Containerize():
 		self.proxyCommit = None
 		self.eNB_instance = 0
 		self.eNB_serverId = ['', '', '']
+		self.deployKind = [True, True, True]
 		self.yamlPath = ['', '', '']
 		self.services = ['', '', '']
 		self.nb_healthy = [0, 0, 0]
@@ -433,7 +434,7 @@ class Containerize():
 		if ret.returncode != 0:
 			logging.error('\u001B[1m Could not build properly ran-base\u001B[0m')
 			# Recover the name of the failed container?
-			cmd.run(f"{self.cli} ps --quiet --filter \"status=exited\" -n1 | xargs {self.cli} rm -f")
+			cmd.run(f"{self.cli} ps --quiet --filter \"status=exited\" -n1 | xargs --no-run-if-empty {self.cli} rm -f")
 			cmd.run(f"{self.cli} image prune --force")
 			cmd.close()
 			logging.error('\u001B[1m Building OAI Images Failed\u001B[0m')
@@ -466,8 +467,8 @@ class Containerize():
 			cmd.run(f'sed -i -e "s#{baseImage}:latest#{baseImage}:{baseTag}#" docker/Dockerfile.{pattern}{self.dockerfileprefix}')
 			if image != 'ran-build':
 				cmd.run(f'sed -i -e "s#ran-build:latest#ran-build:{imageTag}#" docker/Dockerfile.{pattern}{self.dockerfileprefix}')
-			cmd.run(f'{self.cli} build {self.cliBuildOptions} --target {image} --tag {image}:{imageTag} --file docker/Dockerfile.{pattern}{self.dockerfileprefix} . > cmake_targets/log/{image}.log 2>&1', timeout=1200)
-			if image == 'ran-build':
+			ret = cmd.run(f'{self.cli} build {self.cliBuildOptions} --target {image} --tag {image}:{imageTag} --file docker/Dockerfile.{pattern}{self.dockerfileprefix} . > cmake_targets/log/{image}.log 2>&1', timeout=1200)
+			if image == 'ran-build' and ret.returncode == 0:
 				cmd.run(f"docker run --name test-log -d {image}:{imageTag} /bin/true")
 				cmd.run(f"docker cp test-log:/oai-ran/cmake_targets/log/ cmake_targets/log/{image}/")
 				cmd.run(f"docker rm -f test-log")
@@ -479,7 +480,7 @@ class Containerize():
 				logging.error('\u001B[1m Could not build properly ' + image + '\u001B[0m')
 				status = False
 				# Here we should check if the last container corresponds to a failed command and destroy it
-				cmd.run(f"{self.cli} ps --quiet --filter \"status=exited\" -n1 | xargs {self.cli} rm -f")
+				cmd.run(f"{self.cli} ps --quiet --filter \"status=exited\" -n1 | xargs --no-run-if-empty {self.cli} rm -f")
 				allImagesSize[image] = 'N/A -- Build Failed'
 				break
 			else:
@@ -835,6 +836,7 @@ class Containerize():
 			HELP.GenericHelp(CONST.Version)
 			sys.exit('Insufficient Parameter')
 		logging.debug('\u001B[1m Deploying OAI Object on server: ' + lIpAddr + '\u001B[0m')
+		self.deployKind[self.eNB_instance] = True
 
 		mySSH = SSH.SSHConnection()
 		mySSH.open(lIpAddr, lUserName, lPassWord)
@@ -1037,6 +1039,7 @@ class Containerize():
 		logging.debug('\u001B[1m Checking Services to deploy\u001B[0m')
 		# Implicitly we are running locally
 		myCmd = cls_cmd.LocalCmd(d = self.yamlPath[0])
+		self.deployKind[0] = False
 		cmd = 'docker-compose config --services'
 		listServices = myCmd.run(cmd)
 		if listServices.returncode != 0:
@@ -1242,7 +1245,7 @@ class Containerize():
 		fullStatus = True
 		if anyLogs:
 			# Analyzing log file(s)!
-			listOfPossibleRanContainers = ['enb', 'gnb', 'cu', 'du']
+			listOfPossibleRanContainers = ['enb*', 'gnb*', 'cu*', 'du*']
 			for container in listOfPossibleRanContainers:
 				filenames = './*-oai-' + container + '.log'
 				cmd = f'ls {filenames}'

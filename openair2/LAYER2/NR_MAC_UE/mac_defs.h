@@ -340,7 +340,14 @@ typedef struct {
   int N_CCE;
   int j_dai;
   int8_t delta_pucch;
+  uint32_t R;
+  uint32_t TBS;
 } NR_UE_HARQ_STATUS_t;
+
+typedef struct {
+  uint32_t R;
+  uint32_t TBS;
+} NR_UL_HARQ_INFO_t;
 
 typedef struct {
   uint8_t freq_hopping;
@@ -469,7 +476,6 @@ typedef struct {
   /* PDUs */
   /// Outgoing CCCH pdu for PHY
   CCCH_PDU CCCH_pdu;
-  ULSCH_PDU ulsch_pdu;
 
   /* Random Access */
   /// CRNTI
@@ -503,8 +509,8 @@ typedef struct {
   uint8_t BSR_reporting_active;
 
   /// LogicalChannelConfig has bearer.
-  bool logicalChannelBearer_exist[NR_MAX_NUM_LCID];
-  NR_UE_SCHEDULING_INFO   scheduling_info;
+  bool active_RLC_bearer[NR_MAX_NUM_LCID];
+  NR_UE_SCHEDULING_INFO scheduling_info;
 
   /// PHR
   uint8_t PHR_reporting_active;
@@ -525,6 +531,7 @@ typedef struct {
   // Defined for abstracted mode
   nr_downlink_indication_t dl_info;
   NR_UE_HARQ_STATUS_t dl_harq_info[NR_MAX_HARQ_PROCESSES];
+  NR_UL_HARQ_INFO_t ul_harq_info[NR_MAX_HARQ_PROCESSES];
 
   nr_emulated_l1_t nr_ue_emul_l1;
 

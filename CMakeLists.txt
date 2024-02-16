@@ -193,6 +193,13 @@ if (SANITIZE_ADDRESS)
   # wrong in the pthread library, or something subtly wrong in this CMakeLists.txt. Use Ubuntu 20.04 instead.
 endif ()
 
+add_boolean_option(SANITIZE_THREAD False "enable the address sanitizer (TSan)" ON)
+if (SANITIZE_THREAD)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=thread -fno-omit-frame-pointer -fno-common")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread -fno-omit-frame-pointer -fno-common")
+  set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=thread")
+endif()
+
 add_boolean_option(SANITIZE_UNDEFINED False "enable the undefined behavior sanitizer (UBSan)" ON)
 if (SANITIZE_UNDEFINED)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=undefined -fno-sanitize-recover=all")
@@ -288,6 +295,15 @@ add_definitions(-DHAVE_NETINET_IN_H)
 #########################
 set(E2_AGENT "OFF" CACHE STRING "O-RAN-compliant E2 Agent")
 set_property(CACHE E2_AGENT PROPERTY STRINGS "ON" "OFF")
+
+set(E2AP_VERSION "E2AP_V2" CACHE STRING "E2AP version")
+set_property(CACHE E2AP_VERSION PROPERTY STRINGS "E2AP_V1" "E2AP_V2" "E2AP_V3")
+message(STATUS "Selected E2AP_VERSION: ${E2AP_VERSION}")
+
+set(KPM_VERSION "KPM_V2" CACHE STRING "The KPM SM version to use")
+set_property(CACHE KPM_VERSION PROPERTY STRINGS "KPM_V2" "KPM_V3")
+message(STATUS "Selected KPM Version: ${KPM_VERSION}")
+
 
 ##################################################
 # ASN.1 grammar C code generation & dependencies #
@@ -454,19 +470,23 @@ add_list1_option(NB_ANTENNAS_RX "4" "Number of antennas in reception" "1" "2" "4
 add_list1_option(NB_ANTENNAS_TX "4" "Number of antennas in transmission" "1" "2" "4")
 
 set (CONFIG_ROOTDIR ${OPENAIR_DIR}/common/config)
+add_library(config_internals OBJECT
+  ${CONFIG_ROOTDIR}/config_common.c
+)
+
 add_library(CONFIG_LIB
   ${CONFIG_ROOTDIR}/config_load_configmodule.c
   ${CONFIG_ROOTDIR}/config_userapi.c
   ${CONFIG_ROOTDIR}/config_cmdline.c
 )
+target_link_libraries(CONFIG_LIB PRIVATE config_internals dl UTIL)
 
 # CONFIG_LIB is a wrapper around a particular config implementation, default is
 # libconfig in params_libconfig below
 pkg_check_modules(libconfig REQUIRED libconfig)
-target_link_libraries(CONFIG_LIB PRIVATE dl UTIL)
 add_library(params_libconfig MODULE ${CONFIG_ROOTDIR}/libconfig/config_libconfig.c)
 target_include_directories(params_libconfig PRIVATE ${libconfig_INCLUDE_DIRS})
-target_link_libraries(params_libconfig PRIVATE ${libconfig_LIBRARIES})
+target_link_libraries(params_libconfig PRIVATE config_internals ${libconfig_LIBRARIES})
 
 # shared library loader
 add_library(shlib_loader OBJECT common/utils/load_module_shlib.c)
@@ -1040,6 +1060,7 @@ set(PHY_SRC_UE
   ${OPENAIR1_DIR}/PHY/NR_REFSIG/dmrs_nr.c
   ${OPENAIR1_DIR}/PHY/NR_REFSIG/ptrs_nr.c
   ${OPENAIR1_DIR}/PHY/NR_ESTIMATION/nr_ul_channel_estimation.c
+  ${OPENAIR1_DIR}/PHY/NR_ESTIMATION/nr_freq_equalization.c
   ${OPENAIR1_DIR}/PHY/NR_ESTIMATION/nr_measurements_gNB.c
   ${OPENAIR1_DIR}/PHY/TOOLS/file_output.c
   ${OPENAIR1_DIR}/PHY/TOOLS/cadd_vv.c
@@ -1144,6 +1165,7 @@ add_library(PHY_NR_COMMON ${PHY_NR_SRC_COMMON})
 add_library(PHY_NR ${PHY_NR_SRC})
 
 add_library(PHY_NR_UE ${PHY_NR_UE_SRC})
+target_link_libraries(PHY_NR_UE PRIVATE asn1_nr_rrc_hdrs)
 
 add_library(PHY_RU ${PHY_SRC_RU})
 target_link_libraries(PHY_RU PRIVATE asn1_lte_rrc_hdrs)
@@ -1205,6 +1227,10 @@ set(NR_PDCP_SRC
   ${OPENAIR2_DIR}/LAYER2/nr_pdcp/nr_pdcp_integrity_nia2.c
   ${OPENAIR2_DIR}/LAYER2/nr_pdcp/nr_pdcp_integrity_nia1.c
   ${OPENAIR2_DIR}/LAYER2/nr_pdcp/asn1_utils.c
+  openair2/LAYER2/nr_pdcp/cucp_cuup_handler.c
+  openair2/LAYER2/nr_pdcp/cuup_cucp_if.c
+  openair2/LAYER2/nr_pdcp/cuup_cucp_direct.c
+  openair2/LAYER2/nr_pdcp/cuup_cucp_e1ap.c
   )
 
 set(NR_SDAP_SRC
@@ -1256,7 +1282,6 @@ set(L2_NR_SRC
   ${NR_SDAP_SRC}
   ${NR_RRC_DIR}/rrc_gNB.c
   ${NR_RRC_DIR}/nr_rrc_common.c
-  ${NR_RRC_DIR}/L2_nr_interface.c
   ${NR_RRC_DIR}/mac_rrc_dl_direct.c
   ${NR_RRC_DIR}/mac_rrc_dl_f1ap.c
   ${NR_RRC_DIR}/nr_rrc_config.c
@@ -1266,6 +1291,8 @@ set(L2_NR_SRC
   ${NR_RRC_DIR}/rrc_gNB_UE_context.c
   ${NR_RRC_DIR}/rrc_gNB_NGAP.c
   ${NR_RRC_DIR}/rrc_gNB_radio_bearers.c
+  ${NR_RRC_DIR}/rrc_gNB_cuup.c
+  ${NR_RRC_DIR}/rrc_gNB_du.c
   )
 
 set(L2_SRC_UE
@@ -1407,9 +1434,11 @@ add_library(L2
   )
 target_link_libraries(L2 PRIVATE x2ap s1ap lte_rrc m2ap)
 target_link_libraries(L2 PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs)
+
 if(E2_AGENT)
   target_link_libraries(L2 PUBLIC e2_agent e2_ran_func)
   target_compile_definitions(L2 PRIVATE E2_AGENT)
+  target_compile_definitions(L2 PRIVATE ${E2AP_VERSION} ${KPM_VERSION})
 endif()
 
 
@@ -1432,15 +1461,10 @@ add_library(e1_if
 
 target_link_libraries(e1_if PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs asn1_f1ap SECURITY ${OPENSSL_LIBRARIES} e1ap GTPV1U)
 
-add_library(e1_pdcp_if
-  ${OPENAIR2_DIR}/LAYER2/nr_pdcp/nr_pdcp_e1_api.c
-  )
-
-target_link_libraries(e1_pdcp_if PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
-
 target_link_libraries(L2_NR PRIVATE f1ap x2ap s1ap ngap nr_rrc e1ap nr_rlc)
 if(E2_AGENT)
   target_link_libraries(L2_NR PUBLIC e2_agent e2_ran_func)
+  target_compile_definitions(L2_NR PRIVATE ${E2AP_VERSION} ${KPM_VERSION})
   target_compile_definitions(L2_NR PRIVATE E2_AGENT)
 endif()
 
@@ -1866,8 +1890,6 @@ set (SIMUSRC
 )
 add_library(SIMU STATIC ${SIMUSRC} )
 target_include_directories(SIMU PUBLIC ${OPENAIR1_DIR}/SIMULATION/TOOLS ${OPENAIR1_DIR}/SIMULATION/RF)
-target_link_libraries(SIMU PRIVATE ${blas_LIBRARIES} ${cblas_LIBRARIES} ${lapacke_LIBRARIES})
-target_include_directories(SIMU PRIVATE ${blas_INCLUDE_DIRS} ${lapacke_INCLUDE_DIRS})
 
 # Qt-based scope
 add_boolean_option(ENABLE_NRQTSCOPE OFF "Build the Qt-Scope" OFF)
@@ -1963,6 +1985,7 @@ target_link_libraries(lte-softmodem PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
 
 if(E2_AGENT)
   target_compile_definitions(lte-softmodem PRIVATE E2_AGENT)
+  target_compile_definitions(lte-softmodem PRIVATE ${E2AP_VERSION} ${KPM_VERSION})
 endif()
 
 add_executable(oairu
@@ -2059,6 +2082,11 @@ target_link_libraries(nr-softmodem PRIVATE
 target_link_libraries(nr-softmodem PRIVATE pthread m CONFIG_LIB rt sctp)
 target_link_libraries(nr-softmodem PRIVATE ${T_LIB})
 target_link_libraries(nr-softmodem PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
+target_link_libraries(nr-softmodem PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
+if(E2_AGENT)
+  target_compile_definitions(nr-softmodem PRIVATE ${E2AP_VERSION} ${KPM_VERSION})
+endif()
+
 
 add_dependencies(nr-softmodem ldpc_orig ldpc_optim ldpc_optim8seg ldpc)
 
@@ -2086,7 +2114,7 @@ add_executable(nr-cuup
 
 target_link_libraries(nr-cuup PRIVATE
                       CONFIG_LIB ITTI SCTP_CLIENT
-                      GTPV1U e1ap e1_pdcp_if f1ap SIMU_ETH
+                      GTPV1U e1ap f1ap SIMU_ETH
                       z sctp dl pthread shlib_loader ${T_LIB})
 target_link_libraries(nr-cuup PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs)
                      
@@ -2348,7 +2376,7 @@ if (${T_TRACER})
         PHY_COMMON PHY PHY_UE PHY_NR PHY_NR_COMMON PHY_NR_UE PHY_RU PHY_MEX
         L2 L2_LTE L2_NR L2_LTE_NR L2_UE NR_L2_UE L2_UE_LTE_NR MAC_NR_COMMON MAC_UE_NR ngap
         CN_UTILS GTPV1U SCTP_CLIENT MME_APP LIB_NAS_UE NB_IoT SIMU SIMU_ETH OPENAIR0_LIB
-        ldpc_orig ldpc_optim ldpc_optim8seg ldpc dfts)
+        ldpc_orig ldpc_optim ldpc_optim8seg ldpc dfts config_internals)
     if (TARGET ${i})
       add_dependencies(${i} generate_T)
     endif()

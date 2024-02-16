@@ -19,7 +19,7 @@
  *      contact@openairinterface.org
  */
 
-/*! \file openair1/PHY/CODING/coding_nr_load.c
+/*! \file nrLDPC_load.c
  * \brief: load library implementing coding/decoding algorithms
  * \author Francois TABURET
  * \date 2020
@@ -53,7 +53,7 @@ int load_nrLDPClib(char *version) {
   char libname[64] = "ldpc";
 
   if (ptr == NULL) { // phy simulators, config module possibly not loaded
-    load_configmodule(1, arg, CONFIG_ENABLECMDLINEONLY);
+    uniqCfg = load_configmodule(1, arg, CONFIG_ENABLECMDLINEONLY);
     logInit();
   }
   shlib_fdesc[0].fname = "nrLDPC_decod";

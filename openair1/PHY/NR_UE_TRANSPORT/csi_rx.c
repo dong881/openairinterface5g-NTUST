@@ -608,8 +608,6 @@ int nr_csi_rs_pmi_estimation(const PHY_VARS_NR_UE *ue,
                              uint32_t *precoded_sinr_dB) {
 
   const NR_DL_FRAME_PARMS *frame_parms = &ue->frame_parms;
-  memset(i1,0,3*sizeof(uint8_t));
-  i2[0] = 0;
 
   // i1 is a three-element vector in the form of [i11 i12 i13], when CodebookType is specified as 'Type1SinglePanel'.
   // Note that i13 is not applicable when the number of transmission layers is one of {1, 5, 6, 7, 8}.
@@ -834,6 +832,26 @@ int nr_ue_csi_im_procedures(PHY_VARS_NR_UE *ue, UE_nr_rxtx_proc_t *proc, c16_t r
   return 0;
 }
 
+static nfapi_nr_dl_tti_csi_rs_pdu_rel15_t convert_csirs_pdu(const fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_config_pdu)
+{
+  nfapi_nr_dl_tti_csi_rs_pdu_rel15_t dl_tti_csi_rs_pdu;
+  dl_tti_csi_rs_pdu.subcarrier_spacing = csirs_config_pdu->subcarrier_spacing;
+  dl_tti_csi_rs_pdu.cyclic_prefix = csirs_config_pdu->cyclic_prefix;
+  dl_tti_csi_rs_pdu.start_rb = csirs_config_pdu->start_rb;
+  dl_tti_csi_rs_pdu.nr_of_rbs = csirs_config_pdu->nr_of_rbs;
+  dl_tti_csi_rs_pdu.csi_type = csirs_config_pdu->csi_type;
+  dl_tti_csi_rs_pdu.row = csirs_config_pdu->row;
+  dl_tti_csi_rs_pdu.freq_domain = csirs_config_pdu->freq_domain;
+  dl_tti_csi_rs_pdu.symb_l0 = csirs_config_pdu->symb_l0;
+  dl_tti_csi_rs_pdu.symb_l1 = csirs_config_pdu->symb_l1;
+  dl_tti_csi_rs_pdu.cdm_type = csirs_config_pdu->cdm_type;
+  dl_tti_csi_rs_pdu.freq_density = csirs_config_pdu->freq_density;
+  dl_tti_csi_rs_pdu.scramb_id = csirs_config_pdu->scramb_id;
+  dl_tti_csi_rs_pdu.power_control_offset = csirs_config_pdu->power_control_offset;
+  dl_tti_csi_rs_pdu.power_control_offset_ss = csirs_config_pdu->power_control_offset_ss;
+  return dl_tti_csi_rs_pdu;
+}
+
 void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue, UE_nr_rxtx_proc_t *proc, c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP])
 {
 
@@ -842,7 +860,7 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue, UE_nr_rxtx_proc_t *proc, c16_t 
     return;
   }
 
-  const fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_config_pdu = (fapi_nr_dl_config_csirs_pdu_rel15_t*)&ue->csirs_vars[gNB_id]->csirs_config_pdu;
+  const fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_config_pdu = &ue->csirs_vars[gNB_id]->csirs_config_pdu;
 
 #ifdef NR_CSIRS_DEBUG
   LOG_I(NR_PHY, "csirs_config_pdu->subcarrier_spacing = %i\n", csirs_config_pdu->subcarrier_spacing);
@@ -884,14 +902,14 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue, UE_nr_rxtx_proc_t *proc, c16_t 
   uint8_t rank_indicator = 0;
   uint32_t precoded_sinr_dB = 0;
   uint8_t cqi = 0;
-  uint8_t i1[3];
-  uint8_t i2[1];
-
+  uint8_t i1[3] = {0};
+  uint8_t i2[1] = {0};
+  nfapi_nr_dl_tti_csi_rs_pdu_rel15_t csi_params = convert_csirs_pdu(csirs_config_pdu);
   nr_generate_csi_rs(frame_parms,
                      ue->nr_csi_info->csi_rs_generated_signal,
                      AMP,
                      ue->nr_csi_info,
-                     (nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *) csirs_config_pdu,
+                     &csi_params,
                      proc->nr_slot_rx,
                      &N_cdm_groups,
                      &CDM_group_size,

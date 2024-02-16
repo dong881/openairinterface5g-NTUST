@@ -932,6 +932,8 @@ typedef struct
 
 typedef struct
 {
+  uint16_t bwp_size;                // Needed for SCF222 10.02
+  uint16_t bwp_start;               // Needed for SCF222 10.02
   uint8_t subcarrier_spacing;       // subcarrierSpacing [3GPP TS 38.211, sec 4.2], Value:0->4
   uint8_t cyclic_prefix;            // Cyclic prefix type [3GPP TS 38.211, sec 4.2], 0: Normal; 1: Extended
   uint16_t start_rb;                // PRB where this CSI resource starts related to common resource block #0 (CRB#0). Only multiples of 4 are allowed. [3GPP TS 38.331, sec 6.3.2 parameter CSIFrequencyOccupation], Value: 0 ->274
@@ -1464,12 +1466,14 @@ typedef enum {
 
 //table 3-58
 #define NFAPI_NR_MAX_TX_REQUEST_TLV 2
-typedef struct
-{
-  uint16_t PDU_length;
+typedef struct {
+  uint16_t PDU_length; // SCF 222.10.02 The total length (in bytes) of the PDU description and  PDU data, without the padding bytes.
+                       // (2 bytes PDU_Length + 2 bytes PDU_Index + 4 bytes num_TLV + TLV size ( 2 bytes tag + 2 bytes length +
+                       // value size without padding))
+                       // TBS + 12
   uint16_t PDU_index;
   uint32_t num_TLV;
-  nfapi_nr_tx_data_request_tlv_t TLVs[NFAPI_NR_MAX_TX_REQUEST_TLV]; 
+  nfapi_nr_tx_data_request_tlv_t TLVs[NFAPI_NR_MAX_TX_REQUEST_TLV];
 
 } nfapi_nr_pdu_t;
 

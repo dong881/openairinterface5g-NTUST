@@ -57,11 +57,11 @@ static uint16_t nr_pbch_extract(uint32_t rxdataF_sz,
                                 struct complex16 dl_ch_estimates_ext[][PBCH_MAX_RE_PER_SYMBOL],
                                 uint32_t symbol,
                                 uint32_t s_offset,
-                                NR_DL_FRAME_PARMS *frame_parms,
-                                int nushiftmod4)
+                                NR_DL_FRAME_PARMS *frame_parms)
 {
   uint16_t rb;
   uint8_t i, j, aarx;
+  int nushiftmod4 = frame_parms->Nid_cell % 4;
   AssertFatal(symbol>=1 && symbol<5,
               "symbol %d illegal for PBCH extraction\n",
               symbol);
@@ -412,8 +412,7 @@ int nr_rx_pbch(PHY_VARS_NR_UE *ue,
                     dl_ch_estimates_ext,
                     symbol,
                     symbol_offset,
-                    frame_parms,
-                    nushift);
+                    frame_parms);
 #ifdef DEBUG_PBCH
     LOG_I(PHY,"[PHY] PBCH Symbol %d ofdm size %d\n",symbol, frame_parms->ofdm_symbol_size );
     LOG_I(PHY,"[PHY] PBCH starting channel_level\n");
@@ -494,12 +493,8 @@ int nr_rx_pbch(PHY_VARS_NR_UE *ue,
   }
   //  printf("polar decoder output 0x%08x\n",pbch_a_prime);
   // Decoder reversal
-  uint32_t a_reversed=0;
+  pbch_a_prime = (uint32_t)reverse_bits(pbch_a_prime, NR_POLAR_PBCH_PAYLOAD_BITS);
 
-  for (int i=0; i<NR_POLAR_PBCH_PAYLOAD_BITS; i++)
-    a_reversed |= (((uint64_t)pbch_a_prime>>i)&1)<<(31-i);
-
-  pbch_a_prime = a_reversed;
   //payload un-scrambling
   M = (Lmax == 64)? (NR_POLAR_PBCH_PAYLOAD_BITS - 6) : (NR_POLAR_PBCH_PAYLOAD_BITS - 3);
   nushift = ((pbch_a_prime>>24)&1) ^ (((pbch_a_prime>>6)&1)<<1);

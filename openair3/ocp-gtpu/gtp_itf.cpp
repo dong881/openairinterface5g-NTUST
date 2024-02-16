@@ -510,27 +510,6 @@ static  int udpServerSocket(openAddr_s addr) {
 
   freeaddrinfo(servinfo); // all done with this structure
 
-  if (strlen(addr.destinationHost)>1) {
-    struct addrinfo hints;
-    memset(&hints,0,sizeof(hints));
-    hints.ai_family=AF_UNSPEC;
-    hints.ai_socktype=SOCK_DGRAM;
-    hints.ai_protocol=0;
-    hints.ai_flags=AI_PASSIVE|AI_ADDRCONFIG;
-    struct addrinfo *res=0;
-    int err=getaddrinfo(addr.destinationHost,addr.destinationService,&hints,&res);
-
-    if (err==0) {
-      for(p = res; p != NULL; p = p->ai_next) {
-        if ((err=connect(sockfd,  p->ai_addr, p->ai_addrlen))==0)
-          break;
-      }
-    }
-
-    if (err)
-      LOG_E(GTPU,"Can't filter remote host: %s, %s\n", addr.destinationHost,addr.destinationService);
-  }
-
   int sendbuff = 1000*1000*10;
   AssertFatal(0==setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &sendbuff, sizeof(sendbuff)),"");
   LOG_D(GTPU,"[%d] Created listener for paquets to: %s:%s, send buffer size: %d\n", sockfd, addr.originHost, addr.originService,sendbuff);
@@ -803,6 +782,32 @@ int gtpv1u_create_x2u_tunnel(
   AssertFatal( false, "to be developped\n");
 }
 
+int newGtpuDeleteOneTunnel(instance_t instance, ue_id_t ue_id, int rb_id)
+{
+  pthread_mutex_lock(&globGtp.gtp_lock);
+  getInstRetInt(compatInst(instance));
+  map<uint64_t, teidData_t>::iterator ue_it = inst->ue2te_mapping.find(ue_id);
+  if (ue_it == inst->ue2te_mapping.end()) {
+    LOG_E(GTPU, "%s() no such UE %ld\n", __func__, ue_id);
+    pthread_mutex_unlock(&globGtp.gtp_lock);
+    return !GTPNOK;
+  }
+  map<ue_id_t, gtpv1u_bearer_t>::iterator rb_it = ue_it->second.bearers.find(rb_id);
+  if (rb_it == ue_it->second.bearers.end()) {
+    LOG_E(GTPU, "%s() UE %ld has no bearer %d, available\n", __func__, ue_id, rb_id);
+    pthread_mutex_unlock(&globGtp.gtp_lock);
+    return !GTPNOK;
+  }
+  int teid = rb_it->second.teid_incoming;
+  globGtp.te2ue_mapping.erase(teid);
+  ue_it->second.bearers.erase(rb_id);
+  pthread_mutex_unlock(&globGtp.gtp_lock);
+  LOG_I(GTPU, "Deleted tunnel TEID %d (RB %d) for ue id %ld, remaining bearers:\n", teid, rb_id, ue_id);
+  for (auto b: ue_it->second.bearers)
+    LOG_I(GTPU, "bearer %ld\n", b.first);
+  return !GTPNOK;
+}
+
 int newGtpuDeleteAllTunnels(instance_t instance, ue_id_t ue_id) {
   LOG_D(GTPU, "[%ld] Start delete tunnels for ue id %lu\n",
         instance, ue_id);
@@ -935,7 +940,7 @@ static int Gtpv1uHandleError(int h,
                              uint32_t msgBufLen,
                              uint16_t peerPort,
                              uint32_t peerIp) {
-  LOG_E(GTPU,"Hadle error to be dev\n");
+  LOG_E(GTPU, "Handle error to be dev\n");
   int rc = GTPNOK;
   return rc;
 }
