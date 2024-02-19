@@ -4728,15 +4728,7 @@ static uint8_t unpack_dl_tti_request(uint8_t **ppReadPackedMsg, uint8_t *end, vo
   if (!(pull16(ppReadPackedMsg, &pNfapiMsg->SFN, end) && pull16(ppReadPackedMsg, &pNfapiMsg->Slot, end)
         && pull8(ppReadPackedMsg, &pNfapiMsg->dl_tti_request_body.nPDUs, end)
         && pull8(ppReadPackedMsg, &pNfapiMsg->dl_tti_request_body.nGroup, end))) {
-  if (!(pull16(ppReadPackedMsg, &pNfapiMsg->SFN, end) && pull16(ppReadPackedMsg, &pNfapiMsg->Slot, end)
-        && pull8(ppReadPackedMsg, &pNfapiMsg->dl_tti_request_body.nPDUs, end)
-        && pull8(ppReadPackedMsg, &pNfapiMsg->dl_tti_request_body.nGroup, end))) {
     return 0;
-  }
-  for (int i = 0; i < pNfapiMsg->dl_tti_request_body.nPDUs; i++) {
-    if (!unpack_dl_tti_request_body_value(ppReadPackedMsg, end, &pNfapiMsg->dl_tti_request_body.dl_tti_pdu_list[i]))
-      return 0;
-  }
   }
   for (int i = 0; i < pNfapiMsg->dl_tti_request_body.nPDUs; i++) {
     if (!unpack_dl_tti_request_body_value(ppReadPackedMsg, end, &pNfapiMsg->dl_tti_request_body.dl_tti_pdu_list[i]))
@@ -4749,15 +4741,9 @@ static uint8_t unpack_dl_tti_request(uint8_t **ppReadPackedMsg, uint8_t *end, vo
   }
   for (int i = 0; i < pNfapiMsg->dl_tti_request_body.nGroup; i++) {
     for (int j = 0; j < pNfapiMsg->dl_tti_request_body.nUe[i]; j++) {
-  if (!pullarray8(ppReadPackedMsg, pNfapiMsg->dl_tti_request_body.nUe, 256, pNfapiMsg->dl_tti_request_body.nGroup, end)) {
-    return 0;
-  }
-  for (int i = 0; i < pNfapiMsg->dl_tti_request_body.nGroup; i++) {
-    for (int j = 0; j < pNfapiMsg->dl_tti_request_body.nUe[i]; j++) {
       arr[j] = pNfapiMsg->dl_tti_request_body.PduIdx[i][j];
     }
 
-    if (!(pullarrays32(ppReadPackedMsg, arr, 12, pNfapiMsg->dl_tti_request_body.nUe[i], end)))
     if (!(pullarrays32(ppReadPackedMsg, arr, 12, pNfapiMsg->dl_tti_request_body.nUe[i], end)))
       return 0;
   }
@@ -4824,25 +4810,6 @@ static uint8_t unpack_ul_tti_request_pucch_pdu(void *tlv, uint8_t **ppReadPacked
           && pull8(ppReadPackedMsg, &pucch_pdu->dmrs_cyclic_shift, end) && pull8(ppReadPackedMsg, &pucch_pdu->sr_flag, end)
           && pull8(ppReadPackedMsg, &pucch_pdu->bit_len_harq, end) && pull16(ppReadPackedMsg, &pucch_pdu->bit_len_csi_part1, end)
           && pull16(ppReadPackedMsg, &pucch_pdu->bit_len_csi_part2, end) &&
-  uint16_t dummy16 = 0;
-  uint8_t dummy8 = 0;
-  return (pull16(ppReadPackedMsg, &pucch_pdu->rnti, end) && pull32(ppReadPackedMsg, &pucch_pdu->handle, end)
-          && pull16(ppReadPackedMsg, &pucch_pdu->bwp_size, end) && pull16(ppReadPackedMsg, &pucch_pdu->bwp_start, end)
-          && pull8(ppReadPackedMsg, &pucch_pdu->subcarrier_spacing, end) && pull8(ppReadPackedMsg, &pucch_pdu->cyclic_prefix, end)
-          && pull8(ppReadPackedMsg, &pucch_pdu->format_type, end)
-          && pull8(ppReadPackedMsg, &pucch_pdu->multi_slot_tx_indicator, end) && pull8(ppReadPackedMsg, &pucch_pdu->pi_2bpsk, end)
-          && pull16(ppReadPackedMsg, &pucch_pdu->prb_start, end) && pull16(ppReadPackedMsg, &pucch_pdu->prb_size, end)
-          && pull8(ppReadPackedMsg, &pucch_pdu->start_symbol_index, end) && pull8(ppReadPackedMsg, &pucch_pdu->nr_of_symbols, end)
-          && pull8(ppReadPackedMsg, &pucch_pdu->freq_hop_flag, end) && pull16(ppReadPackedMsg, &pucch_pdu->second_hop_prb, end)
-          && pull8(ppReadPackedMsg, &pucch_pdu->group_hop_flag, end) && pull8(ppReadPackedMsg, &pucch_pdu->sequence_hop_flag, end)
-          && pull16(ppReadPackedMsg, &pucch_pdu->hopping_id, end) && pull16(ppReadPackedMsg, &pucch_pdu->initial_cyclic_shift, end)
-          && pull16(ppReadPackedMsg, &pucch_pdu->data_scrambling_id, end)
-          && pull8(ppReadPackedMsg, &pucch_pdu->time_domain_occ_idx, end)
-          && pull8(ppReadPackedMsg, &pucch_pdu->pre_dft_occ_idx, end) && pull8(ppReadPackedMsg, &pucch_pdu->pre_dft_occ_len, end)
-          && pull8(ppReadPackedMsg, &pucch_pdu->add_dmrs_flag, end) && pull16(ppReadPackedMsg, &pucch_pdu->dmrs_scrambling_id, end)
-          && pull8(ppReadPackedMsg, &pucch_pdu->dmrs_cyclic_shift, end) && pull8(ppReadPackedMsg, &pucch_pdu->sr_flag, end)
-          && pull8(ppReadPackedMsg, &pucch_pdu->bit_len_harq, end) && pull16(ppReadPackedMsg, &pucch_pdu->bit_len_csi_part1, end)
-          && pull16(ppReadPackedMsg, &pucch_pdu->bit_len_csi_part2, end) &&
           // TODO: ignoring beamforming tlv for now
           pull16(ppReadPackedMsg, &dummy16, end) && pull16(ppReadPackedMsg, &dummy16, end) && pull8(ppReadPackedMsg, &dummy8, end));
           pull16(ppReadPackedMsg, &dummy16, end) && pull16(ppReadPackedMsg, &dummy16, end) && pull8(ppReadPackedMsg, &dummy8, end));
@@ -4870,30 +4837,10 @@ static uint8_t unpack_ul_tti_request_pusch_pdu(void *tlv, uint8_t **ppReadPacked
         && pull16(ppReadPackedMsg, &pusch_pdu->tx_direct_current_location, end)
         && pull8(ppReadPackedMsg, &pusch_pdu->uplink_frequency_shift_7p5khz, end)
         && pull8(ppReadPackedMsg, &pusch_pdu->start_symbol_index, end) && pull8(ppReadPackedMsg, &pusch_pdu->nr_of_symbols, end)
-  if (!(pull16(ppReadPackedMsg, &pusch_pdu->pdu_bit_map, end) && pull16(ppReadPackedMsg, &pusch_pdu->rnti, end)
-        && pull32(ppReadPackedMsg, &pusch_pdu->handle, end) && pull16(ppReadPackedMsg, &pusch_pdu->bwp_size, end)
-        && pull16(ppReadPackedMsg, &pusch_pdu->bwp_start, end) && pull8(ppReadPackedMsg, &pusch_pdu->subcarrier_spacing, end)
-        && pull8(ppReadPackedMsg, &pusch_pdu->cyclic_prefix, end) && pull16(ppReadPackedMsg, &pusch_pdu->target_code_rate, end)
-        && pull8(ppReadPackedMsg, &pusch_pdu->qam_mod_order, end) && pull8(ppReadPackedMsg, &pusch_pdu->mcs_index, end)
-        && pull8(ppReadPackedMsg, &pusch_pdu->mcs_table, end) && pull8(ppReadPackedMsg, &pusch_pdu->transform_precoding, end)
-        && pull16(ppReadPackedMsg, &pusch_pdu->data_scrambling_id, end) && pull8(ppReadPackedMsg, &pusch_pdu->nrOfLayers, end)
-        && pull16(ppReadPackedMsg, &pusch_pdu->ul_dmrs_symb_pos, end) && pull8(ppReadPackedMsg, &pusch_pdu->dmrs_config_type, end)
-        && pull16(ppReadPackedMsg, &pusch_pdu->ul_dmrs_scrambling_id, end) && pull8(ppReadPackedMsg, &pusch_pdu->scid, end)
-        && pull8(ppReadPackedMsg, &pusch_pdu->num_dmrs_cdm_grps_no_data, end)
-        && pull16(ppReadPackedMsg, &pusch_pdu->dmrs_ports, end) && pull8(ppReadPackedMsg, &pusch_pdu->resource_alloc, end)
-        && pull8(ppReadPackedMsg, &pusch_pdu->resource_alloc, end) && pull16(ppReadPackedMsg, &pusch_pdu->dmrs_ports, end)
-        && pull16(ppReadPackedMsg, &pusch_pdu->rb_start, end) && pull16(ppReadPackedMsg, &pusch_pdu->rb_size, end)
-        && pull8(ppReadPackedMsg, &pusch_pdu->vrb_to_prb_mapping, end) && pull8(ppReadPackedMsg, &pusch_pdu->frequency_hopping, end)
-        && pull16(ppReadPackedMsg, &pusch_pdu->tx_direct_current_location, end)
-        && pull8(ppReadPackedMsg, &pusch_pdu->uplink_frequency_shift_7p5khz, end)
-        && pull8(ppReadPackedMsg, &pusch_pdu->start_symbol_index, end) && pull8(ppReadPackedMsg, &pusch_pdu->nr_of_symbols, end)
         // TODO: ignoring beamforming tlv for now
-        ))
         ))
     return 0;
 
-  // Pack Optional Data only included if indicated in pduBitmap
-  switch (pusch_pdu->pdu_bit_map) {
   // Pack Optional Data only included if indicated in pduBitmap
   switch (pusch_pdu->pdu_bit_map) {
     case PUSCH_PDU_BITMAP_PUSCH_DATA: {
@@ -4906,26 +4853,8 @@ static uint8_t unpack_ul_tti_request_pusch_pdu(void *tlv, uint8_t **ppReadPacked
         return 0;
       }
     } break;
-      if (!(pull8(ppReadPackedMsg, &pusch_pdu->pusch_data.rv_index, end)
-            && pull8(ppReadPackedMsg, &pusch_pdu->pusch_data.harq_process_id, end)
-            && pull32(ppReadPackedMsg, &pusch_pdu->pusch_data.tb_size, end)
-            && pull16(ppReadPackedMsg, &pusch_pdu->pusch_data.num_cb, end)
-            && pullarray8(ppReadPackedMsg, pusch_pdu->pusch_data.cb_present_and_position, 1, 1, end))) {
-        return 0;
-      }
-    } break;
 
     case PUSCH_PDU_BITMAP_PUSCH_UCI: {
-      if (!(pull16(ppReadPackedMsg, &pusch_pdu->pusch_uci.harq_ack_bit_length, end)
-            && pull16(ppReadPackedMsg, &pusch_pdu->pusch_uci.csi_part1_bit_length, end)
-            && pull16(ppReadPackedMsg, &pusch_pdu->pusch_uci.csi_part2_bit_length, end)
-            && pull8(ppReadPackedMsg, &pusch_pdu->pusch_uci.alpha_scaling, end)
-            && pull8(ppReadPackedMsg, &pusch_pdu->pusch_uci.beta_offset_harq_ack, end)
-            && pull8(ppReadPackedMsg, &pusch_pdu->pusch_uci.beta_offset_csi1, end)
-            && pull8(ppReadPackedMsg, &pusch_pdu->pusch_uci.beta_offset_csi2, end))) {
-        return 0;
-      }
-    } break;
       if (!(pull16(ppReadPackedMsg, &pusch_pdu->pusch_uci.harq_ack_bit_length, end)
             && pull16(ppReadPackedMsg, &pusch_pdu->pusch_uci.csi_part1_bit_length, end)
             && pull16(ppReadPackedMsg, &pusch_pdu->pusch_uci.csi_part2_bit_length, end)
@@ -4948,25 +4877,8 @@ static uint8_t unpack_ul_tti_request_pusch_pdu(void *tlv, uint8_t **ppReadPacked
         return 0;
       }
     } break;
-      if (!(pull8(ppReadPackedMsg, &pusch_pdu->pusch_ptrs.num_ptrs_ports, end)
-            && pull8(ppReadPackedMsg, &pusch_pdu->pusch_ptrs.ptrs_ports_list->ptrs_dmrs_port, end)
-            && pull16(ppReadPackedMsg, &pusch_pdu->pusch_ptrs.ptrs_ports_list->ptrs_port_index, end)
-            && pull8(ppReadPackedMsg, &pusch_pdu->pusch_ptrs.ptrs_ports_list->ptrs_re_offset, end)
-            && pull8(ppReadPackedMsg, &pusch_pdu->pusch_ptrs.ptrs_time_density, end)
-            && pull8(ppReadPackedMsg, &pusch_pdu->pusch_ptrs.ptrs_freq_density, end)
-            && pull8(ppReadPackedMsg, &pusch_pdu->pusch_ptrs.ul_ptrs_power, end))) {
-        return 0;
-      }
-    } break;
 
     case PUSCH_PDU_BITMAP_DFTS_OFDM: {
-      if (!(pull8(ppReadPackedMsg, &pusch_pdu->dfts_ofdm.low_papr_group_number, end)
-            && pull16(ppReadPackedMsg, &pusch_pdu->dfts_ofdm.low_papr_sequence_number, end)
-            && pull8(ppReadPackedMsg, &pusch_pdu->dfts_ofdm.ul_ptrs_sample_density, end)
-            && pull8(ppReadPackedMsg, &pusch_pdu->dfts_ofdm.ul_ptrs_time_density_transform_precoding, end))) {
-        return 0;
-      }
-    } break;
       if (!(pull8(ppReadPackedMsg, &pusch_pdu->dfts_ofdm.low_papr_group_number, end)
             && pull16(ppReadPackedMsg, &pusch_pdu->dfts_ofdm.low_papr_sequence_number, end)
             && pull8(ppReadPackedMsg, &pusch_pdu->dfts_ofdm.ul_ptrs_sample_density, end)
@@ -4979,11 +4891,6 @@ static uint8_t unpack_ul_tti_request_pusch_pdu(void *tlv, uint8_t **ppReadPacked
       NFAPI_TRACE(NFAPI_TRACE_INFO, "Invalid pdu bitmap %d \n", pusch_pdu->pdu_bit_map);
       NFAPI_TRACE(NFAPI_TRACE_INFO, "Invalid pdu bitmap %d \n", pusch_pdu->pdu_bit_map);
     }
-  }
-  uint16_t dummy16 = 0;
-  uint8_t dummy8 = 0;
-  if (!(pull16(ppReadPackedMsg, &dummy16, end) && pull16(ppReadPackedMsg, &dummy16, end) && pull8(ppReadPackedMsg, &dummy8, end))) {
-    return 0;
   }
   uint16_t dummy16 = 0;
   uint8_t dummy8 = 0;
@@ -5028,8 +4935,6 @@ static uint8_t unpack_ul_tti_request_srs_pdu(void *tlv, uint8_t **ppReadPackedMs
 static uint8_t unpack_ul_tti_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg) {
   nfapi_nr_ul_tti_request_number_of_pdus_t *pNfapiMsg = (nfapi_nr_ul_tti_request_number_of_pdus_t *)msg;
 
-  if(!(pull16(ppReadPackedMsg, &pNfapiMsg->pdu_type, end) &&
-       pull16(ppReadPackedMsg, &pNfapiMsg->pdu_size, end) ))
   if(!(pull16(ppReadPackedMsg, &pNfapiMsg->pdu_type, end) &&
        pull16(ppReadPackedMsg, &pNfapiMsg->pdu_size, end) ))
     return 0;
@@ -5896,7 +5801,7 @@ static uint8_t unpack_hi_dci0_request_body_value(void *tlv, uint8_t **ppReadPack
   return 1;
 }
 //unpack_ul_dci_pdu_list_value
-//To be solved unpack_dci_payload ...
+
 static uint8_t unpack_ul_dci_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg)
 {
   nfapi_nr_ul_dci_request_pdus_t *value = (nfapi_nr_ul_dci_request_pdus_t *)msg;
@@ -5990,7 +5895,6 @@ static uint8_t unpack_tx_data_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t 
   nfapi_nr_pdu_t *pNfapiMsg = (nfapi_nr_pdu_t *)msg;
 
   if(!(pull16(ppReadPackedMsg, &pNfapiMsg->PDU_length, end) &&
-  if(!(pull16(ppReadPackedMsg, &pNfapiMsg->PDU_length, end) &&
        pull16(ppReadPackedMsg, &pNfapiMsg->PDU_index, end) &&
        pull32(ppReadPackedMsg, &pNfapiMsg->num_TLV, end)
   ))
@@ -6004,15 +5908,11 @@ static uint8_t unpack_tx_data_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t 
   for(; i < total_number_of_tlvs; ++i) {
     if (!(pull16(ppReadPackedMsg, &pNfapiMsg->TLVs[i].tag, end) &&
           pull16(ppReadPackedMsg, &pNfapiMsg->TLVs[i].length, end)))
-    if (!(pull16(ppReadPackedMsg, &pNfapiMsg->TLVs[i].tag, end) &&
-          pull16(ppReadPackedMsg, &pNfapiMsg->TLVs[i].length, end)))
       return 0;
 
     switch(pNfapiMsg->TLVs[i].tag) {
       case 0: {
         if (!pullarray32(ppReadPackedMsg, pNfapiMsg->TLVs[i].value.direct,
-                         sizeof(pNfapiMsg->TLVs[i].value.direct) / sizeof(uint32_t),
-                         (pNfapiMsg->TLVs[i].length+3)/4, end))
                          sizeof(pNfapiMsg->TLVs[i].value.direct) / sizeof(uint32_t),
                          (pNfapiMsg->TLVs[i].length+3)/4, end))
           return 0;
@@ -6022,8 +5922,6 @@ static uint8_t unpack_tx_data_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t 
 
       case 1: {
         if (!pullarray32(ppReadPackedMsg,pNfapiMsg->TLVs[i].value.ptr,
-                         pNfapiMsg->TLVs[i].length,
-                         pNfapiMsg->TLVs[i].length, end))
                          pNfapiMsg->TLVs[i].length,
                          pNfapiMsg->TLVs[i].length, end))
           return 0;
@@ -6048,15 +5946,6 @@ static uint8_t unpack_tx_data_request(uint8_t **ppReadPackedMsg, uint8_t *end, v
   if (!(pull16(ppReadPackedMsg, &pNfapiMsg->SFN, end) && pull16(ppReadPackedMsg, &pNfapiMsg->Slot, end)
         && pull16(ppReadPackedMsg, &pNfapiMsg->Number_of_PDUs, end)))
     return 0;
-
-  for (int i = 0; i < pNfapiMsg->Number_of_PDUs; i++) {
-    if (!unpack_tx_data_pdu_list_value(ppReadPackedMsg, end, &pNfapiMsg->pdu_list[i])) {
-      printf("%s():%d. Error packing TX_DATA.request PDU #%d, PDU length = %d PDU IDX = %d\n",
-             __FUNCTION__,
-             __LINE__,
-             i,
-             pNfapiMsg->pdu_list[i].PDU_length,
-             pNfapiMsg->pdu_list[i].PDU_index);
 
   for (int i = 0; i < pNfapiMsg->Number_of_PDUs; i++) {
     if (!unpack_tx_data_pdu_list_value(ppReadPackedMsg, end, &pNfapiMsg->pdu_list[i])) {
