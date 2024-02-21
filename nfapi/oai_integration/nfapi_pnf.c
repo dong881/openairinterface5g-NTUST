@@ -1219,7 +1219,7 @@ int pnf_phy_dl_tti_req(gNB_L1_rxtx_proc_t *proc, nfapi_pnf_p7_config_t *pnf_p7, 
     printf("[NFAPI PNF] number of pdu is 0\n");
     notifiedFIFO_elt_t *res;
     res = l1tx_message_extract(gNB, sfn, slot); 
-    pushNotifiedFIFO(gNB->L1_tx_filled, res);
+    pushNotifiedFIFO(&gNB->L1_tx_filled, res);
     return 0;
   }
 

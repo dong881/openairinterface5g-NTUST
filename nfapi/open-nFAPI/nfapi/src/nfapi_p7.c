@@ -4812,7 +4812,6 @@ static uint8_t unpack_ul_tti_request_pucch_pdu(void *tlv, uint8_t **ppReadPacked
           && pull16(ppReadPackedMsg, &pucch_pdu->bit_len_csi_part2, end) &&
           // TODO: ignoring beamforming tlv for now
           pull16(ppReadPackedMsg, &dummy16, end) && pull16(ppReadPackedMsg, &dummy16, end) && pull8(ppReadPackedMsg, &dummy8, end));
-          pull16(ppReadPackedMsg, &dummy16, end) && pull16(ppReadPackedMsg, &dummy16, end) && pull8(ppReadPackedMsg, &dummy8, end));
 }
 
 
@@ -5898,8 +5897,6 @@ static uint8_t unpack_tx_data_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t 
        pull16(ppReadPackedMsg, &pNfapiMsg->PDU_index, end) &&
        pull32(ppReadPackedMsg, &pNfapiMsg->num_TLV, end)
   ))
-       pull32(ppReadPackedMsg, &pNfapiMsg->num_TLV, end)
-  ))
     return 0;
 
   uint16_t i = 0;
@@ -5957,7 +5954,6 @@ static uint8_t unpack_tx_data_request(uint8_t **ppReadPackedMsg, uint8_t *end, v
              pNfapiMsg->pdu_list[i].PDU_index);
 
       return 0;
-    }
     }
   }
 
