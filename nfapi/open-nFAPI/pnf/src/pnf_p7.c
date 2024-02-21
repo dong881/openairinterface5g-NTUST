@@ -956,6 +956,7 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
 	// If the subframe_buffer has been configured
 	if(pnf_p7->_public.slot_buffer_size!= 0) // for now value is same as sf_buffer_size
 	{
+		// printf("\n[NTUST] the subframe_buffer has been configured");
 
 		// apply the shift to the incoming sfn_sf
 		if(pnf_p7->slot_shift != 0) // see in vnf_build_send_dl_node_sync
@@ -1002,13 +1003,15 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
 		// {	
 		
 		//checking in the tx slot buffers to see if a p7 msg is present. todo: what if it's a mixed slot? 
+		// printf("\n[NTUST] checking in the tx slot buffers to see if a p7 msg is present....");
 
 		if(tx_slot_buffer->tx_data_req != 0 && tx_slot_buffer->tx_data_req->SFN == sfn_tx && tx_slot_buffer->tx_data_req->Slot == slot_tx)
 		{
-				
+			printf("\n[NTUST] check tx_data_req");
 			if(pnf_p7->_public.tx_data_req_fn)
 			{	
 				//NFAPI_TRACE(NFAPI_TRACE_INFO, "Calling tx_data_req_fn in SFN/slot %d.%d \n",sfn,slot);
+				printf("\n[NTUST] Process tx_data SFN/slot %d.%d buffer index: %d \n",sfn_tx,slot_tx,buffer_index_tx);
 				LOG_D(PHY, "Process tx_data SFN/slot %d.%d buffer index: %d \n",sfn_tx,slot_tx,buffer_index_tx);	
 				(pnf_p7->_public.tx_data_req_fn)(&(pnf_p7->_public), tx_slot_buffer->tx_data_req);
 			}
@@ -1027,8 +1030,10 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
 		 
 		if(tx_slot_buffer->dl_tti_req != 0 && tx_slot_buffer->dl_tti_req->SFN == sfn_tx && tx_slot_buffer->dl_tti_req->Slot == slot_tx) 
 		{
+			printf("\n[NTUST] check dl_tti_req");
 			if(pnf_p7->_public.dl_tti_req_fn)
 			{
+				printf("\n[NTUST] Process dl_tti SFN/slot %d.%d buffer index: %d \n",sfn_tx,slot_tx,buffer_index_tx);
 				LOG_D(PHY, "Process dl_tti SFN/slot %d.%d buffer index: %d \n",sfn_tx,slot_tx,buffer_index_tx);
 				(pnf_p7->_public.dl_tti_req_fn)(NULL, &(pnf_p7->_public), tx_slot_buffer->dl_tti_req);
 			}
@@ -1047,8 +1052,10 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
 
 		if(tx_slot_buffer->ul_dci_req!= 0 && tx_slot_buffer->ul_dci_req->SFN == sfn_tx && tx_slot_buffer->ul_dci_req->Slot == slot_tx)
 		{
+			printf("\n[NTUST] check ul_dci_req");
 			if(pnf_p7->_public.ul_dci_req_fn)
 			{   
+				printf("\n[NTUST] Process ul_dci SFN/slot %d.%d buffer index: %d \n",sfn_tx,slot_tx,buffer_index_tx);
 				//NFAPI_TRACE(NFAPI_TRACE_INFO, "Calling UL_dci_req_fn in SFN/slot %d.%d \n",sfn,slot);
 				LOG_D(PHY, "Process ul_dci SFN/slot %d.%d buffer index: %d \n",sfn_tx,slot_tx,buffer_index_tx);
  				(pnf_p7->_public.ul_dci_req_fn)(NULL, &(pnf_p7->_public), tx_slot_buffer->ul_dci_req);
