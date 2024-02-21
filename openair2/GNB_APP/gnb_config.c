@@ -1282,7 +1282,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
         printf("\n [NTUST] vnf p5 port%d",RC.nrmac[j]->eth_params_s.my_portc);
         RC.nrmac[j]->eth_params_s.remote_portc = *(MacRLC_ParamList.paramarray[j][MACRLC_REMOTE_S_PORTC_IDX].iptr);
         RC.nrmac[j]->eth_params_s.my_portd = *(MacRLC_ParamList.paramarray[j][MACRLC_LOCAL_S_PORTD_IDX].iptr);
-        printf("\n [NTUST] vnf p port%d\n",RC.nrmac[j]->eth_params_s.my_portd);
+        printf("\n [NTUST] vnf p7 port%d\n",RC.nrmac[j]->eth_params_s.my_portd);
         RC.nrmac[j]->eth_params_s.remote_portd = *(MacRLC_ParamList.paramarray[j][MACRLC_REMOTE_S_PORTD_IDX].iptr);
         RC.nrmac[j]->eth_params_s.transp_preference = ETH_UDP_MODE;
 
