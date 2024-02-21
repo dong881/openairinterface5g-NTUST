@@ -1603,7 +1603,7 @@ req->nfapi_config.tx_data_timing_offset.tl.tag = NFAPI_NR_NFAPI_TX_DATA_TIMING_O
   ve2.dummy = 2016;
   req->vendor_extension = &ve2.tl;
   nfapi_nr_vnf_config_req(config, p5_idx, req);
-  printf("[VNF] Sent NFAPI_VNF_CONFIG_REQ num_tlv:%u\n",req->num_tlv);
+  printf("[NTUST] [VNF] Sent NFAPI_VNF_CONFIG_REQ num_tlv:%u\n",req->num_tlv);
   return 0;
 }
 
@@ -1670,6 +1670,7 @@ int nr_config_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_config_re
   req.header.message_id = NFAPI_NR_PHY_MSG_TYPE_START_REQUEST;
   req.header.phy_id = resp->header.phy_id;
   nfapi_nr_vnf_start_req(config, p5_idx, &req);
+  printf("[NTUST] [VNF] Sent NFAPI_VNF_START_REQ num_tlv\n");
   return 0;
 }
 
@@ -1697,13 +1698,15 @@ int start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_start_response_t
 }
 
 int nr_start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_start_response_scf_t *resp) {
+  printf("\n[NTUST] [VNF] Received NFAPI_START_RESP idx:%d phy_id:%d\n", p5_idx, resp->header.phy_id);
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Received NFAPI_START_RESP idx:%d phy_id:%d\n", p5_idx, resp->header.phy_id);
   vnf_info *vnf = (vnf_info *)(config->user_data);
   pnf_info *pnf = vnf->pnfs;
   phy_info *phy = pnf->phys;
   vnf_p7_info *p7_vnf = vnf->p7_vnfs;
 
- nfapi_vnf_p7_add_pnf((p7_vnf->config), phy->remote_addr, phy->remote_port, phy->id);
+  nfapi_vnf_p7_add_pnf((p7_vnf->config), phy->remote_addr, phy->remote_port, phy->id);
+  printf("[NTUST] [VNF] nfapi_vnf_p7_add_pnf(), remote_addr:%s, remote_port:%d, phy->id:%d \n",phy->remote_addr,phy->remote_port,phy->id);
   return 0;
 }
 
