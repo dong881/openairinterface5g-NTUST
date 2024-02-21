@@ -602,6 +602,8 @@ int nfapi_vnf_p7_add_pnf(nfapi_vnf_p7_config_t* config, const char* pnf_p7_addr,
 	node->remote_addr.sin_port =  pnf_p7_port;//htons(pnf_p7_port);
 	node->remote_addr.sin_addr.s_addr = inet_addr(pnf_p7_addr);
 
+	printf("[NTUST] vnf_p7_connection_info_list_add: pnf_p7_addr:%s, sin_port:%d\n",pnf_p7_addr,node->remote_addr.sin_port);
+
 	vnf_p7_connection_info_list_add(vnf_p7, node);
 
 	return 0;
@@ -640,6 +642,8 @@ int nfapi_vnf_p7_dl_config_req(nfapi_vnf_p7_config_t* config, nfapi_dl_config_re
 int nfapi_vnf_p7_nr_dl_config_req(nfapi_vnf_p7_config_t* config, nfapi_nr_dl_tti_request_t* req)
 {
 	//NFAPI_TRACE(NFAPI_TRACE_INFO, "%s(config:%p req:%p)\n", __FUNCTION__, config, req);
+	/*[Ming Note] It will be executed.*/
+	// printf("\n[NTUST] Handle nfapi_vnf_p7_nr_dl_config_req()...\n");
 
 	if(config == 0 || req == 0)
 		return -1;
@@ -650,6 +654,8 @@ int nfapi_vnf_p7_nr_dl_config_req(nfapi_vnf_p7_config_t* config, nfapi_nr_dl_tti
 
 int nfapi_vnf_p7_ul_tti_req(nfapi_vnf_p7_config_t* config, nfapi_nr_ul_tti_request_t* req)
 {
+	/*[Ming Note] It will be executed.*/
+	// printf("\n[NTUST] Handle nfapi_vnf_p7_ul_tti_req()...\n");
 	if(config == 0 || req == 0)
 		return -1;
 	vnf_p7_t* vnf_p7 = (vnf_p7_t*)config;
@@ -658,6 +664,8 @@ int nfapi_vnf_p7_ul_tti_req(nfapi_vnf_p7_config_t* config, nfapi_nr_ul_tti_reque
 
 int nfapi_vnf_p7_ul_config_req(nfapi_vnf_p7_config_t* config, nfapi_ul_config_request_t* req)
 {
+	/*[Ming Note] It will not be executed.*/
+	printf("\n[NTUST] Handle nfapi_vnf_p7_ul_config_req()...\n");
 	if(config == 0 || req == 0)
 		return -1;
 
@@ -666,6 +674,9 @@ int nfapi_vnf_p7_ul_config_req(nfapi_vnf_p7_config_t* config, nfapi_ul_config_re
 }
 int nfapi_vnf_p7_ul_dci_req(nfapi_vnf_p7_config_t* config, nfapi_nr_ul_dci_request_t* req)
 {
+	/*[Ming Note] It will not be executed.*/
+	printf("\n[NTUST] Handle nfapi_vnf_p7_ul_dci_req()...\n");
+
 	if(config == 0 || req == 0)
 		return -1;
 
