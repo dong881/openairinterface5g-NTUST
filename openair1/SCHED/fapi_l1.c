@@ -958,12 +958,10 @@ void schedule_response(Sched_Rsp_t *Sched_INFO, void *arg) {
   if ((NFAPI_MODE!=NFAPI_MONOLITHIC) && do_oai && !dont_send) {
     if(Sched_INFO->TX_req->tx_request_body.number_of_pdus > 0) {
       Sched_INFO->TX_req->sfn_sf = frame << 4 | subframe;
-      printf("\n[NTUST] execute oai_nfapi_tx_req...\n");
       oai_nfapi_tx_req(Sched_INFO->TX_req);
     }
 
     Sched_INFO->DL_req->sfn_sf = frame << 4 | subframe;
-    printf("\n[NTUST] execute oai_nfapi_dl_config_req...\n");
     oai_nfapi_dl_config_req(Sched_INFO->DL_req); // DJP - .dl_config_request_body.dl_config_pdu_list[0]); // DJP - FIXME TODO - yuk - only copes with 1 pdu
     Sched_INFO->UE_release_req->sfn_sf = frame << 4 | subframe;
     oai_nfapi_ue_release_req(Sched_INFO->UE_release_req);
@@ -1018,7 +1016,6 @@ void schedule_response(Sched_Rsp_t *Sched_INFO, void *arg) {
       }else if (RC.mac[Mod_id]->scheduler_mode == SCHED_MODE_FAIR_RR) {
         if(ulsch_pdu_num <= fp->ue_multiple_max){
           UL_req->sfn_sf = frame << 4 | subframe;
-          printf("\n[NTUST] execute oai_nfapi_ul_config_req...\n");
           oai_nfapi_ul_config_req(UL_req);
           UL_req->ul_config_request_body.number_of_pdus=0;
           number_ul_pdu=0;

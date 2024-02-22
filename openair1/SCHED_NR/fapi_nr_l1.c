@@ -131,6 +131,8 @@ void handle_nr_nfapi_pdsch_pdu(processingData_L1tx_t *msgTx,
 
 void nr_schedule_response(NR_Sched_Rsp_t *Sched_INFO)
 {
+  /* [Ming Note] It will be executed. */
+  printf("\n[NTUST] execute nr_schedule_response\n");
   // copy data from L2 interface into L1 structures
   module_id_t                   Mod_id       = Sched_INFO->module_id;
   nfapi_nr_dl_tti_request_t     *DL_req      = &Sched_INFO->DL_req;
@@ -252,6 +254,11 @@ void nr_schedule_response(NR_Sched_Rsp_t *Sched_INFO)
   }
 
   if (NFAPI_MODE == NFAPI_MODE_VNF) { //If VNF, oai_nfapi functions send respective p7 msgs to PNF for which nPDUs is greater than 0
+    printf("\n[NTUST] If VNF, oai_nfapi functions send respective p7 msgs to PNF for which nPDUs is greater than 0\n");
+    printf("\n[NTUST] number_ul_tti_pdu:%d",number_ul_tti_pdu);
+    printf("\n[NTUST] number_ul_dci_pdu:%d",number_ul_dci_pdu);
+    printf("\n[NTUST] number_tx_data_pdu:%d",number_tx_data_pdu);
+    printf("\n[NTUST] number_dl_pdu:%d\n",number_dl_pdu);
 
     if(number_ul_tti_pdu>0)
       oai_nfapi_ul_tti_req(UL_tti_req);
