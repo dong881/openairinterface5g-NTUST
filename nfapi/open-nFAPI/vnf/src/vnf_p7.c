@@ -472,7 +472,8 @@ int vnf_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info, u
 
 int vnf_nr_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* header)
 {
-
+	/*[Ming Note] It will be executed. */
+	printf("\n[NTUST] execute vnf_nr_p7_pack_and_send_p7_msg()\n");
 	nfapi_vnf_p7_connection_info_t* p7_connection = vnf_p7_connection_info_list_find(vnf_p7, header->phy_id);
 	if(p7_connection)
 	{
@@ -490,6 +491,8 @@ int vnf_nr_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* 
 			NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() failed to pack p7 message phy_id:%d\n", __FUNCTION__, header->phy_id);
 			return -1;
 		}
+		printf("\n[NTUST] nfapi_nr_p7_message_pack len: %d\n",len);
+		printf("\n[NTUST] vnf_p7->_public.segment_size: %d\n",vnf_p7->_public.segment_size);
 
 		if(len > vnf_p7->_public.segment_size)
 		{
@@ -536,7 +539,7 @@ int vnf_nr_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* 
 				}
 			
 				nfapi_p7_update_transmit_timestamp(buffer, calculate_transmit_timestamp(p7_connection->sfn, p7_connection->slot, vnf_p7->slot_start_time_hr));	
-
+				printf("\n[NTUST] before vnf_send_p7_msg(), addr:%s\n",vnf_p7->p7_connections->local_addr);
 				send_result = vnf_send_p7_msg(vnf_p7, p7_connection,  &tx_buffer[0], segment_size);
 
 			}
@@ -551,6 +554,7 @@ int vnf_nr_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* 
 			nfapi_p7_update_transmit_timestamp(buffer, calculate_transmit_timestamp(p7_connection->sfn, p7_connection->slot, vnf_p7->slot_start_time_hr));	
 
 			// simple case that the message fits in a single segement
+			printf("\n[NTUST] simple case that the message fits in a single segement\n");
 			send_result = vnf_send_p7_msg(vnf_p7, p7_connection, &buffer[0], len);
 		}
 
@@ -559,6 +563,7 @@ int vnf_nr_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* 
 	}
 	else
 	{
+		printf("\n[NTUST] %s() cannot find p7 connection info for phy_id:%d\n", __FUNCTION__, header->phy_id);
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() cannot find p7 connection info for phy_id:%d\n", __FUNCTION__, header->phy_id);
 		return -1;
 	}
@@ -566,6 +571,7 @@ int vnf_nr_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* 
 
 int vnf_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* header)
 {
+	printf("\n[NTUST] [VNF] vnf_p7_pack_and_send_p7_msg -> addr:%s",vnf_p7->p7_connections->local_addr);
 
 	nfapi_vnf_p7_connection_info_t* p7_connection = vnf_p7_connection_info_list_find(vnf_p7, header->phy_id);
 	if(p7_connection)
