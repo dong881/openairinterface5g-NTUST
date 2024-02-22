@@ -2013,6 +2013,7 @@ static void remove_ul_config_req_pdu(int index, nfapi_ul_config_request_t *ul_co
 }
 
 int oai_nfapi_ul_tti_req(nfapi_nr_ul_tti_request_t *ul_tti_req) {
+  printf("\n[NTUST] execute oai_nfapi_ul_tti_req()...");
   nfapi_vnf_p7_config_t *p7_config = vnf.p7_vnfs[0].config;
 
   ul_tti_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
