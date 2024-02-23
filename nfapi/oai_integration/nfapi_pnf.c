@@ -1214,14 +1214,16 @@ int pnf_phy_dl_tti_req(gNB_L1_rxtx_proc_t *proc, nfapi_pnf_p7_config_t *pnf_p7, 
                 req->dl_tti_request_body.nPDUs,
                 req->dl_tti_request_body.nUe,
                 req->dl_tti_request_body.PduIdx);
-  }
+  } 
+/* ======== small cell integration ======== */
   else if (NFAPI_MODE == NFAPI_MODE_PNF){
     printf("[NFAPI PNF] number of pdu is 0\n");
     notifiedFIFO_elt_t *res;
-    res = l1tx_message_extract(gNB, sfn, slot); 
-    pushNotifiedFIFO(&gNB->L1_tx_filled, res);
+    // res = l1tx_message_extract(gNB, sfn, slot); 
+    // pushNotifiedFIFO(&gNB->L1_tx_filled, res);
     return 0;
   }
+/* ======================================== */
 
   for (int i=0; i<req->dl_tti_request_body.nPDUs; i++) {
     // NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() sfn/sf:%d PDU[%d] size:%d pdcch_vars->num_dci:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(req->sfn_sf), i, dl_config_pdu_list[i].pdu_size,pdcch_vars->num_dci);
