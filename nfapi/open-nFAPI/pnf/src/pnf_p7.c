@@ -2665,36 +2665,36 @@ void pnf_nr_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 			// pnf_handle_dl_tti_request(pRecvMsg, recvMsgLen, pnf_p7);
 			/* ======== small cell integration ======== */
 			timing_idx = pnf_handle_dl_tti_request(pRecvMsg, recvMsgLen, pnf_p7);
-			if(NFAPI_MODE == NFAPI_MODE_PNF && pnf_p7->_public.dl_tti_req_fn && timing_idx!=-1){
-				pnf_p7->_public.dl_tti_req_fn(NULL, (nfapi_pnf_p7_config_t *)pnf_p7, pnf_p7->slot_buffer[timing_idx].dl_tti_req);
-			}
+			// if(NFAPI_MODE == NFAPI_MODE_PNF && pnf_p7->_public.dl_tti_req_fn && timing_idx!=-1){
+			// 	pnf_p7->_public.dl_tti_req_fn(NULL, (nfapi_pnf_p7_config_t *)pnf_p7, pnf_p7->slot_buffer[timing_idx].dl_tti_req);
+			// }
 			/* ======================================== */			
 			break;
 		case NFAPI_NR_PHY_MSG_TYPE_UL_TTI_REQUEST:
 			// pnf_handle_ul_tti_request(pRecvMsg, recvMsgLen, pnf_p7);
-			timing_idx = pnf_handle_ul_tti_request(pRecvMsg, recvMsgLen, pnf_p7);
 			/* ======== small cell integration ======== */
-			if(NFAPI_MODE == NFAPI_MODE_PNF && pnf_p7->_public.ul_tti_req_fn && timing_idx!=-1){
-				pnf_p7->_public.dl_tti_req_fn(NULL, (nfapi_pnf_p7_config_t *)pnf_p7, pnf_p7->slot_buffer[timing_idx].ul_tti_req);
-			}
+			timing_idx = pnf_handle_ul_tti_request(pRecvMsg, recvMsgLen, pnf_p7);
+			// if(NFAPI_MODE == NFAPI_MODE_PNF && pnf_p7->_public.ul_tti_req_fn && timing_idx!=-1){
+			// 	pnf_p7->_public.ul_tti_req_fn(NULL, (nfapi_pnf_p7_config_t *)pnf_p7, pnf_p7->slot_buffer[timing_idx].ul_tti_req);
+			// }
 			/* ======================================== */	
 			break;
 		case NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST:
 			// pnf_handle_ul_dci_request(pRecvMsg, recvMsgLen, pnf_p7);
 			/* ======== small cell integration ======== */
 			timing_idx = pnf_handle_ul_dci_request(pRecvMsg, recvMsgLen, pnf_p7);
-			if(NFAPI_MODE == NFAPI_MODE_PNF && pnf_p7->_public.ul_dci_req_fn && timing_idx!=-1){
-				pnf_p7->_public.dl_tti_req_fn(NULL, (nfapi_pnf_p7_config_t *)pnf_p7, pnf_p7->slot_buffer[timing_idx].ul_dci_req);
-			}
+			// if(NFAPI_MODE == NFAPI_MODE_PNF && pnf_p7->_public.ul_dci_req_fn && timing_idx!=-1){
+			// 	pnf_p7->_public.ul_dci_req_fn(NULL, (nfapi_pnf_p7_config_t *)pnf_p7, pnf_p7->slot_buffer[timing_idx].ul_dci_req);
+			// }
 			/* ======================================== */				
 			break;
 		case NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST:
 			// pnf_handle_tx_data_request(pRecvMsg, recvMsgLen, pnf_p7);
 			/* ======== small cell integration ======== */
 			timing_idx = pnf_handle_tx_data_request(pRecvMsg, recvMsgLen, pnf_p7);
-			if(NFAPI_MODE == NFAPI_MODE_PNF && pnf_p7->_public.tx_data_req_fn && timing_idx!=-1){
-				pnf_p7->_public.dl_tti_req_fn(NULL, (nfapi_pnf_p7_config_t *)pnf_p7, pnf_p7->slot_buffer[timing_idx].tx_data_req);
-			}
+			// if(NFAPI_MODE == NFAPI_MODE_PNF && pnf_p7->_public.tx_data_req_fn && timing_idx!=-1){
+			// 	pnf_p7->_public.tx_data_req_fn(NULL, (nfapi_pnf_p7_config_t *)pnf_p7, pnf_p7->slot_buffer[timing_idx].tx_data_req);
+			// }
 			/* ======================================== */	
 			break;
 		default:
