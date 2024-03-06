@@ -88,20 +88,14 @@ nfapi_vnf_pnf_info_t* nfapi_vnf_pnf_list_find(nfapi_vnf_config_t* config, int p5
 	NFAPI_TRACE(NFAPI_TRACE_DEBUG, "config->pnf_list:%p\n", config->pnf_list);
 
 	nfapi_vnf_pnf_info_t* curr = config->pnf_list;
-	while(curr != 0)
-	{
-		if(curr->p5_idx == p5_idx)
-                {
-                  NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s : curr->p5_idx:%d p5_idx:%d\n", __FUNCTION__, curr->p5_idx, p5_idx);
-			return curr;
-                        }
+  while (curr != 0) {
+    if (curr->p5_idx == p5_idx)
+      return curr;
+    curr = curr->next;
+  }
+  NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s(): could not find P5 connection for p5_idx %d\n", __func__, p5_idx);
 
-                NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s : curr->next:%p\n", __FUNCTION__, curr->next);
-
-		curr = curr->next;
-	}
-
-	return 0;
+  return 0;
 }
 
 void vnf_nr_handle_pnf_param_response(void *pRecvMsg, int recvMsgLen, nfapi_vnf_config_t* config, int p5_idx)
@@ -124,7 +118,9 @@ void vnf_nr_handle_pnf_param_response(void *pRecvMsg, int recvMsgLen, nfapi_vnf_
 			if(config->pnf_nr_param_resp)
 			{
 				(config->pnf_nr_param_resp)(config, p5_idx, &msg);
-			}
+			} else {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s(): no pnf_nr_param_resp cb installed\n", __func__);
+      }
 		}	
 		else
 		{
@@ -157,7 +153,9 @@ void vnf_handle_pnf_param_response(void *pRecvMsg, int recvMsgLen, nfapi_vnf_con
 			if(config->pnf_param_resp)
 			{
 				(config->pnf_param_resp)(config, p5_idx, &msg);
-			}
+			} else {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s(): no pnf_params_resp cb installed\n", __func__);
+      }
 		}	
 		else
 		{
@@ -191,7 +189,9 @@ void vnf_nr_handle_pnf_config_response(void *pRecvMsg, int recvMsgLen, nfapi_vnf
 			if(config->pnf_nr_config_resp)
 			{
 				(config->pnf_nr_config_resp)(config, p5_idx, &msg);
-			}
+			} else {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s(): no pnf_nr_config_resp cb installed\n", __func__);
+      }
 		}
 		else
 		{
@@ -224,7 +224,9 @@ void vnf_handle_pnf_config_response(void *pRecvMsg, int recvMsgLen, nfapi_vnf_co
 			if(config->pnf_config_resp)
 			{
 				(config->pnf_config_resp)(config, p5_idx, &msg);
-			}
+			} else {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s(): no pnf_config_resp cb installed\n", __func__);
+      }
 		}
 		else
 		{
@@ -256,7 +258,9 @@ void vnf_nr_handle_pnf_start_response(void *pRecvMsg, int recvMsgLen, nfapi_vnf_
 			if(config->pnf_nr_start_resp)
 			{
 				(config->pnf_nr_start_resp)(config, p5_idx, &msg);
-			}
+			} else {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s(): no pnf_nr_start_resp cb installed\n", __func__);
+      }
 		}
 		else
 		{
@@ -288,7 +292,9 @@ void vnf_handle_pnf_start_response(void *pRecvMsg, int recvMsgLen, nfapi_vnf_con
 			if(config->pnf_start_resp)
 			{
 				(config->pnf_start_resp)(config, p5_idx, &msg);
-			}
+			} else {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s(): no pnf_start_resp cb installed\n", __func__);
+      }
 		}
 		else
 		{
@@ -320,7 +326,9 @@ void vnf_handle_pnf_stop_response(void *pRecvMsg, int recvMsgLen, nfapi_vnf_conf
 			if(config->pnf_stop_resp)
 			{
 				(config->pnf_stop_resp)(config, p5_idx, &msg);
-			}
+			} else {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s(): no pnf_stop_resp cb installed\n", __func__);
+      }
 		}
 		else
 		{
@@ -560,7 +568,9 @@ void vnf_handle_start_response(void *pRecvMsg, int recvMsgLen, nfapi_vnf_config_
 			if(config->start_resp)
 			{
 				(config->start_resp)(config, p5_idx, &msg);
-			}
+			} else {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s(): no start_resp cb installed\n", __func__);
+      }
 		}
 		else
 		{
@@ -593,7 +603,9 @@ void vnf_nr_handle_start_response(void *pRecvMsg, int recvMsgLen, nfapi_vnf_conf
 				if(config->nr_start_resp)
 				{
 					(config->nr_start_resp)(config, p5_idx, &msg);
-				}
+				} else {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s(): no nr_start_resp cb installed\n", __func__);
+      }
 			}
 		}
 		else

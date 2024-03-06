@@ -30,6 +30,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <assert.h>
 
 #include <nfapi_interface.h>
 #include <nfapi.h>
@@ -1585,6 +1586,60 @@ static uint8_t pack_config_request(void *msg, uint8_t **ppWritePackedMsg, uint8_
                   &pack_uint8_tlv_value));
 }
 
+#define PRINT_TLV(pref, tlv) { printf("%s t %d l %d v %d\n", pref, (tlv)->tl.tag, (tlv)->tl.length, (tlv)->value); }
+
+static void dump_nr_config_request(nfapi_nr_config_request_scf_t *config)
+{
+  nfapi_nr_carrier_config_t *cc = &config->carrier_config;
+  printf("carrier_config\n");
+  PRINT_TLV("  bw", &cc->dl_bandwidth);
+  PRINT_TLV("  freq", &cc->dl_frequency);
+  PRINT_TLV("  dl_k0[0]", &cc->dl_k0[0]);
+  PRINT_TLV("  dl_k0[1]", &cc->dl_k0[1]);
+  PRINT_TLV("  dl_k0[2]", &cc->dl_k0[2]);
+  PRINT_TLV("  dl_k0[3]", &cc->dl_k0[3]);
+  PRINT_TLV("  dl_k0[4]", &cc->dl_k0[4]);
+  PRINT_TLV("  dl_grid_size[0]", &cc->dl_grid_size[0]);
+  PRINT_TLV("  dl_grid_size[1]", &cc->dl_grid_size[1]);
+  PRINT_TLV("  dl_grid_size[2]", &cc->dl_grid_size[2]);
+  PRINT_TLV("  dl_grid_size[3]", &cc->dl_grid_size[3]);
+  PRINT_TLV("  dl_grid_size[4]", &cc->dl_grid_size[4]);
+  PRINT_TLV("  num_tx_ant", &cc->num_tx_ant);
+  PRINT_TLV("  uplink_bandwidth", &cc->uplink_bandwidth);
+  PRINT_TLV("  uplink_frequency", &cc->uplink_frequency);
+  PRINT_TLV("  ul_k0[0]", &cc->ul_k0[0]);
+  PRINT_TLV("  ul_k0[1]", &cc->ul_k0[1]);
+  PRINT_TLV("  ul_k0[2]", &cc->ul_k0[2]);
+  PRINT_TLV("  ul_k0[3]", &cc->ul_k0[3]);
+  PRINT_TLV("  ul_k0[4]", &cc->ul_k0[4]);
+  PRINT_TLV("  ul_grid_size[0]", &cc->ul_grid_size[0]);
+  PRINT_TLV("  ul_grid_size[1]", &cc->ul_grid_size[1]);
+  PRINT_TLV("  ul_grid_size[2]", &cc->ul_grid_size[2]);
+  PRINT_TLV("  ul_grid_size[3]", &cc->ul_grid_size[3]);
+  PRINT_TLV("  ul_grid_size[4]", &cc->ul_grid_size[4]);
+  PRINT_TLV("  num_rx_ant", &cc->num_rx_ant);
+  PRINT_TLV("  frequency_shift_7p5khz", &cc->frequency_shift_7p5khz);
+
+  nfapi_nr_prach_config_t *pc = &config->prach_config;
+  printf("prach_config\n");
+  PRINT_TLV("  prach_sequence_length", &pc->prach_sequence_length);
+  PRINT_TLV("  prach_sub_c_spacing", &pc->prach_sub_c_spacing);
+  PRINT_TLV("  restricted_set_config", &pc->restricted_set_config);
+  PRINT_TLV("  num_prach_fd_occasions", &pc->num_prach_fd_occasions);
+  PRINT_TLV("  prach_ConfigurationIndex", &pc->prach_ConfigurationIndex);
+  for (int i = 0; i < pc->num_prach_fd_occasions.value; ++i) {
+    nfapi_nr_num_prach_fd_occasions_t *pfdo = &pc->num_prach_fd_occasions_list[i];
+    PRINT_TLV("    prach_root_sequence_index", &pfdo->prach_root_sequence_index);
+    PRINT_TLV("    num_root_sequences", &pfdo->num_root_sequences);
+    PRINT_TLV("    k1", &pfdo->k1);
+    PRINT_TLV("    prach_zero_corr_conf", &pfdo->prach_zero_corr_conf);
+    PRINT_TLV("    num_unused_root_sequences", &pfdo->num_unused_root_sequences);
+  };
+
+  PRINT_TLV("  ssb_per_rach", &pc->ssb_per_rach);
+  PRINT_TLV("  prach_multiple_carriers_in_a_band", &pc->prach_multiple_carriers_in_a_band);
+}
+
 static uint8_t pack_nr_config_request(void *msg, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p4_p5_codec_config_t *config)
 {
   uint8_t *pNumTLVFields = (uint8_t *)*ppWritePackedMsg;
@@ -1838,6 +1893,19 @@ static uint8_t pack_nr_config_request(void *msg, uint8_t **ppWritePackedMsg, uin
   retval &=
       pack_nr_tlv(NFAPI_NR_CONFIG_TDD_PERIOD_TAG, &(pNfapiMsg->tdd_table.tdd_period), ppWritePackedMsg, end, &pack_uint8_tlv_value);
   numTLVs++;
+
+  assert(6 == pNfapiMsg->tdd_table.tdd_period.value);
+  for (int i = 0; i < 20; i++) {
+    for (int k = 0; k < 14; k++) {
+      pack_nr_tlv(NFAPI_NR_CONFIG_SLOT_CONFIG_TAG,
+                  &pNfapiMsg->tdd_table.max_tdd_periodicity_list[i].max_num_of_symbol_per_slot_list[k].slot_config,
+                  ppWritePackedMsg,
+                  end,
+                  &pack_uint8_tlv_value);
+      numTLVs++;
+    }
+  }
+  // probably near here
   // END TDD Table
 
   // START Measurement Config
@@ -2027,6 +2095,7 @@ static uint8_t pack_nr_p5_message_body(nfapi_p4_p5_message_header_t *header, uin
       break;
 
     case NFAPI_NR_PHY_MSG_TYPE_CONFIG_REQUEST:
+      dump_nr_config_request((nfapi_nr_config_request_scf_t*) header);
       result = pack_nr_config_request(header, ppWritePackedMsg, end, config);
       break;
 
@@ -2828,14 +2897,8 @@ static uint8_t unpack_nr_param_response(uint8_t **ppReadPackedMsg, uint8_t *end,
   };
   // print ppReadPackedMsg
   uint8_t *ptr = *ppReadPackedMsg;
-  printf("\n Read message unpack_param_response: ");
 
-  while (ptr < end) {
-    printf(" %02x ", *ptr);
-    ptr++;
-  }
 
-  printf("\n");
   return (pull8(ppReadPackedMsg, &pNfapiMsg->error_code, end) && pull8(ppReadPackedMsg, &pNfapiMsg->num_tlv, end)
           && unpack_nr_tlv_list(unpack_fns,
                                 sizeof(unpack_fns) / sizeof(unpack_tlv_t),
@@ -3064,6 +3127,9 @@ static uint8_t unpack_config_request(uint8_t **ppReadPackedMsg, uint8_t *end, vo
 
 static uint8_t unpack_nr_config_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg, nfapi_p4_p5_codec_config_t *config)
 {
+  for (uint8_t *p = *ppReadPackedMsg; p < end; ++p)
+    printf("%02x ", *p);
+  printf("\n");
   // Helper vars for indexed TLVs
   int prach_root_seq_idx = 0;
   int unused_root_seq_idx = 0;
@@ -3081,7 +3147,7 @@ static uint8_t unpack_nr_config_request(uint8_t **ppReadPackedMsg, uint8_t *end,
         (nfapi_nr_max_num_of_symbol_per_slot_t *)malloc(14 * sizeof(nfapi_nr_max_num_of_symbol_per_slot_t));
   }
   pNfapiMsg->prach_config.num_prach_fd_occasions_list =
-      (nfapi_nr_num_prach_fd_occasions_t *)malloc(sizeof(nfapi_nr_num_prach_fd_occasions_t));
+      (nfapi_nr_num_prach_fd_occasions_t *)calloc(10, sizeof(nfapi_nr_num_prach_fd_occasions_t));
   // unpack TLVs
 
   unpack_tlv_t unpack_fns[] = {
@@ -3187,7 +3253,7 @@ static uint8_t unpack_nr_config_request(uint8_t **ppReadPackedMsg, uint8_t *end,
                 &pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].prach_root_sequence_index,
                 ppReadPackedMsg,
                 end);
-            prach_root_seq_idx++;
+            //prach_root_seq_idx++;
             break;
           case NFAPI_NR_CONFIG_K1_TAG:
             pNfapiMsg->prach_config.num_prach_fd_occasions_list[prach_root_seq_idx].k1.tl.tag = generic_tl.tag;
@@ -3289,12 +3355,17 @@ static uint8_t unpack_nr_config_request(uint8_t **ppReadPackedMsg, uint8_t *end,
             }
             break;
           default:
+            /* unpack based on unpack_fns table above, this is a normal case */
+            printf("*** have tag %x, idx %ld\n", generic_tl.tag, idx);
+            assert(idx <= sizeof(unpack_fns) / sizeof(unpack_fns[0]));
             result = (*unpack_fns[idx].unpack_func)(tl, ppReadPackedMsg, end);
             break;
         }
 
-        if (result == 0)
+        if (result == 0) {
+          printf("return after tag %x idx %ld\n", generic_tl.tag, idx);
           return 0;
+        }
 
         // check if the length was right;
         if (tl->length != (((*ppReadPackedMsg)) - pStartOfValue))
@@ -3338,6 +3409,7 @@ static uint8_t unpack_nr_config_request(uint8_t **ppReadPackedMsg, uint8_t *end,
         }
       } else {
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "Unknown TAG value: 0x%04x\n", generic_tl.tag);
+        assert(0);
         if (++numBadTags > MAX_BAD_TAG) {
           NFAPI_TRACE(NFAPI_TRACE_ERROR, "Supplied message has had too many bad tags\n");
           return 0;
@@ -3721,14 +3793,7 @@ int nfapi_nr_p5_message_unpack(void *pMessageBuf,
   }
 
   uint8_t *ptr = pReadPackedMessage;
-  printf("\n Read NR message unpack: ");
 
-  while (ptr < end) {
-    printf(" %02x ", *ptr);
-    ptr++;
-  }
-
-  printf("\n");
   // clean the supplied buffer for - tag value blanking
   (void)memset(pUnpackedBuf, 0, unpackedBufLen);
 
@@ -3791,6 +3856,7 @@ int nfapi_nr_p5_message_unpack(void *pMessageBuf,
 
     case NFAPI_NR_PHY_MSG_TYPE_CONFIG_REQUEST:
       result = unpack_nr_config_request(&pReadPackedMessage, end, pMessageHeader, config);
+      dump_nr_config_request((nfapi_nr_config_request_scf_t*) pMessageHeader);
       break;
 
     case NFAPI_NR_PHY_MSG_TYPE_CONFIG_RESPONSE:

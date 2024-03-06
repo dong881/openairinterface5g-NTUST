@@ -82,7 +82,7 @@ static const unsigned int gain_table[31] = {100,  112,  126,  141,  158,  178,  
 void nr_fill_dl_indication(nr_downlink_indication_t *dl_ind,
                            fapi_nr_dci_indication_t *dci_ind,
                            fapi_nr_rx_indication_t *rx_ind,
-                           UE_nr_rxtx_proc_t *proc,
+                           const UE_nr_rxtx_proc_t *proc,
                            PHY_VARS_NR_UE *ue,
                            void *phy_data)
 {
@@ -114,7 +114,7 @@ void nr_fill_rx_indication(fapi_nr_rx_indication_t *rx_ind,
                            NR_UE_DLSCH_t *dlsch0,
                            NR_UE_DLSCH_t *dlsch1,
                            uint16_t n_pdus,
-                           UE_nr_rxtx_proc_t *proc,
+                           const UE_nr_rxtx_proc_t *proc,
                            void *typeSpecific,
                            uint8_t *b)
 {
@@ -306,11 +306,11 @@ void phy_procedures_nrUE_TX(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, n
 
 void nr_ue_measurement_procedures(uint16_t l,
                                   PHY_VARS_NR_UE *ue,
-                                  UE_nr_rxtx_proc_t *proc,
+                                  const UE_nr_rxtx_proc_t *proc,
                                   NR_UE_DLSCH_t *dlsch,
                                   uint32_t pdsch_est_size,
-                                  int32_t dl_ch_estimates[][pdsch_est_size]) {
-
+                                  int32_t dl_ch_estimates[][pdsch_est_size])
+{
   NR_DL_FRAME_PARMS *frame_parms=&ue->frame_parms;
   int nr_slot_rx = proc->nr_slot_rx;
   int gNB_id = proc->gNB_id;
@@ -361,11 +361,11 @@ void nr_ue_measurement_procedures(uint16_t l,
 }
 
 static int nr_ue_pbch_procedures(PHY_VARS_NR_UE *ue,
-                                 UE_nr_rxtx_proc_t *proc,
+                                 const UE_nr_rxtx_proc_t *proc,
                                  int estimateSz,
                                  struct complex16 dl_ch_estimates[][estimateSz],
-                                 c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP]) {
-
+                                 c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP])
+{
   int ret = 0;
   DevAssert(ue);
 
@@ -424,7 +424,7 @@ unsigned int nr_get_tx_amp(int power_dBm, int power_max_dBm, int N_RB_UL, int nb
 }
 
 int nr_ue_pdcch_procedures(PHY_VARS_NR_UE *ue,
-                           UE_nr_rxtx_proc_t *proc,
+                           const UE_nr_rxtx_proc_t *proc,
                            int32_t pdcch_est_size,
                            int32_t pdcch_dl_ch_estimates[][pdcch_est_size],
                            nr_phy_data_t *phy_data,
@@ -488,19 +488,16 @@ int nr_ue_pdcch_procedures(PHY_VARS_NR_UE *ue,
   return(dci_cnt);
 }
 
-int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
-                           UE_nr_rxtx_proc_t *proc,
-                           NR_UE_DLSCH_t dlsch[2],
-                           int16_t *llr[2],
-                           c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP])
+static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
+                                  const UE_nr_rxtx_proc_t *proc,
+                                  NR_UE_DLSCH_t dlsch[2],
+                                  int16_t *llr[2],
+                                  c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP])
 {
   int frame_rx = proc->frame_rx;
   int nr_slot_rx = proc->nr_slot_rx;
   int m;
   int first_symbol_flag=0;
-
-  if (!dlsch[0].active)
-    return 0;
 
   // We handle only one CW now
   if (!(NR_MAX_NB_LAYERS>4)) {
@@ -512,6 +509,9 @@ int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
     uint16_t pdsch_nb_rb    = dlsch0->dlsch_config.number_rbs;
     uint16_t s0             = dlsch0->dlsch_config.start_symbol;
     uint16_t s1             = dlsch0->dlsch_config.number_symbols;
+
+    AssertFatal(dlsch0->dlsch_config.resource_alloc == 1,
+                "DLSCH resource allocation type0 not supported at PHY\n");
 
     LOG_D(PHY,"[UE %d] nr_slot_rx %d, harq_pid %d (%d), BWP start %d, rb_start %d, nb_rb %d, symbol_start %d, nb_symbols %d, DMRS mask %x, Nl %d\n",
           ue->Mod_id,nr_slot_rx,harq_pid,dlsch0_harq->status,BWPStart,pdsch_start_rb,pdsch_nb_rb,s0,s1,dlsch0->dlsch_config.dlDmrsSymbPos, dlsch0->Nl);
@@ -637,23 +637,23 @@ int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
   return 0;
 }
 
-void send_slot_ind(notifiedFIFO_t *nf, int slot) {
+// This function release the Tx working thread for one pending information, like dlsch ACK/NACK
+static void send_dl_done_to_tx_thread(notifiedFIFO_t *nf, int rx_slot)
+{
   if (nf) {
     notifiedFIFO_elt_t *newElt = newNotifiedFIFO_elt(sizeof(int), 0, NULL, NULL);
+    // We put rx slot only for tracing purpose
     int *msgData = (int *) NotifiedFifoData(newElt);
-    *msgData = slot;
+    *msgData = rx_slot;
     pushNotifiedFIFO(nf, newElt);
   }
 }
 
-bool nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
-                            UE_nr_rxtx_proc_t *proc,
-                            NR_UE_DLSCH_t dlsch[2],
-                            int16_t* llr[2]) {
-
+static bool nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, NR_UE_DLSCH_t dlsch[2], int16_t *llr[2])
+{
   if (dlsch[0].active == false) {
     LOG_E(PHY, "DLSCH should be active when calling this function\n");
-    return 1;
+    return true;
   }
 
   int gNB_id = proc->gNB_id;
@@ -688,8 +688,9 @@ bool nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
   // exit dlsch procedures as there are no active dlsch
   if (is_cw0_active != ACTIVE && is_cw1_active != ACTIVE) {
     // don't wait anymore
+    LOG_E(NR_PHY, "Internal error  nr_ue_dlsch_procedure() called but no active cw on slot %d, harq %d\n", nr_slot_rx, harq_pid);
     const int ack_nack_slot = (proc->nr_slot_rx + dlsch[0].dlsch_config.k1_feedback) % ue->frame_parms.slots_per_frame;
-    send_slot_ind(ue->tx_resume_ind_fifo[ack_nack_slot], proc->nr_slot_rx);
+    send_dl_done_to_tx_thread(ue->tx_resume_ind_fifo + ack_nack_slot, proc->nr_slot_rx);
     return false;
   }
 
@@ -737,15 +738,15 @@ bool nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
 
   int ind_type = -1;
   switch(dlsch[0].rnti_type) {
-    case _RA_RNTI_:
+    case TYPE_RA_RNTI_:
       ind_type = FAPI_NR_RX_PDU_TYPE_RAR;
       break;
 
-    case _SI_RNTI_:
+    case TYPE_SI_RNTI_:
       ind_type = FAPI_NR_RX_PDU_TYPE_SIB;
       break;
 
-    case _C_RNTI_:
+    case TYPE_C_RNTI_:
       ind_type = FAPI_NR_RX_PDU_TYPE_DLSCH;
       break;
 
@@ -821,7 +822,7 @@ bool nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
       LOG_D(PHY, "AbsSubframe %d.%d --> ldpc Decoding for CW1 %5.3f\n",
             frame_rx%1024, nr_slot_rx,(ue->dlsch_decoding_stats.p_time)/(cpuf*1000.0));
       }
-  LOG_D(PHY, "harq_pid: %d, TBS expected dlsch1: %d \n", harq_pid, dlsch[1].dlsch_config.TBS);
+      LOG_D(PHY, "harq_pid: %d, TBS expected dlsch1: %d \n", harq_pid, dlsch[1].dlsch_config.TBS);
   }
 
   //  send to mac
@@ -829,9 +830,11 @@ bool nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
     ue->if_inst->dl_indication(&dl_indication);
   }
 
-  // DLSCH decoding finished! don't wait anymore
-  const int ack_nack_slot = (proc->nr_slot_rx + dlsch[0].dlsch_config.k1_feedback) % ue->frame_parms.slots_per_frame;
-  send_slot_ind(ue->tx_resume_ind_fifo[ack_nack_slot], proc->nr_slot_rx);
+  // DLSCH decoding finished! don't wait anymore in Tx process, we know if we should answer ACK/NACK PUCCH
+  if (dlsch[0].rnti_type == TYPE_C_RNTI_) {
+    const int ack_nack_slot = (proc->nr_slot_rx + dlsch[0].dlsch_config.k1_feedback) % ue->frame_parms.slots_per_frame;
+    send_dl_done_to_tx_thread(ue->tx_resume_ind_fifo + ack_nack_slot, proc->nr_slot_rx);
+  }
 
   if (ue->phy_sim_dlsch_b)
     memcpy(ue->phy_sim_dlsch_b, p_b, dlsch_bytes);
@@ -839,10 +842,8 @@ bool nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
   return dec;
 }
 
-void pbch_pdcch_processing(PHY_VARS_NR_UE *ue,
-                           UE_nr_rxtx_proc_t *proc,
-                           nr_phy_data_t *phy_data) {
-
+void pbch_pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data)
+{
   int frame_rx = proc->frame_rx;
   int nr_slot_rx = proc->nr_slot_rx;
   int gNB_id = proc->gNB_id;
@@ -1017,9 +1018,7 @@ void pbch_pdcch_processing(PHY_VARS_NR_UE *ue,
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_UE_SLOT_FEP_PDCCH, VCD_FUNCTION_OUT);
 }
 
-void pdsch_processing(PHY_VARS_NR_UE *ue,
-                      UE_nr_rxtx_proc_t *proc,
-                      nr_phy_data_t *phy_data)
+void pdsch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_phy_data_t *phy_data)
 {
   int frame_rx = proc->frame_rx;
   int nr_slot_rx = proc->nr_slot_rx;
@@ -1029,7 +1028,6 @@ void pdsch_processing(PHY_VARS_NR_UE *ue,
   time_stats_t meas = {0};
   start_meas(&meas);
   // do procedures for C-RNTI
-  int ret_pdsch = 0;
 
   const uint32_t rxdataF_sz = ue->frame_parms.samples_per_slot_wCP;
   __attribute__ ((aligned(32))) c16_t rxdataF[ue->frame_parms.nb_antennas_rx][rxdataF_sz];
@@ -1085,11 +1083,8 @@ void pdsch_processing(PHY_VARS_NR_UE *ue,
       llr[i] = (int16_t *)malloc16_clear(rx_llr_buf_sz * sizeof(int16_t));
 
     VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PDSCH_PROC_C, VCD_FUNCTION_IN);
-    ret_pdsch = nr_ue_pdsch_procedures(ue,
-                                       proc,
-                                       dlsch,
-                                       llr,
-                                       rxdataF);
+    // it returns -1 in case of internal failure, or 0 in case of normal result
+    int ret_pdsch = nr_ue_pdsch_procedures(ue, proc, dlsch, llr, rxdataF);
 
     VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PDSCH_PROC_C, VCD_FUNCTION_OUT);
 
@@ -1102,9 +1097,13 @@ void pdsch_processing(PHY_VARS_NR_UE *ue,
 
     if (ret_pdsch >= 0)
       nr_ue_dlsch_procedures(ue, proc, dlsch, llr);
-    else
-      // don't wait anymore
-      send_slot_ind(ue->tx_resume_ind_fifo[(proc->nr_slot_rx + dlsch_config->k1_feedback) % ue->frame_parms.slots_per_frame], proc->nr_slot_rx);
+    else {
+      LOG_E(NR_PHY, "Demodulation impossible, internal error\n");
+      send_dl_done_to_tx_thread(
+          ue->tx_resume_ind_fifo + (proc->nr_slot_rx + dlsch_config->k1_feedback) % ue->frame_parms.slots_per_frame,
+          proc->nr_slot_rx);
+      LOG_W(NR_PHY, "nr_ue_pdsch_procedures failed in slot %d\n", proc->nr_slot_rx);
+    }
 
     stop_meas(&ue->dlsch_procedures_stat);
     if (cpumeas(CPUMEAS_GETSTATE)) {

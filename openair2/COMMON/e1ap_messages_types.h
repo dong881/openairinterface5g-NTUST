@@ -44,14 +44,16 @@
 #define E1AP_REGISTER_REQ(mSGpTR)                         (mSGpTR)->ittiMsg.e1ap_register_req
 #define E1AP_SETUP_REQ(mSGpTR)                            (mSGpTR)->ittiMsg.e1ap_setup_req
 #define E1AP_SETUP_RESP(mSGpTR)                           (mSGpTR)->ittiMsg.e1ap_setup_resp
+#define E1AP_SETUP_FAIL(mSGpTR)                           (mSGpTR)->ittiMsg.e1ap_setup_fail
 #define E1AP_BEARER_CONTEXT_SETUP_REQ(mSGpTR)             (mSGpTR)->ittiMsg.e1ap_bearer_setup_req
 #define E1AP_BEARER_CONTEXT_SETUP_RESP(mSGpTR)            (mSGpTR)->ittiMsg.e1ap_bearer_setup_resp
 #define E1AP_BEARER_CONTEXT_MODIFICATION_REQ(mSGpTR)      (mSGpTR)->ittiMsg.e1ap_bearer_setup_req
 #define E1AP_BEARER_CONTEXT_MODIFICATION_RESP(mSGpTR)     (mSGpTR)->ittiMsg.e1ap_bearer_modif_resp
 #define E1AP_BEARER_CONTEXT_RELEASE_CMD(mSGpTR)           (mSGpTR)->ittiMsg.e1ap_bearer_release_cmd
 #define E1AP_BEARER_CONTEXT_RELEASE_CPLT(mSGpTR)          (mSGpTR)->ittiMsg.e1ap_bearer_release_cplt
+#define E1AP_LOST_CONNECTION(mSGpTR)                      (mSGpTR)->ittiMsg.e1ap_lost_connection
 
-typedef f1ap_net_ip_address_t e1ap_net_ip_address_t;
+typedef net_ip_address_t e1ap_net_ip_address_t;
 
 typedef struct PLMN_ID_s {
   int mcc;
@@ -87,11 +89,17 @@ typedef struct e1ap_setup_req_s {
 typedef struct e1ap_register_req_t {
   e1ap_setup_req_t setup_req;
   e1ap_net_config_t net_config;
+  uint32_t gnb_id; // unused in CU-UP, but might be necessary for some functionality, e.g., E2 agent
 } e1ap_register_req_t;
 
 typedef struct e1ap_setup_resp_s {
   long transac_id;
 } e1ap_setup_resp_t;
+
+/* E1AP Setup Failure */
+typedef struct e1ap_setup_fail_s {
+  long transac_id;
+} e1ap_setup_fail_t;
 
 typedef struct cell_group_s {
   long id;
@@ -118,17 +126,39 @@ typedef struct drb_to_setup_s {
   cell_group_t cellGroupList[E1AP_MAX_NUM_CELL_GROUPS];
 } drb_to_setup_t;
 
-typedef struct qos_flow_to_setup_s {
-  long id;
-  fiveQI_type_t fiveQI_type;
-  long fiveQI;
-  long qoSPriorityLevel;
-  long packetDelayBudget;
-  long packetError_scalar;
-  long packetError_exponent;
-  long priorityLevel;
-  long pre_emptionCapability;
-  long pre_emptionVulnerability;
+typedef struct qos_characteristics_s {
+  union {
+    struct {
+      long fiveqi;
+      long qos_priority_level;
+    } non_dynamic;
+    struct {
+      long fiveqi; // -1 -> optional
+      long qos_priority_level;
+      long packet_delay_budget;
+      struct {
+        long per_scalar;
+        long per_exponent;
+      } packet_error_rate;
+    } dynamic;
+  };
+  fiveQI_type_t qos_type;
+} qos_characteristics_t;
+
+typedef struct ngran_allocation_retention_priority_s {
+  uint16_t priority_level;
+  long preemption_capability;
+  long preemption_vulnerability;
+} ngran_allocation_retention_priority_t;
+
+typedef struct qos_flow_level_qos_parameters_s {
+  qos_characteristics_t qos_characteristics;
+  ngran_allocation_retention_priority_t alloc_reten_priority; // additional members should be added!!
+} qos_flow_level_qos_parameters_t;
+
+typedef struct qos_flow_setup_e {
+  long qfi; // qos flow identifier
+  qos_flow_level_qos_parameters_t qos_params;
 } qos_flow_to_setup_t;
 
 typedef struct DRB_nGRAN_to_setup_s {
@@ -198,7 +228,7 @@ typedef struct e1ap_bearer_release_cplt_s {
 } e1ap_bearer_release_cplt_t;
 
 typedef struct qos_flow_setup_s {
-  long id;
+  long qfi;
 } qos_flow_setup_t;
 
 typedef struct DRB_nGRAN_setup_s {
@@ -249,5 +279,11 @@ typedef struct e1ap_bearer_modif_resp_s {
   int numPDUSessionsMod;
   pdu_session_modif_t pduSessionMod[E1AP_MAX_NUM_PDU_SESSIONS];
 } e1ap_bearer_modif_resp_t;
+
+/* E1AP Connection Loss indication */
+typedef struct e1ap_lost_connection_t {
+  int dummy;
+} e1ap_lost_connection_t;
+
 
 #endif /* E1AP_MESSAGES_TYPES_H */

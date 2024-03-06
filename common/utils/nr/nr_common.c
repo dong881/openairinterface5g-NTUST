@@ -764,11 +764,25 @@ void SLIV2SL(int SLIV,int *S,int *L) {
   }
 }
 
-int get_ssb_subcarrier_offset(uint32_t absoluteFrequencySSB, uint32_t absoluteFrequencyPointA)
+int get_ssb_subcarrier_offset(uint32_t absoluteFrequencySSB, uint32_t absoluteFrequencyPointA, int scs)
 {
-  uint32_t absolute_diff = (absoluteFrequencySSB - absoluteFrequencyPointA);
-  const int scaling_5khz = absoluteFrequencyPointA < 600000 ? 3 : 1;
-  return ((absolute_diff / scaling_5khz) % 24);
+  // for FR1 k_SSB expressed in terms of 15kHz SCS
+  // for FR2 k_SSB expressed in terms of the subcarrier spacing provided by the higher-layer parameter subCarrierSpacingCommon
+  // absoluteFrequencySSB and absoluteFrequencyPointA are ARFCN
+  // NR-ARFCN delta frequency is 5kHz if f < 3 GHz, 15kHz for other FR1 freq and 60kHz for FR2
+  const uint32_t absolute_diff = absoluteFrequencySSB - absoluteFrequencyPointA;
+  int scaling = 1;
+  if (absoluteFrequencyPointA < 600000) // correspond to 3GHz
+    scaling = 3;
+  if (scs > 2) // FR2
+    scaling <<= (scs - 2);
+  int sco_limit = scs == 1 ? 24 : 12;
+  int subcarrier_offset = (absolute_diff / scaling) % sco_limit;
+  // 30kHz is the only case where k_SSB is expressed in terms of a different SCS (15kHz)
+  // the assertion is to avoid having an offset of half a subcarrier
+  if (scs == 1)
+    AssertFatal(subcarrier_offset % 2 == 0, "ssb offset %d invalid for scs %d\n", subcarrier_offset, scs);
+  return subcarrier_offset;
 }
 
 uint32_t get_ssb_offset_to_pointA(uint32_t absoluteFrequencySSB,
@@ -776,16 +790,16 @@ uint32_t get_ssb_offset_to_pointA(uint32_t absoluteFrequencySSB,
                                   int ssbSubcarrierSpacing,
                                   int frequency_range)
 {
+  // offset to pointA is expressed in terms of 15kHz SCS for FR1 and 60kHz for FR2
+  // only difference wrt NR-ARFCN is delta frequency 5kHz if f < 3 GHz for ARFCN
   uint32_t absolute_diff = (absoluteFrequencySSB - absoluteFrequencyPointA);
   const int scaling_5khz = absoluteFrequencyPointA < 600000 ? 3 : 1;
-  int sco = get_ssb_subcarrier_offset(absoluteFrequencySSB, absoluteFrequencyPointA);
-  const int scs_scaling = frequency_range == FR2 ? 1 << (ssbSubcarrierSpacing - 2) : 1 << ssbSubcarrierSpacing;
-  const int scaled_abs_diff = absolute_diff / scaling_5khz;
-  const int ssb_offset_point_a =
-      (scaled_abs_diff - sco) / 12
-      - 10 * scs_scaling; // absoluteFrequencySSB is the central frequency of SSB which is made by 20RBs in total
-  AssertFatal(ssb_offset_point_a % scs_scaling == 0, "PRB offset %d can create frequency offset\n", ssb_offset_point_a);
-  AssertFatal(sco % scs_scaling == 0, "ssb offset %d can create frequency offset\n", sco);
+  const int scaling = frequency_range == FR2 ? 1 << (ssbSubcarrierSpacing - 2) : 1 << ssbSubcarrierSpacing;
+  const int scaled_abs_diff = absolute_diff / (scaling_5khz * scaling);
+  // absoluteFrequencySSB is the central frequency of SSB which is made by 20RBs in total
+  const int ssb_offset_point_a = ((scaled_abs_diff / 12) - 10) * scaling;
+  // Offset to point A needs to be divisible by scaling
+  AssertFatal(ssb_offset_point_a % scaling == 0, "PRB offset %d not valid for scs %d\n", ssb_offset_point_a, ssbSubcarrierSpacing);
   return ssb_offset_point_a;
 }
 
@@ -873,4 +887,45 @@ void nr_est_delay(int ofdm_symbol_size, const c16_t *ls_est, c16_t *ch_estimates
   delay->delay_max_pos = max_pos;
   delay->delay_max_val = max_val;
   delay->est_delay = max_pos - sync_pos;
+}
+
+void nr_timer_start(NR_timer_t *timer)
+{
+  timer->active = true;
+  timer->counter = 0;
+}
+
+void nr_timer_stop(NR_timer_t *timer)
+{
+  timer->active = false;
+  timer->counter = 0;
+}
+
+bool is_nr_timer_active(NR_timer_t timer)
+{
+  return timer.active;
+}
+
+bool nr_timer_tick(NR_timer_t *timer)
+{
+  bool expired = false;
+  if (timer->active) {
+    timer->counter += timer->step;
+    expired = nr_timer_expired(*timer);
+    if (expired)
+      timer->active = false;
+  }
+  return expired;
+}
+
+bool nr_timer_expired(NR_timer_t timer)
+{
+  return (timer.counter >= timer.target);
+}
+
+void nr_timer_setup(NR_timer_t *timer, const uint32_t target, const uint32_t step)
+{
+  timer->target = target;
+  timer->step = step;
+  nr_timer_stop(timer);
 }

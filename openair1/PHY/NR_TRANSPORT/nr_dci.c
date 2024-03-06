@@ -250,8 +250,10 @@ void nr_generate_dci_top(processingData_L1tx_t *msgTx,
                          int16_t amp,
                          NR_DL_FRAME_PARMS *frame_parms) {
 
-  for (int i=0; i<msgTx->num_ul_pdcch; i++)
+  for (int i=0; i<msgTx->num_ul_pdcch; i++) {
     nr_generate_dci(msgTx->gNB,&msgTx->ul_pdcch_pdu[i].pdcch_pdu.pdcch_pdu_rel15,txdataF,amp,frame_parms,slot);
+    msgTx->num_ul_pdcch = 0;
+  }
   for (int i=0; i<msgTx->num_dl_pdcch; i++)
     nr_generate_dci(msgTx->gNB,&msgTx->pdcch_pdu[i].pdcch_pdu_rel15,txdataF,amp,frame_parms,slot);
 

@@ -299,7 +299,6 @@ static int create_gNB_tasks(ngran_node_t node_type, configmodule_interface_t *cf
 
   RCconfig_verify(cfg, node_type);
 
-  RCconfig_NR_L1();
   RCconfig_nr_prs();
 
   if (RC.nb_nr_macrlc_inst > 0)
@@ -400,11 +399,11 @@ static int create_gNB_tasks(ngran_node_t node_type, configmodule_interface_t *cf
       }
     }
 
-    // If CU
+    // E1AP initialisation, whether the node is a CU or has integrated CU
     if (node_type == ngran_gNB_CU || node_type == ngran_gNB) {
-      MessageDef *msg = RCconfig_NR_CU_E1(false);
+      MessageDef *msg = RCconfig_NR_CU_E1(NULL);
       instance_t inst = 0;
-      createE1inst(UPtype, inst, &E1AP_REGISTER_REQ(msg).net_config, NULL);
+      createE1inst(UPtype, inst, E1AP_REGISTER_REQ(msg).gnb_id, &E1AP_REGISTER_REQ(msg).net_config, NULL);
       cuup_init_n3(inst);
       RC.nrrrc[gnb_id_start]->e1_inst = inst; // stupid instance !!!*/
 
@@ -571,6 +570,53 @@ void init_pdcp(void) {
   }
 }
 
+#ifdef E2_AGENT
+#include "openair2/LAYER2/NR_MAC_gNB/nr_mac_gNB.h" // need to get info from MAC
+static void initialize_agent(ngran_node_t node_type, e2_agent_args_t oai_args)
+{
+  AssertFatal(oai_args.sm_dir != NULL , "Please, specify the directory where the SMs are located in the config file, i.e., add in config file the next line: e2_agent = {near_ric_ip_addr = \"127.0.0.1\"; sm_dir = \"/usr/local/lib/flexric/\");} ");
+  AssertFatal(oai_args.ip != NULL , "Please, specify the IP address of the nearRT-RIC in the config file, i.e., e2_agent = {near_ric_ip_addr = \"127.0.0.1\"; sm_dir = \"/usr/local/lib/flexric/\"");
+
+  printf("After RCconfig_NR_E2agent %s %s \n",oai_args.sm_dir, oai_args.ip  );
+
+  fr_args_t args = { .ip = oai_args.ip }; // init_fr_args(0, NULL);
+  memcpy(args.libs_dir, oai_args.sm_dir, 128);
+
+  sleep(1);
+  const gNB_RRC_INST* rrc = RC.nrrrc[0];
+  assert(rrc != NULL && "rrc cannot be NULL");
+
+  const int mcc = rrc->configuration.mcc[0];
+  const int mnc = rrc->configuration.mnc[0];
+  const int mnc_digit_len = rrc->configuration.mnc_digit_length[0];
+  // const ngran_node_t node_type = rrc->node_type;
+  int nb_id = 0;
+  int cu_du_id = 0;
+  if (node_type == ngran_gNB) {
+    nb_id = rrc->node_id;
+  } else if (node_type == ngran_gNB_DU) {
+    const gNB_MAC_INST* mac = RC.nrmac[0];
+    AssertFatal(mac != NULL, "MAC not initialized\n");
+    cu_du_id = mac->f1_config.gnb_id;
+    nb_id = mac->f1_config.setup_req->gNB_DU_id;
+  } else if (node_type == ngran_gNB_CU || node_type == ngran_gNB_CUCP) {
+    // agent buggy: the CU has no second ID, it is the CU-UP ID
+    // however, that is not a problem her for us, so put the same ID twice
+    nb_id = rrc->node_id;
+    cu_du_id = rrc->node_id;
+  } else {
+    LOG_E(NR_RRC, "not supported ran type detect\n");
+  }
+
+  printf("[E2 NODE]: mcc = %d mnc = %d mnc_digit = %d nb_id = %d \n", mcc, mnc, mnc_digit_len, nb_id);
+
+  printf("[E2 NODE]: Args %s %s \n", args.ip, args.libs_dir);
+
+  sm_io_ag_ran_t io = init_ran_func_ag();
+  init_agent_api(mcc, mnc, mnc_digit_len, nb_id, cu_du_id, node_type, io, &args);
+}
+#endif
+
 configmodule_interface_t *uniqCfg = NULL;
 int main( int argc, char **argv ) {
   int ru_id, CC_id = 0;
@@ -635,11 +681,13 @@ int main( int argc, char **argv ) {
 #endif
   LOG_I(HW, "Version: %s\n", PACKAGE_VERSION);
 
-  if (RC.nb_nr_L1_inst > 0)
-    RCconfig_NR_L1();
 
   // don't create if node doesn't connect to RRC/S1/GTP
   const ngran_node_t node_type = get_node_type();
+
+  if (RC.nb_nr_L1_inst > 0)
+    RCconfig_NR_L1();
+
   if (NFAPI_MODE != NFAPI_MODE_PNF) {
     int ret = create_gNB_tasks(node_type, uniqCfg);
     AssertFatal(ret == 0, "cannot create ITTI tasks\n");
@@ -689,54 +737,18 @@ int main( int argc, char **argv ) {
   config_sync_var=0;
 
 
-
-
 #ifdef E2_AGENT
 
 //////////////////////////////////
 //////////////////////////////////
 //// Init the E2 Agent
 
-  sm_io_ag_ran_t io = init_ran_func_ag();
-  
   // OAI Wrapper 
   e2_agent_args_t oai_args = RCconfig_NR_E2agent();
-  AssertFatal(oai_args.sm_dir != NULL , "Please, specify the directory where the SMs are located in the config file, i.e., add in config file the next line: e2_agent = {near_ric_ip_addr = \"127.0.0.1\"; sm_dir = \"/usr/local/lib/flexric/\");} ");
 
-  AssertFatal(oai_args.ip != NULL , "Please, specify the IP address of the nearRT-RIC in the config file, i.e., e2_agent = {near_ric_ip_addr = \"127.0.0.1\"; sm_dir = \"/usr/local/lib/flexric/\"");
-
-  printf("After RCconfig_NR_E2agent %s %s \n",oai_args.sm_dir, oai_args.ip  );
-
-  fr_args_t args = { .ip = oai_args.ip }; // init_fr_args(0, NULL);
-  memcpy(args.libs_dir, oai_args.sm_dir, 128);
-
-  sleep(1);
-  const gNB_RRC_INST* rrc = RC.nrrrc[0];
-  assert(rrc != NULL && "rrc cannot be NULL");
-
-  const int mcc = rrc->configuration.mcc[0];
-  const int mnc = rrc->configuration.mnc[0];
-  const int mnc_digit_len = rrc->configuration.mnc_digit_length[0];
-  // const ngran_node_t node_type = rrc->node_type;
-  int nb_id = 0;
-  int cu_du_id = 0;
-  if (node_type == ngran_gNB) {
-    nb_id = rrc->configuration.cell_identity;
-  } else if (node_type == ngran_gNB_DU) {
-    cu_du_id = rrc->node_id + 1; // Hack to avoid been 0
-    nb_id = rrc->configuration.cell_identity;
-  } else if (node_type == ngran_gNB_CU) {
-    cu_du_id = rrc->node_id + 1;
-    nb_id = rrc->configuration.cell_identity;
-  } else {
-    LOG_E(NR_RRC, "not supported ran type detect\n");
+  if (oai_args.enabled) {
+    initialize_agent(node_type, oai_args);
   }
-     
-  printf("[E2 NODE]: mcc = %d mnc = %d mnc_digit = %d nb_id = %d \n", mcc, mnc, mnc_digit_len, nb_id);
-
-  printf("[E2 NODE]: Args %s %s \n", args.ip, args.libs_dir);
-  init_agent_api(mcc, mnc, mnc_digit_len, nb_id, cu_du_id, node_type, io, &args);
-//   }
 
 #endif // E2_AGENT
 
@@ -751,14 +763,6 @@ int main( int argc, char **argv ) {
   if (NFAPI_MODE==NFAPI_MODE_PNF) {
     wait_nfapi_init("main?");
   }
-/* ======== small cell integration ======== */
-  // // wait for F1 Setup Response before starting L1 for real
-  // if (NODE_IS_DU(node_type) || NODE_IS_MONOLITHIC(node_type))
-  //   wait_f1_setup_response();
-
-  // if (RC.nb_RU > 0)
-  //   start_NR_RU();
-/* ======================================== */
 
   if (RC.nb_nr_L1_inst > 0) {
     printf("wait RUs\n");

@@ -76,9 +76,14 @@ int set_tdd_config_nr( nfapi_nr_config_request_scf_t *cfg,
 
   cfg->tdd_table.max_tdd_periodicity_list = (nfapi_nr_max_tdd_periodicity_t *) malloc(nb_slots_to_set*sizeof(nfapi_nr_max_tdd_periodicity_t));
 
-  for(int memory_alloc =0 ; memory_alloc<nb_slots_to_set; memory_alloc++)
+  for(int memory_alloc =0 ; memory_alloc<nb_slots_to_set; memory_alloc++) {
     cfg->tdd_table.max_tdd_periodicity_list[memory_alloc].max_num_of_symbol_per_slot_list = (nfapi_nr_max_num_of_symbol_per_slot_t *) malloc(NR_NUMBER_OF_SYMBOLS_PER_SLOT*sizeof(
           nfapi_nr_max_num_of_symbol_per_slot_t));
+    for(int number_of_symbol = 0; number_of_symbol < NR_NUMBER_OF_SYMBOLS_PER_SLOT; number_of_symbol++ ){
+      //for each symbol, assign the TLV tag for usage when packing
+      cfg->tdd_table.max_tdd_periodicity_list[memory_alloc].max_num_of_symbol_per_slot_list[number_of_symbol].slot_config.tl.tag = NFAPI_NR_CONFIG_SLOT_CONFIG_TAG;
+    }
+  }
 
   while(slot_number != nb_slots_to_set) {
     if(nrofDownlinkSlots != 0) {
@@ -298,7 +303,7 @@ int nr_slot_select(nfapi_nr_config_request_scf_t *cfg, int nr_frame, int nr_slot
     return (NR_UPLINK_SLOT | NR_DOWNLINK_SLOT );
   }
 
-  if (nr_frame%2 == 0) {
+  if (1) {
     for(int symbol_count=0; symbol_count<NR_NUMBER_OF_SYMBOLS_PER_SLOT; symbol_count++) {
       if (cfg->tdd_table.max_tdd_periodicity_list[nr_slot].max_num_of_symbol_per_slot_list[symbol_count].slot_config.value==1) {
         check_slot++;

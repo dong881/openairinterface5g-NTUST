@@ -358,8 +358,20 @@ static uint32_t schedule_control_sib1(module_id_t module_id,
                          rbSize, tda_info->nrOfSymbols, N_PRB_DMRS * dmrs_length,0, 0,1) >> 3;
   } while (TBS < gNB_mac->sched_ctrlCommon->num_total_bytes);
 
-  AssertFatal(TBS>=gNB_mac->sched_ctrlCommon->num_total_bytes,"Couldn't allocate enough resources for %d bytes in SIB1 PDSCH\n",
-              gNB_mac->sched_ctrlCommon->num_total_bytes);
+  if (TBS < gNB_mac->sched_ctrlCommon->num_total_bytes) {
+    for (int rb = 0; rb < bwpSize; rb++)
+      LOG_I(NR_MAC, "vrb_map[%d] %x\n", rbStart + rb, vrb_map[rbStart + rb]);
+  }
+  AssertFatal(
+      TBS >= gNB_mac->sched_ctrlCommon->num_total_bytes,
+      "Couldn't allocate enough resources for %d bytes in SIB1 PDSCH (rbStart %d, rbSize %d, bwpSize %d SLmask %x - [%d,%d])\n",
+      gNB_mac->sched_ctrlCommon->num_total_bytes,
+      rbStart,
+      rbSize,
+      bwpSize,
+      SL_to_bitmap(tda_info->startSymbolIndex, tda_info->nrOfSymbols),
+      tda_info->startSymbolIndex,
+      tda_info->nrOfSymbols);
 
   pdsch->rbSize = rbSize;
   pdsch->rbStart = 0;
@@ -405,7 +417,6 @@ static void nr_fill_nfapi_dl_sib1_pdu(int Mod_idP,
   nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_pdu_rel15 = &dl_tti_pdcch_pdu->pdcch_pdu.pdcch_pdu_rel15;
   nr_configure_pdcch(pdcch_pdu_rel15,
                      gNB_mac->sched_ctrlCommon->coreset,
-                     true, // sib1
                      &gNB_mac->sched_ctrlCommon->sched_pdcch);
 
   nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdsch_pdu = &dl_req->dl_tti_pdu_list[dl_req->nPDUs];
@@ -493,10 +504,9 @@ static void nr_fill_nfapi_dl_sib1_pdu(int Mod_idP,
   dci_payload.dmrs_sequence_initialization.val = pdsch_pdu_rel15->SCID;
 
   int dci_format = NR_DL_DCI_FORMAT_1_0;
-  int rnti_type = NR_RNTI_SI;
+  int rnti_type = TYPE_SI_RNTI_;
 
-  fill_dci_pdu_rel15(scc,
-                     NULL,
+  fill_dci_pdu_rel15(NULL,
                      NULL,
                      NULL,
                      &pdcch_pdu_rel15->dci_pdu[pdcch_pdu_rel15->numDlDci - 1],
@@ -506,6 +516,7 @@ static void nr_fill_nfapi_dl_sib1_pdu(int Mod_idP,
                      0,
                      gNB_mac->sched_ctrlCommon->search_space,
                      gNB_mac->sched_ctrlCommon->coreset,
+                     0, // parameter not needed for DCI 1_0
                      gNB_mac->cset0_bwp_size);
 
   LOG_D(MAC,"BWPSize: %i\n", pdcch_pdu_rel15->BWPSize);
@@ -591,6 +602,7 @@ void schedule_nr_sib1(module_id_t module_idP,
 
       nfapi_nr_dl_tti_request_body_t *dl_req = &DL_req->dl_tti_request_body;
       int pdu_index = gNB_mac->pdu_index[0]++;
+      LOG_D(NR_MAC, "%s() %4d.%2d\n", __func__, frameP, slotP);
       nr_fill_nfapi_dl_sib1_pdu(module_idP, dl_req, pdu_index, type0_PDCCH_CSS_config, TBS, tda_info.startSymbolIndex, tda_info.nrOfSymbols);
 
       const int ntx_req = TX_req->Number_of_PDUs;

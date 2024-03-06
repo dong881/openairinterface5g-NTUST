@@ -221,18 +221,20 @@ void phy_procedures_gNB_TX(processingData_L1tx_t *msgTx,
 //  if ((frame&127) == 0) dump_pdsch_stats(gNB);
 
   //apply the OFDM symbol rotation here
-  for (aa=0; aa<cfg->carrier_config.num_tx_ant.value; aa++) {
-    apply_nr_rotation_TX(fp,
-                         &gNB->common_vars.txdataF[aa][txdataF_offset],
-                         fp->symbol_rotation[0],
-                         slot,
-                         fp->N_RB_DL,
-                         0,
-                         fp->Ncp == EXTENDED ? 12 : 14);
+  if (gNB->phase_comp) {
+    for (aa=0; aa<cfg->carrier_config.num_tx_ant.value; aa++) {
+      apply_nr_rotation_TX(fp,
+                           &gNB->common_vars.txdataF[aa][txdataF_offset],
+                           fp->symbol_rotation[0],
+                           slot,
+                           fp->N_RB_DL,
+                           0,
+                           fp->Ncp == EXTENDED ? 12 : 14);
 
-    T(T_GNB_PHY_DL_OUTPUT_SIGNAL, T_INT(0),
-      T_INT(frame), T_INT(slot),
-      T_INT(aa), T_BUFFER(&gNB->common_vars.txdataF[aa][txdataF_offset], fp->samples_per_slot_wCP*sizeof(int32_t)));
+      T(T_GNB_PHY_DL_OUTPUT_SIGNAL, T_INT(0),
+        T_INT(frame), T_INT(slot),
+        T_INT(aa), T_BUFFER(&gNB->common_vars.txdataF[aa][txdataF_offset], fp->samples_per_slot_wCP*sizeof(int32_t)));
+    }
   }
 
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_PROCEDURES_gNB_TX + gNB->CC_id, 0);
@@ -270,10 +272,11 @@ static void nr_postDecode(PHY_VARS_gNB *gNB, notifiedFIFO_elt_t *req)
     }
 
     if (crc_valid && !check_abort(&ulsch_harq->abort_decode) && !gNB->pusch_vars[rdata->ulsch_id].DTX) {
-      LOG_D(PHY,
-            "[gNB %d] ULSCH: Setting ACK for SFN/SF %d.%d (rnti %x, pid %d, ndi %d, status %d, round %d, TBS %d, Max interation "
+      LOG_D(NR_PHY,
+            "[gNB %d] ULSCH %d: Setting ACK for SFN/SF %d.%d (rnti %x, pid %d, ndi %d, status %d, round %d, TBS %d, Max interation "
             "(all seg) %d)\n",
             gNB->Mod_id,
+            rdata->ulsch_id,
             ulsch->frame,
             ulsch->slot,
             ulsch->rnti,
@@ -314,7 +317,7 @@ static void nr_postDecode(PHY_VARS_gNB *gNB, notifiedFIFO_elt_t *req)
         if (ulsch_harq->ulsch_pdu.mcs_index == 0 && dumpsig==1) {
           int off = ((ulsch_harq->ulsch_pdu.rb_size&1) == 1)? 4:0;
 
-          LOG_M("rxsigF0.m","rxsF0",&gNB->common_vars.rxdataF[0][(ulsch_harq->slot&3)*gNB->frame_parms.ofdm_symbol_size*gNB->frame_parms.symbols_per_slot],gNB->frame_parms.ofdm_symbol_size*gNB->frame_parms.symbols_per_slot,1,1);
+          LOG_M("rxsigF0.m","rxsF0",&gNB->common_vars.rxdataF[0][(ulsch_harq->slot%RU_RX_SLOT_DEPTH)*gNB->frame_parms.ofdm_symbol_size*gNB->frame_parms.symbols_per_slot],gNB->frame_parms.ofdm_symbol_size*gNB->frame_parms.symbols_per_slot,1,1);
           LOG_M("rxsigF0_ext.m","rxsF0_ext",
                  &gNB->pusch_vars[0].rxdataF_ext[0][ulsch_harq->ulsch_pdu.start_symbol_index*NR_NB_SC_PER_RB *
        ulsch_harq->ulsch_pdu.rb_size],ulsch_harq->ulsch_pdu.nr_of_symbols*(off+(NR_NB_SC_PER_RB *
@@ -398,7 +401,6 @@ static int nr_ulsch_procedures(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, int
   //--------------------- ULSCH decoding ---------------------
   //----------------------------------------------------------
 
-  start_meas(&gNB->ulsch_decoding_stats);
   int nbDecode =
       nr_ulsch_decoding(gNB, ULSCH_id, gNB->pusch_vars[ULSCH_id].llr, frame_parms, pusch_pdu, frame_rx, slot_rx, harq_pid, G);
 
@@ -408,9 +410,6 @@ static int nr_ulsch_procedures(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, int
 
 void nr_fill_indication(PHY_VARS_gNB *gNB, int frame, int slot_rx, int ULSCH_id, uint8_t harq_pid, uint8_t crc_flag, int dtx_flag)
 {
-  if (!get_softmodem_params()->reorder_thread_disable) 
-    pthread_mutex_lock(&gNB->UL_INFO_mutex);
-
   NR_gNB_ULSCH_t *ulsch = &gNB->ulsch[ULSCH_id];
   NR_UL_gNB_HARQ_t *harq_process = ulsch->harq_process;
   NR_gNB_PHY_STATS_t *stats = get_phy_stats(gNB, ulsch->rnti);
@@ -465,7 +464,13 @@ void nr_fill_indication(PHY_VARS_gNB *gNB, int frame, int slot_rx, int ULSCH_id,
       __attribute__((unused))
       int off = ((pusch_pdu->rb_size&1) == 1)? 4:0;
 
-      LOG_M("rxsigF0.m","rxsF0",&gNB->common_vars.rxdataF[0][(slot_rx&3)*gNB->frame_parms.ofdm_symbol_size*gNB->frame_parms.symbols_per_slot],gNB->frame_parms.ofdm_symbol_size*gNB->frame_parms.symbols_per_slot,1,1);
+      LOG_M("rxsigF0.m",
+            "rxsF0",
+            &gNB->common_vars
+                 .rxdataF[0][(slot_rx % RU_RX_SLOT_DEPTH) * gNB->frame_parms.ofdm_symbol_size * gNB->frame_parms.symbols_per_slot],
+            gNB->frame_parms.ofdm_symbol_size * gNB->frame_parms.symbols_per_slot,
+            1,
+            1);
       LOG_M("chestF0.m",
             "chF0",
             &gNB->pusch_vars[0].ul_ch_estimates[0][pusch_pdu->start_symbol_index * gNB->frame_parms.ofdm_symbol_size],
@@ -492,7 +497,14 @@ void nr_fill_indication(PHY_VARS_gNB *gNB, int frame, int slot_rx, int ULSCH_id,
             1,
             0);
       if (gNB->frame_parms.nb_antennas_rx > 1) {
-        LOG_M("rxsigF1.m","rxsF1",&gNB->common_vars.rxdataF[1][(slot_rx&3)*gNB->frame_parms.ofdm_symbol_size*gNB->frame_parms.symbols_per_slot],gNB->frame_parms.ofdm_symbol_size*gNB->frame_parms.symbols_per_slot,1,1);
+        LOG_M(
+            "rxsigF1.m",
+            "rxsF1",
+            &gNB->common_vars
+                 .rxdataF[1][(slot_rx % RU_RX_SLOT_DEPTH) * gNB->frame_parms.ofdm_symbol_size * gNB->frame_parms.symbols_per_slot],
+            gNB->frame_parms.ofdm_symbol_size * gNB->frame_parms.symbols_per_slot,
+            1,
+            1);
         LOG_M("chestF1.m",
               "chF1",
               &gNB->pusch_vars[0].ul_ch_estimates[1][pusch_pdu->start_symbol_index * gNB->frame_parms.ofdm_symbol_size],
@@ -527,7 +539,7 @@ void nr_fill_indication(PHY_VARS_gNB *gNB, int frame, int slot_rx, int ULSCH_id,
   gNB->crc_pdu_list[num_crc].rnti = pusch_pdu->rnti;
   gNB->crc_pdu_list[num_crc].harq_id = harq_pid;
   gNB->crc_pdu_list[num_crc].tb_crc_status = crc_flag;
-  gNB->crc_pdu_list[num_crc].num_cb = pusch_pdu->pusch_data.num_cb;
+  gNB->crc_pdu_list[num_crc].num_cb = 0;
   gNB->crc_pdu_list[num_crc].ul_cqi = cqi;
   gNB->crc_pdu_list[num_crc].timing_advance = timing_advance_update;
   // in terms of dBFS range -128 to 0 with 0.1 step
@@ -555,9 +567,6 @@ void nr_fill_indication(PHY_VARS_gNB *gNB, int frame, int slot_rx, int ULSCH_id,
   }
 
   gNB->UL_INFO.rx_ind.number_of_pdus++;
-
-  if (!get_softmodem_params()->reorder_thread_disable) 
-    pthread_mutex_unlock(&gNB->UL_INFO_mutex);
 }
 
 // Function to fill UL RB mask to be used for N0 measurements
@@ -754,16 +763,17 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx)
 
   const int soffset = (slot_rx & 3) * gNB->frame_parms.symbols_per_slot * gNB->frame_parms.ofdm_symbol_size;
   int offset = 10 * gNB->frame_parms.ofdm_symbol_size + gNB->frame_parms.first_carrier_offset;
-  int power_rxF = signal_energy_nodc((int32_t *)&gNB->common_vars.rxdataF[0][soffset + offset + (47 * 12)], 12 * 18);
-  LOG_D(PHY,"frame %d, slot %d: UL signal energy %d\n",frame_rx,slot_rx,power_rxF);
+  LOG_D(PHY,
+        "frame %d, slot %d: UL signal energy %d\n",
+        frame_rx,
+        slot_rx,
+        signal_energy_nodc((int32_t *)&gNB->common_vars.rxdataF[0][soffset + offset + (47 * 12)], 12 * 18));
 
   start_meas(&gNB->phy_proc_rx);
 
   for (int i = 0; i < gNB->max_nb_pucch; i++) {
     NR_gNB_PUCCH_t *pucch = &gNB->pucch[i];
     if (pucch) {
-      if (NFAPI_MODE == NFAPI_MODE_PNF)
-        pucch->frame = frame_rx;
       if ((pucch->active == 1) &&
           (pucch->frame == frame_rx) &&
           (pucch->slot == slot_rx) ) {
@@ -783,8 +793,11 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx)
           nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_pdu_format0 = &gNB->uci_pdu_list[num_ucis].pucch_pdu_format_0_1;
 
           offset = pucch_pdu->start_symbol_index*gNB->frame_parms.ofdm_symbol_size + (gNB->frame_parms.first_carrier_offset+pucch_pdu->prb_start*12);
-          power_rxF = signal_energy_nodc((int32_t *)&gNB->common_vars.rxdataF[0][soffset+offset], 12);
-          LOG_D(PHY,"frame %d, slot %d: PUCCH signal energy %d\n", frame_rx, slot_rx, power_rxF);
+          LOG_D(PHY,
+                "frame %d, slot %d: PUCCH signal energy %d\n",
+                frame_rx,
+                slot_rx,
+                signal_energy_nodc((int32_t *)&gNB->common_vars.rxdataF[0][soffset + offset], 12));
 
           nr_decode_pucch0(gNB,
                            frame_rx,
@@ -826,9 +839,9 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx)
     NR_gNB_ULSCH_t *ulsch = &gNB->ulsch[ULSCH_id];
     NR_UL_gNB_HARQ_t *ulsch_harq = ulsch->harq_process;
     AssertFatal(ulsch_harq != NULL, "harq_pid %d is not allocated\n", ulsch->harq_pid);
-
     if ((ulsch->active == true) && (ulsch->frame == frame_rx) && (ulsch->slot == slot_rx) && (ulsch->handled == 0)) {
       LOG_D(PHY, "PUSCH ID %d with RNTI %x detection started in frame %d slot %d\n", ULSCH_id, ulsch->rnti, frame_rx, slot_rx);
+  
       int num_dmrs = 0;
       for (int s = 0; s < NR_NUMBER_OF_SYMBOLS_PER_SLOT; s++)
         num_dmrs += (ulsch_harq->ulsch_pdu.ul_dmrs_symb_pos >> s) & 1;
@@ -933,7 +946,6 @@ int phy_procedures_gNB_uespec_RX(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx)
       delNotifiedFIFO_elt(req);
       totalDecode--;
     }
-  stop_meas(&gNB->ulsch_decoding_stats);
   for (int i = 0; i < gNB->max_nb_srs; i++) {
     NR_gNB_SRS_t *srs = &gNB->srs[i];
     if (srs) {

@@ -368,7 +368,8 @@ void init_openair0(void) {
   }
 }
 
-static void init_pdcp(int ue_id) {
+static void init_pdcp(int ue_id)
+{
   uint32_t pdcp_initmask = (!IS_SOFTMODEM_NOS1) ? LINK_ENB_PDCP_TO_GTPV1U_BIT : (LINK_ENB_PDCP_TO_GTPV1U_BIT | PDCP_USE_NETLINK_BIT | LINK_ENB_PDCP_TO_IP_DRIVER_BIT);
 
   /*if (IS_SOFTMODEM_RFSIM || (nfapi_getmode()==NFAPI_UE_STUB_PNF)) {
@@ -402,6 +403,7 @@ static void trigger_deregistration(int sig)
 {
   if (!stop_immediately) {
     MessageDef *msg = itti_alloc_new_message(TASK_RRC_UE_SIM, 0, NAS_DEREGISTRATION_REQ);
+    NAS_DEREGISTRATION_REQ(msg).cause = AS_DETACH;
     itti_send_msg_to_task(TASK_NAS_NRUE, 0, msg);
     stop_immediately = true;
     static const char m[] = "Press ^C again to trigger immediate shutdown\n";
@@ -425,10 +427,36 @@ static void get_channel_model_mode(configmodule_interface_t *cfg)
     init_bler_table("NR_AWGN_RESULTS_DIR");
 }
 
+void start_oai_nrue_threads()
+{
+    init_queue(&nr_rach_ind_queue);
+    init_queue(&nr_rx_ind_queue);
+    init_queue(&nr_crc_ind_queue);
+    init_queue(&nr_uci_ind_queue);
+    init_queue(&nr_sfn_slot_queue);
+    init_queue(&nr_chan_param_queue);
+    init_queue(&nr_dl_tti_req_queue);
+    init_queue(&nr_tx_req_queue);
+    init_queue(&nr_ul_dci_req_queue);
+    init_queue(&nr_ul_tti_req_queue);
+
+    if (sem_init(&sfn_slot_semaphore, 0, 0) != 0)
+    {
+      LOG_E(MAC, "sem_init() error\n");
+      abort();
+    }
+
+    init_nrUE_standalone_thread(ue_id_g);
+}
+
 int NB_UE_INST = 1;
 configmodule_interface_t *uniqCfg = NULL;
 
-int main( int argc, char **argv ) {
+// A global var to reduce the changes size
+ldpc_interface_t ldpc_interface = {0}, ldpc_interface_offload = {0};
+
+int main(int argc, char **argv)
+{
   int set_exe_prio = 1;
   if (checkIfFedoraDistribution())
     if (checkIfGenericKernelOnFedora())
@@ -437,8 +465,6 @@ int main( int argc, char **argv ) {
   if (set_exe_prio)
     set_priority(79);
 
-  //uint8_t beta_ACK=0,beta_RI=0,beta_CQI=2;
-  PHY_VARS_NR_UE *UE[MAX_NUM_CCs];
   start_background_system();
 
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == NULL) {
@@ -467,8 +493,8 @@ int main( int argc, char **argv ) {
   itti_init(TASK_MAX, tasks_info);
 
   init_opt() ;
-  load_nrLDPClib(NULL);
- 
+  load_LDPClib(NULL, &ldpc_interface);
+
   if (ouput_vcd) {
     vcd_signal_dumper_init("/tmp/openair_dump_nrUE.vcd");
   }
@@ -478,7 +504,12 @@ int main( int argc, char **argv ) {
 #endif
   LOG_I(HW, "Version: %s\n", PACKAGE_VERSION);
 
-  init_NR_UE(1, uecap_file, reconfig_file, rbconfig_file);
+  PHY_vars_UE_g = malloc(sizeof(*PHY_vars_UE_g));
+  PHY_vars_UE_g[0] = malloc(sizeof(*PHY_vars_UE_g[0]) * MAX_NUM_CCs);
+  for (int CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
+    PHY_vars_UE_g[0][CC_id] = malloc(sizeof(*PHY_vars_UE_g[0][CC_id]));
+    memset(PHY_vars_UE_g[0][CC_id], 0, sizeof(*PHY_vars_UE_g[0][CC_id]));
+  }
 
   int mode_offset = get_softmodem_params()->nsa ? NUMBER_OF_UE_MAX : 1;
   uint16_t node_number = get_softmodem_params()->node_number;
@@ -493,8 +524,8 @@ int main( int argc, char **argv ) {
     }
   }
 
-  PHY_vars_UE_g = malloc(sizeof(PHY_VARS_NR_UE **));
-  PHY_vars_UE_g[0] = malloc(sizeof(PHY_VARS_NR_UE *)*MAX_NUM_CCs);
+  init_NR_UE(NB_UE_INST, uecap_file, reconfig_file, rbconfig_file);
+
   if (get_softmodem_params()->emulate_l1) {
     RCconfig_nr_ue_macrlc();
     get_channel_model_mode(uniqCfg);
@@ -510,10 +541,9 @@ int main( int argc, char **argv ) {
     start_oai_nrue_threads();
 
   if (!get_softmodem_params()->emulate_l1) {
-    for (int CC_id=0; CC_id<MAX_NUM_CCs; CC_id++) {
-      PHY_vars_UE_g[0][CC_id] = (PHY_VARS_NR_UE *)malloc(sizeof(PHY_VARS_NR_UE));
+    PHY_VARS_NR_UE *UE[MAX_NUM_CCs];
+    for (int CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
       UE[CC_id] = PHY_vars_UE_g[0][CC_id];
-      memset(UE[CC_id],0,sizeof(PHY_VARS_NR_UE));
 
       set_options(CC_id, UE[CC_id]);
       NR_UE_MAC_INST_t *mac = get_mac_inst(0);

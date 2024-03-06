@@ -24,11 +24,15 @@
 #include "mac_proto.h"
 #include "openair2/F1AP/f1ap_ids.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
-#include "openair2/RRC/NR/MESSAGES/asn1_msg.h"
 #include "F1AP_CauseRadioNetwork.h"
 
 #include "uper_decoder.h"
 #include "uper_encoder.h"
+
+// Standarized 5QI values and Default Priority levels as mentioned in 3GPP TS 23.501 Table 5.7.4-1
+const uint64_t qos_fiveqi[26] = {1, 2, 3, 4, 65, 66, 67, 71, 72, 73, 74, 76, 5, 6, 7, 8, 9, 69, 70, 79, 80, 82, 83, 84, 85, 86};
+const uint64_t qos_priority[26] = {20, 40, 30, 50, 7, 20, 15, 56, 56, 56, 56, 56, 10,
+                                   60, 70, 80, 90, 5, 55, 65, 68, 19, 22, 24, 21, 18};
 
 static long get_lcid_from_drbid(int drb_id)
 {
@@ -48,6 +52,7 @@ static bool check_plmn_identity(const f1ap_plmn_t *check_plmn, const f1ap_plmn_t
 void f1_setup_response(const f1ap_setup_resp_t *resp)
 {
   LOG_I(MAC, "received F1 Setup Response from CU %s\n", resp->gNB_CU_name);
+  LOG_I(MAC, "CU uses RRC version %d.%d.%d\n", resp->rrc_ver[0], resp->rrc_ver[1], resp->rrc_ver[2]);
 
   if (resp->num_cells_to_activate == 0) {
     LOG_W(NR_MAC, "no cell to activate: cell remains blocked\n");
@@ -220,7 +225,7 @@ static NR_UE_NR_Capability_t *get_ue_nr_cap(int rnti, uint8_t *buf, uint32_t len
   return cap;
 }
 
-static NR_CellGroupConfig_t *clone_CellGroupConfig(const NR_CellGroupConfig_t *orig)
+NR_CellGroupConfig_t *clone_CellGroupConfig(const NR_CellGroupConfig_t *orig)
 {
   uint8_t buf[16636];
   asn_enc_rval_t enc_rval = uper_encode_to_buffer(&asn_DEF_NR_CellGroupConfig, NULL, orig, buf, sizeof(buf));
@@ -240,6 +245,49 @@ static void set_nssaiConfig(const int drb_len, const f1ap_drb_to_be_setup_t *req
     long lcid = get_lcid_from_drbid(drb->drb_id);
     sched_ctrl->dl_lc_nssai[lcid] = drb->nssai;
     LOG_I(NR_MAC, "Setting NSSAI sst: %d, sd: %d for DRB: %ld\n", drb->nssai.sst, drb->nssai.sd, drb->drb_id);
+  }
+}
+
+static void set_QoSConfig(const f1ap_ue_context_modif_req_t *req, NR_UE_sched_ctrl_t *sched_ctrl)
+{
+  AssertFatal(req != NULL, "f1ap_ue_context_modif_req is NULL\n");
+  uint8_t drb_count = req->drbs_to_be_setup_length;
+  uint8_t srb_count = req->srbs_to_be_setup_length;
+  LOG_I(NR_MAC, "Number of DRBs = %d and SRBs = %d\n", drb_count, srb_count);
+
+  /* DRBs*/
+  for (int i = 0; i < drb_count; i++) {
+    f1ap_drb_to_be_setup_t *drb_p = &req->drbs_to_be_setup[i];
+    uint8_t nb_qos_flows = drb_p->drb_info.flows_to_be_setup_length;
+    long drb_id = drb_p->drb_id;
+    LOG_I(NR_MAC, "number of QOS flows mapped to DRB_id %ld: %d\n", drb_id, nb_qos_flows);
+
+    for (int q = 0; q < nb_qos_flows; q++) {
+      f1ap_flows_mapped_to_drb_t *qos_flow = &drb_p->drb_info.flows_mapped_to_drb[q];
+
+      f1ap_qos_characteristics_t *qos_char = &qos_flow->qos_params.qos_characteristics;
+      uint64_t priority = qos_char->non_dynamic.qos_priority_level;
+      int64_t fiveqi = qos_char->non_dynamic.fiveqi;
+      if (qos_char->qos_type == dynamic) {
+        priority = qos_char->dynamic.qos_priority_level;
+        fiveqi = qos_char->dynamic.fiveqi > 0 ? qos_char->dynamic.fiveqi : 0;
+      }
+      if (qos_char->qos_type == non_dynamic) {
+        LOG_D(NR_MAC, "Qos Priority level is considered from the standarsdized 5QI to QoS mapping table\n");
+        for (int id = 0; id < 26; id++) {
+          if (qos_fiveqi[id] == fiveqi)
+            priority = qos_priority[id];
+        }
+      }
+      sched_ctrl->qos_config[drb_id - 1][q].fiveQI = fiveqi;
+      sched_ctrl->qos_config[drb_id - 1][q].priority = priority;
+      LOG_D(NR_MAC,
+            "In %s: drb_id %ld: 5QI %lu priority %lu\n",
+            __func__,
+            drb_id,
+            sched_ctrl->qos_config[drb_id - 1][q].fiveQI,
+            sched_ctrl->qos_config[drb_id - 1][q].priority);
+    }
   }
 }
 
@@ -290,9 +338,6 @@ void ue_context_setup_request(const f1ap_ue_context_setup_t *req)
   UE->capability = ue_cap;
   if (ue_cap != NULL) {
     // store the new UE capabilities, and update the cellGroupConfig
-    ASN_STRUCT_FREE(asn_DEF_NR_UE_NR_Capability, UE->capability);
-    UE->capability = ue_cap;
-    LOG_I(NR_MAC, "UE %04x: received capabilities, updating CellGroupConfig\n", UE->rnti);
     NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
     update_cellGroupConfig(new_CellGroup, UE->uid, UE->capability, &mac->radio_config, scc);
   }
@@ -308,6 +353,9 @@ void ue_context_setup_request(const f1ap_ue_context_setup_t *req)
 
   /* TODO: need to apply after UE context reconfiguration confirmed? */
   nr_mac_prepare_cellgroup_update(mac, UE, new_CellGroup);
+
+  /* Fill the QoS config in MAC for each active DRB */
+  set_QoSConfig(req, &UE->UE_sched_ctrl);
 
   /* Set NSSAI config in MAC for each active DRB */
   set_nssaiConfig(req->drbs_to_be_setup_length, req->drbs_to_be_setup, &UE->UE_sched_ctrl);
@@ -408,6 +456,9 @@ void ue_context_modification_request(const f1ap_ue_context_modif_req_t *req)
     resp.du_to_cu_rrc_information->cellGroupConfig_length = (enc_rval.encoded + 7) >> 3;
 
     nr_mac_prepare_cellgroup_update(mac, UE, new_CellGroup);
+
+    /* Fill the QoS config in MAC for each active DRB */
+    set_QoSConfig(req, &UE->UE_sched_ctrl);
 
     /* Set NSSAI config in MAC for each active DRB */
     set_nssaiConfig(req->drbs_to_be_setup_length, req->drbs_to_be_setup, &UE->UE_sched_ctrl);
@@ -553,8 +604,9 @@ void dl_rrc_message_transfer(const f1ap_dl_rrc_message_t *dl_rrc)
     AssertFatal(*dl_rrc->old_gNB_DU_ue_id != dl_rrc->gNB_DU_ue_id,
                 "logic bug: current and old gNB DU UE ID cannot be the same\n");
     /* 38.401 says: "Find UE context based on old gNB-DU UE F1AP ID, replace
-     * old C-RNTI/PCI with new C-RNTI/PCI". So we delete the new contexts
-     * below, then change the C-RNTI of the old one to the new one */
+     * old C-RNTI/PCI with new C-RNTI/PCI". Below, we do the inverse: we keep
+     * the new UE context (with new C-RNTI), but set up everything to reuse the
+     * old config. */
     NR_UE_info_t *oldUE = find_nr_UE(&mac->UE_info, *dl_rrc->old_gNB_DU_ue_id);
     DevAssert(oldUE);
     pthread_mutex_lock(&mac->sched_lock);
@@ -564,6 +616,9 @@ void dl_rrc_message_transfer(const f1ap_dl_rrc_message_t *dl_rrc)
     UE->CellGroup->spCellConfig = NULL;
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
+    uid_t temp_uid = UE->uid;
+    UE->uid = oldUE->uid;
+    oldUE->uid = temp_uid;
     configure_UE_BWP(mac, scc, sched_ctrl, NULL, UE, -1, -1);
 
     nr_mac_prepare_cellgroup_update(mac, UE, oldUE->CellGroup);

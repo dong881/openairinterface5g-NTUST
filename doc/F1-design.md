@@ -20,15 +20,15 @@ The F1 interface is the functional split of 3GPP between the CU (centralized
 unit: PDCP, RRC, SDAP) and the DU (distributed unit: RLC, MAC, PHY). It is
 standardized in TS 38.470 - 38.473 for 5G NR. No equivalent for 4G exists.
 
-We assume that each DU handles only one cell.  Multiple DUs connected to one CU
+We assume that each DU handles only one cell. Multiple DUs connected to one CU
 are supported. Mobility over F1 is not yet supported.
 
 # Control plane status (F1-C)
 
 ## Implementation Status
 
-Note that OAI uses F1 "internally". That means, that even if you run a
-monolithic gNB, the internal information exchange uses F1. You can therefore
+Note that OAI uses F1 "internally". That means, that even **if you run a
+monolithic gNB, the internal information exchange uses F1**. You can therefore
 expect that everything working in a monolithic deployment should also work in
 F1.  The current implementation is based on R16.3.
 
@@ -116,7 +116,15 @@ sudo cmake_targets/ran_build/build/nr-softmodem --sa -O ci-scripts/conf_files/gn
 These files are tested in the CI, and are configured for use in docker,
 see [this `docker-compose` file](../ci-scripts/yaml_files/5g_f1_rfsimulator/docker-compose.yaml).
 
-## Configuration of F1 IP/port information
+The rules to decide if a config triggers a start of a DU, CU, or monolithic
+gNB, are, in order:
+1. If the `MACRLCs` section lists `f1` as **northbound transport preference**
+   (`tr_n_preference`), it is a DU.
+2. If the `gNBs` section lists `f1` as a **southound transport preference**
+   (`tr_s_preference`), it is a CU.
+3. It is a (monolithic) gNB.
+
+## Local network deployment of F1
 
 For a local deployment, you should update the following fields.
 We assume that the CU will bind on `192.168.70.129` towards the core,
@@ -144,9 +152,11 @@ In the CU file:
 In the DU file:
 - Set `MACRLCs.[0].tr_n_preference` to `f1`
 - Update `MACRLCs.[0].local_n_address` (local north-bound address of the DU) to
-  `127.0.0.4`
+  `127.0.0.4`. This IP address is used to bind the GTP socket (F1-U user plane
+  traffic).
 - Update `MACRLCs.[].remote_n_address` (remote north-bound address of the CU)
-  to `127.0.0.3`
+  to `127.0.0.3`. This IP address is used as the CU destination IP address for
+  F1AP communication.
 
 Note: all `local_*_if_name` parameters are ignored.
 

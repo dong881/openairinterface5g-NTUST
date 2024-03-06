@@ -563,6 +563,7 @@ int main(int argc, char *argv[])
   notifiedFIFO_elt_t *msgL1Tx = newNotifiedFIFO_elt(sizeof(processingData_L1tx_t), 0, &gNB->L1_tx_free, NULL);
   processingData_L1tx_t *msgDataTx = (processingData_L1tx_t *)NotifiedFifoData(msgL1Tx);
   msgDataTx->slot = -1;
+  gNB->msgDataTx = msgDataTx;
   //gNB_config = &gNB->gNB_config;
 
   //memset((void *)&gNB->UL_INFO,0,sizeof(gNB->UL_INFO));
@@ -690,11 +691,10 @@ int main(int argc, char *argv[])
   }
 
   //Configure UE
-  NR_UE_RRC_INST_t rrcue = {0};
-  rrcue.scell_group_config = secondaryCellGroup;
-  nr_l2_init_ue(&rrcue);
-
+  nr_l2_init_ue(1);
   NR_UE_MAC_INST_t* UE_mac = get_mac_inst(0);
+
+  ue_init_config_request(UE_mac, mu);
   
   UE->if_inst = nr_ue_if_module_init(0);
   UE->if_inst->scheduled_response = nr_ue_scheduled_response;
@@ -713,15 +713,12 @@ int main(int argc, char *argv[])
   NR_Sched_Rsp_t *Sched_INFO = malloc(sizeof(*Sched_INFO));
   memset((void*)Sched_INFO,0,sizeof(*Sched_INFO));
   nfapi_nr_ul_tti_request_t *UL_tti_req = &Sched_INFO->UL_tti_req;
-  Sched_INFO->sched_response_id = -1;
 
   nr_phy_data_tx_t phy_data = {0};
 
   uint32_t errors_decoding = 0;
 
-  nr_scheduled_response_t scheduled_response={0};
-  fapi_nr_ul_config_request_t ul_config={0};
-  fapi_nr_tx_request_t tx_req={0};
+  fapi_nr_ul_config_request_t ul_config = {0};
 
   uint8_t ptrs_mcs1 = 2;
   uint8_t ptrs_mcs2 = 4;
@@ -796,7 +793,7 @@ int main(int argc, char *argv[])
 
   ulsch_input_buffer[0] = 0x31;
   for (i = 1; i < TBS/8; i++) {
-    ulsch_input_buffer[i] = (unsigned char) uniformrandom();
+    ulsch_input_buffer[i] = (uint8_t)rand();
   }
 
   uint8_t ptrs_time_density = get_L_ptrs(ptrs_mcs1, ptrs_mcs2, ptrs_mcs3, Imcs, mcs_table);
@@ -924,7 +921,6 @@ int main(int argc, char *argv[])
     reset_meas(&gNB->rx_pusch_stats);
     reset_meas(&gNB->rx_pusch_init_stats);
     reset_meas(&gNB->rx_pusch_symbol_processing_stats);
-    reset_meas(&gNB->ulsch_decoding_stats);
     reset_meas(&gNB->ulsch_channel_estimation_stats);
     reset_meas(&UE->ulsch_ldpc_encoding_stats);
     reset_meas(&UE->ulsch_rate_matching_stats);
@@ -1074,24 +1070,7 @@ int main(int argc, char *argv[])
         nr_schedule_response(Sched_INFO);
 
         // --------- setting parameters for UE --------
-
-        scheduled_response.module_id = 0;
-        scheduled_response.CC_id = 0;
-        scheduled_response.frame = frame;
-        scheduled_response.slot = slot;
-        scheduled_response.dl_config = NULL;
-        scheduled_response.ul_config = &ul_config;
-        scheduled_response.tx_request = &tx_req;
-        scheduled_response.phy_data = (void *)&phy_data;
-
-        // Config UL TX PDU
-        tx_req.slot = slot;
-        tx_req.sfn = frame;
-        tx_req.number_of_pdus = 1; //do_SRS == 1 ? 2 : 1;
-
-        tx_req.tx_request_body[0].pdu_length = TBS / 8;
-        tx_req.tx_request_body[0].pdu_index = 0;
-        tx_req.tx_request_body[0].pdu = &ulsch_input_buffer[0];
+        nr_scheduled_response_t scheduled_response = {.ul_config = &ul_config, .phy_data = (void *)&phy_data};
 
         ul_config.slot = slot;
         ul_config.number_pdus = do_SRS == 1 ? 2 : 1;
@@ -1099,6 +1078,9 @@ int main(int argc, char *argv[])
         fapi_nr_ul_config_request_pdu_t *ul_config0 = &ul_config.ul_config_list[0];
         ul_config0->pdu_type = FAPI_NR_UL_CONFIG_TYPE_PUSCH;
         nfapi_nr_ue_pusch_pdu_t *pusch_config_pdu = &ul_config0->pusch_config_pdu;
+        // Config UL TX PDU
+        pusch_config_pdu->tx_request_body.pdu = ulsch_input_buffer;
+        pusch_config_pdu->tx_request_body.pdu_length = TBS / 8;
         pusch_config_pdu->rnti = n_rnti;
         pusch_config_pdu->pdu_bit_map = pdu_bit_map;
         pusch_config_pdu->qam_mod_order = mod_order;
@@ -1116,8 +1098,9 @@ int main(int argc, char *argv[])
         pusch_config_pdu->absolute_delta_PUSCH = 0;
         pusch_config_pdu->target_code_rate = code_rate;
         pusch_config_pdu->tbslbrm = tbslbrm;
+        pusch_config_pdu->ldpcBaseGraph = get_BG(TBS, code_rate);
         pusch_config_pdu->pusch_data.tb_size = TBS / 8;
-        pusch_config_pdu->pusch_data.new_data_indicator = trial & 0x1;
+        pusch_config_pdu->pusch_data.new_data_indicator = round == 0 ? true : false;
         pusch_config_pdu->pusch_data.rv_index = rv_index;
         pusch_config_pdu->pusch_data.harq_process_id = harq_pid;
         pusch_config_pdu->pusch_ptrs.ptrs_time_density = ptrs_time_density;
@@ -1562,7 +1545,6 @@ int main(int argc, char *argv[])
       printStatIndent2(&gNB->ulsch_channel_estimation_stats, "ULSCH channel estimation time");
       printStatIndent2(&gNB->rx_pusch_init_stats, "RX PUSCH Initialization time");
       printStatIndent2(&gNB->rx_pusch_symbol_processing_stats, "RX PUSCH Symbol Processing time");
-      printStatIndent(&gNB->ulsch_decoding_stats,"ULSCH total decoding time");
 
       printf("\nUE TX\n");
       printStatIndent(&UE->ulsch_encoding_stats,"ULSCH total encoding time");
@@ -1612,7 +1594,7 @@ int main(int argc, char *argv[])
 
   free_MIB_NR(mib);
   if (gNB->ldpc_offload_flag)
-    free_nrLDPClib_offload();
+    free_LDPClib(&ldpc_interface_offload);
 
   if (output_fd)
     fclose(output_fd);

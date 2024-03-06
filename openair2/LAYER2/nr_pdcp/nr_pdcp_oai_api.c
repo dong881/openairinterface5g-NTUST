@@ -30,6 +30,7 @@
 #include "NR_RLC-Config.h"
 #include "NR_CellGroupConfig.h"
 #include "openair2/RRC/NR/nr_rrc_proto.h"
+#include "common/utils/mem/oai_memory.h"
 #include <stdint.h>
 
 /* from OAI */
@@ -64,6 +65,25 @@ uint8_t proto_agent_flag = 0;
 
 static ngran_node_t node_type;
 
+nr_pdcp_entity_t *nr_pdcp_get_rb(nr_pdcp_ue_t *ue, int rb_id, bool srb_flag)
+{
+  nr_pdcp_entity_t *rb;
+
+  if (srb_flag) {
+    if (rb_id < 1 || rb_id > 2)
+      rb = NULL;
+    else
+      rb = ue->srb[rb_id - 1];
+  } else {
+    if (rb_id < 1 || rb_id > MAX_DRBS_PER_UE)
+      rb = NULL;
+    else
+      rb = ue->drb[rb_id - 1];
+  }
+
+  return rb;
+}
+
 /****************************************************************************/
 /* rlc_data_req queue - begin                                               */
 /****************************************************************************/
@@ -92,7 +112,7 @@ typedef struct {
   mui_t           muiP;
   confirm_t       confirmP;
   sdu_size_t      sdu_sizeP;
-  mem_block_t     *sdu_pP;
+  uint8_t *sdu_pP;
 } rlc_data_req_queue_item;
 
 #define RLC_DATA_REQ_QUEUE_SIZE 10000
@@ -154,13 +174,13 @@ static void init_nr_rlc_data_req_queue(void)
 }
 
 static void enqueue_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
-                                 const srb_flag_t   srb_flagP,
-                                 const MBMS_flag_t  MBMS_flagP,
-                                 const rb_id_t      rb_idP,
-                                 const mui_t        muiP,
-                                 confirm_t    confirmP,
-                                 sdu_size_t   sdu_sizeP,
-                                 mem_block_t *sdu_pP)
+                                 const srb_flag_t srb_flagP,
+                                 const MBMS_flag_t MBMS_flagP,
+                                 const rb_id_t rb_idP,
+                                 const mui_t muiP,
+                                 confirm_t confirmP,
+                                 sdu_size_t sdu_sizeP,
+                                 uint8_t *sdu_pP)
 {
   int i;
   int logged = 0;
@@ -191,13 +211,13 @@ static void enqueue_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
 }
 
 void du_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
-                     const srb_flag_t   srb_flagP,
-                     const MBMS_flag_t  MBMS_flagP,
-                     const rb_id_t      rb_idP,
-                     const mui_t        muiP,
-                     confirm_t    confirmP,
-                     sdu_size_t   sdu_sizeP,
-                     mem_block_t *sdu_pP)
+                     const srb_flag_t srb_flagP,
+                     const MBMS_flag_t MBMS_flagP,
+                     const rb_id_t rb_idP,
+                     const mui_t muiP,
+                     confirm_t confirmP,
+                     sdu_size_t sdu_sizeP,
+                     uint8_t *sdu_pP)
 {
   enqueue_rlc_data_req(ctxt_pP,
                        srb_flagP,
@@ -222,7 +242,7 @@ typedef struct {
   MBMS_flag_t     MBMS_flagP;
   rb_id_t         rb_id;
   sdu_size_t      sdu_buffer_size;
-  mem_block_t     *sdu_buffer;
+  uint8_t *sdu_buffer;
 } pdcp_data_ind_queue_item;
 
 #define PDCP_DATA_IND_QUEUE_SIZE 10000
@@ -237,17 +257,16 @@ typedef struct {
 
 static pdcp_data_ind_queue pq;
 
-static void do_pdcp_data_ind(
-  const protocol_ctxt_t *const  ctxt_pP,
-  const srb_flag_t srb_flagP,
-  const MBMS_flag_t MBMS_flagP,
-  const rb_id_t rb_id,
-  const sdu_size_t sdu_buffer_size,
-  mem_block_t *const sdu_buffer)
+static void do_pdcp_data_ind(const protocol_ctxt_t *const ctxt_pP,
+                             const srb_flag_t srb_flagP,
+                             const MBMS_flag_t MBMS_flagP,
+                             const rb_id_t rb_id,
+                             const sdu_size_t sdu_buffer_size,
+                             uint8_t *const sdu_buffer)
 {
   nr_pdcp_ue_t *ue;
   nr_pdcp_entity_t *rb;
-  ue_id_t rntiMaybeUEid = ctxt_pP->rntiMaybeUEid;
+  ue_id_t UEid = ctxt_pP->rntiMaybeUEid;
 
   if (ctxt_pP->module_id != 0 ||
       //ctxt_pP->enb_flag != 1 ||
@@ -259,33 +278,21 @@ static void do_pdcp_data_ind(
   }
 
   if (ctxt_pP->enb_flag)
-    T(T_ENB_PDCP_UL, T_INT(ctxt_pP->module_id), T_INT(rntiMaybeUEid), T_INT(rb_id), T_INT(sdu_buffer_size));
+    T(T_ENB_PDCP_UL, T_INT(ctxt_pP->module_id), T_INT(UEid), T_INT(rb_id), T_INT(sdu_buffer_size));
 
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
-  ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, rntiMaybeUEid);
-
-  if (srb_flagP == 1) {
-    if (rb_id < 1 || rb_id > 2)
-      rb = NULL;
-    else
-      rb = ue->srb[rb_id - 1];
-  } else {
-    if (rb_id < 1 || rb_id > MAX_DRBS_PER_UE)
-      rb = NULL;
-    else
-      rb = ue->drb[rb_id - 1];
-  }
+  ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, UEid);
+  rb = nr_pdcp_get_rb(ue, rb_id, srb_flagP);
 
   if (rb != NULL) {
-    rb->recv_pdu(rb, (char *)sdu_buffer->data, sdu_buffer_size);
+    rb->recv_pdu(rb, (char *)sdu_buffer, sdu_buffer_size);
   } else {
-    LOG_E(PDCP, "%s:%d:%s: no RB found (rb_id %ld, srb_flag %d)\n",
-          __FILE__, __LINE__, __FUNCTION__, rb_id, srb_flagP);
+    LOG_E(PDCP, "pdcp_data_ind: no RB found (rb_id %ld, srb_flag %d)\n", rb_id, srb_flagP);
   }
 
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 
-  free_mem_block(sdu_buffer, __FUNCTION__);
+  free(sdu_buffer);
 }
 
 static void *pdcp_data_ind_thread(void *_)
@@ -330,13 +337,12 @@ static void init_nr_pdcp_data_ind_queue(void)
   }
 }
 
-static void enqueue_pdcp_data_ind(
-  const protocol_ctxt_t *const  ctxt_pP,
-  const srb_flag_t srb_flagP,
-  const MBMS_flag_t MBMS_flagP,
-  const rb_id_t rb_id,
-  const sdu_size_t sdu_buffer_size,
-  mem_block_t *const sdu_buffer)
+static void enqueue_pdcp_data_ind(const protocol_ctxt_t *const ctxt_pP,
+                                  const srb_flag_t srb_flagP,
+                                  const MBMS_flag_t MBMS_flagP,
+                                  const rb_id_t rb_id,
+                                  const sdu_size_t sdu_buffer_size,
+                                  uint8_t *const sdu_buffer)
 {
   int i;
   int logged = 0;
@@ -364,12 +370,12 @@ static void enqueue_pdcp_data_ind(
   if (pthread_mutex_unlock(&pq.m) != 0) abort();
 }
 
-bool pdcp_data_ind(const protocol_ctxt_t *const  ctxt_pP,
+bool pdcp_data_ind(const protocol_ctxt_t *const ctxt_pP,
                    const srb_flag_t srb_flagP,
                    const MBMS_flag_t MBMS_flagP,
                    const rb_id_t rb_id,
                    const sdu_size_t sdu_buffer_size,
-                   mem_block_t *const sdu_buffer,
+                   uint8_t *const sdu_buffer,
                    const uint32_t *const srcID,
                    const uint32_t *const dstID)
 {
@@ -411,7 +417,7 @@ static void *enb_tun_read_thread(void *_)
   char rx_buf[NL_MAX_PAYLOAD];
   int len;
   protocol_ctxt_t ctxt;
-  ue_id_t rntiMaybeUEid;
+  ue_id_t UEid;
 
   int rb_id = 1;
   pthread_setname_np( pthread_self(),"enb_tun_read");
@@ -426,7 +432,7 @@ static void *enb_tun_read_thread(void *_)
     LOG_D(PDCP, "%s(): nas_sock_fd read returns len %d\n", __func__, len);
 
     nr_pdcp_manager_lock(nr_pdcp_ue_manager);
-    const bool has_ue = nr_pdcp_get_first_ue_id(nr_pdcp_ue_manager, &rntiMaybeUEid);
+    const bool has_ue = nr_pdcp_get_first_ue_id(nr_pdcp_ue_manager, &UEid);
     nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 
     if (!has_ue) continue;
@@ -438,13 +444,26 @@ static void *enb_tun_read_thread(void *_)
     ctxt.subframe = 0;
     ctxt.eNB_index = 0;
     ctxt.brOption = 0;
-    ctxt.rntiMaybeUEid = rntiMaybeUEid;
+    ctxt.rntiMaybeUEid = UEid;
 
     uint8_t qfi = 7;
     bool rqi = 0;
     int pdusession_id = 10;
 
-    sdap_data_req(&ctxt, rntiMaybeUEid, SRB_FLAG_NO, rb_id, RLC_MUI_UNDEFINED, RLC_SDU_CONFIRM_NO, len, (unsigned char *)rx_buf, PDCP_TRANSMISSION_MODE_DATA, NULL, NULL, qfi, rqi, pdusession_id);
+    sdap_data_req(&ctxt,
+                  UEid,
+                  SRB_FLAG_NO,
+                  rb_id,
+                  RLC_MUI_UNDEFINED,
+                  RLC_SDU_CONFIRM_NO,
+                  len,
+                  (unsigned char *)rx_buf,
+                  PDCP_TRANSMISSION_MODE_DATA,
+                  NULL,
+                  NULL,
+                  qfi,
+                  rqi,
+                  pdusession_id);
   }
 
   return NULL;
@@ -456,7 +475,7 @@ static void *ue_tun_read_thread(void *_)
   char rx_buf[NL_MAX_PAYLOAD];
   int len;
   protocol_ctxt_t ctxt;
-  ue_id_t rntiMaybeUEid;
+  ue_id_t UEid;
   int has_ue;
 
   int rb_id = 1;
@@ -471,7 +490,7 @@ static void *ue_tun_read_thread(void *_)
     LOG_D(PDCP, "%s(): nas_sock_fd read returns len %d\n", __func__, len);
 
     nr_pdcp_manager_lock(nr_pdcp_ue_manager);
-    has_ue = nr_pdcp_get_first_ue_id(nr_pdcp_ue_manager, &rntiMaybeUEid);
+    has_ue = nr_pdcp_get_first_ue_id(nr_pdcp_ue_manager, &UEid);
     nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 
     if (!has_ue) continue;
@@ -483,13 +502,26 @@ static void *ue_tun_read_thread(void *_)
     ctxt.subframe = 0;
     ctxt.eNB_index = 0;
     ctxt.brOption = 0;
-    ctxt.rntiMaybeUEid = rntiMaybeUEid;
+    ctxt.rntiMaybeUEid = UEid;
 
     bool dc = SDAP_HDR_UL_DATA_PDU;
     extern uint8_t nas_qfi;
     extern uint8_t nas_pduid;
 
-    sdap_data_req(&ctxt, rntiMaybeUEid, SRB_FLAG_NO, rb_id, RLC_MUI_UNDEFINED, RLC_SDU_CONFIRM_NO, len, (unsigned char *)rx_buf, PDCP_TRANSMISSION_MODE_DATA, NULL, NULL, nas_qfi, dc, nas_pduid);
+    sdap_data_req(&ctxt,
+                  UEid,
+                  SRB_FLAG_NO,
+                  rb_id,
+                  RLC_MUI_UNDEFINED,
+                  RLC_SDU_CONFIRM_NO,
+                  len,
+                  (unsigned char *)rx_buf,
+                  PDCP_TRANSMISSION_MODE_DATA,
+                  NULL,
+                  NULL,
+                  nas_qfi,
+                  dc,
+                  nas_pduid);
   }
 
   return NULL;
@@ -633,10 +665,10 @@ static void deliver_sdu_drb(void *_ue, nr_pdcp_entity_t *entity,
   int i;
 
   if (IS_SOFTMODEM_NOS1 || UE_NAS_USE_TUN) {
-    LOG_D(PDCP, "IP packet received with size %d, to be sent to SDAP interface, UE ID/RNTI: %ld\n", size, ue->rntiMaybeUEid);
+    LOG_D(PDCP, "IP packet received with size %d, to be sent to SDAP interface, UE ID/RNTI: %ld\n", size, ue->ue_id);
     // in NoS1 mode: the SDAP should write() packets to an FD (TUN interface),
     // so below, set is_gnb == 0 to do that
-    sdap_data_ind(entity->rb_id, 0, entity->has_sdap_rx, entity->pdusession_id, ue->rntiMaybeUEid, buf, size);
+    sdap_data_ind(entity->rb_id, 0, entity->has_sdap_rx, entity->pdusession_id, ue->ue_id, buf, size);
   }
   else{
     for (i = 0; i < MAX_DRBS_PER_UE; i++) {
@@ -646,13 +678,19 @@ static void deliver_sdu_drb(void *_ue, nr_pdcp_entity_t *entity,
         }
       }
 
-      LOG_E(PDCP, "%s:%d:%s: fatal, no RB found for UE ID/RNTI %ld\n", __FILE__, __LINE__, __FUNCTION__, ue->rntiMaybeUEid);
+      LOG_E(PDCP, "%s:%d:%s: fatal, no RB found for UE ID/RNTI %ld\n", __FILE__, __LINE__, __FUNCTION__, ue->ue_id);
       exit(1);
 
     rb_found:
     {
       LOG_D(PDCP, "%s() (drb %d) sending message to SDAP size %d\n", __func__, rb_id, size);
-      sdap_data_ind(rb_id, ue->drb[rb_id - 1]->is_gnb, ue->drb[rb_id - 1]->has_sdap_rx, ue->drb[rb_id - 1]->pdusession_id, ue->rntiMaybeUEid, buf, size);
+      sdap_data_ind(rb_id,
+                    ue->drb[rb_id - 1]->is_gnb,
+                    ue->drb[rb_id - 1]->has_sdap_rx,
+                    ue->drb[rb_id - 1]->pdusession_id,
+                    ue->ue_id,
+                    buf,
+                    size);
     }
   }
 }
@@ -663,8 +701,8 @@ static void deliver_pdu_drb_ue(void *deliver_pdu_data, ue_id_t ue_id, int rb_id,
   DevAssert(deliver_pdu_data == NULL);
   protocol_ctxt_t ctxt = { .enb_flag = 0, .rntiMaybeUEid = ue_id };
 
-  mem_block_t *memblock = get_free_mem_block(size, __FUNCTION__);
-  memcpy(memblock->data, buf, size);
+  uint8_t *memblock = malloc16(size);
+  memcpy(memblock, buf, size);
   LOG_D(PDCP, "%s(): (drb %d) calling rlc_data_req size %d UE %ld/%04lx\n", __func__, rb_id, size, ctxt.rntiMaybeUEid, ctxt.rntiMaybeUEid);
   enqueue_rlc_data_req(&ctxt, 0, MBMS_FLAG_NO, rb_id, sdu_id, 0, size, memblock);
 }
@@ -695,8 +733,8 @@ static void deliver_pdu_drb_gnb(void *deliver_pdu_data, ue_id_t ue_id, int rb_id
     extern instance_t CUuniqInstance;
     itti_send_msg_to_task(TASK_GTPV1_U, CUuniqInstance, message_p);
   } else {
-    mem_block_t *memblock = get_free_mem_block(size, __FUNCTION__);
-    memcpy(memblock->data, buf, size);
+    uint8_t *memblock = malloc16(size);
+    memcpy(memblock, buf, size);
     LOG_D(PDCP, "%s(): (drb %d) calling rlc_data_req size %d\n", __func__, rb_id, size);
     enqueue_rlc_data_req(&ctxt, 0, MBMS_FLAG_NO, rb_id, sdu_id, 0, size, memblock);
   }
@@ -716,7 +754,7 @@ static void deliver_sdu_srb(void *_ue, nr_pdcp_entity_t *entity,
     }
   }
 
-  LOG_E(PDCP, "%s:%d:%s: fatal, no SRB found for UE ID/RNTI %ld\n", __FILE__, __LINE__, __FUNCTION__, ue->rntiMaybeUEid);
+  LOG_E(PDCP, "%s:%d:%s: fatal, no SRB found for UE ID/RNTI %ld\n", __FILE__, __LINE__, __FUNCTION__, ue->ue_id);
   exit(1);
 
 srb_found:
@@ -724,10 +762,10 @@ srb_found:
     MessageDef *message_p = itti_alloc_new_message(TASK_PDCP_GNB, 0, F1AP_UL_RRC_MESSAGE);
     AssertFatal(message_p != NULL, "OUT OF MEMORY\n");
     f1ap_ul_rrc_message_t *ul_rrc = &F1AP_UL_RRC_MESSAGE(message_p);
-    ul_rrc->gNB_CU_ue_id = ue->rntiMaybeUEid;
+    ul_rrc->gNB_CU_ue_id = ue->ue_id;
     /* look up the correct secondary UE ID to provide complete information to
      * RRC, the RLC-PDCP interface does not transport this information */
-    f1_ue_data_t ue_data = cu_get_f1_ue_data(ue->rntiMaybeUEid);
+    f1_ue_data_t ue_data = cu_get_f1_ue_data(ue->ue_id);
     ul_rrc->gNB_DU_ue_id = ue_data.secondary_ue;
     ul_rrc->srb_id = srb_id;
     ul_rrc->rrc_container = malloc(size);
@@ -744,8 +782,8 @@ srb_found:
     NR_RRC_DCCH_DATA_IND(message_p).dcch_index = srb_id;
     NR_RRC_DCCH_DATA_IND(message_p).sdu_p = rrc_buffer_p;
     NR_RRC_DCCH_DATA_IND(message_p).sdu_size = size;
-    NR_RRC_DCCH_DATA_IND(message_p).rnti = ue->rntiMaybeUEid;
-    itti_send_msg_to_task(TASK_RRC_NRUE, 0, message_p);
+    ue_id_t ue_id = ue->ue_id;
+    itti_send_msg_to_task(TASK_RRC_NRUE, ue_id, message_p);
   }
 }
 
@@ -753,13 +791,13 @@ void deliver_pdu_srb_rlc(void *deliver_pdu_data, ue_id_t ue_id, int srb_id,
                          char *buf, int size, int sdu_id)
 {
   protocol_ctxt_t ctxt = { .enb_flag = 1, .rntiMaybeUEid = ue_id };
-  mem_block_t *memblock = get_free_mem_block(size, __FUNCTION__);
-  memcpy(memblock->data, buf, size);
+  uint8_t *memblock = malloc16(size);
+  memcpy(memblock, buf, size);
   enqueue_rlc_data_req(&ctxt, 1, MBMS_FLAG_NO, srb_id, sdu_id, 0, size, memblock);
 }
 
 void add_srb(int is_gnb,
-             ue_id_t rntiMaybeUEid,
+             ue_id_t UEid,
              struct NR_SRB_ToAddMod *s,
              int ciphering_algorithm,
              int integrity_algorithm,
@@ -775,15 +813,9 @@ void add_srb(int is_gnb,
     t_Reordering = decode_t_reordering(*s->pdcp_Config->t_Reordering);
 
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
-  ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, rntiMaybeUEid);
-  if (ue->srb[srb_id-1] != NULL) {
-    LOG_E(PDCP,
-          "%s:%d:%s: warning SRB %d already exist for UE ID/RNTI %ld, do nothing\n",
-          __FILE__,
-          __LINE__,
-          __FUNCTION__,
-          srb_id,
-          rntiMaybeUEid);
+  ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, UEid);
+  if (nr_pdcp_get_rb(ue, srb_id, true) != NULL) {
+    LOG_E(PDCP, "warning SRB %d already exist for UE ID %ld, do nothing\n", srb_id, UEid);
   } else {
     pdcp_srb = new_nr_pdcp_entity(NR_PDCP_SRB, is_gnb, srb_id,
                                   0, false, false, // sdap parameters
@@ -795,13 +827,13 @@ void add_srb(int is_gnb,
                                   integrity_key);
     nr_pdcp_ue_add_srb_pdcp_entity(ue, srb_id, pdcp_srb);
 
-    LOG_D(PDCP, "%s:%d:%s: added srb %d to UE ID/RNTI %ld\n", __FILE__, __LINE__, __FUNCTION__, srb_id, rntiMaybeUEid);
+    LOG_D(PDCP, "added srb %d to UE ID %ld\n", srb_id, UEid);
   }
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 }
 
 void add_drb(int is_gnb,
-             ue_id_t rntiMaybeUEid,
+             ue_id_t UEid,
              struct NR_DRB_ToAddMod *s,
              int ciphering_algorithm,
              int integrity_algorithm,
@@ -877,9 +909,9 @@ void add_drb(int is_gnb,
 
 
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
-  ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, rntiMaybeUEid);
-  if (ue->drb[drb_id-1] != NULL) {
-    LOG_W(PDCP, "%s:%d:%s: warning DRB %d already exist for UE ID/RNTI %ld, do nothing\n", __FILE__, __LINE__, __FUNCTION__, drb_id, rntiMaybeUEid);
+  ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, UEid);
+  if (nr_pdcp_get_rb(ue, drb_id, false) != NULL) {
+    LOG_W(PDCP, "warning DRB %d already exist for UE ID %ld, do nothing\n", drb_id, UEid);
   } else {
     pdcp_drb = new_nr_pdcp_entity(NR_PDCP_DRB_AM, is_gnb, drb_id, pdusession_id,
                                   has_sdap_rx, has_sdap_tx, deliver_sdu_drb, ue,
@@ -893,25 +925,30 @@ void add_drb(int is_gnb,
                                   has_integrity ? integrity_key : NULL);
     nr_pdcp_ue_add_drb_pdcp_entity(ue, drb_id, pdcp_drb);
 
-    LOG_D(PDCP, "%s:%d:%s: added drb %d to UE ID/RNTI %ld\n", __FILE__, __LINE__, __FUNCTION__, drb_id, rntiMaybeUEid);
+    LOG_I(PDCP, "added drb %d to UE ID %ld\n", drb_id, UEid);
 
-    new_nr_sdap_entity(is_gnb, has_sdap_rx, has_sdap_tx, rntiMaybeUEid, pdusession_id, is_sdap_DefaultDRB, drb_id, mappedQFIs2Add, mappedQFIs2AddCount);
+    new_nr_sdap_entity(is_gnb, has_sdap_rx, has_sdap_tx, UEid, pdusession_id, is_sdap_DefaultDRB, drb_id, mappedQFIs2Add, mappedQFIs2AddCount);
   }
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 }
 
-void nr_pdcp_add_srbs(eNB_flag_t enb_flag, ue_id_t rntiMaybeUEid, NR_SRB_ToAddModList_t *const srb2add_list, const uint8_t security_modeP, uint8_t *const kRRCenc, uint8_t *const kRRCint)
+void nr_pdcp_add_srbs(eNB_flag_t enb_flag,
+                      ue_id_t UEid,
+                      NR_SRB_ToAddModList_t *const srb2add_list,
+                      const uint8_t security_modeP,
+                      uint8_t *const kRRCenc,
+                      uint8_t *const kRRCint)
 {
   if (srb2add_list != NULL) {
     for (int i = 0; i < srb2add_list->list.count; i++) {
-      add_srb(enb_flag, rntiMaybeUEid, srb2add_list->list.array[i], security_modeP & 0x0f, (security_modeP >> 4) & 0x0f, kRRCenc, kRRCint);
+      add_srb(enb_flag, UEid, srb2add_list->list.array[i], security_modeP & 0x0f, (security_modeP >> 4) & 0x0f, kRRCenc, kRRCint);
     }
   } else
     LOG_W(PDCP, "nr_pdcp_add_srbs() with void list\n");
 }
 
 void nr_pdcp_add_drbs(eNB_flag_t enb_flag,
-                      ue_id_t rntiMaybeUEid,
+                      ue_id_t UEid,
                       NR_DRB_ToAddModList_t *const drb2add_list,
                       const uint8_t security_modeP,
                       uint8_t *const kUPenc,
@@ -920,7 +957,7 @@ void nr_pdcp_add_drbs(eNB_flag_t enb_flag,
   if (drb2add_list != NULL) {
     for (int i = 0; i < drb2add_list->list.count; i++) {
       add_drb(enb_flag,
-              rntiMaybeUEid,
+              UEid,
               drb2add_list->list.array[i],
               security_modeP & 0x0f,
               (security_modeP >> 4) & 0x0f,
@@ -957,13 +994,11 @@ bool pdcp_remove_UE(const protocol_ctxt_t *const ctxt_pP)
   abort();
 }
 
-bool nr_pdcp_remove_UE(ue_id_t ue_id)
+void nr_pdcp_remove_UE(ue_id_t ue_id)
 {
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
   nr_pdcp_manager_remove_ue(nr_pdcp_ue_manager, ue_id);
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
-
-  return 1;
 }
 
 /* hack: dummy function needed due to LTE dependencies */
@@ -997,24 +1032,19 @@ void nr_pdcp_config_set_security(ue_id_t ue_id,
 
   /* TODO: proper handling of DRBs, for the moment only SRBs are handled */
 
-  if (rb_id >= 1 && rb_id <= 2) {
-    rb = ue->srb[rb_id - 1];
+  rb = nr_pdcp_get_rb(ue, rb_id, true);
 
-    if (rb == NULL) {
-      LOG_E(PDCP, "%s:%d:%s: no SRB found (ue_id %ld, rb_id %ld)\n", __FILE__, __LINE__, __FUNCTION__, ue_id, rb_id);
-      nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
-      return;
-    }
-
-    integrity_algorithm = (security_modeP>>4) & 0xf;
-    ciphering_algorithm = security_modeP & 0x0f;
-    rb->set_security(rb, integrity_algorithm, (char *)kRRCint_pP,
-                     ciphering_algorithm, (char *)kRRCenc_pP);
-    rb->security_mode_completed = false;
-  } else {
-    LOG_E(PDCP, "%s:%d:%s: TODO\n", __FILE__, __LINE__, __FUNCTION__);
-    exit(1);
+  if (rb == NULL) {
+    LOG_E(PDCP, "no SRB found (ue_id %ld, rb_id %ld)\n", ue_id, rb_id);
+    nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
+    return;
   }
+
+  integrity_algorithm = (security_modeP>>4) & 0xf;
+  ciphering_algorithm = security_modeP & 0x0f;
+  rb->set_security(rb, integrity_algorithm, (char *)kRRCint_pP,
+                   ciphering_algorithm, (char *)kRRCenc_pP);
+  rb->security_mode_completed = false;
 
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 }
@@ -1034,14 +1064,10 @@ bool nr_pdcp_data_req_srb(ue_id_t ue_id,
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
 
   ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, ue_id);
-
-  if (rb_id < 1 || rb_id > 2)
-    rb = NULL;
-  else
-    rb = ue->srb[rb_id - 1];
+  rb = nr_pdcp_get_rb(ue, rb_id, true);
 
   if (rb == NULL) {
-    LOG_E(PDCP, "%s:%d:%s: no SRB found (ue_id %ld, rb_id %ld)\n", __FILE__, __LINE__, __FUNCTION__, ue_id, rb_id);
+    LOG_E(PDCP, "no SRB found (ue_id %ld, rb_id %ld)\n", ue_id, rb_id);
     nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
     return 0;
   }
@@ -1062,9 +1088,10 @@ void nr_pdcp_suspend_srb(ue_id_t ue_id, int srb_id)
 {
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
   nr_pdcp_ue_t *ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, ue_id);
-  nr_pdcp_entity_t *srb = ue->srb[srb_id - 1];
+  nr_pdcp_entity_t *srb = nr_pdcp_get_rb(ue, srb_id, true);
   if (srb == NULL) {
-    LOG_E(PDCP, "Trying to susbend SRB with ID %d but it is not established\n", srb_id);
+    LOG_E(PDCP, "Trying to suspend SRB with ID %d but it is not established\n", srb_id);
+    nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
     return;
   }
   srb->suspend_entity(srb);
@@ -1075,9 +1102,10 @@ void nr_pdcp_suspend_drb(ue_id_t ue_id, int drb_id)
 {
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
   nr_pdcp_ue_t *ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, ue_id);
-  nr_pdcp_entity_t *drb = ue->drb[drb_id - 1];
+  nr_pdcp_entity_t *drb = nr_pdcp_get_rb(ue, drb_id, false);
   if (drb == NULL) {
-    LOG_E(PDCP, "Trying to susbend DRB with ID %d but it is not established\n", drb_id);
+    LOG_E(PDCP, "Trying to suspend DRB with ID %d but it is not established\n", drb_id);
+    nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
     return;
   }
   drb->suspend_entity(drb);
@@ -1088,23 +1116,57 @@ void nr_pdcp_reconfigure_srb(ue_id_t ue_id, int srb_id, long t_Reordering)
 {
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
   nr_pdcp_ue_t *ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, ue_id);
-  nr_pdcp_entity_t *srb = ue->srb[srb_id - 1];
+  nr_pdcp_entity_t *srb = nr_pdcp_get_rb(ue, srb_id, true);
+  if (srb == NULL) {
+    LOG_E(PDCP, "Trying to reconfigure SRB with ID %d but it is not established\n", srb_id);
+    nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
+    return;
+  }
   int decoded_t_reordering = decode_t_reordering(t_Reordering);
   srb->t_reordering = decoded_t_reordering;
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 }
 
-void nr_pdcp_reconfigure_drb(ue_id_t ue_id, int drb_id, long t_Reordering)
+void nr_pdcp_reconfigure_drb(ue_id_t ue_id, int drb_id, NR_PDCP_Config_t *pdcp_config, NR_SDAP_Config_t *sdap_config)
 {
-  /* The enabling/disabling of ciphering or integrity protection
-   * can be changed only by releasing and adding the DRB
-   * (so not by reconfiguring).
-   */
+  // The enabling/disabling of ciphering or integrity protection
+  // can be changed only by releasing and adding the DRB
+  // (so not by reconfiguring).
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
   nr_pdcp_ue_t *ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, ue_id);
-  nr_pdcp_entity_t *drb = ue->drb[drb_id - 1];
-  int decoded_t_reordering = decode_t_reordering(t_Reordering);
-  drb->t_reordering = decoded_t_reordering;
+  nr_pdcp_entity_t *drb = nr_pdcp_get_rb(ue, drb_id, false);
+  if (drb == NULL) {
+    LOG_E(PDCP, "Trying to reconfigure DRB with ID %d but it is not established\n", drb_id);
+    nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
+    return;
+  }
+  if (pdcp_config) {
+    if (pdcp_config->t_Reordering)
+      drb->t_reordering = decode_t_reordering(*pdcp_config->t_Reordering);
+    else
+      drb->t_reordering = -1;
+    struct NR_PDCP_Config__drb *drb_config = pdcp_config->drb;
+    if (drb_config) {
+      if (drb_config->discardTimer)
+        drb->discard_timer = decode_discard_timer(*drb_config->discardTimer);
+      bool size_set = false;
+      if (drb_config->pdcp_SN_SizeUL) {
+        drb->sn_size = decode_sn_size_ul(*drb_config->pdcp_SN_SizeUL);
+        size_set = true;
+      }
+      if (drb_config->pdcp_SN_SizeDL) {
+        int size = decode_sn_size_dl(*drb_config->pdcp_SN_SizeDL);
+        AssertFatal(!size_set || (size == drb->sn_size),
+                    "SN sizes must be the same. dl=%d, ul=%d",
+                    size, drb->sn_size);
+        drb->sn_size = size;
+      }
+    }
+  }
+  if (sdap_config) {
+    // nr_reconfigure_sdap_entity
+    AssertFatal(false, "Function to reconfigure SDAP entity not implemented yet\n");
+  }
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 }
 
@@ -1127,45 +1189,32 @@ void nr_pdcp_release_drb(ue_id_t ue_id, int drb_id)
   nr_pdcp_ue_t *ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, ue_id);
   nr_pdcp_entity_t *drb = ue->drb[drb_id - 1];
   if (drb) {
+    nr_sdap_release_drb(ue_id, drb_id, drb->pdusession_id);
     drb->release_entity(drb);
     drb->delete_entity(drb);
     ue->drb[drb_id - 1] = NULL;
+    LOG_I(PDCP, "release DRB %d of UE %ld\n", drb_id, ue_id);
   }
   else
     LOG_E(PDCP, "Attempting to release DRB%d but it is not configured\n", drb_id);
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 }
 
-void nr_pdcp_reestablishment(ue_id_t ue_id)
+void nr_pdcp_reestablishment(ue_id_t ue_id, int rb_id, bool srb_flag)
 {
-  // TODO implement this on a per RB basis following TS 38.323 Sec 5.1.2
+  nr_pdcp_ue_t     *ue;
+  nr_pdcp_entity_t *rb;
+
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
-  nr_pdcp_ue_t *ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, ue_id);
-  if (ue == NULL) {
-    LOG_E(PDCP, "Cannot find PDCP entity for UE %lx\n", ue_id);
-    nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
-    return;
+  ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, ue_id);
+  rb = nr_pdcp_get_rb(ue, rb_id, srb_flag);
+
+  if (rb != NULL) {
+    rb->reestablish_entity(rb);
+  } else {
+    LOG_W(PDCP, "UE %4.4lx cannot re-establish RB %d (is_srb %d), RB not found\n", ue_id, rb_id, srb_flag);
   }
 
-  for (int i = 0; i < 3; i++) {
-    nr_pdcp_entity_t *srb = ue->srb[i];
-    if (srb != NULL) {
-      srb->tx_next = 0;
-      srb->rx_next = 0;
-      srb->rx_deliv = 0;
-      srb->rx_reord = 0;
-    }
-  }
-
-  for (int i = 0; i < MAX_DRBS_PER_UE; i++) {
-    nr_pdcp_entity_t *drb = ue->drb[i];
-    if (drb != NULL) {
-      // drb->tx_next = 0; // Should continue from the previous value
-      drb->rx_next = 0;
-      //drb->rx_deliv = 0; // should continue from the previous value
-      drb->rx_reord = 0;
-    }
-  }
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 }
 
@@ -1200,14 +1249,10 @@ bool nr_pdcp_data_req_drb(protocol_ctxt_t *ctxt_pP,
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
 
   ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, ue_id);
-
-  if (rb_id < 1 || rb_id > MAX_DRBS_PER_UE)
-    rb = NULL;
-  else
-    rb = ue->drb[rb_id - 1];
+  rb = nr_pdcp_get_rb(ue, rb_id, false);
 
   if (rb == NULL) {
-    LOG_E(PDCP, "%s:%d:%s: no DRB found (ue_id %ld, rb_id %ld)\n", __FILE__, __LINE__, __FUNCTION__, ue_id, rb_id);
+    LOG_E(PDCP, "no DRB found (ue_id %lx, rb_id %ld)\n", ue_id, rb_id);
     nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
     return 0;
   }
@@ -1236,12 +1281,12 @@ bool cu_f1u_data_req(protocol_ctxt_t  *ctxt_pP,
                      const uint32_t *const destinationL2Id) {
   //Force instance id to 0, OAI incoherent instance management
   ctxt_pP->instance=0;
-  mem_block_t *memblock = get_free_mem_block(sdu_buffer_size, __func__);
+  uint8_t *memblock = malloc16(sdu_buffer_size);
   if (memblock == NULL) {
-    LOG_E(RLC, "%s:%d:%s: ERROR: get_free_mem_block failed\n", __FILE__, __LINE__, __FUNCTION__);
+    LOG_E(RLC, "%s:%d:%s: ERROR: malloc16 failed\n", __FILE__, __LINE__, __FUNCTION__);
     exit(1);
   }
-  memcpy(memblock->data,sdu_buffer, sdu_buffer_size);
+  memcpy(memblock, sdu_buffer, sdu_buffer_size);
   int ret=pdcp_data_ind(ctxt_pP,srb_flagP, false, rb_id, sdu_buffer_size, memblock, NULL, NULL);
   if (!ret) {
     LOG_E(RLC, "%s:%d:%s: ERROR: pdcp_data_ind failed\n", __FILE__, __LINE__, __FUNCTION__);
@@ -1309,18 +1354,7 @@ bool nr_pdcp_get_statistics(ue_id_t ue_id, int srb_flag, int rb_id, nr_pdcp_stat
 
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
   ue = nr_pdcp_manager_get_ue(nr_pdcp_ue_manager, ue_id);
-
-  if (srb_flag == 1) {
-    if (rb_id < 1 || rb_id > 2)
-      rb = NULL;
-    else
-      rb = ue->srb[rb_id - 1];
-  } else {
-    if (rb_id < 1 || rb_id > 5)
-      rb = NULL;
-    else
-      rb = ue->drb[rb_id - 1];
-  }
+  rb = nr_pdcp_get_rb(ue, rb_id, srb_flag);
 
   if (rb != NULL) {
     rb->get_stats(rb, out);
@@ -1332,4 +1366,16 @@ bool nr_pdcp_get_statistics(ue_id_t ue_id, int srb_flag, int rb_id, nr_pdcp_stat
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
 
   return ret;
+}
+
+int nr_pdcp_get_num_ues(ue_id_t *ue_list, int len)
+{
+  nr_pdcp_manager_lock(nr_pdcp_ue_manager);
+  int num_ues = nr_pdcp_manager_get_ue_count(nr_pdcp_ue_manager);
+  nr_pdcp_ue_t **nr_pdcp_ue_list = nr_pdcp_manager_get_ue_list(nr_pdcp_ue_manager);
+  for (int i = 0; i < num_ues && i < len; i++)
+    ue_list[i] = nr_pdcp_ue_list[i]->ue_id;
+  nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
+  
+  return num_ues;
 }

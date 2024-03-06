@@ -78,6 +78,26 @@ This proxy allows to perform L2 nFAPI simulator for:
 ### L2 Simulator as Docker Containers
 Another tutorial for 5G SA mode with 1 User is available [here](../ci-scripts/yaml_files/5g_l2sim_tdd/README.md).
 
+
+## 5G PNF-VNF split
+
+Start VNF
+
+```
+sudo NFAPI_TRACE_LEVEL=info ./nr-softmodem -O ../../../targets/PROJECTS/GENERIC-LTE-EPC/CONF/rcc.band78.tm1.106PRB.nfapi.conf --nfapi VNF --sa --log_config.global_log_options wall_clock  --emulate-l1
+```
+
+Start PNF
+
+```
+sudo NFAPI_TRACE_LEVEL=info ./nr-softmodem -O ../../../targets/PROJECTS/GENERIC-LTE-EPC/CONF/oaiL1.nfapi.usrpb210.conf --nfapi PNF --rfsim --rfsimulator.serveraddr server --log_config.global_log_options wall_clock --sa
+```
+
+Start UE
+```
+sudo ./nr-uesoftmodem -r 106 --numerology 1 --band 78 -C 3619200000 -O ue.conf
+```
+
 ----
 
 [oai wiki home](https://gitlab.eurecom.fr/oai/openairinterface5g/wikis/home)
