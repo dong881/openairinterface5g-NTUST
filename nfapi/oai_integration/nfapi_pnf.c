@@ -1851,9 +1851,6 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy,  n
   p7_config->codec_config.pack_vendor_extension_tlv = &pnf_phy_pack_vendor_extention_tlv;
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] Creating P7 thread %s\n", __FUNCTION__);
   
-  printf("[PNF] Sending PNF_START_RESP\n");
-  nfapi_nr_send_pnf_start_resp(config, p7_config->phy_id);
- 
   pthread_t p7_thread;
   pthread_create(&p7_thread, NULL, &pnf_nr_p7_thread_start, p7_config);
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] Calling l1_north_init_eNB() %s\n", __FUNCTION__);
@@ -1888,18 +1885,16 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy,  n
     usleep(5000000);
     printf("\n[PNF] waiting for OAI to be started\n");
   }
-
-  printf("\n[NTUST] waiting for OAI to be started end!\n");
-  //Outcome : fail
-//   printf("[PNF] Sending first P7 slot indication\n");
-// #if 1
-//   nfapi_pnf_p7_slot_ind(p7_config, p7_config->phy_id, 0, 0);
-//   printf("[PNF] Sent first P7 slot ind\n");
-// #else
-//   nfapi_pnf_p7_subframe_ind(p7_config, p7_config->phy_id, 0); // SFN_SF set to zero - correct???
-//   printf("[PNF] Sent first P7 subframe ind\n");
-// #endif
-  
+  printf("[PNF] Sending PNF_START_RESP\n");
+  nfapi_nr_send_pnf_start_resp(config, p7_config->phy_id);
+  printf("[PNF] Sending first P7 slot indication\n");
+#if 1
+  nfapi_pnf_p7_slot_ind(p7_config, p7_config->phy_id, 0, 0);
+  printf("[PNF] Sent first P7 slot ind\n");
+#else
+  nfapi_pnf_p7_subframe_ind(p7_config, p7_config->phy_id, 0); // SFN_SF set to zero - correct???
+  printf("[PNF] Sent first P7 subframe ind\n");
+#endif
   
   return 0;
 }
