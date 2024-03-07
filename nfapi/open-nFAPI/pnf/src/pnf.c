@@ -861,11 +861,9 @@ void pnf_nr_handle_start_request(pnf_t* pnf, void *pRecvMsg, int recvMsgLen)
 		}
 
 		printf("\n[NTUST] Finish unpack the message and config->nr_start_req");
-		printf("\n[NTUST] req.vendor_extension=%d (tag:%d,length:%d)",req.vendor_extension ,req.vendor_extension->tag,req.vendor_extension->length);
-		// if(req.vendor_extension)
-		// 	pnf->_public.codec_config.deallocate(req.vendor_extension);
-		
 		printf("\n[NTUST] Finish pnf_nr_handle_start_request()");
+		if(req.vendor_extension)
+			pnf->_public.codec_config.deallocate(req.vendor_extension);
 	}
 }
 
@@ -1556,7 +1554,7 @@ void pnf_nr_handle_p5_message(pnf_t* pnf, void *pRecvMsg, int recvMsgLen)
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "Unpack message header failed, ignoring\n");
 		return;
 	}
-
+	printf("\nPNF messageHeader.message_id:%d\n",messageHeader.message_id);
 	switch (messageHeader.message_id)
 	{
 		case NFAPI_NR_PHY_MSG_TYPE_PNF_PARAM_REQUEST:
