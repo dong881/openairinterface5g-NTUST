@@ -5995,12 +5995,12 @@ static uint8_t unpack_tx_data_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t 
 
   uint16_t i = 0;
   uint16_t total_number_of_tlvs = pNfapiMsg->num_TLV;
-
+  printf("\nDEBUG  -->  total_number_of_tlvs:%d \n",total_number_of_tlvs);
   for(; i < total_number_of_tlvs; ++i) {
     if (!(pull16(ppReadPackedMsg, &pNfapiMsg->TLVs[i].tag, end) &&
           pull16(ppReadPackedMsg, &pNfapiMsg->TLVs[i].length, end)))
       return 0;
-
+    printf("\nDEBUG  -->  pNfapiMsg->TLVs[i].tag:%d\n",pNfapiMsg->TLVs[i].tag);
     switch(pNfapiMsg->TLVs[i].tag) {
       case 0: {
         if (!pullarray32(ppReadPackedMsg, pNfapiMsg->TLVs[i].value.direct,
@@ -6012,11 +6012,14 @@ static uint8_t unpack_tx_data_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t 
       }
 
       case 1: {
+        printf("\nI am here case 1\n");
         if (!pullarray32(ppReadPackedMsg,pNfapiMsg->TLVs[i].value.ptr,
                          pNfapiMsg->TLVs[i].length,
-                         pNfapiMsg->TLVs[i].length, end))
+                         pNfapiMsg->TLVs[i].length, end)){
+          printf("\nFAIL pullarray32!!!!!!!\n");
           return 0;
-
+        }
+        printf("\nDONE pullarray32!!!!!!!\n");
         break;
       }
 
@@ -6025,19 +6028,21 @@ static uint8_t unpack_tx_data_pdu_list_value(uint8_t **ppReadPackedMsg, uint8_t 
         break;
       }
     }
+    printf("\nDONE  for loop one time\n");
   }
-
+  printf("\nDONE  unpack_tx_data_pdu_list_value\n");
   return 1;
 }
 
 static uint8_t unpack_tx_data_request(uint8_t **ppReadPackedMsg, uint8_t *end, void *msg, nfapi_p7_codec_config_t *config)
 {
+  printf("\nDEBUG  --> %s()\n",__FUNCTION__);
   nfapi_nr_tx_data_request_t *pNfapiMsg = (nfapi_nr_tx_data_request_t *)msg;
 
   if (!(pull16(ppReadPackedMsg, &pNfapiMsg->SFN, end) && pull16(ppReadPackedMsg, &pNfapiMsg->Slot, end)
         && pull16(ppReadPackedMsg, &pNfapiMsg->Number_of_PDUs, end)))
     return 0;
-
+  printf("\nFinished pull16 unpack_tx_data_request\n");
   for (int i = 0; i < pNfapiMsg->Number_of_PDUs; i++) {
     if (!unpack_tx_data_pdu_list_value(ppReadPackedMsg, end, &pNfapiMsg->pdu_list[i])) {
       printf("%s():%d. Error packing TX_DATA.request PDU #%d, PDU length = %d PDU IDX = %d\n",
@@ -6050,7 +6055,7 @@ static uint8_t unpack_tx_data_request(uint8_t **ppReadPackedMsg, uint8_t *end, v
       return 0;
     }
   }
-
+  printf("\nDone unpack_tx_data_request\n");
   return 1;
 }
 
@@ -8533,13 +8538,14 @@ int nfapi_nr_p7_message_unpack(void *pMessageBuf, uint32_t messageBufLen, void *
 		return -1;
 	}
 	*/
-
+  printf("\nDEBUG  --> Check pMessageHeader->message_id: %d\n",pMessageHeader->message_id);
 	// look for the specific message
 	switch (pMessageHeader->message_id)
 	{
 		case NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST:
 			if (check_nr_unpack_length(NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST, unpackedBufLen))
 				result = unpack_dl_tti_request(&pReadPackedMessage,  end, pMessageHeader, config);
+        printf("\nunpack_dl_tti_request done ~~  result : %d\n",result);
 			break;
 
 		case NFAPI_NR_PHY_MSG_TYPE_UL_TTI_REQUEST:
@@ -8549,6 +8555,7 @@ int nfapi_nr_p7_message_unpack(void *pMessageBuf, uint32_t messageBufLen, void *
 		case NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST:
 			if (check_nr_unpack_length(NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST, unpackedBufLen))
 				result = unpack_tx_data_request(&pReadPackedMessage,  end, pMessageHeader, config);
+        printf("\nunpack_tx_data_request done ~~  result : %d\n",result);
 			break;
 		case NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST:
 			if (check_nr_unpack_length(NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST, unpackedBufLen))
