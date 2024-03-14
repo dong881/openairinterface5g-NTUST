@@ -848,6 +848,7 @@ static uint8_t pack_dl_tti_request(void *msg, uint8_t **ppWritePackedMsg, uint8_
       return 0;
   }
 
+  // printf("\n[NTUST] dl_tti_request_body.nGroup:%d",pNfapiMsg->dl_tti_request_body.nGroup);
   for (int i = 0; i < pNfapiMsg->dl_tti_request_body.nGroup; i++) {
     if (!push8(pNfapiMsg->dl_tti_request_body.nUe[i], ppWritePackedMsg, end))
       return 0;
