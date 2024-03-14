@@ -209,6 +209,7 @@ void nr_schedule_ul_dci_req(PHY_VARS_gNB *gNB, nfapi_nr_ul_dci_request_t *UL_dci
 void nr_schedule_response(NR_Sched_Rsp_t *Sched_INFO)
 {
   // copy data from L2 interface into L1 structures
+  // printf("\n[NTUST] I want to know if the nFAPI split will be executed.");
   module_id_t Mod_id = Sched_INFO->module_id;
   frame_t frame = Sched_INFO->frame;
   sub_frame_t slot = Sched_INFO->slot;
