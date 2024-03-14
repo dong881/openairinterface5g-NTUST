@@ -1954,7 +1954,8 @@ int oai_nfapi_dl_tti_req(nfapi_nr_dl_tti_request_t *dl_config_req)
 
 int oai_nfapi_tx_data_req(nfapi_nr_tx_data_request_t *tx_data_req)
 {
-  printf("\n[NTUST] oai_nfapi_tx_data_req()");
+  printf("\n[NTUST] oai_nfapi_tx_data_req() SFN/SL:(%d/%d)",tx_data_req->SFN, tx_data_req->Slot);
+
   LOG_D(NR_PHY, "Entering oai_nfapi_nr_tx_data_req sfn:%d,slot:%d\n", tx_data_req->SFN, tx_data_req->Slot);
   nfapi_vnf_p7_config_t *p7_config = vnf.p7_vnfs[0].config;
   tx_data_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
