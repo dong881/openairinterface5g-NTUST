@@ -1231,7 +1231,7 @@ int oai_nfapi_ul_dci_req(nfapi_nr_ul_dci_request_t* ul_dci_req);
 
 int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind)
 {
-  printf("\n[NTUST] execute trigger_scheduler() SFN/SL:(%d/%d)",slot_ind->sfn,slot_ind->slot);
+  // printf("\n[NTUST] execute trigger_scheduler() SFN/SL:(%d/%d)",slot_ind->sfn,slot_ind->slot);
 
   NR_UL_IND_t ind = {.frame = slot_ind->sfn, .slot = slot_ind->slot, };
   NR_UL_indication(&ind);
@@ -1954,7 +1954,8 @@ int oai_nfapi_dl_tti_req(nfapi_nr_dl_tti_request_t *dl_config_req)
 
 int oai_nfapi_tx_data_req(nfapi_nr_tx_data_request_t *tx_data_req)
 {
-  printf("\n[NTUST] oai_nfapi_tx_data_req() SFN/SL:(%d/%d)",tx_data_req->SFN, tx_data_req->Slot);
+  // printf("\n[NTUST] oai_nfapi_tx_data_req() SFN/SL:(%d/%d)",tx_data_req->SFN, tx_data_req->Slot);
+  LOG_I(PHY, "Process oai_nfapi_tx_data_req SFN/slot %d.%d \n",tx_data_req->SFN, tx_data_req->Slot);	
 
   LOG_D(NR_PHY, "Entering oai_nfapi_nr_tx_data_req sfn:%d,slot:%d\n", tx_data_req->SFN, tx_data_req->Slot);
   nfapi_vnf_p7_config_t *p7_config = vnf.p7_vnfs[0].config;
