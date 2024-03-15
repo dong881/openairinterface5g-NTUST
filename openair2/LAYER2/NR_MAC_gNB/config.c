@@ -688,6 +688,7 @@ static void config_common(gNB_MAC_INST *nrmac, nr_pdsch_AntennaPorts_t pdsch_Ant
   // logical antenna ports
   int num_pdsch_antenna_ports = pdsch_AntennaPorts.N1 * pdsch_AntennaPorts.N2 * pdsch_AntennaPorts.XP;
   cfg->carrier_config.num_tx_ant.value = num_pdsch_antenna_ports;
+  // printf("\n[NTUST] cfg->carrier_config.num_tx_ant.value:%d",cfg->carrier_config.num_tx_ant.value);
   AssertFatal(num_pdsch_antenna_ports > 0 && num_pdsch_antenna_ports < 33, "pdsch_AntennaPorts in 1...32\n");
   cfg->carrier_config.num_tx_ant.tl.tag = NFAPI_NR_CONFIG_NUM_TX_ANT_TAG;
 
