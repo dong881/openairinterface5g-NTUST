@@ -369,6 +369,8 @@ static inline int encode_parity_check_part_orig(unsigned char *c,unsigned char *
   int i1,i2,i3,i4,i5,temp_prime;
   unsigned char channel_temp,temp;
 
+  // printf("\n[NTUST] BG:%d",BG);
+
   if (BG==1)
   {
     no_shift_values=(short *) no_shift_values_BG1;
