@@ -2551,7 +2551,7 @@ void pnf_nr_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 			pnf_nr_handle_dl_node_sync(pRecvMsg, recvMsgLen, pnf_p7, rx_hr_time);
 			break;
 		case NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST:
-			printf("\n[NTUST] Recieve dl_tti_request");
+			// printf("\n[NTUST] Recieve dl_tti_request");
 			pnf_handle_dl_tti_request(pRecvMsg, recvMsgLen, pnf_p7);
 			break;
 		case NFAPI_NR_PHY_MSG_TYPE_UL_TTI_REQUEST:
@@ -2561,7 +2561,7 @@ void pnf_nr_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 			pnf_handle_ul_dci_request(pRecvMsg, recvMsgLen, pnf_p7);
 			break;
 		case NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST:
-			printf("\n[NTUST] Recieve tx_data_request SFN/SL:(%d/%d)",pnf_p7->sfn,pnf_p7->slot);
+			// printf("\n[NTUST] Recieve tx_data_request SFN/SL:(%d/%d)",pnf_p7->sfn,pnf_p7->slot);
 			pnf_handle_tx_data_request(pRecvMsg, recvMsgLen, pnf_p7);
 			break;
 		default:
