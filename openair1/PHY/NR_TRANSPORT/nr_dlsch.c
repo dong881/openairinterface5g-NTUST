@@ -73,6 +73,9 @@ void nr_generate_pdsch(processingData_L1tx_t *msgTx, int frame, int slot)
     NR_gNB_DLSCH_t *dlsch = msgTx->dlsch[dlsch_id];
 
     NR_DL_gNB_HARQ_t *harq = &dlsch->harq_process;
+    // if(harq->pdu==NULL){
+    //   continue;
+    // }
     nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15 = &harq->pdsch_pdu.pdsch_pdu_rel15;
     const int layerSz = frame_parms->N_RB_DL * NR_SYMBOLS_PER_SLOT * NR_NB_SC_PER_RB * 8;
     c16_t tx_layers[rel15->nrOfLayers][layerSz] __attribute__((aligned(64)));
