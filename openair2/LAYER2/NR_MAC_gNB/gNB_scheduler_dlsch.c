@@ -1385,6 +1385,8 @@ void nr_schedule_ue_spec(module_id_t module_id,
     TX_req->Number_of_PDUs++;
     TX_req->SFN = frame;
     TX_req->Slot = slot;
+    LOG_I(NFAPI_VNF,"[t1] scheduler_dlsch fill TX_D , %d/%d \n",frame,slot);
+    // LOG_I(PHY,"t1, fill TX_D, %d/%d \n",frame,slot);
     /* mark UE as scheduled */
     sched_pdsch->rbSize = 0;
   }

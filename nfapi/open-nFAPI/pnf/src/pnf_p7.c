@@ -995,7 +995,7 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
 		{
 				
 			DevAssert(pnf_p7->_public.tx_data_req_fn != NULL);
-			LOG_I(PHY, "Process tx_data SFN/slot %d.%d buffer index: %d \n",sfn_tx,slot_tx,buffer_index_tx);	
+			// LOG_I(PHY, "t4, Process tx_data SFN/slot %d.%d buffer index: %d \n",sfn_tx,slot_tx,buffer_index_tx);	
 			// pnf_phy_tx_data_req()
 			(pnf_p7->_public.tx_data_req_fn)(&(pnf_p7->_public), tx_slot_buffer->tx_data_req);
 		}
@@ -1971,7 +1971,7 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 
 	int unpack_result = nfapi_nr_p7_message_unpack(pRecvMsg, recvMsgLen, req, sizeof(nfapi_nr_tx_data_request_t), &pnf_p7->_public.codec_config);
 	
-	LOG_I(PHY,"RCV TX_D, %d/%d \n",req->SFN,req->Slot);
+	// LOG_I(PHY,"RCV TX_D, %d/%d \n",req->SFN,req->Slot);
 
 	if(unpack_result == 0)
 	{
@@ -2009,6 +2009,7 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 			pnf_p7->slot_buffer[buffer_index].sfn = req->SFN;
 			pnf_p7->slot_buffer[buffer_index].slot = req->Slot;
 			pnf_p7->slot_buffer[buffer_index].tx_data_req = req;
+			LOG_I(NFAPI_PNF,"[t4] Fill tx_data in buf , %d/%d \n",req->SFN,req->Slot);
 
 			pnf_p7->stats.tx_data_ontime++;
 		}
@@ -3255,6 +3256,7 @@ int pnf_nr_p7_message_pump(pnf_p7_t* pnf_p7)
 		if(FD_ISSET(pnf_p7->p7_sock, &rfds)) 
 
 		{
+			LOG_I(NFAPI_PNF,"[t3] socket receive\n");	
 			pnf_nr_nfapi_p7_read_dispatch_message(pnf_p7, now_hr_time); 
 		}
 	}

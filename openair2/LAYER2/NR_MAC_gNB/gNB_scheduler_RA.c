@@ -1450,6 +1450,8 @@ static void nr_generate_Msg2(module_id_t module_idP,
     TX_req->SFN = frameP;
     TX_req->Number_of_PDUs++;
     TX_req->Slot = slotP;
+    LOG_I(NFAPI_VNF,"[t1] scheduler_RA fill TX_D , %d/%d \n",frameP,slotP);
+    // printf("[NTUST] [t1] scheduler_RA fill TX_D , %d/%d \n",frame,slot);
 
     // Mark the corresponding symbols RBs as used
     fill_pdcch_vrb_map(nr_mac,

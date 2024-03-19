@@ -620,6 +620,7 @@ void schedule_nr_sib1(module_id_t module_idP,
       TX_req->Slot = slotP;
 
       type0_PDCCH_CSS_config->active = false;
+      LOG_I(NFAPI_VNF,"[t1] scheduler_bch fill TX_D , %d/%d \n",frameP,slotP);
 
       T(T_GNB_MAC_DL_PDU_WITH_DATA,
         T_INT(module_idP),
