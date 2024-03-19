@@ -1690,6 +1690,7 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy,  n
   printf("[PNF] About to call init_eNB_afterRU()\n");
 
   if (NFAPI_MODE!=NFAPI_UE_STUB_PNF) {
+    // printf("[NTUST] NFAPI_MODE!=NFAPI_UE_STUB_PNF=> execute init_eNB_afterRU()\n");
     init_eNB_afterRU();
   }
 
