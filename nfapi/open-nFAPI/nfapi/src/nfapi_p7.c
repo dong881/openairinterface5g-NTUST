@@ -8541,8 +8541,10 @@ int nfapi_nr_p7_message_unpack(void *pMessageBuf, uint32_t messageBufLen, void *
 				result = unpack_ul_tti_request(&pReadPackedMessage,  end, pMessageHeader, config);
 			break;
 		case NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST:
+      // printf("[NTUST] unpackedBufLen:%d\n",unpackedBufLen);
+      // printf("[NTUST] sizeof(nfapi_nr_tx_data_request_t) %d\n",sizeof(nfapi_nr_tx_data_request_t));
 			if (check_nr_unpack_length(NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST, unpackedBufLen))
-				result = unpack_tx_data_request(&pReadPackedMessage,  end, pMessageHeader, config);
+        result = unpack_tx_data_request(&pReadPackedMessage,  end, pMessageHeader, config);
 			break;
 		case NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST:
 			if (check_nr_unpack_length(NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST, unpackedBufLen))
