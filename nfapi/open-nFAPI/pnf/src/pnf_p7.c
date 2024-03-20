@@ -1964,7 +1964,8 @@ void pnf_handle_hi_dci0_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 
 void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 {	
-	nfapi_nr_tx_data_request_t* req = allocate_nfapi_tx_data_request(pnf_p7);
+	nfapi_nr_tx_data_request_t* req = calloc(1,sizeof(nfapi_nr_tx_data_request_t));
+	// nfapi_nr_tx_data_request_t* req = allocate_nfapi_tx_data_request(pnf_p7);
 	LOG_I(NFAPI_PNF,"[t4-1] allocate_nfapi_tx_data_request\n");
 	if(req == NULL)
 	{
