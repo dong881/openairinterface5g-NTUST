@@ -38,6 +38,7 @@
 #include <nfapi.h>
 #include <debug.h>
 #include "nfapi_nr_interface_scf.h"
+#include "/home/chen/openairinterface5g/common/utils/LOG/log.h"
 
 extern int nfapi_unpack_p7_vendor_extension(nfapi_p7_message_header_t *header, uint8_t **ppReadPackedMsg, void *user_data);
 extern int nfapi_pack_p7_vendor_extension(nfapi_p7_message_header_t *header, uint8_t **ppWritePackedMsg, void *user_data);
@@ -6043,6 +6044,7 @@ static uint8_t unpack_tx_data_request(uint8_t **ppReadPackedMsg, uint8_t *end, v
 
       return 0;
     }
+      LOG_I(NFAPI_PNF,"[t4-3] unpack_tx_data_pdu_list_value");
   }
 
   return 1;
@@ -8544,7 +8546,11 @@ int nfapi_nr_p7_message_unpack(void *pMessageBuf, uint32_t messageBufLen, void *
       // printf("[NTUST] unpackedBufLen:%d\n",unpackedBufLen);
       // printf("[NTUST] sizeof(nfapi_nr_tx_data_request_t) %d\n",sizeof(nfapi_nr_tx_data_request_t));
 			if (check_nr_unpack_length(NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST, unpackedBufLen))
+      {
+        LOG_I(NFAPI_PNF,"[t4-2] check_nr_unpack_length");
         result = unpack_tx_data_request(&pReadPackedMessage,  end, pMessageHeader, config);
+        LOG_I(NFAPI_PNF,"[t4-4] unpack_tx_data_request");
+      }
 			break;
 		case NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST:
 			if (check_nr_unpack_length(NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST, unpackedBufLen))

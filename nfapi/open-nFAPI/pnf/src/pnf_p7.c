@@ -28,6 +28,7 @@
 #include <stdio.h>
 
 #include "pnf_p7.h"
+#include "/home/chen/openairinterface5g/common/utils/LOG/log.h"
 
 #define FAPI2_IP_DSCP	0
 
@@ -1972,7 +1973,7 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 	}
 
 	int unpack_result = nfapi_nr_p7_message_unpack(pRecvMsg, recvMsgLen, req, sizeof(nfapi_nr_tx_data_request_t), &pnf_p7->_public.codec_config);
-	
+	LOG_I(NFAPI_PNF,"[t4-1] nfapi_nr_p7_message_unpack");
 	// LOG_I(PHY,"RCV TX_D, %d/%d \n",req->SFN,req->Slot);
 
 	if(unpack_result == 0)

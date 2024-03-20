@@ -28,7 +28,7 @@
 
 #include "vnf_p7.h"
 
-#include "/home/oai-nfapi/openairinterface5g/common/utils/LOG/log.h"
+#include "/home/chen/openairinterface5g/common/utils/LOG/log.h"
 
 #ifdef NDEBUG
 #  warning assert is disabled
