@@ -1965,7 +1965,7 @@ void pnf_handle_hi_dci0_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 {	
 	nfapi_nr_tx_data_request_t* req = allocate_nfapi_tx_data_request(pnf_p7);
-	LOG_I(NFAPI_PNF,"[t4-1] nfapi_nr_p7_message_unpack\n");
+	LOG_I(NFAPI_PNF,"[t4-1] allocate_nfapi_tx_data_request\n");
 	if(req == NULL)
 	{
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to allocate nfapi_tx_request structure\n");
