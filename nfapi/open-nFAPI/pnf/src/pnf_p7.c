@@ -28,8 +28,8 @@
 #include <stdio.h>
 
 #include "pnf_p7.h"
-#include "/home/chen/openairinterface5g/common/utils/LOG/log.h"
-
+// #include "/home/chen/openairinterface5g/common/utils/LOG/log.h"
+#include <common/utils/LOG/log.h>
 #define FAPI2_IP_DSCP	0
 
 extern uint16_t sf_ahead;

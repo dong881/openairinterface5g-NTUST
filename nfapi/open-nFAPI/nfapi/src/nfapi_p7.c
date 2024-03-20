@@ -38,7 +38,8 @@
 #include <nfapi.h>
 #include <debug.h>
 #include "nfapi_nr_interface_scf.h"
-#include "/home/chen/openairinterface5g/common/utils/LOG/log.h"
+// #include "/home/chen/openairinterface5g/common/utils/LOG/log.h"
+#include <common/utils/LOG/log.h>
 
 extern int nfapi_unpack_p7_vendor_extension(nfapi_p7_message_header_t *header, uint8_t **ppReadPackedMsg, void *user_data);
 extern int nfapi_pack_p7_vendor_extension(nfapi_p7_message_header_t *header, uint8_t **ppWritePackedMsg, void *user_data);

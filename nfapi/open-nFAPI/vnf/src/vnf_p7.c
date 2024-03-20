@@ -28,8 +28,8 @@
 
 #include "vnf_p7.h"
 
-#include "/home/chen/openairinterface5g/common/utils/LOG/log.h"
-
+// #include "/home/chen/openairinterface5g/common/utils/LOG/log.h"
+#include <common/utils/LOG/log.h>
 #ifdef NDEBUG
 #  warning assert is disabled
 #endif
