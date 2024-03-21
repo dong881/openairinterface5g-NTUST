@@ -114,6 +114,7 @@ void nr_generate_pdsch(processingData_L1tx_t *msgTx, int frame, int slot)
     harq->unav_res = ptrsSymbPerSlot * n_ptrs;
 
     /// CRC, coding, interleaving and rate matching
+    LOG_I(NFAPI_PNF,"harq->pdu:%d\n",harq->pdu);
     AssertError(harq->pdu!=NULL, return, "harq->pdu is null\n");
     unsigned char output[rel15->rbSize * NR_SYMBOLS_PER_SLOT * NR_NB_SC_PER_RB * Qm * rel15->nrOfLayers] __attribute__((aligned(64)));
     bzero(output,rel15->rbSize * NR_SYMBOLS_PER_SLOT * NR_NB_SC_PER_RB * Qm * rel15->nrOfLayers);
