@@ -137,6 +137,7 @@ static void tx_func(void *param)
   }
 
   start_meas(&gNB->slot_indication_stats);
+  // LOG_I(NFAPI_PNF,"will harq->pdu = sdu;\n");
   ifi->NR_slot_indication(module_id, CC_id, frame_tx, slot_tx);
   stop_meas(&gNB->slot_indication_stats);
   gNB->msgDataTx->timestamp_tx = info->timestamp_tx;
