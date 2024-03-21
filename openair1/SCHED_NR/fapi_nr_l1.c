@@ -185,6 +185,7 @@ void nr_schedule_ul_tti_req(PHY_VARS_gNB *gNB, nfapi_nr_ul_tti_request_t *UL_tti
 
 void nr_schedule_tx_req(PHY_VARS_gNB *gNB, nfapi_nr_tx_data_request_t *TX_req)
 {
+  // LOG_I(NFAPI_PNF,"execute nr_schedule_tx_req\n");
   DevAssert(gNB != NULL);
   DevAssert(TX_req != NULL);
   processingData_L1tx_t *msgTx = gNB->msgDataTx;
