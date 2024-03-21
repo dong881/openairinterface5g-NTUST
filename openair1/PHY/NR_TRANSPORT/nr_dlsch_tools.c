@@ -55,7 +55,7 @@ void nr_fill_dlsch_dl_tti_req(processingData_L1tx_t *msgTx, nfapi_nr_dl_tti_pdsc
               pdsch_pdu->pdsch_pdu_rel15.pduIndex,
               msgTx->num_pdsch_slot);
   msgTx->num_pdsch_slot++;
-  LOG_I(NFAPI_VNF,"msgTx->num_pdsch_slot++: %d\n",msgTx->num_pdsch_slot);
+  LOG_I(NFAPI_PNF,"msgTx->num_pdsch_slot++: %d\n",msgTx->num_pdsch_slot);
   harq->pdu = NULL;
 }
 
