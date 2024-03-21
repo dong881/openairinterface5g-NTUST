@@ -126,7 +126,7 @@ void schedule_nr_mib(module_id_t module_idP, frame_t frameP, sub_frame_t slotP, 
     NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
     const int slots_per_frame = nr_slots_per_frame[*scc->ssbSubcarrierSpacing];
     dl_req = &DL_req->dl_tti_request_body;
-    LOG_I(NFAPI_VNF,"[t0] schedule_nr_mib fill dl_tti , %d/%d \n",frameP,slotP);
+    // LOG_I(NFAPI_VNF,"[t0] schedule_nr_mib fill dl_tti , %d/%d \n",frameP,slotP);
 
 
     // get MIB every 8 frames
