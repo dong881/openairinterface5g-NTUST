@@ -2014,7 +2014,7 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 			pnf_p7->slot_buffer[buffer_index].slot = req->Slot;
 			pnf_p7->slot_buffer[buffer_index].tx_data_req = req;
 			// stop_meas(&t3_t4);
-			// LOG_I(NFAPI_PNF,"[t5] Fill tx_data in buf , %d/%d\n",req->SFN,req->Slot);
+			LOG_I(NFAPI_PNF,"[t5] Fill tx_data in buf , %d/%d\n",req->SFN,req->Slot);
 			// LOG_I(NFAPI_PNF,"[t4] Fill tx_data in buf , %d/%d, use p_time:%lld\n",req->SFN,req->Slot,t3_t4.p_time);
 			// print_meas(&t3_t4,"T3~T4",NULL,NULL);
 
