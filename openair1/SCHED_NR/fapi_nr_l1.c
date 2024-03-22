@@ -102,7 +102,7 @@ void nr_schedule_dl_tti_req(PHY_VARS_gNB *gNB, nfapi_nr_dl_tti_request_t *DL_req
 
   for (int i = 0; i < number_dl_pdu; i++) {
     nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdu = &DL_req->dl_tti_request_body.dl_tti_pdu_list[i];
-    LOG_D(NR_PHY, "NFAPI: dl_pdu %d : type %d\n", i, dl_tti_pdu->PDUType);
+    LOG_I(NR_PHY, "NFAPI: dl_pdu %d : type %d\n", i, dl_tti_pdu->PDUType);
     switch (dl_tti_pdu->PDUType) {
       case NFAPI_NR_DL_TTI_SSB_PDU_TYPE:
         handle_nr_nfapi_ssb_pdu(msgTx, frame, slot, dl_tti_pdu);
