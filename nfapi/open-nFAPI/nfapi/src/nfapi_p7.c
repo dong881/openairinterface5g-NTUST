@@ -8530,6 +8530,7 @@ int nfapi_nr_p7_message_unpack(void *pMessageBuf, uint32_t messageBufLen, void *
 		return -1;
 	}
 	*/
+  LOG_I(NFAPI_PNF,"p7 unpack type:%o\n",pMessageHeader->message_id);
 
 	// look for the specific message
 	switch (pMessageHeader->message_id)
@@ -8548,7 +8549,7 @@ int nfapi_nr_p7_message_unpack(void *pMessageBuf, uint32_t messageBufLen, void *
       // printf("[NTUST] sizeof(nfapi_nr_tx_data_request_t) %d\n",sizeof(nfapi_nr_tx_data_request_t));
 			if (check_nr_unpack_length(NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST, unpackedBufLen))
       {
-        LOG_I(NFAPI_PNF,"[t4-2] check_nr_unpack_length\n");
+        LOG_I(NFAPI_PNF,"[t4-2] nfapi_nr_p7_message_unpack\n");
         result = unpack_tx_data_request(&pReadPackedMessage,  end, pMessageHeader, config);
         LOG_I(NFAPI_PNF,"[t4-4] unpack_tx_data_request\n");
       }
