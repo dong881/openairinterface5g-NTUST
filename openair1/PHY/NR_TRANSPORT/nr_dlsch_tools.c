@@ -65,6 +65,7 @@ void nr_fill_dlsch_tx_req(processingData_L1tx_t *msgTx, int idx, uint8_t *sdu)
 
   /* not sure if FAPI could transmit DL_TTI_req and TX_req in different orders.
    * for the moment, assume they are in the same order (and check!) */
+   LOG_I(NFAPI_PNF,"dlsch[idx]'s idx:%d\n",idx);
   NR_gNB_DLSCH_t *dlsch = &msgTx->dlsch[idx][0];
   NR_DL_gNB_HARQ_t *harq = &dlsch->harq_process;
   nfapi_nr_dl_tti_pdsch_pdu *pdsch = &harq->pdsch_pdu;
