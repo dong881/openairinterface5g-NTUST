@@ -978,6 +978,8 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
 
 		nfapi_pnf_p7_slot_buffer_t* rx_slot_buffer = &(pnf_p7->slot_buffer[buffer_index_rx]);
 
+		LOG_I(NFAPI_PNF,"buffer_index_tx:%d\n",buffer_index_tx);
+
 		nfapi_pnf_p7_slot_buffer_t* tx_slot_buffer = &(pnf_p7->slot_buffer[buffer_index_tx]);
 
 		if(tx_slot_buffer->dl_tti_req != 0 && tx_slot_buffer->dl_tti_req->SFN == sfn_tx && tx_slot_buffer->dl_tti_req->Slot == slot_tx)
@@ -994,7 +996,17 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
 			(pnf_p7->_public.ul_tti_req_fn)(NULL, &(pnf_p7->_public), tx_slot_buffer->ul_tti_req);
 		}
 
-		if(tx_slot_buffer->tx_data_req != 0 && tx_slot_buffer->tx_data_req->SFN == sfn_tx && tx_slot_buffer->tx_data_req->Slot == slot_tx)
+		LOG_I(NFAPI_PNF, "tx_slot_buffer->tx_data_req: %d\n", tx_slot_buffer->tx_data_req);
+		if(tx_slot_buffer->tx_data_req != 0){
+			// if(buffer_index_tx==0) LOG_I(NFAPI_PNF,"%d\t",pnf_p7->slot_buffer[19].tx_data_req->Slot);
+			// else LOG_I(NFAPI_PNF,"%d\t",pnf_p7->slot_buffer[buffer_index_tx-1].tx_data_req->Slot);
+			// LOG_I(NFAPI_PNF,"%d\t",pnf_p7->slot_buffer[buffer_index_tx].tx_data_req->Slot);
+			LOG_I(NFAPI_PNF, "tx_slot_buffer->tx_data_req->SFN: %d\n", tx_slot_buffer->tx_data_req->SFN);
+			LOG_I(NFAPI_PNF, "sfn_tx: %d\n", sfn_tx);
+			LOG_I(NFAPI_PNF, "tx_slot_buffer->tx_data_req->Slot: %d\n", tx_slot_buffer->tx_data_req->Slot);
+			LOG_I(NFAPI_PNF, "slot_tx: %d\n", slot_tx);
+		}
+		if(tx_slot_buffer->tx_data_req != 0 && tx_slot_buffer->sfn == sfn_tx && tx_slot_buffer->slot == slot_tx)
 		{
 				
 			DevAssert(pnf_p7->_public.tx_data_req_fn != NULL);
@@ -1002,7 +1014,6 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
 			// pnf_phy_tx_data_req()
 			(pnf_p7->_public.tx_data_req_fn)(&(pnf_p7->_public), tx_slot_buffer->tx_data_req);
 		}
-		 
 
 		if(tx_slot_buffer->ul_dci_req!= 0 && tx_slot_buffer->ul_dci_req->SFN == sfn_tx && tx_slot_buffer->ul_dci_req->Slot == slot_tx)
 		{
@@ -1975,7 +1986,7 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 
 	int unpack_result = nfapi_nr_p7_message_unpack(pRecvMsg, recvMsgLen, req, sizeof(nfapi_nr_tx_data_request_t), &pnf_p7->_public.codec_config);
 	LOG_I(NFAPI_PNF,"[t4-5] nfapi_nr_p7_message_unpack\n");
-	// LOG_I(PHY,"RCV TX_D, %d/%d \n",req->SFN,req->Slot);
+	LOG_I(PHY,"req->SFN,req->Slot, %d/%d \n",req->SFN,req->Slot);
 
 	if(unpack_result == 0)
 	{
@@ -2014,7 +2025,11 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 			pnf_p7->slot_buffer[buffer_index].slot = req->Slot;
 			pnf_p7->slot_buffer[buffer_index].tx_data_req = req;
 			// stop_meas(&t3_t4);
-			LOG_I(NFAPI_PNF,"[t5] Fill tx_data in buf , %d/%d\n",req->SFN,req->Slot);
+			LOG_I(NFAPI_PNF,"[t5] Fill tx_data in buf[%d] , %d/%d\n",buffer_index,req->SFN,req->Slot);
+			// for(int i=0;i<20;i++) LOG_I(NFAPI_PNF,"%d\t",pnf_p7->slot_buffer[i].slot);
+			// printf("\n");
+			// for(int i=0;i<20;i++) LOG_I(NFAPI_PNF,"%d\t",pnf_p7->slot_buffer[i].tx_data_req->Slot);
+			// printf("\n");
 			// LOG_I(NFAPI_PNF,"[old-t4] Fill tx_data in buf , %d/%d, use p_time:%lld\n",req->SFN,req->Slot,t3_t4.p_time);
 			// print_meas(&t3_t4,"T3~T4",NULL,NULL);
 
