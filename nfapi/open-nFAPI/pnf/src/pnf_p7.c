@@ -978,7 +978,7 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
 
 		nfapi_pnf_p7_slot_buffer_t* rx_slot_buffer = &(pnf_p7->slot_buffer[buffer_index_rx]);
 
-		LOG_I(NFAPI_PNF,"buffer_index_tx:%d\n",buffer_index_tx);
+		// LOG_I(NFAPI_PNF,"buffer_index_tx:%d\n",buffer_index_tx);
 
 		nfapi_pnf_p7_slot_buffer_t* tx_slot_buffer = &(pnf_p7->slot_buffer[buffer_index_tx]);
 
@@ -1001,10 +1001,11 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
 			// if(buffer_index_tx==0) LOG_I(NFAPI_PNF,"%d\t",pnf_p7->slot_buffer[19].tx_data_req->Slot);
 			// else LOG_I(NFAPI_PNF,"%d\t",pnf_p7->slot_buffer[buffer_index_tx-1].tx_data_req->Slot);
 			// LOG_I(NFAPI_PNF,"%d\t",pnf_p7->slot_buffer[buffer_index_tx].tx_data_req->Slot);
-			LOG_I(NFAPI_PNF, "tx_slot_buffer->tx_data_req->SFN: %d\n", tx_slot_buffer->tx_data_req->SFN);
-			LOG_I(NFAPI_PNF, "sfn_tx: %d\n", sfn_tx);
-			LOG_I(NFAPI_PNF, "tx_slot_buffer->tx_data_req->Slot: %d\n", tx_slot_buffer->tx_data_req->Slot);
-			LOG_I(NFAPI_PNF, "slot_tx: %d\n", slot_tx);
+			LOG_I(NFAPI_PNF, "Get address: %p",tx_slot_buffer);
+			LOG_I(NFAPI_PNF, "[%d]tx_slot_buffer->tx_data_req->SFN: %d v.s. sfn_tx: %d\n",buffer_index_tx, tx_slot_buffer->tx_data_req->SFN,sfn_tx);
+			// LOG_I(NFAPI_PNF, "sfn_tx: %d\n", sfn_tx);
+			LOG_I(NFAPI_PNF, "[%d]tx_slot_buffer->tx_data_req->Slot: %d v.s. slot_tx: %d\n",buffer_index_tx, tx_slot_buffer->tx_data_req->Slot,slot_tx);
+			// LOG_I(NFAPI_PNF, "slot_tx: %d\n", slot_tx);
 		}
 		if(tx_slot_buffer->tx_data_req != 0 && tx_slot_buffer->sfn == sfn_tx && tx_slot_buffer->slot == slot_tx)
 		{
@@ -2025,6 +2026,7 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 			pnf_p7->slot_buffer[buffer_index].slot = req->Slot;
 			pnf_p7->slot_buffer[buffer_index].tx_data_req = req;
 			// stop_meas(&t3_t4);
+			LOG_I(NFAPI_PNF, "Push address: %p",&pnf_p7->slot_buffer[buffer_index]);
 			LOG_I(NFAPI_PNF,"[t5] Fill tx_data in buf[%d] , %d/%d\n",buffer_index,req->SFN,req->Slot);
 			// for(int i=0;i<20;i++) LOG_I(NFAPI_PNF,"%d\t",pnf_p7->slot_buffer[i].slot);
 			// printf("\n");
