@@ -8501,10 +8501,10 @@ int nfapi_nr_p7_message_unpack(void *pMessageBuf, uint32_t messageBufLen, void *
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "P7 unpack supplied message buffer is too small %d, %d\n", messageBufLen, unpackedBufLen);
 		return -1;
 	}
-  // LOG_I(NFAPI_PNF,"[t4-1-1] will clean the supplied buffer\n");
+  LOG_I(NFAPI_PNF,"[t4-1-1] will clean the supplied buffer\n");
 
 	// clean the supplied buffer for - tag value blanking
-	// (void)memset(pUnpackedBuf, 0, unpackedBufLen);
+	(void)memset(pUnpackedBuf, 0, unpackedBufLen);
   LOG_I(NFAPI_PNF,"[t4-1-2] will process the header\n");
 
 	// process the header
