@@ -40,7 +40,7 @@ typedef struct {
   uint16_t length;
   union { 
     uint32_t *ptr;
-    uint32_t direct[38016];
+    uint32_t direct[38016]; //uint32_t direct[38016];
   } value;
 } nfapi_nr_tx_data_request_tlv_t;
 
@@ -1478,6 +1478,7 @@ typedef struct {
 
 } nfapi_nr_pdu_t;
 
+// [NTUST] origin:16
 #define NFAPI_NR_MAX_TX_REQUEST_PDUS 16
 typedef struct
 {

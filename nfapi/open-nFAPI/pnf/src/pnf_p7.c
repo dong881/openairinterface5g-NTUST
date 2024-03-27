@@ -28,13 +28,11 @@
 #include <stdio.h>
 
 #include "pnf_p7.h"
-// #include "/home/chen/openairinterface5g/common/utils/LOG/log.h"
 #include <common/utils/LOG/log.h>
+
 #define FAPI2_IP_DSCP	0
 
 extern uint16_t sf_ahead;
-
-// time_stats_t t3_t4;
 
 //uint16_t sf_ahead=4;
 
@@ -978,8 +976,6 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
 
 		nfapi_pnf_p7_slot_buffer_t* rx_slot_buffer = &(pnf_p7->slot_buffer[buffer_index_rx]);
 
-		// LOG_I(NFAPI_PNF,"buffer_index_tx:%d\n",buffer_index_tx);
-
 		nfapi_pnf_p7_slot_buffer_t* tx_slot_buffer = &(pnf_p7->slot_buffer[buffer_index_tx]);
 
 		if(tx_slot_buffer->dl_tti_req != 0 && tx_slot_buffer->dl_tti_req->SFN == sfn_tx && tx_slot_buffer->dl_tti_req->Slot == slot_tx)
@@ -995,22 +991,20 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
 			// pnf_phy_ul_tti_req()
 			(pnf_p7->_public.ul_tti_req_fn)(NULL, &(pnf_p7->_public), tx_slot_buffer->ul_tti_req);
 		}
-
 		if(tx_slot_buffer->tx_data_req != 0){
-			// LOG_I(NFAPI_PNF, "tx_slot_buffer->tx_data_req: %d\n", tx_slot_buffer->tx_data_req);
 			LOG_I(NFAPI_PNF, "Get address: %p\n",&(pnf_p7->slot_buffer[buffer_index_tx].tx_data_req));
 			LOG_I(NFAPI_PNF, "[%d]tx_slot_buffer->tx_data_req->SFN: %d ; *current* sfn_tx: %d\n",buffer_index_tx, tx_slot_buffer->tx_data_req->SFN,sfn_tx);
 			LOG_I(NFAPI_PNF, "[%d]tx_slot_buffer->tx_data_req->Slot: %d ; *current* slot_tx: %d\n",buffer_index_tx, tx_slot_buffer->tx_data_req->Slot,slot_tx);
-			// LOG_I(NFAPI_PNF, "slot_tx: %d\n", slot_tx);
 		}
 		if(tx_slot_buffer->tx_data_req != 0 && tx_slot_buffer->tx_data_req->SFN == sfn_tx && tx_slot_buffer->tx_data_req->Slot == slot_tx)
 		{
 				
 			DevAssert(pnf_p7->_public.tx_data_req_fn != NULL);
-			LOG_I(PHY, "DEBUG   -->  Process tx_data SFN/slot %d.%d buffer index: %d \n",sfn_tx,slot_tx,buffer_index_tx);
+			LOG_I(PHY, "Process tx_data SFN/slot %d.%d buffer index: %d \n",sfn_tx,slot_tx,buffer_index_tx);	
 			// pnf_phy_tx_data_req()
 			(pnf_p7->_public.tx_data_req_fn)(&(pnf_p7->_public), tx_slot_buffer->tx_data_req);
 		}
+		 
 
 		if(tx_slot_buffer->ul_dci_req!= 0 && tx_slot_buffer->ul_dci_req->SFN == sfn_tx && tx_slot_buffer->ul_dci_req->Slot == slot_tx)
 		{
@@ -1971,10 +1965,11 @@ void pnf_handle_hi_dci0_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 
 
 void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
-{	
+{
+	//NFAPI_TRACE(NFAPI_TRACE_INFO, "TX.req Received\n");
 	nfapi_nr_tx_data_request_t* req = alloca(sizeof(nfapi_nr_tx_data_request_t));
 	// nfapi_nr_tx_data_request_t* req = allocate_nfapi_tx_data_request(pnf_p7);
-	LOG_I(NFAPI_PNF,"[t4-1] req address :%p allocate_nfapi_tx_data_request\n",&req);
+	LOG_I(NFAPI_PNF,"[t4-1] Address of req: %p, size: %d\n", (void*)req, sizeof(nfapi_nr_tx_data_request_t));
 	if(req == NULL)
 	{
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to allocate nfapi_tx_request structure\n");
@@ -1982,9 +1977,6 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 	}
 
 	int unpack_result = nfapi_nr_p7_message_unpack(pRecvMsg, recvMsgLen, req, sizeof(nfapi_nr_tx_data_request_t), &pnf_p7->_public.codec_config);
-	LOG_I(NFAPI_PNF,"[t4-5] nfapi_nr_p7_message_unpack\n");
-	LOG_I(PHY,"req->SFN,req->Slot, %d/%d \n",req->SFN,req->Slot);
-
 	if(unpack_result == 0)
 	{
 		if(pthread_mutex_lock(&(pnf_p7->mutex)) != 0)
@@ -2021,15 +2013,7 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 			pnf_p7->slot_buffer[buffer_index].sfn = req->SFN;
 			pnf_p7->slot_buffer[buffer_index].slot = req->Slot;
 			pnf_p7->slot_buffer[buffer_index].tx_data_req = req;
-			// stop_meas(&t3_t4);
-			LOG_I(NFAPI_PNF, "Push address: %p\n",&(pnf_p7->slot_buffer[buffer_index].tx_data_req));
 			LOG_I(NFAPI_PNF,"[t5] Fill tx_data in buf[%d] , %d/%d\n",buffer_index,req->SFN,req->Slot);
-			// for(int i=0;i<20;i++) LOG_I(NFAPI_PNF,"%d\t",pnf_p7->slot_buffer[i].slot);
-			// printf("\n");
-			// for(int i=0;i<20;i++) LOG_I(NFAPI_PNF,"%d\t",pnf_p7->slot_buffer[i].tx_data_req->Slot);
-			// printf("\n");
-			// LOG_I(NFAPI_PNF,"[old-t4] Fill tx_data in buf , %d/%d, use p_time:%lld\n",req->SFN,req->Slot,t3_t4.p_time);
-			// print_meas(&t3_t4,"T3~T4",NULL,NULL);
 
 			pnf_p7->stats.tx_data_ontime++;
 		}
@@ -2076,6 +2060,7 @@ void pnf_handle_tx_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 	}
 
 	int unpack_result = nfapi_p7_message_unpack(pRecvMsg, recvMsgLen, req, sizeof(nfapi_tx_request_t), &pnf_p7->_public.codec_config);
+	LOG_I(PHY,"[t4-5] nfapi_nr_p7_message_unpack\n");
 	if(unpack_result == 0)
 	{
 		if(pthread_mutex_lock(&(pnf_p7->mutex)) != 0)
@@ -2575,7 +2560,6 @@ void pnf_nr_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 			pnf_nr_handle_dl_node_sync(pRecvMsg, recvMsgLen, pnf_p7, rx_hr_time);
 			break;
 		case NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST:
-			// printf("\n[NTUST] Recieve dl_tti_request");
 			pnf_handle_dl_tti_request(pRecvMsg, recvMsgLen, pnf_p7);
 			break;
 		case NFAPI_NR_PHY_MSG_TYPE_UL_TTI_REQUEST:
@@ -2585,8 +2569,7 @@ void pnf_nr_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 			pnf_handle_ul_dci_request(pRecvMsg, recvMsgLen, pnf_p7);
 			break;
 		case NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST:
-			// printf("\n[NTUST] Recieve tx_data_request SFN/SL:(%d/%d)",pnf_p7->sfn,pnf_p7->slot);
-			LOG_I(NFAPI_PNF,"[t4] pnf_handle_tx_data_request , %d/%d\n",pnf_p7->sfn,pnf_p7->slot);
+			LOG_I(NFAPI_PNF,"[t4] pnf_nr_dispatch_p7_message , %d/%d\n",pnf_p7->sfn,pnf_p7->slot);
 			pnf_handle_tx_data_request(pRecvMsg, recvMsgLen, pnf_p7);
 			break;
 		default:
@@ -3280,7 +3263,6 @@ int pnf_nr_p7_message_pump(pnf_p7_t* pnf_p7)
 
 		{
 			LOG_I(NFAPI_PNF,"[t3] socket receive\n");	
-			// start_meas(&t3_t4);
 			pnf_nr_nfapi_p7_read_dispatch_message(pnf_p7, now_hr_time); 
 		}
 	}

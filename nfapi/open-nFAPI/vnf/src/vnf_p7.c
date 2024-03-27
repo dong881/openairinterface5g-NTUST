@@ -27,9 +27,8 @@
 #include <assert.h>
 
 #include "vnf_p7.h"
-
-// #include "/home/chen/openairinterface5g/common/utils/LOG/log.h"
 #include <common/utils/LOG/log.h>
+
 #ifdef NDEBUG
 #  warning assert is disabled
 #endif
@@ -463,7 +462,6 @@ int send_mac_subframe_indications(vnf_p7_t* vnf_p7)
 int vnf_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info, uint8_t* msg, const uint32_t len)
 {
 	LOG_I(NFAPI_VNF,"[t2] socket sent\n");
-	// LOG_I(PHY, "t2, P7 msg sent SFN/slot %d.%d \n",p7_info->sfn, p7_info->slot);	
 	int sendto_result = sendto(vnf_p7->socket, msg, len, 0, (struct sockaddr*)&(p7_info->remote_addr), sizeof(p7_info->remote_addr)); 
 	//printf("P7 msg sent \n");
 	if(sendto_result != len)
@@ -2524,7 +2522,6 @@ int vnf_nr_p7_read_dispatch_message(vnf_p7_t* vnf_p7)
 					break;
 				}
 				NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Calling vnf_nr_handle_p7_message from %d\n", __LINE__);
-				// usleep(0.001*1000);
 				vnf_nr_handle_p7_message(vnf_p7->rx_message_buffer, recvfrom_result, vnf_p7);
 				return 0;
 			}
