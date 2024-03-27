@@ -992,9 +992,9 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
 			(pnf_p7->_public.ul_tti_req_fn)(NULL, &(pnf_p7->_public), tx_slot_buffer->ul_tti_req);
 		}
 		if(tx_slot_buffer->tx_data_req != 0){
-			LOG_I(NFAPI_PNF, "Get address: %p\n",&(pnf_p7->slot_buffer[buffer_index_tx].tx_data_req));
-			LOG_I(NFAPI_PNF, "[%d]tx_slot_buffer->tx_data_req->SFN: %d ; *current* sfn_tx: %d\n",buffer_index_tx, tx_slot_buffer->tx_data_req->SFN,sfn_tx);
-			LOG_I(NFAPI_PNF, "[%d]tx_slot_buffer->tx_data_req->Slot: %d ; *current* slot_tx: %d\n",buffer_index_tx, tx_slot_buffer->tx_data_req->Slot,slot_tx);
+			LOG_I(PHY, "Get address: %p\n",&(pnf_p7->slot_buffer[buffer_index_tx].tx_data_req));
+			LOG_I(PHY, "[%d]tx_slot_buffer->tx_data_req->SFN: %d ; *current* sfn_tx: %d\n",buffer_index_tx, tx_slot_buffer->tx_data_req->SFN,sfn_tx);
+			LOG_I(PHY, "[%d]tx_slot_buffer->tx_data_req->Slot: %d ; *current* slot_tx: %d\n",buffer_index_tx, tx_slot_buffer->tx_data_req->Slot,slot_tx);
 		}
 		if(tx_slot_buffer->tx_data_req != 0 && tx_slot_buffer->tx_data_req->SFN == sfn_tx && tx_slot_buffer->tx_data_req->Slot == slot_tx)
 		{
