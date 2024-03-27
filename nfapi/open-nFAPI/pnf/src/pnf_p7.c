@@ -1969,7 +1969,7 @@ void pnf_handle_hi_dci0_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 {
 	//NFAPI_TRACE(NFAPI_TRACE_INFO, "TX.req Received\n");
-	// nfapi_nr_tx_data_request_t* req = alloca(sizeof(nfapi_nr_tx_data_request_t));
+	
 	nfapi_nr_tx_data_request_t* req = allocate_nfapi_tx_data_request(pnf_p7);
 	LOG_I(NFAPI_PNF,"[t4-1] Address of req: %p, size: %d\n", (void*)req, sizeof(nfapi_nr_tx_data_request_t));
 	if(req == NULL)
