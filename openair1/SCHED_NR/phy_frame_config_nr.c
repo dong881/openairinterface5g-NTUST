@@ -300,7 +300,6 @@ int nr_slot_select(nfapi_nr_config_request_scf_t *cfg, int nr_frame, int nr_slot
   int mu = cfg->ssb_config.scs_common.value;
   int check_slot=0;
   int nb_max_tdd_periodicity = get_nb_max_tdd_periodicity(mu,cfg->tdd_table.tdd_period.value);
-
   if (cfg->cell_config.frame_duplex_type.value == FDD) {
     return (NR_UPLINK_SLOT | NR_DOWNLINK_SLOT );
   }
