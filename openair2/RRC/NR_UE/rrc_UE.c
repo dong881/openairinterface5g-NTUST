@@ -276,7 +276,7 @@ static void nr_rrc_ue_prepare_RRCSetupRequest(NR_UE_RRC_INST_t *rrc)
   }
 
   uint8_t buf[1024];
-  int len = do_RRCSetupRequest(buf, sizeof(buf), rv);
+  int len = do_RRCSetupRequest(buf, sizeof(buf), rv, rrc->fiveG_S_TMSI);
 
   nr_rlc_srb_recv_sdu(rrc->ue_id, 0, buf, len);
 }
@@ -1140,13 +1140,17 @@ static void rrc_ue_generate_RRCSetupComplete(const NR_UE_RRC_INST_t *rrc, const 
     initialNasMsg.nas_data = malloc_or_fail(initialNasMsg.length);
     memcpy(initialNasMsg.nas_data, nr_nas_attach_req_imsi_dummy_NSA_case, initialNasMsg.length);
   }
+
   // Encode RRCSetupComplete
   int size = do_RRCSetupComplete(buffer,
                                  sizeof(buffer),
                                  Transaction_id,
                                  rrc->selected_plmn_identity,
+                                 rrc->ra_trigger == RRC_CONNECTION_SETUP,
+                                 rrc->fiveG_S_TMSI,
                                  (const uint32_t)initialNasMsg.length,
                                  (const char*)initialNasMsg.nas_data);
+
   // Free dynamically allocated data (heap allocated in both SA and NSA)
   free(initialNasMsg.nas_data);
 
