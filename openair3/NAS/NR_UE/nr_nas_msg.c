@@ -469,7 +469,11 @@ void generateRegistrationRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas)
 
   // Plain 5GMM msg
   registration_request_msg *mm_msg = &plain.mm_msg.registration_request;
-  mm_msg->fgsregistrationtype = INITIAL_REGISTRATION;
+  if (nas->fiveGMM_state == FGS_DEREGISTERED) {
+    mm_msg->fgsregistrationtype = INITIAL_REGISTRATION;
+  } else {
+    mm_msg->fgsregistrationtype = MOBILITY_REGISTRATION_UPDATING;
+  }
   mm_msg->naskeysetidentifier.naskeysetidentifier = 1;
   size += 1;
   if (nas->guti) {
