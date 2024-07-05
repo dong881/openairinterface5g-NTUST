@@ -4157,6 +4157,16 @@ static uint8_t unpack_dl_tti_pdsch_pdu_rel15_value(void *tlv, uint8_t **ppReadPa
       || !pull32(ppReadPackedMsg, &value->maintenance_parms_v3.tbSizeLbrmBytes, end))
     return 0;
 
+
+  value->rbStart = 0;
+  value->rbSize = 16;
+
+  // powerControlOffset = 0;
+  // powerControlOffsetSS = 0;
+
+  // value->maintenance_parms_v3.ldpcBaseGraph = 2;
+  // value->maintenance_parms_v3.tbSizeLbrmBytes = 57376;
+
   return 1;
 }
 
