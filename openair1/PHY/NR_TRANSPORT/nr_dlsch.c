@@ -474,11 +474,11 @@ void nr_generate_pdsch(processingData_L1tx_t *msgTx, int frame, int slot)
         int rb = 0;
         while(rb < rel15->rbSize) {
           //get pmi info
-          const int pmi = (rel15->precodingAndBeamforming.num_prgs > 0 && rel15->precodingAndBeamforming.prg_size > 0) ?
-            (rel15->precodingAndBeamforming.prgs_list[(int)rb/rel15->precodingAndBeamforming.prg_size].pm_idx) : 0;
+          // const int pmi = (rel15->precodingAndBeamforming.num_prgs > 0 && rel15->precodingAndBeamforming.prg_size > 0) ?
+          //   (rel15->precodingAndBeamforming.prgs_list[(int)rb/rel15->precodingAndBeamforming.prg_size].pm_idx) : 0;
           const int pmi2 = (rb < (rel15->rbSize - 1) && rel15->precodingAndBeamforming.prg_size > 0) ?
             (rel15->precodingAndBeamforming.prgs_list[(int)(rb+1)/rel15->precodingAndBeamforming.prg_size].pm_idx) : -1;
-
+          const int pmi = 0; //SISO
           // If pmi of next RB and pmi of current RB are the same, we do 2 RB in a row
           // if pmi differs, or current rb is the end (rel15->rbSize - 1), than we do 1 RB in a row
           const int rb_step = pmi == pmi2 ? 2 : 1;
