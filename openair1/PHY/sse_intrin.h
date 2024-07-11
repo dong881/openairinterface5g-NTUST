@@ -65,7 +65,6 @@
 // /usr/lib/gcc/x86_64-redhat-linux/8/include/gfniintrin.h:57:1: error: inlining failed in call to always_inline ‘_mm_gf2p8affine_epi64_epi8’: target specific option mismatch
 #include <simde/x86/clmul.h>
 
-#include <simde/arm/neon.h>
 #endif // x86_64 || i386
 #include <stdbool.h>
 #include "assertions.h"
