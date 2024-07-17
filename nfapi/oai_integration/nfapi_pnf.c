@@ -2100,7 +2100,7 @@ void oai_subframe_ind(uint16_t sfn, uint16_t sf) {
   }
 }
 
-#define SLOT_DURATION 300  // in microseconds
+#define SLOT_DURATION 1300  // in microseconds
 void handle_nr_slot_ind(uint16_t sfn, uint16_t slot)
 {
     /* uses a usleep to wait for approximately the same time period (300 us) */
