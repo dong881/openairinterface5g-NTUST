@@ -4159,8 +4159,9 @@ static uint8_t unpack_dl_tti_pdsch_pdu_rel15_value(void *tlv, uint8_t **ppReadPa
 
 
   value->rbStart = 0;
-  value->rbSize = 16;
-
+  if(value->rnti == 65535){
+      value->rbSize = 16;
+  }
   // powerControlOffset = 0;
   // powerControlOffsetSS = 0;
 
