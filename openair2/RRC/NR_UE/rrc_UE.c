@@ -2562,6 +2562,8 @@ void nr_rrc_going_to_IDLE(NR_UE_RRC_INST_t *rrc,
 
   // discard the keys (only kgnb is stored)
   memset(rrc->kgnb, 0, sizeof(rrc->kgnb));
+  rrc->integrityProtAlgorithm = 0;
+  rrc->cipheringAlgorithm = 0;
 
   // release all radio resources, including release of the RLC entity,
   // the MAC configuration and the associated PDCP entity

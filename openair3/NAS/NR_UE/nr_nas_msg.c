@@ -663,6 +663,12 @@ void generateRegistrationRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas,
       nasmessagecontainercontents->length = mm_msg_encode(&full_mm, nasmessagecontainercontents->value, size_nct);
       size += (nasmessagecontainercontents->length + 2);
       rr->presencemask |= REGISTRATION_REQUEST_NAS_MESSAGE_CONTAINER_PRESENT;
+      // Workaround to pass integrity in RRC_IDLE
+      uint8_t *kamf = nas->security.kamf;
+      uint8_t *kgnb = nas->security.kgnb;
+      derive_kgnb(kamf, nas->security.nas_count_ul, kgnb);
+      int nas_itti_kgnb_refresh_req(instance_t instance, const uint8_t kgnb[32]);
+      nas_itti_kgnb_refresh_req(nas->UE_id, nas->security.kgnb);
     }
     // Allocate buffer (including NAS message container size)
     initialNasMsg->nas_data = malloc_or_fail(size * sizeof(*initialNasMsg->nas_data));
