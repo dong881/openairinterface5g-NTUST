@@ -25,8 +25,11 @@
 #include "xran_fh_o_du.h"
 #include "xran_compression.h"
 
+#if defined(__arm__) || defined(__aarch64__)
+#else
 // xran_cp_api.h uses SIMD, but does not include it
 #include <immintrin.h>
+#endif
 #include "xran_cp_api.h"
 #include "xran_sync_api.h"
 #include "oran_isolate.h"
