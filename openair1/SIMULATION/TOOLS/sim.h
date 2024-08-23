@@ -543,8 +543,6 @@ int load_channellist(uint8_t nb_tx, uint8_t nb_rx, double sampling_rate, uint64_
 double N_RB2sampling_rate(uint16_t N_RB);
 double N_RB2channel_bandwidth(uint16_t N_RB);
 
-void InitSinLUT(void);
-
 /* Linear phase noise model */
 /**
   \brief This function produce phase noise and add to input signal

@@ -792,6 +792,13 @@ double interp(double x, double *xs, double *ys, int count);
 void simde_mm128_separate_real_imag_parts(simde__m128i *out_re, simde__m128i *out_im, simde__m128i in0, simde__m128i in1);
 void simde_mm256_separate_real_imag_parts(simde__m256i *out_re, simde__m256i *out_im, simde__m256i in0, simde__m256i in1);
 
+void InitSinLUT(void);
+
+// fast calculation of e^{i*2*pi*phase}
+// ret.r == cosinus << 14
+// ret.i == sinus << 14
+c16_t get_sin_cos(double phase);
+
 #ifdef __cplusplus
 }
 #endif

@@ -823,6 +823,7 @@ set(PHY_SRC_COMMON
   ${OPENAIR1_DIR}/PHY/TOOLS/sqrt.c
   ${OPENAIR1_DIR}/PHY/TOOLS/lut.c
   ${OPENAIR1_DIR}/PHY/TOOLS/simde_operations.c
+  ${OPENAIR1_DIR}/PHY/TOOLS/get_sin_cos.c
   )
 
 set(PHY_SRC
