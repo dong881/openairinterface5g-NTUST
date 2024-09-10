@@ -525,3 +525,21 @@ int nr_rx_pbch(PHY_VARS_NR_UE *ue,
   TracyCZoneEnd(ctx);
   return 0;
 }
+
+double nr_ue_pbch_freq_offset(const NR_DL_FRAME_PARMS *frame_parms,
+                              int estimateSz,
+                              const c16_t dl_ch_estimates[][estimateSz])
+{
+  const int i_ssb = frame_parms->ssb_index;
+  const int symbol_offset = nr_get_ssb_start_symbol(frame_parms, i_ssb) % frame_parms->symbols_per_slot;
+  const c16_t *dl_ch_est_symb1 = &dl_ch_estimates[0][(symbol_offset + 1) * frame_parms->ofdm_symbol_size];
+  const c16_t *dl_ch_est_symb3 = &dl_ch_estimates[0][(symbol_offset + 3) * frame_parms->ofdm_symbol_size];
+  const int nb_re = 240;
+  const c32_t dot_prod_res = dot_product(dl_ch_est_symb1, dl_ch_est_symb3, nb_re, 8);
+  const double res_phase = atan2(dot_prod_res.i, dot_prod_res.r);
+  const int samples_per_symbol = frame_parms->ofdm_symbol_size + frame_parms->nb_prefix_samples;
+  const double t_ofdm = samples_per_symbol / (frame_parms->samples_per_subframe * 1000.0); // symbol duration in sec
+  const double freq_offset = res_phase / (2 * M_PI * (3 - 1) * t_ofdm);
+
+  return freq_offset;
+}

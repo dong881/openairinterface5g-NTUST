@@ -929,6 +929,11 @@ int pbch_pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_
               sampleShift =
                   nr_adjust_synch_ue(fp, ue, gNB_id, fp->ofdm_symbol_size, dl_ch_estimates_time, frame_rx, nr_slot_rx, 16384);
             }
+
+            if (/*ue->continuous_freq_correction &&*/ pbchSuccess == 0) {
+              double freq_offset = nr_ue_pbch_freq_offset(fp, estimateSz, dl_ch_estimates);
+              LOG_I(PHY,"detected frequency offset = %.3f Hz\n", freq_offset);
+            }
           }
           LOG_D(PHY, "Doing N0 measurements in %s\n", __FUNCTION__);
           nr_ue_rrc_measurements(ue, proc, rxdataF);

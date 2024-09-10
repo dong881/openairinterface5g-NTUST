@@ -204,6 +204,10 @@ int nr_rx_pbch(PHY_VARS_NR_UE *ue,
                int rxdataFSize,
                const struct complex16 rxdataF[][rxdataFSize]);
 
+double nr_ue_pbch_freq_offset(const NR_DL_FRAME_PARMS *frame_parms,
+                              int estimateSz,
+                              const c16_t dl_ch_estimates[][estimateSz]);
+
 #ifndef modOrder
 #define modOrder(I_MCS,I_TBS) ((I_MCS-I_TBS)*2+2) // Find modulation order from I_TBS and I_MCS
 #endif
