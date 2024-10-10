@@ -42,6 +42,7 @@
 #include "common/utils/threadPool/notified_fifo.h"
 #include "position_interface.h"
 #include "nr_phy_common.h"
+#include "common/utils/time_manager/time_manager.h"
 
 /*
  *  NR SLOT PROCESSING SEQUENCE
@@ -706,16 +707,6 @@ static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
       process_msg_rcc_to_mac(msg);
   } while (msg);
 
-  if (IS_SOFTMODEM_NOS1 || IS_SA_MODE(get_softmodem_params())) {
-    /* send tick to RLC and PDCP every ms */
-    if (proc->nr_slot_rx % fp->slots_per_subframe == 0) {
-      void nr_rlc_tick(int frame, int subframe);
-      void nr_pdcp_tick(int frame, int subframe);
-      nr_rlc_tick(proc->frame_rx, proc->nr_slot_rx / fp->slots_per_subframe);
-      nr_pdcp_tick(proc->frame_rx, proc->nr_slot_rx / fp->slots_per_subframe);
-    }
-  }
-
   if (UE->if_inst)
     UE->if_inst->slot_indication(UE->Mod_id, false);
 
@@ -1094,6 +1085,10 @@ void *UE_thread(void *arg)
     // start of normal case, the UE is in sync
     absolute_slot++;
     TracyCFrameMark;
+
+    // pretend we have 1 iq sample per slot
+    // and so nb_slot_frame * 100 iq samples per second (1 frame being 10ms)
+    time_manager_iq_samples(1, nb_slot_frame * 100);
 
     int slot_nr = absolute_slot % nb_slot_frame;
     nr_rxtx_thread_data_t curMsg = {0};

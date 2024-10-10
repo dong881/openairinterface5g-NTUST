@@ -74,11 +74,6 @@
 
 static nr_pdcp_ue_manager_t *nr_pdcp_ue_manager;
 
-/* TODO: handle time a bit more properly */
-static uint64_t nr_pdcp_current_time;
-static int      nr_pdcp_current_time_last_frame;
-static int      nr_pdcp_current_time_last_subframe;
-
 /* necessary globals for OAI, not used internally */
 hash_table_t  *pdcp_coll_p;
 static uint64_t pdcp_optmask;
@@ -422,9 +417,6 @@ void nr_pdcp_layer_init(void)
   nr_pdcp_e1_if_init(node_type == ngran_gNB_CUUP || node_type == ngran_gNB_CUCP);
   init_nr_pdcp_data_ind_queue();
   nr_pdcp_init_timer_thread(nr_pdcp_ue_manager);
-  if (NODE_IS_CU(node_type)) {
-    nr_pdcp_init_tick_thread();
-  }
 }
 
 #include "nfapi/oai_integration/vendor_ext.h"
@@ -1050,17 +1042,6 @@ bool cu_f1u_data_req(protocol_ctxt_t  *ctxt_pP,
     /* what to do in case of failure? for the moment: nothing */
   }
   return ret;
-}
-
-void nr_pdcp_tick(int frame, int subframe)
-{
-  if (frame != nr_pdcp_current_time_last_frame ||
-      subframe != nr_pdcp_current_time_last_subframe) {
-    nr_pdcp_current_time_last_frame = frame;
-    nr_pdcp_current_time_last_subframe = subframe;
-    nr_pdcp_current_time++;
-    nr_pdcp_wakeup_timer_thread(nr_pdcp_current_time);
-  }
 }
 
 /*

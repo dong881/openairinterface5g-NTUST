@@ -50,8 +50,6 @@ static nr_rlc_ue_manager_t *nr_rlc_ue_manager;
 /* TODO: handle time a bit more properly */
 static pthread_mutex_t nr_rlc_current_time_mutex = PTHREAD_MUTEX_INITIALIZER;
 static uint64_t nr_rlc_current_time;
-static int      nr_rlc_current_time_last_frame;
-static int      nr_rlc_current_time_last_subframe;
 
 void lock_nr_rlc_current_time(void)
 {
@@ -956,15 +954,10 @@ void nr_rlc_test_trigger_reestablishment(int ue_id)
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 }
 
-void nr_rlc_tick(int frame, int subframe)
+void nr_rlc_ms_tick(void)
 {
   lock_nr_rlc_current_time();
-  if (frame != nr_rlc_current_time_last_frame ||
-      subframe != nr_rlc_current_time_last_subframe) {
-    nr_rlc_current_time_last_frame = frame;
-    nr_rlc_current_time_last_subframe = subframe;
-    nr_rlc_current_time++;
-  }
+  nr_rlc_current_time++;
   unlock_nr_rlc_current_time();
 }
 
