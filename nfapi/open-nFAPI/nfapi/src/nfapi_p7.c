@@ -38,6 +38,7 @@
 #include <nfapi.h>
 #include <debug.h>
 #include "nfapi_nr_interface_scf.h"
+#include <common/utils/LOG/log.h>
 
 extern int nfapi_unpack_p7_vendor_extension(nfapi_p7_message_header_t *header, uint8_t **ppReadPackedMsg, void *user_data);
 extern int nfapi_pack_p7_vendor_extension(nfapi_p7_message_header_t *header, uint8_t **ppWritePackedMsg, void *user_data);
@@ -4158,15 +4159,6 @@ static uint8_t unpack_dl_tti_pdsch_pdu_rel15_value(void *tlv, uint8_t **ppReadPa
     return 0;
 
 
-  value->rbStart = 0;
-  if(value->rnti == 65535){
-      value->rbSize = 16;
-  }
-  // powerControlOffset = 0;
-  // powerControlOffsetSS = 0;
-
-  // value->maintenance_parms_v3.ldpcBaseGraph = 2;
-  // value->maintenance_parms_v3.tbSizeLbrmBytes = 57376;
 
   return 1;
 }
