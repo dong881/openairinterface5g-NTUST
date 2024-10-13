@@ -733,6 +733,7 @@ static int8_t nr_rrc_ue_decode_NR_BCCH_DL_SCH_Message(NR_UE_RRC_INST_t *rrc,
   if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
     xer_fprint(stdout, &asn_DEF_NR_BCCH_DL_SCH_Message,(void *)bcch_message);
   }
+  xer_fprint(stdout, &asn_DEF_NR_BCCH_DL_SCH_Message,(void *)bcch_message);
 
   if (bcch_message->message.present == NR_BCCH_DL_SCH_MessageType_PR_c1) {
     switch (bcch_message->message.choice.c1->present) {
