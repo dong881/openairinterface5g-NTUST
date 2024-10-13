@@ -2124,6 +2124,7 @@ void handle_nr_slot_ind(uint16_t sfn, uint16_t slot)
     uint8_t slot_tx = NFAPI_SFNSLOT2SLOT(sfn_slot_tx);
 
     nfapi_nr_slot_indication_scf_t ind = { .sfn = sfn_tx, .slot = slot_tx };
+    // LOG_I(PHY, "Sending slot indication to VNF: sfn:%d, slot:%d->%d\n", sfn, slot, slot_tx);
     oai_nfapi_nr_slot_indication(&ind);
 
     //copy data from appropriate p7 slot buffers into channel structures for PHY processing
