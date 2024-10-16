@@ -2116,8 +2116,6 @@ gNB_RRC_INST *RCconfig_NRRRC()
       rrc->eth_params_s.transp_preference        = ETH_UDP_MODE;
     }
 
-   
-
     rrc->nr_cellid        = (uint64_t)*(GNBParamList.paramarray[i][GNB_NRCELLID_IDX].u64ptr);
 
     if (strcmp(*(GNBParamList.paramarray[i][GNB_TRANSPORT_S_PREFERENCE_IDX].strptr), "local_mac") == 0) {
@@ -2342,45 +2340,17 @@ int RCconfig_NR_NG(MessageDef *msg_p, uint32_t i) {
             NGAP_REGISTER_GNB_REQ (msg_p).nb_amf = 0;
             
             for (int l = 0; l < NGParamList.numelt; l++) {
-              
               NGAP_REGISTER_GNB_REQ (msg_p).nb_amf += 1;
               strcpy(NGAP_REGISTER_GNB_REQ (msg_p).amf_ip_address[l].ipv4_address,*(NGParamList.paramarray[l][GNB_AMF_IPV4_ADDRESS_IDX].strptr));
               NGAP_REGISTER_GNB_REQ (msg_p).amf_ip_address[j].ipv4 = 1;
               NGAP_REGISTER_GNB_REQ (msg_p).amf_ip_address[j].ipv6 = 0;
-
-              /* not in configuration yet ...
-              if (NGParamList.paramarray[l][GNB_AMF_BROADCAST_PLMN_INDEX].iptr)
-                NGAP_REGISTER_GNB_REQ(msg_p).broadcast_plmn_num[l] = NGParamList.paramarray[l][GNB_AMF_BROADCAST_PLMN_INDEX].numelt;
-              else
-                NGAP_REGISTER_GNB_REQ(msg_p).broadcast_plmn_num[l] = 0;
-
-              AssertFatal(NGAP_REGISTER_GNB_REQ(msg_p).broadcast_plmn_num[l] <= NGAP_REGISTER_GNB_REQ(msg_p).num_plmn,
-                          "List of broadcast PLMN to be sent to AMF can not be longer than actual "
-                          "PLMN list (max %d, but is %d)\n",
-                          NGAP_REGISTER_GNB_REQ(msg_p).num_plmn,
-                          NGAP_REGISTER_GNB_REQ(msg_p).broadcast_plmn_num[l]);
-
-              for (int el = 0; el < NGAP_REGISTER_GNB_REQ(msg_p).broadcast_plmn_num[l]; ++el) {
-                // UINTARRAY gets mapped to int, see config_libconfig.c:223
-                NGAP_REGISTER_GNB_REQ(msg_p).broadcast_plmn_index[l][el] = NGParamList.paramarray[l][GNB_AMF_BROADCAST_PLMN_INDEX].iptr[el];
-                AssertFatal(NGAP_REGISTER_GNB_REQ(msg_p).broadcast_plmn_index[l][el] >= 0
-                            && NGAP_REGISTER_GNB_REQ(msg_p).broadcast_plmn_index[l][el] < NGAP_REGISTER_GNB_REQ(msg_p).num_plmn,
-                            "index for AMF's MCC/MNC (%d) is an invalid index for the registered PLMN IDs (%d)\n",
-                            NGAP_REGISTER_GNB_REQ(msg_p).broadcast_plmn_index[l][el],
-                            NGAP_REGISTER_GNB_REQ(msg_p).num_plmn);
-              }
-              */
-
               /* if no broadcasst_plmn array is defined, fill default values */
               if (NGAP_REGISTER_GNB_REQ(msg_p).broadcast_plmn_num[l] == 0) {
                 NGAP_REGISTER_GNB_REQ(msg_p).broadcast_plmn_num[l] = NGAP_REGISTER_GNB_REQ(msg_p).num_plmn;
-
                 for (int el = 0; el < NGAP_REGISTER_GNB_REQ(msg_p).num_plmn; ++el)
                   NGAP_REGISTER_GNB_REQ(msg_p).broadcast_plmn_index[l][el] = el;
               }
-              
             }
-
           
             // SCTP SETTING
             NGAP_REGISTER_GNB_REQ (msg_p).sctp_out_streams = SCTP_OUT_STREAMS;
@@ -2482,8 +2452,6 @@ int RCconfig_NR_X2(MessageDef *msg_p, uint32_t i) {
   int   J, l;
   char *address = NULL;
   char *cidr    = NULL;
-  //int                    num_gnbs                                                      = 0;
-  //int                    num_component_carriers                                        = 0;
   int                    j,k                                                           = 0;
   int32_t                gnb_id                                                        = 0;
 
