@@ -45,6 +45,9 @@
    \param mac      MAC pointer */
 void nr_ue_init_mac(NR_UE_MAC_INST_t *mac);
 
+NR_UE_DL_BWP_t *get_dl_bwp_structure(NR_UE_MAC_INST_t *mac, int bwp_id, bool setup);
+NR_UE_UL_BWP_t *get_ul_bwp_structure(NR_UE_MAC_INST_t *mac, int bwp_id, bool setup);
+
 void send_srb0_rrc(int ue_id, const uint8_t *sdu, sdu_size_t sdu_len, void *data);
 void update_mac_timers(NR_UE_MAC_INST_t *mac);
 NR_LC_SCHEDULING_INFO *get_scheduling_info_from_lcid(NR_UE_MAC_INST_t *mac, NR_LogicalChannelIdentity_t lcid);
@@ -273,6 +276,8 @@ void ul_ports_config(NR_UE_MAC_INST_t *mac,
                      nfapi_nr_ue_pusch_pdu_t *pusch_config_pdu,
                      dci_pdu_rel15_t *dci,
                      nr_dci_format_t dci_format);
+
+bool init_RA(NR_UE_MAC_INST_t *mac, int frame);
 
 /* Random Access */
 /* \brief This function schedules the PRACH according to prach_ConfigurationIndex and TS 38.211 tables 6.3.3.2.x

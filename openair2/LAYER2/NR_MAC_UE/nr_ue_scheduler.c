@@ -2595,8 +2595,6 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
   fapi_nr_config_request_t *cfg = &mac->phy_config.config_req;
   fapi_nr_prach_config_t *prach_config = &cfg->prach_config;
 
-  NR_RACH_ConfigCommon_t *setup = mac->current_UL_BWP->rach_ConfigCommon;
-  NR_RACH_ConfigGeneric_t *rach_ConfigGeneric = &setup->rach_ConfigGeneric;
   const int bwp_id = mac->current_UL_BWP->bwp_id;
 
   if (is_ul_slot(slotP, &mac->frame_structure)) {
@@ -2627,14 +2625,13 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
         LOG_E(NR_MAC, "Error in PRACH allocation\n");
         return;
       }
-      uint16_t ncs = get_NCS(rach_ConfigGeneric->zeroCorrelationZoneConfig, format0, setup->restrictedSetConfig);
       pdu->prach_config_pdu = (fapi_nr_ul_config_prach_pdu){
           .phys_cell_id = mac->physCellId,
           .num_prach_ocas = 1,
           .prach_slot = prach_occasion_info_p->slot,
           .prach_start_symbol = prach_occasion_info_p->start_symbol,
           .num_ra = prach_occasion_info_p->fdm,
-          .num_cs = ncs,
+          .num_cs = get_NCS(ra->zeroCorrelationZoneConfig, format0, ra->restricted_set_config),
           .root_seq_id = prach_config->num_prach_fd_occasions_list[prach_occasion_info_p->fdm].prach_root_sequence_index,
           .restricted_set = prach_config->restricted_set_config,
           .freq_msg1 = prach_config->num_prach_fd_occasions_list[prach_occasion_info_p->fdm].k1};
