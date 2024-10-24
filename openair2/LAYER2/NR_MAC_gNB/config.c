@@ -521,8 +521,7 @@ static void config_common(gNB_MAC_INST *nrmac,
     // If absent, use SCS as derived from the prach-ConfigurationIndex (for 839)
     int config_index = rach_ConfigCommon->rach_ConfigGeneric.prach_ConfigurationIndex;
     int frame_type = get_frame_type(band, frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing);
-    const int64_t *prach_config_info_p = get_prach_config_info(frequency_range, config_index, frame_type);
-    int format = prach_config_info_p[0];
+    int format = get_nr_prach_format_from_index(config_index, UL_pointA, frame_type) & 0xff;
     cfg->prach_config.prach_sub_c_spacing.value = get_delta_f_RA_long(format);
   }
 
