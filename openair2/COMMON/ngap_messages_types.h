@@ -438,7 +438,7 @@ typedef struct {
   uint16_t mcc;
   uint16_t mnc;
   uint8_t mnc_digit_length;
-  uint8_t num_nssai;
+  uint16_t num_nssai;
   nssai_t s_nssai[8];
 } ngap_plmn_t;
 
