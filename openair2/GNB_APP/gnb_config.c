@@ -993,6 +993,13 @@ static int get_prb_blacklist(uint8_t instance, uint16_t *prbbl)
   return num_prbbl;
 }
 
+static void set_antenna_ports(paramlist_def_t *p, int *N1, int *N2, int *XP)
+{
+  *N1 = *p->paramarray[0][GNB_PDSCH_ANTENNAPORTS_N1_IDX].iptr;
+  *N2 = *p->paramarray[0][GNB_PDSCH_ANTENNAPORTS_N2_IDX].iptr;
+  *XP = *p->paramarray[0][GNB_PDSCH_ANTENNAPORTS_XP_IDX].iptr;
+}
+
 void RCconfig_NR_L1(void)
 {
   LOG_I(NR_PHY, "Initializing NR L1: RC.nb_nr_L1_inst = %d\n", RC.nb_nr_L1_inst);
@@ -1006,9 +1013,6 @@ void RCconfig_NR_L1(void)
       int num_gnbs = GNBSParams[GNB_ACTIVE_GNBS_IDX].numelt;
       AssertFatal(num_gnbs > 0, "Failed to parse config file, no GNBs found in field %s \n", GNB_CONFIG_STRING_ACTIVE_GNBS);
       GET_PARAMS_LIST(GNBParamList, GNBParams, GNBPARAMS_DESC, GNB_CONFIG_STRING_GNB_LIST, NULL);
-      int N1 = *GNBParamList.paramarray[0][GNB_PDSCH_ANTENNAPORTS_N1_IDX].iptr;
-      int N2 = *GNBParamList.paramarray[0][GNB_PDSCH_ANTENNAPORTS_N2_IDX].iptr;
-      int XP = *GNBParamList.paramarray[0][GNB_PDSCH_ANTENNAPORTS_XP_IDX].iptr;
 
       // PRB Blacklist
       uint16_t prbbl[MAX_BWP_SIZE] = {0};
@@ -1020,9 +1024,7 @@ void RCconfig_NR_L1(void)
       }
 
       // Antenna ports
-      gNB->ap_N1 = N1;
-      gNB->ap_N2 = N2;
-      gNB->ap_XP = XP;
+      set_antenna_ports(&GNBParamList, &gNB->ap_N1, &gNB->ap_N2, &gNB->ap_XP);
     }
 
     // L1 params
@@ -1461,9 +1463,8 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   // MAC / RLC
   GET_PARAMS_LIST(MacRLC_ParamList, MacRLC_Params, MACRLCPARAMS_DESC, CONFIG_STRING_MACRLC_LIST, NULL, MACRLCPARAMS_CHECK);
   nr_mac_config_t config = {0};
-  config.pdsch_AntennaPorts.N1 = *GNBParamList.paramarray[0][GNB_PDSCH_ANTENNAPORTS_N1_IDX].iptr;
-  config.pdsch_AntennaPorts.N2 = *GNBParamList.paramarray[0][GNB_PDSCH_ANTENNAPORTS_N2_IDX].iptr;
-  config.pdsch_AntennaPorts.XP = *GNBParamList.paramarray[0][GNB_PDSCH_ANTENNAPORTS_XP_IDX].iptr;
+  nr_pdsch_AntennaPorts_t *p = &config.pdsch_AntennaPorts;
+  set_antenna_ports(&GNBParamList, &p->N1, &p->N2, &p->XP);
   config.pusch_AntennaPorts = *GNBParamList.paramarray[0][GNB_PUSCH_ANTENNAPORTS_IDX].iptr;
   LOG_I(GNB_APP,
         "pdsch_AntennaPorts N1 %d N2 %d XP %d pusch_AntennaPorts %d\n",
