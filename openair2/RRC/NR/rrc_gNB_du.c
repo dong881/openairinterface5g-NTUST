@@ -99,8 +99,7 @@ static bool rrc_gNB_plmn_matches(const gNB_RRC_INST *rrc, const f1ap_served_cell
 {
   const gNB_RrcConfigurationReq *conf = &rrc->configuration;
   return conf->num_plmn == 1 // F1 supports only one
-    && conf->mcc[0] == info->plmn.mcc
-    && conf->mnc[0] == info->plmn.mnc;
+         && conf->plmn[0].mcc == info->plmn.mcc && conf->plmn[0].mnc == info->plmn.mnc;
 }
 
 static bool extract_sys_info(const f1ap_gnb_du_system_info_t *sys_info, NR_MIB_t **mib, NR_SIB1_t **sib1)
@@ -309,9 +308,9 @@ void rrc_gNB_process_f1_setup_req(f1ap_setup_req_t *req, sctp_assoc_t assoc_id)
   if (!rrc_gNB_plmn_matches(rrc, cell_info)) {
     LOG_E(NR_RRC,
           "PLMN mismatch: CU %03d.%0*d, DU %03d%0*d\n",
-          rrc->configuration.mcc[0],
-          rrc->configuration.mnc_digit_length[0],
-          rrc->configuration.mnc[0],
+          rrc->configuration.plmn[0].mcc,
+          rrc->configuration.plmn[0].mnc_digit_length,
+          rrc->configuration.plmn[0].mnc,
           cell_info->plmn.mcc,
           cell_info->plmn.mnc_digit_length,
           cell_info->plmn.mnc);

@@ -518,9 +518,9 @@ static void initialize_agent(ngran_node_t node_type, e2_agent_args_t oai_args)
   const gNB_RRC_INST* rrc = RC.nrrrc[0];
   assert(rrc != NULL && "rrc cannot be NULL");
 
-  const int mcc = rrc->configuration.mcc[0];
-  const int mnc = rrc->configuration.mnc[0];
-  const int mnc_digit_len = rrc->configuration.mnc_digit_length[0];
+  const int mcc = rrc->configuration.plmn[0].mcc;
+  const int mnc = rrc->configuration.plmn[0].mnc;
+  const int mnc_digit_len = rrc->configuration.plmn[0].mnc_digit_length;
   // const ngran_node_t node_type = rrc->node_type;
   int nb_id = 0;
   int cu_du_id = 0;

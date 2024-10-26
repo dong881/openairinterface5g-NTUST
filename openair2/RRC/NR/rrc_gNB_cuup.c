@@ -263,13 +263,13 @@ int rrc_gNB_process_e1_setup_req(sctp_assoc_t assoc_id, const e1ap_setup_req_t *
 
   for (int i = 0; i < req->supported_plmns; i++) {
     const PLMN_ID_t *id = &req->plmn[i].id;
-    if (rrc->configuration.mcc[i] != id->mcc || rrc->configuration.mnc[i] != id->mnc) {
+    if (rrc->configuration.plmn[i].mcc != id->mcc || rrc->configuration.plmn[i].mnc != id->mnc) {
       LOG_E(NR_RRC,
             "PLMNs received from CUUP (mcc:%d, mnc:%d) did not match with PLMNs in RRC (mcc:%d, mnc:%d)\n",
             id->mcc,
             id->mnc,
-            rrc->configuration.mcc[i],
-            rrc->configuration.mnc[i]);
+            rrc->configuration.plmn[i].mcc,
+            rrc->configuration.plmn[i].mnc);
       e1ap_cause_t cause = { .type = E1AP_CAUSE_RADIO_NETWORK, .value = E1AP_RADIO_CAUSE_OTHER};
       e1ap_setup_failure(assoc_id, req->transac_id, cause);
       return -1;

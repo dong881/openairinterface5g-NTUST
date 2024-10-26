@@ -227,9 +227,7 @@ static void rrc_gNB_trigger_reconfiguration_for_handover(gNB_RRC_INST *rrc, gNB_
   f1ap_ue_context_modif_req_t ue_context_modif_req = {
       .gNB_CU_ue_id = ue->rrc_ue_id,
       .gNB_DU_ue_id = ue_data.secondary_ue,
-      .plmn.mcc = rrc->configuration.mcc[0],
-      .plmn.mnc = rrc->configuration.mnc[0],
-      .plmn.mnc_digit_length = rrc->configuration.mnc_digit_length[0],
+      .plmn = rrc->configuration.plmn[0],
       .nr_cellid = rrc->nr_cellid, // TODO target cell ID
       .servCellId = 0, // TODO: correct value?
       .ReconfigComplOutcome = RRCreconf_success,
