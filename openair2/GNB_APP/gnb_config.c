@@ -120,6 +120,23 @@ static uint16_t set_snssai_config(nssai_t *nssai, const int max_num_ssi, uint8_t
   return num_ssi;
 }
 
+static uint8_t set_plmn_config(plmn_id_t *p, uint8_t idx)
+{
+  char gnbpath[MAX_OPTNAME_SIZE * 2 + 8];
+  snprintf(gnbpath, sizeof(gnbpath), "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, idx);
+  GET_PARAMS_LIST(PLMNParamList, PLMNParams, GNBPLMNPARAMS_DESC, GNB_CONFIG_STRING_PLMN_LIST, gnbpath, PLMNPARAMS_CHECK);
+  uint8_t num_plmn = PLMNParamList.numelt;
+  AssertFatal(num_plmn >= 1 && num_plmn <= 6, "The number of PLMN IDs must be in [1,6], but is %d\n", num_plmn);
+  for (int l = 0; l < num_plmn; ++l) {
+    plmn_id_t *plmn = &p[l];
+    plmn->mcc = *PLMNParamList.paramarray[l][GNB_MOBILE_COUNTRY_CODE_IDX].uptr;
+    plmn->mnc = *PLMNParamList.paramarray[l][GNB_MOBILE_NETWORK_CODE_IDX].uptr;
+    plmn->mnc_digit_length = *PLMNParamList.paramarray[l][GNB_MNC_DIGIT_LENGTH].u8ptr;
+    AssertFatal((plmn->mnc_digit_length == 2) || (plmn->mnc_digit_length == 3), "BAD MNC DIGIT LENGTH %d", plmn->mnc_digit_length);
+  }
+  return num_plmn;
+}
+
 /**
  * Allocate memory and initialize ServingCellConfigCommon struct members
  */
@@ -1229,13 +1246,6 @@ static int read_du_cell_info(configmodule_interface_t *cfg,
               GNBSParams[GNB_ACTIVE_GNBS_IDX].strlistptr[0],
               *GNBParamList.paramarray[0][GNB_GNB_NAME_IDX].strptr);
 
-  char aprefix[MAX_OPTNAME_SIZE * 2 + 8];
-  /* map parameter checking array instances to parameter definition array instances */
-  snprintf(aprefix, sizeof(aprefix), "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0);
-  GET_PARAMS_LIST(PLMNParamList, PLMNParams, GNBPLMNPARAMS_DESC, GNB_CONFIG_STRING_PLMN_LIST, aprefix, PLMNPARAMS_CHECK);
-  AssertFatal(PLMNParamList.numelt > 0, "need to have a PLMN in PLMN section\n");
-  AssertFatal(PLMNParamList.numelt == 1, "cannot have more than one PLMN\n");
-
   // if fronthaul is F1, require gNB_DU_ID, else use gNB_ID
   if (separate_du) {
     AssertFatal(config_isparamset(GNBParamList.paramarray[0], GNB_GNB_DU_ID_IDX), "%s is not defined in configuration file\n", GNB_CONFIG_STRING_GNB_DU_ID);
@@ -1251,12 +1261,11 @@ static int read_du_cell_info(configmodule_interface_t *cfg,
   info->tac = malloc(sizeof(*info->tac));
   AssertFatal(info->tac != NULL, "out of memory\n");
   *info->tac = *GNBParamList.paramarray[0][GNB_TRACKING_AREA_CODE_IDX].uptr;
-  info->plmn.mcc = *PLMNParamList.paramarray[0][GNB_MOBILE_COUNTRY_CODE_IDX].uptr;
-  info->plmn.mnc = *PLMNParamList.paramarray[0][GNB_MOBILE_NETWORK_CODE_IDX].uptr;
-  info->plmn.mnc_digit_length = *PLMNParamList.paramarray[0][GNB_MNC_DIGIT_LENGTH].u8ptr;
-  AssertFatal((info->plmn.mnc_digit_length == 2) || (info->plmn.mnc_digit_length == 3),
-              "BAD MNC DIGIT LENGTH %d",
-              info->plmn.mnc_digit_length);
+
+  // PLMN
+  plmn_id_t p[PLMN_LIST_MAX_SIZE] = {0};
+  set_plmn_config(p, 0);
+  info->plmn = p[0];
   info->nr_cellid = (uint64_t) * (GNBParamList.paramarray[0][GNB_NRCELLID_IDX].u64ptr);
 
   // SNSSAI
@@ -2104,25 +2113,7 @@ gNB_RRC_INST *RCconfig_NRRRC()
                     "    tracking_area_code  =  1; // no string!!\n"
                     "    plmn_list = ( { mcc = 208; mnc = 93; mnc_length = 2; } )\n");
 
-        // PLMN params
-        char gnbpath[MAX_OPTNAME_SIZE + 8];
-        sprintf(gnbpath, "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, k);
-        GET_PARAMS_LIST(PLMNParamList, PLMNParams, GNBPLMNPARAMS_DESC, GNB_CONFIG_STRING_PLMN_LIST, gnbpath, PLMNPARAMS_CHECK);
-
-        if (PLMNParamList.numelt < 1 || PLMNParamList.numelt > 6)
-          AssertFatal(0, "The number of PLMN IDs must be in [1,6], but is %d\n",
-                      PLMNParamList.numelt);
-
-        nrrrc_config.num_plmn = PLMNParamList.numelt;
-
-        for (int l = 0; l < PLMNParamList.numelt; ++l) {
-          nrrrc_config.plmn[l].mcc = *PLMNParamList.paramarray[l][GNB_MOBILE_COUNTRY_CODE_IDX].uptr;
-          nrrrc_config.plmn[l].mnc = *PLMNParamList.paramarray[l][GNB_MOBILE_NETWORK_CODE_IDX].uptr;
-          nrrrc_config.plmn[l].mnc_digit_length = *PLMNParamList.paramarray[l][GNB_MNC_DIGIT_LENGTH].u8ptr;
-          AssertFatal((nrrrc_config.plmn[l].mnc_digit_length == 2) || (nrrrc_config.plmn[l].mnc_digit_length == 3),
-                      "BAD MNC DIGIT LENGTH %d",
-                      nrrrc_config.plmn[l].mnc_digit_length);
-        }
+        nrrrc_config.num_plmn = set_plmn_config(nrrrc_config.plmn, k);
         nrrrc_config.enable_sdap = *GNBParamList.paramarray[i][GNB_ENABLE_SDAP_IDX].iptr;
         LOG_I(GNB_APP, "SDAP layer is %s\n", nrrrc_config.enable_sdap ? "enabled" : "disabled");
         nrrrc_config.drbs = *GNBParamList.paramarray[i][GNB_DRBS].iptr;
@@ -2210,28 +2201,16 @@ int RCconfig_NR_NG(MessageDef *msg_p, uint32_t i) {
                         "to\n"
                         "    tracking_area_code  =  1; // no string!!\n"
                         "    plmn_list = ( { mcc = 208; mnc = 93; mnc_length = 2; } )\n");
-            // PLMN params
-            sprintf(aprefix, "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0);
-            GET_PARAMS_LIST(PLMNParamList, PLMNParams, GNBPLMNPARAMS_DESC, GNB_CONFIG_STRING_PLMN_LIST, aprefix, PLMNPARAMS_CHECK);
-
-            if (PLMNParamList.numelt < 1 || PLMNParamList.numelt > 6)
-              AssertFatal(0, "The number of PLMN IDs must be in [1,6], but is %d\n",
-                          PLMNParamList.numelt);
-
-            NGAP_REGISTER_GNB_REQ(msg_p).num_plmn = PLMNParamList.numelt;
-
-            for (int l = 0; l < PLMNParamList.numelt; ++l) {
-              NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].plmn.mcc = *PLMNParamList.paramarray[l][GNB_MOBILE_COUNTRY_CODE_IDX].uptr;
-              NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].plmn.mnc = *PLMNParamList.paramarray[l][GNB_MOBILE_NETWORK_CODE_IDX].uptr;
-              NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].plmn.mnc_digit_length = *PLMNParamList.paramarray[l][GNB_MNC_DIGIT_LENGTH].u8ptr;
-              NGAP_REGISTER_GNB_REQ (msg_p).default_drx      = 0;
-              AssertFatal((NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].plmn.mnc_digit_length == 2)
-                              || (NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].plmn.mnc_digit_length == 3),
-                          "BAD MNC DIGIT LENGTH %d",
-                          NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].plmn.mnc_digit_length);
-
+            // PLMN
+            plmn_id_t p[PLMN_LIST_MAX_SIZE] = {0};
+            NGAP_REGISTER_GNB_REQ(msg_p).num_plmn = set_plmn_config(p, 0);
+            for (int l = 0; l < NGAP_REGISTER_GNB_REQ(msg_p).num_plmn; ++l) {
+              NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].plmn = p[l];
+              // SNSSAI
               NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].num_nssai = set_snssai_config(NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].s_nssai, 8, k, l);
             }
+            NGAP_REGISTER_GNB_REQ(msg_p).default_drx = 0;
+            // NG
             sprintf(aprefix, "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, k);
             GET_PARAMS_LIST(NGParamList, NGParams, GNBNGPARAMS_DESC, GNB_CONFIG_STRING_AMF_IP_ADDRESS, aprefix);
             NGAP_REGISTER_GNB_REQ (msg_p).nb_amf = 0;
@@ -2387,10 +2366,6 @@ int RCconfig_NR_X2(MessageDef *msg_p, uint32_t i) {
           if (strcmp(GNBSParams[GNB_ACTIVE_GNBS_IDX].strlistptr[j], *(GNBParamList.paramarray[k][GNB_GNB_NAME_IDX].strptr)) == 0) {
             /* map parameter checking array instances to parameter definition array instances */
 
-            char aprefix[MAX_OPTNAME_SIZE * 80 + 8];
-            sprintf(aprefix, "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, k);
-            GET_PARAMS_LIST(PLMNParamList, PLMNParams, GNBPLMNPARAMS_DESC, GNB_CONFIG_STRING_PLMN_LIST, aprefix, PLMNPARAMS_CHECK);
-
             char* gnb_ipv4_address_for_NGU = NULL;
             uint32_t gnb_port_for_NGU = 0;
             char* gnb_ipv4_address_for_S1U = NULL;
@@ -2410,21 +2385,20 @@ int RCconfig_NR_X2(MessageDef *msg_p, uint32_t i) {
             X2AP_REGISTER_ENB_REQ (msg_p).eNB_name         = strdup(*(GNBParamList.paramarray[k][GNB_GNB_NAME_IDX].strptr));
             X2AP_REGISTER_ENB_REQ (msg_p).tac              = *GNBParamList.paramarray[k][GNB_TRACKING_AREA_CODE_IDX].uptr;
 
-            if (PLMNParamList.numelt < 1 || PLMNParamList.numelt > 6)
-              AssertFatal(0, "The number of PLMN IDs must be in [1,6], but is %d\n",
-                          PLMNParamList.numelt);
-
-            if (PLMNParamList.numelt > 1)
+            // PLMN
+            plmn_id_t p[PLMN_LIST_MAX_SIZE];
+            uint8_t num_plmn = set_plmn_config(p, k);
+            if (num_plmn > 1)
               LOG_W(X2AP, "X2AP currently handles only one PLMN, ignoring the others!\n");
-
-            X2AP_REGISTER_ENB_REQ (msg_p).mcc = *PLMNParamList.paramarray[0][GNB_MOBILE_COUNTRY_CODE_IDX].uptr;
-            X2AP_REGISTER_ENB_REQ (msg_p).mnc = *PLMNParamList.paramarray[0][GNB_MOBILE_NETWORK_CODE_IDX].uptr;
-            X2AP_REGISTER_ENB_REQ (msg_p).mnc_digit_length = *PLMNParamList.paramarray[0][GNB_MNC_DIGIT_LENGTH].u8ptr;
+            X2AP_REGISTER_ENB_REQ(msg_p).mcc = p[0].mcc;
+            X2AP_REGISTER_ENB_REQ(msg_p).mnc = p[0].mnc;
+            X2AP_REGISTER_ENB_REQ(msg_p).mnc_digit_length = p[0].mnc_digit_length;
             AssertFatal(X2AP_REGISTER_ENB_REQ(msg_p).mnc_digit_length == 3
                         || X2AP_REGISTER_ENB_REQ(msg_p).mnc < 100,
                         "MNC %d cannot be encoded in two digits as requested (change mnc_digit_length to 3)\n",
                         X2AP_REGISTER_ENB_REQ(msg_p).mnc);
 
+            char aprefix[MAX_OPTNAME_SIZE * 80 + 8];
             sprintf(aprefix, "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0);
             GET_PARAMS_LIST(SCCsParamList, SCCsParams, SCCPARAMS_DESC(scc), GNB_CONFIG_STRING_SERVINGCELLCONFIGCOMMON, aprefix);
             if (SCCsParamList.numelt > 0) {
