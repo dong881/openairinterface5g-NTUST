@@ -1849,7 +1849,8 @@ static void build_ro_list(NR_UE_MAC_INST_t *mac)
   int unpaired = mac->phy_config.config_req.cell_config.frame_duplex_type;
 
   const int64_t *prach_config_info_p = get_prach_config_info(mac->frequency_range, config_index, unpaired);
-  int mu = nr_get_prach_mu(mac->current_UL_BWP->msgA_ConfigCommon_r16, setup);
+  const int ul_mu = mac->current_UL_BWP->scs;
+  const int mu = nr_get_prach_or_ul_mu(mac->current_UL_BWP->msgA_ConfigCommon_r16, setup, ul_mu);
 
   // Identify the proper PRACH Configuration Index table according to the operating frequency
   LOG_D(NR_MAC,"mu = %u, PRACH config index  = %u, unpaired = %u\n", mu, config_index, unpaired);
