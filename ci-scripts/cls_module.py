@@ -65,7 +65,7 @@ class Module_UE:
 			self.runIperf3Server = m.get('RunIperf3Server', True)
 			self.namespace = m.get('Namespace')
 			self.cnPath = m.get('CNPath')
-			logging.info(f'initialized {self.module_name}@{self.host} from {filename}')
+			logging.info(f'initialized UE {self} from {filename}')
 
 	def __str__(self):
 		return f"{self.module_name}@{self.host} [IP: {self.getIP()}]"
