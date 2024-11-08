@@ -396,7 +396,3 @@ l2sim4g_ext_dn:
   Host: "%%current_host%%"
   NetworkScript: docker exec l2sim4g-trf-gen ip a show dev eth0
   CmdPrefix: docker exec l2sim4g-trf-gen
-
-test:
-  Host: localhost
-  NetworkScript: echo "inet 127.0.0.1 mtu 1500"

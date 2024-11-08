@@ -33,8 +33,9 @@ class TestPingIperf(unittest.TestCase):
 	def test_ping(self):
 		self.ci.ping_args = "-c3 127.0.0.1"
 		self.ci.ping_packetloss_threshold = "0"
+		infra_file = "tests/config/infra_ping_iperf.yaml"
 		# TODO Should need nothing but options and UE(s) to use
-		success = self.ci.Ping(self.html, self.epc, self.cont)
+		success = self.ci.Ping(self.html, self.epc, self.cont, infra_file=infra_file)
 		self.assertTrue(success)
 
 	def test_iperf(self):
@@ -47,8 +48,9 @@ class TestPingIperf(unittest.TestCase):
 		self.ci.iperf_packetloss_threshold = "0"
 		self.ci.iperf_bitrate_threshold = "0"
 		self.ci.iperf_profile = "balanced"
+		infra_file = "tests/config/infra_ping_iperf.yaml"
 		# TODO Should need nothing but options and UE(s) to use
-		success = self.ci.Iperf(self.html, self.epc, self.cont)
+		success = self.ci.Iperf(self.html, self.epc, self.cont, infra_file=infra_file)
 		self.assertTrue(success)
 
 if __name__ == '__main__':

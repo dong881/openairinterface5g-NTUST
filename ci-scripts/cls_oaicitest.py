@@ -434,7 +434,7 @@ class OaiCiTest():
 
 		return (True, message)
 
-	def Ping(self, HTML, EPC, CONTAINERS):
+	def Ping(self, HTML, EPC, CONTAINERS, infra_file="ci_infra.yaml"):
 		if EPC.IPAddress == '' or EPC.UserName == '' or EPC.Password == '' or EPC.SourceCodePath == '':
 			HELP.GenericHelp(CONST.Version)
 			sys.exit('Insufficient Parameter')
@@ -446,7 +446,7 @@ class OaiCiTest():
 			ymlPath = CONTAINERS.yamlPath[0].split('/')
 			logPath = f'{os.getcwd()}/../cmake_targets/log/{ymlPath[-1]}'
 			local.run(f'mkdir -p {logPath}', silent=True)
-		ues = [cls_module.Module_UE(ue_id, server_name) for ue_id, server_name in zip(self.ue_ids, self.nodes)]
+		ues = [cls_module.Module_UE(ue_id, server_name, infra_file) for ue_id, server_name in zip(self.ue_ids, self.nodes)]
 		logging.debug(ues)
 		with concurrent.futures.ThreadPoolExecutor(max_workers=64) as executor:
 			futures = [executor.submit(self.Ping_common, EPC, ue, logPath) for ue in ues]
@@ -516,7 +516,7 @@ class OaiCiTest():
 
 		return (status, f'{ue_header}\n{msg}')
 
-	def Iperf(self,HTML,EPC,CONTAINERS):
+	def Iperf(self, HTML, EPC, CONTAINERS, infra_file="ci_infra.yaml"):
 		if EPC.IPAddress == '' or EPC.UserName == '' or EPC.Password == '' or EPC.SourceCodePath == '':
 			HELP.GenericHelp(CONST.Version)
 			sys.exit('Insufficient Parameter')
@@ -530,8 +530,8 @@ class OaiCiTest():
 			ymlPath = CONTAINERS.yamlPath[0].split('/')
 			logPath = f'{os.getcwd()}/../cmake_targets/log/{ymlPath[-1]}'
 			local.run(f'mkdir -p {logPath}', silent=True)
-		ues = [cls_module.Module_UE(ue_id, server_name) for ue_id, server_name in zip(self.ue_ids, self.nodes)]
-		svr = cls_module.Module_UE(self.svr_id,self.svr_node)
+		ues = [cls_module.Module_UE(ue_id, server_name, infra_file) for ue_id, server_name in zip(self.ue_ids, self.nodes)]
+		svr = cls_module.Module_UE(self.svr_id,self.svr_node, infra_file)
 		logging.debug(ues)
 		with concurrent.futures.ThreadPoolExecutor(max_workers=64) as executor:
 			futures = [executor.submit(self.Iperf_Module, EPC, ue, svr, i, len(ues), logPath) for i, ue in enumerate(ues)]
