@@ -183,11 +183,10 @@ def Iperf_analyzeV2UDP(server_filename, iperf_bitrate_threshold, iperf_packetlos
 			return (False, 'Iperf UDP: Server report not found!')
 		if (os.path.getsize(server_filename)==0):
 			return (False, 'Iperf UDP: Log file is empty')
-		# Computing the requested bandwidth in float
-		statusTemplate = r'(?:|\[ *\d+\].*) +0\.0-\s*(?P<duration>[0-9\.]+) +sec +[0-9\.]+ [kKMG]Bytes +(?P<bitrate>[0-9\.]+) (?P<magnitude>[kKMG])bits\/sec +(?P<jitter>[0-9\.]+) ms +(\d+\/ *\d+) +(\((?P<packetloss>[0-9\.]+)%\))'
+		statusTemplate = r'(?:|\[ *\d+\].*) +0\.0+-\s*(?P<duration>[0-9\.]+) +sec +[0-9\.]+ [kKMG]Bytes +(?P<bitrate>[0-9\.]+) (?P<magnitude>[kKMG])bits\/sec +(?P<jitter>[0-9\.]+) ms +(\d+\/ *\d+) +(\((?P<packetloss>[0-9\.]+)%\))'
 		with open(server_filename, 'r') as server_file:
 			for line in server_file.readlines():
-				result = re.search(statusTemplate, str(line))
+				result = re.search(statusTemplate, str(line)) or result
 		if result is None:
 			return (False, 'Could not parse server report!')
 		bitrate = float(result.group('bitrate'))
@@ -555,11 +554,11 @@ class OaiCiTest():
 			HTML.CreateHtmlTestRowQueue(self.iperf_args, 'KO', messages)
 		return success
 
-	def Iperf2_Unidir(self,HTML,EPC,CONTAINERS):
+	def Iperf2_Unidir(self, HTML, EPC, CONTAINERS, infra_file="ci_infra.yaml"):
 		if self.ue_ids == [] or self.svr_id == None or len(self.ue_ids) != 1:
 			raise Exception("no module names in self.ue_ids or/and self.svr_id provided, multi UE scenario not supported")
-		ue = cls_module.Module_UE(self.ue_ids[0].strip(),self.nodes[0].strip())
-		svr = cls_module.Module_UE(self.svr_id,self.svr_node)
+		ue = cls_module.Module_UE(self.ue_ids[0].strip(),self.nodes[0].strip(), infra_file)
+		svr = cls_module.Module_UE(self.svr_id,self.svr_node, infra_file)
 		ueIP = ue.getIP()
 		if not ueIP:
 			return (False, f"UE {ue.getName()} has no IP address")
@@ -577,7 +576,7 @@ class OaiCiTest():
 		with cls_cmd.getConnection(ue.getHost()) as cmd_ue, cls_cmd.getConnection(EPC.IPAddress) as cmd_svr:
 			cmd_ue.run(f'rm /tmp/{server_filename}', reportNonZero=False)
 			cmd_ue.run(f'{ue.getCmdPrefix()} timeout -vk3 {t} iperf -B {ueIP} -s -u -i1 >> /tmp/{server_filename} &', timeout=t)
-			cmd_svr.run(f'{svr.getCmdPrefix()} timeout -vk3 {t} iperf -c {ueIP} -B {svrIP} {iperf_opt} -i1', timeout=t)
+			cmd_svr.run(f'{svr.getCmdPrefix()} timeout -vk3 {t} iperf -c {ueIP} -B {svrIP} {iperf_opt} -i1 >> /dev/null', timeout=t)
 			localPath = f'{os.getcwd()}'
 			# note: copy iperf2 log to the directory for log collection
 			cmd_ue.copyin(f'/tmp/{server_filename}', f'{localPath}/{logPath}/{server_filename}')
