@@ -105,6 +105,13 @@ ltebox-nano:
 sabox-nepes:
   Host: nepes
   NetworkScript: ip a show dev tun1
+  Deploy:
+    - "sudo su -c 'screen -dm -S simulated_5g_hss /opt/hss_sim0609/start_5g_hss'"
+    - "sleep 1"
+    - "sudo /opt/ltebox/tools/start_sabox < /dev/null &> /dev/null"
+    - "sleep 1"
+  LogCollect: "cp /opt/hss_sim0609/hss.log /opt/ltebox/var/log/{amfLog.0,ngapcLog.0,ngapcommonLog.0,ngapsLog.0,xGwLog.0,upfLog.0} %%log_dir%%"
+  Undeploy: "sudo /opt/ltebox/tools/stop_sabox; sudo killall screen"
 
 ltebox-nepes:
   Host: nepes

@@ -252,16 +252,7 @@ class EPCManagement():
 		mySSH = cls_cmd.getConnection(self.IPAddress)
 		html_cell = ''
 		if re.match('ltebox', self.Type, re.IGNORECASE):
-			logging.debug('Using the SABOX simulated HSS')
-			mySSH.command('if [ -d ' + self.SourceCodePath + '/scripts ]; then echo ' + self.Password + ' | sudo -S rm -Rf ' + self.SourceCodePath + '/scripts ; fi', '\$', 5)
-			mySSH.command('mkdir -p ' + self.SourceCodePath + '/scripts', '\$', 5)
-			mySSH.command('cd /opt/hss_sim0609', '\$', 5)
-			mySSH.command('echo ' + self.Password + ' | sudo -S rm -f hss.log', '\$', 5)
-			mySSH.command('echo ' + self.Password + ' | sudo -S echo "Starting sudo session" && sudo su -c "screen -dm -S simulated_5g_hss ./start_5g_hss"', '\$', 5)
-			logging.debug('Using the sabox')
-			mySSH.command('cd /opt/ltebox/tools', '\$', 5)
-			mySSH.command('echo ' + self.Password + ' | sudo -S ./start_sabox', '\$', 5)
-			html_cell += 'N/A\n'
+			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OAICN5G', self.Type, re.IGNORECASE):
 			logging.debug('Starting OAI CN5G')
 			mySSH.command('if [ -d ' + self.SourceCodePath + '/scripts ]; then echo ' + self.Password + ' | sudo -S rm -Rf ' + self.SourceCodePath + '/scripts ; fi', '\$', 5)
@@ -464,14 +455,7 @@ class EPCManagement():
 		mySSH = cls_cmd.getConnection(self.IPAddress)
 		message = ''
 		if re.match('ltebox', self.Type, re.IGNORECASE):
-			logging.debug('Terminating SA BOX')
-			mySSH.command('cd /opt/ltebox/tools', '\$', 5)
-			mySSH.command('echo ' + self.Password + ' | sudo -S ./stop_sabox', '\$', 5)
-			time.sleep(1)
-			mySSH.command('cd ' + self.SourceCodePath, '\$', 5)
-			mySSH.command('cd scripts', '\$', 5)
-			time.sleep(1)
-			mySSH.command('echo ' + self.Password + ' | sudo -S screen -S simulated_5g_hss -X quit', '\$', 5)
+			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OAICN5G', self.Type, re.IGNORECASE):
 			logging.debug('OAI CN5G Collecting Log files to workspace')
 			mySSH.command('echo ' + self.Password + ' | sudo rm -rf ' + self.SourceCodePath + '/logs', '\$', 5)
