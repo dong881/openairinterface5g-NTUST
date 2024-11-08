@@ -45,6 +45,7 @@ import helpreadme as HELP
 import constants as CONST
 
 import cls_module
+import cls_corenetwork
 import cls_cmd
 
 #-----------------------------------------------------------
@@ -362,8 +363,7 @@ class OaiCiTest():
 		HTML.CreateHtmlTestRowQueue('NA', 'OK', messages)
 		return True
 
-	def Ping_common(self, EPC, ue, logPath):
-		# Launch ping on the EPC side (true for ltebox and old open-air-cn)
+	def Ping_common(self, cn, ue, logPath):
 		ping_status = 0
 		ueIP = ue.getIP()
 		if not ueIP:
@@ -371,18 +371,9 @@ class OaiCiTest():
 		ping_log_file = f'ping_{self.testCase_id}_{ue.getName()}.log'
 		ping_time = re.findall("-c *(\d+)",str(self.ping_args))
 		local_ping_log_file = f'{logPath}/{ping_log_file}'
-		# if has pattern %cn_ip%, replace with core IP address, else we assume the IP is present
+		# if has pattern %cn_ip%, replace with cn IP address, else we assume the IP is present
 		if re.search('%cn_ip%', self.ping_args):
-			#target address is different depending on EPC type
-			if re.match('OAI-Rel14-Docker', EPC.Type, re.IGNORECASE):
-				self.ping_args = re.sub('%cn_ip%', EPC.MmeIPAddress, self.ping_args)
-			elif re.match('OAICN5G', EPC.Type, re.IGNORECASE):
-				self.ping_args = re.sub('%cn_ip%', EPC.MmeIPAddress, self.ping_args)
-			elif re.match('OC-OAI-CN5G', EPC.Type, re.IGNORECASE):
-				self.ping_args = re.sub('%cn_ip%', '172.21.6.100', self.ping_args)
-			else:
-				self.ping_args = re.sub('%cn_ip%', EPC.IPAddress, self.ping_args)
-		#ping from module NIC rather than IP address to make sure round trip is over the air
+			self.ping_args = re.sub('%cn_ip%', cn.getIP(), self.ping_args)
 		interface = f'-I {ue.getIFName()}' if ue.getIFName() else ''
 		ping_cmd = f'{ue.getCmdPrefix()} ping {interface} {self.ping_args} 2>&1 | tee /tmp/{ping_log_file}'
 		cmd = cls_cmd.getConnection(ue.getHost())
@@ -433,13 +424,9 @@ class OaiCiTest():
 
 		return (True, message)
 
-	def Ping(self, HTML, EPC, CONTAINERS, infra_file="ci_infra.yaml"):
-		if EPC.IPAddress == '' or EPC.UserName == '' or EPC.Password == '' or EPC.SourceCodePath == '':
-			HELP.GenericHelp(CONST.Version)
-			sys.exit('Insufficient Parameter')
-
-		if self.ue_ids == []:
-			raise Exception("no module names in self.ue_ids provided")
+	def Ping(self, HTML, CONTAINERS, infra_file="ci_infra.yaml"):
+		if self.ue_ids == [] or self.svr_id == None:
+			raise Exception("no module names in self.ue_ids or/and self.svr_id provided")
 		# Creating destination log folder if needed on the python executor workspace
 		with cls_cmd.getConnection('localhost') as local:
 			ymlPath = CONTAINERS.yamlPath[0].split('/')
@@ -447,8 +434,10 @@ class OaiCiTest():
 			local.run(f'mkdir -p {logPath}', silent=True)
 		ues = [cls_module.Module_UE(ue_id, server_name, infra_file) for ue_id, server_name in zip(self.ue_ids, self.nodes)]
 		logging.debug(ues)
+		cn = cls_corenetwork.CoreNetwork(self.svr_id, self.svr_node, filename=infra_file)
+		logging.debug(cn)
 		with concurrent.futures.ThreadPoolExecutor(max_workers=64) as executor:
-			futures = [executor.submit(self.Ping_common, EPC, ue, logPath) for ue in ues]
+			futures = [executor.submit(self.Ping_common, cn, ue, logPath) for ue in ues]
 			results = [f.result() for f in futures]
 			# each result in results is a tuple, first member goes to successes, second to messages
 			successes, messages = map(list, zip(*results))
@@ -469,15 +458,14 @@ class OaiCiTest():
 			HTML.CreateHtmlTestRowQueue(self.ping_args, 'KO', messages)
 		return success
 
-	def Iperf_Module(self, EPC, ue, svr, idx, ue_num, logPath):
+	def Iperf_Module(self, cn, ue, idx, ue_num, logPath):
 		ueIP = ue.getIP()
 		if not ueIP:
 			return (False, f"UE {ue.getName()} has no IP address")
-		svrIP = svr.getIP()
+		svrIP = cn.getIP()
 		if not svrIP:
 			return (False, f"Iperf server {ue.getName()} has no IP address")
 
-		runIperf3Server = svr.getRunIperf3Server()
 		iperf_opt = self.iperf_args
 		jsonReport = "--json"
 		serverReport = ""
@@ -494,13 +482,13 @@ class OaiCiTest():
 		# hack: the ADB UEs don't have iperf in $PATH, so we need to hardcode for the moment
 		iperf_ue = '/data/local/tmp/iperf3' if re.search('adb', ue.getName()) else 'iperf3'
 		ue_header = f'UE {ue.getName()} ({ueIP})'
-		with cls_cmd.getConnection(ue.getHost()) as cmd_ue, cls_cmd.getConnection(EPC.IPAddress) as cmd_svr:
+		with cls_cmd.getConnection(ue.getHost()) as cmd_ue, cls_cmd.getConnection(cn.getHost()) as cmd_svr:
 			port = 5002 + idx
 			# note: some core setups start an iperf3 server automatically, indicated in ci_infra by runIperf3Server: False`
 			t = iperf_time * 2.5
 			cmd_ue.run(f'rm /tmp/{client_filename}', reportNonZero=False, silent=True)
-			if runIperf3Server:
-				cmd_svr.run(f'{svr.getCmdPrefix()} timeout -vk3 {t} iperf3 -s -B {svrIP} -p {port} -1 {jsonReport} >> /dev/null &', timeout=t)
+			if cn.runIperf3Server():
+				cmd_svr.run(f'{cn.getCmdPrefix()} timeout -vk3 {t} iperf3 -s -B {svrIP} -p {port} -1 {jsonReport} >> /dev/null &', timeout=t)
 			cmd_ue.run(f'{ue.getCmdPrefix()} timeout -vk3 {t} {iperf_ue} -B {ueIP} -c {svrIP} -p {port} {iperf_opt} {jsonReport} {serverReport} -O 5 >> /tmp/{client_filename}', timeout=t)
 			# note: copy iperf3 log to the current directory for log analysis and log collection
 			dest_filename = f'{logPath}/{client_filename}'
@@ -515,11 +503,7 @@ class OaiCiTest():
 
 		return (status, f'{ue_header}\n{msg}')
 
-	def Iperf(self, HTML, EPC, CONTAINERS, infra_file="ci_infra.yaml"):
-		if EPC.IPAddress == '' or EPC.UserName == '' or EPC.Password == '' or EPC.SourceCodePath == '':
-			HELP.GenericHelp(CONST.Version)
-			sys.exit('Insufficient Parameter')
-
+	def Iperf(self, HTML, CONTAINERS, infra_file="ci_infra.yaml"):
 		logging.debug(f'Iperf: iperf_args "{self.iperf_args}" iperf_packetloss_threshold "{self.iperf_packetloss_threshold}" iperf_bitrate_threshold "{self.iperf_bitrate_threshold}" iperf_profile "{self.iperf_profile}" iperf_options "{self.iperf_options}"')
 
 		if self.ue_ids == [] or self.svr_id == None:
@@ -530,10 +514,11 @@ class OaiCiTest():
 			logPath = f'{os.getcwd()}/../cmake_targets/log/{ymlPath[-1]}'
 			local.run(f'mkdir -p {logPath}', silent=True)
 		ues = [cls_module.Module_UE(ue_id, server_name, infra_file) for ue_id, server_name in zip(self.ue_ids, self.nodes)]
-		svr = cls_module.Module_UE(self.svr_id,self.svr_node, infra_file)
 		logging.debug(ues)
+		cn = cls_corenetwork.CoreNetwork(self.svr_id, self.svr_node, filename=infra_file)
+		logging.debug(cn)
 		with concurrent.futures.ThreadPoolExecutor(max_workers=64) as executor:
-			futures = [executor.submit(self.Iperf_Module, EPC, ue, svr, i, len(ues), logPath) for i, ue in enumerate(ues)]
+			futures = [executor.submit(self.Iperf_Module, cn, ue, i, len(ues), logPath) for i, ue in enumerate(ues)]
 			results = [f.result() for f in futures]
 			# each result in results is a tuple, first member goes to successes, second to messages
 			successes, messages = map(list, zip(*results))
@@ -554,15 +539,15 @@ class OaiCiTest():
 			HTML.CreateHtmlTestRowQueue(self.iperf_args, 'KO', messages)
 		return success
 
-	def Iperf2_Unidir(self, HTML, EPC, CONTAINERS, infra_file="ci_infra.yaml"):
+	def Iperf2_Unidir(self, HTML, CONTAINERS, infra_file="ci_infra.yaml"):
 		if self.ue_ids == [] or self.svr_id == None or len(self.ue_ids) != 1:
 			raise Exception("no module names in self.ue_ids or/and self.svr_id provided, multi UE scenario not supported")
 		ue = cls_module.Module_UE(self.ue_ids[0].strip(),self.nodes[0].strip(), infra_file)
-		svr = cls_module.Module_UE(self.svr_id,self.svr_node, infra_file)
+		cn = cls_corenetwork.CoreNetwork(self.svr_id, self.svr_node, filename=infra_file)
 		ueIP = ue.getIP()
 		if not ueIP:
 			return False
-		svrIP = svr.getIP()
+		svrIP = cn.getIP()
 		if not svrIP:
 			return False
 		server_filename = f'iperf_server_{self.testCase_id}_{ue.getName()}.log'
@@ -573,17 +558,15 @@ class OaiCiTest():
 		t = iperf_time*2.5
 		with cls_cmd.getConnection('localhost') as local:
 			local.run(f'mkdir -p {logPath}')
-		with cls_cmd.getConnection(ue.getHost()) as cmd_ue, cls_cmd.getConnection(EPC.IPAddress) as cmd_svr:
+		with cls_cmd.getConnection(ue.getHost()) as cmd_ue, cls_cmd.getConnection(cn.getHost()) as cmd_svr:
 			cmd_ue.run(f'rm /tmp/{server_filename}', reportNonZero=False)
 			cmd_ue.run(f'{ue.getCmdPrefix()} timeout -vk3 {t} iperf -B {ueIP} -s -u -i1 >> /tmp/{server_filename} &', timeout=t)
-			cmd_svr.run(f'{svr.getCmdPrefix()} timeout -vk3 {t} iperf -c {ueIP} -B {svrIP} {iperf_opt} -i1 >> /dev/null', timeout=t)
+			cmd_svr.run(f'{cn.getCmdPrefix()} timeout -vk3 {t} iperf -c {ueIP} -B {svrIP} {iperf_opt} -i1 >> /dev/null', timeout=t)
 			localPath = f'{os.getcwd()}'
 			# note: copy iperf2 log to the directory for log collection
-			cmd_ue.copyin(f'/tmp/{server_filename}', f'{localPath}/{logPath}/{server_filename}')
-			# note: copy iperf2 log to the current directory for log analysis and log collection
-			cmd_ue.copyin(f'/tmp/{server_filename}', f'{localPath}/{server_filename}')
+			cmd_ue.copyin(f'/tmp/{server_filename}', f'{logPath}/{server_filename}')
 			cmd_ue.run(f'rm /tmp/{server_filename}', reportNonZero=False)
-		success, msg = Iperf_analyzeV2UDP(server_filename, self.iperf_bitrate_threshold, self.iperf_packetloss_threshold, target_bitrate)
+		success, msg = Iperf_analyzeV2UDP(f'{logPath}/{server_filename}', self.iperf_bitrate_threshold, self.iperf_packetloss_threshold, target_bitrate)
 		ue_header = f'UE {ue.getName()} ({ueIP})'
 		logging.info(f'\u001B[1;37;45m iperf result for {ue_header}\u001B[0m')
 		for l in msg.split('\n'):

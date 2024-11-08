@@ -14,7 +14,6 @@ sys.path.append('./') # to find OAI imports below
 import cls_oai_html
 import cls_oaicitest
 import cls_containerize
-import epc
 
 class TestPingIperf(unittest.TestCase):
 	def setUp(self):
@@ -24,18 +23,14 @@ class TestPingIperf(unittest.TestCase):
 		self.ci.ue_ids = ["test"]
 		self.ci.nodes = ["localhost"]
 		self.cont = cls_containerize.Containerize()
-		self.epc = epc.EPCManagement()
-		self.epc.IPAddress = "localhost"
-		self.epc.UserName = None
-		self.epc.Password = None
-		self.epc.SourceCodePath = os.getcwd()
 
 	def test_ping(self):
 		self.ci.ping_args = "-c3 127.0.0.1"
 		self.ci.ping_packetloss_threshold = "0"
+		self.ci.svr_id = "test"
 		infra_file = "tests/config/infra_ping_iperf.yaml"
 		# TODO Should need nothing but options and UE(s) to use
-		success = self.ci.Ping(self.html, self.epc, self.cont, infra_file=infra_file)
+		success = self.ci.Ping(self.html, self.cont, infra_file=infra_file)
 		self.assertTrue(success)
 
 	def test_iperf(self):
@@ -50,7 +45,7 @@ class TestPingIperf(unittest.TestCase):
 		self.ci.iperf_profile = "balanced"
 		infra_file = "tests/config/infra_ping_iperf.yaml"
 		# TODO Should need nothing but options and UE(s) to use
-		success = self.ci.Iperf(self.html, self.epc, self.cont, infra_file=infra_file)
+		success = self.ci.Iperf(self.html, self.cont, infra_file=infra_file)
 		self.assertTrue(success)
 
 	def test_iperf2_unidir(self):
@@ -62,7 +57,7 @@ class TestPingIperf(unittest.TestCase):
 		self.ci.iperf_profile = "balanced"
 		infra_file = "tests/config/infra_ping_iperf.yaml"
 		# TODO Should need nothing but options and UE(s) to use
-		success = self.ci.Iperf2_Unidir(self.html, self.epc, self.cont, infra_file=infra_file)
+		success = self.ci.Iperf2_Unidir(self.html, self.cont, infra_file=infra_file)
 		self.assertTrue(success)
 
 if __name__ == '__main__':

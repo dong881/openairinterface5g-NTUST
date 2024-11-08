@@ -242,6 +242,7 @@ def ExecuteActionWithParam(action):
 		CiTestObj.ping_args = test.findtext('ping_args')
 		CiTestObj.ping_packetloss_threshold = test.findtext('ping_packetloss_threshold')
 		CiTestObj.ue_ids = test.findtext('id').split(' ')
+		CiTestObj.svr_id = test.findtext('svr_id') or None
 		if force_local:
 			# Change all execution targets to localhost
 			CiTestObj.nodes = ['localhost'] * len(CiTestObj.ue_ids)
@@ -254,7 +255,7 @@ def ExecuteActionWithParam(action):
 			else:
 				CiTestObj.nodes = [None] * len(CiTestObj.ue_ids)
 		ping_rttavg_threshold = test.findtext('ping_rttavg_threshold') or ''
-		success = CiTestObj.Ping(HTML,EPC,CONTAINERS)
+		success = CiTestObj.Ping(HTML, CONTAINERS)
 
 	elif action == 'Iperf' or action == 'Iperf2_Unidir':
 		CiTestObj.iperf_args = test.findtext('iperf_args')
@@ -285,9 +286,9 @@ def ExecuteActionWithParam(action):
 			logging.error('test-case has wrong option ' + CiTestObj.iperf_options)
 			CiTestObj.iperf_options = 'check'
 		if action == 'Iperf':
-			success = CiTestObj.Iperf(HTML, EPC, CONTAINERS)
+			success = CiTestObj.Iperf(HTML, CONTAINERS)
 		elif action == 'Iperf2_Unidir':
-			success = CiTestObj.Iperf2_Unidir(HTML, EPC, CONTAINERS)
+			success = CiTestObj.Iperf2_Unidir(HTML, CONTAINERS)
 
 	elif action == 'IdleSleep':
 		st = test.findtext('idle_sleep_time_in_sec') or "5"
