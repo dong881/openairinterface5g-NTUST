@@ -930,17 +930,6 @@ class OaiCiTest():
 			cmd.run(f'cd {d} && zip iperf.log.zip iperf*.log')
 			cmd.run(f'rm {d}/iperf*.log')
 	
-	def LogCollectOAIUE(self):
-		# Some pipelines are using "none" IP / Credentials
-		# In that case, just forget about it
-		if self.UEIPAddress == 'none':
-			sys.exit(0)
-		with cls_cmd.getConnection(self.UEIPAddress) as cmd:
-			d = f'{self.UESourceCodePath}/cmake_targets'
-			cmd.run(f'echo {self.UEPassword} | sudo -S rm -f {d}/ue.log.zip')
-			cmd.run(f'cd {d} && echo {self.UEPassword} | sudo -S zip ue.log.zip ue*.log core* ue_*record.raw ue_*.pcap ue_*txt')
-			cmd.run(f'echo {self.UEPassword} | sudo -S rm {d}/ue*.log {d}/core* {d}/ue_*record.raw {d}/ue_*.pcap {d}/ue_*txt')
-
 	def ShowTestID(self):
 		logging.info(f'\u001B[1m----------------------------------------\u001B[0m')
 		logging.info(f'\u001B[1m Test ID: {self.testCase_id} \u001B[0m')
