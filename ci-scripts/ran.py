@@ -102,7 +102,7 @@ class RANManagement():
 # RAN management functions
 #-----------------------------------------------------------
 
-	def InitializeeNB(self, HTML, EPC):
+	def InitializeeNB(self, HTML):
 		if self.eNB_serverId[self.eNB_instance] == '0':
 			lIpAddr = self.eNBIPAddress
 			lUserName = self.eNBUserName
@@ -127,20 +127,6 @@ class RANManagement():
 		mySSH = SSH.SSHConnection()
 		cwd = os.getcwd()
 		
-		# If tracer options is on, running tshark on EPC side and capture traffic b/ EPC and eNB
-		if EPC.IPAddress != "none":
-			localEpcIpAddr = EPC.IPAddress
-			localEpcUserName = EPC.UserName
-			localEpcPassword = EPC.Password
-			mySSH.open(localEpcIpAddr, localEpcUserName, localEpcPassword)
-			eth_interface = 'any'
-			fltr = 'sctp'
-			logging.debug('\u001B[1m Launching tshark on EPC on interface ' + eth_interface + ' with filter "' + fltr + '"\u001B[0m')
-			self.epcPcapFile = 'enb_' + self.testCase_id + '_s1log.pcap'
-			mySSH.command('echo ' + localEpcPassword + ' | sudo -S rm -f /tmp/' + self.epcPcapFile , '\$', 5)
-			mySSH.command('echo $USER; nohup sudo tshark -f "host ' + lIpAddr +'" -i ' + eth_interface + ' -f "' + fltr + '" -w /tmp/' + self.epcPcapFile + ' > /tmp/tshark.log 2>&1 &', localEpcUserName, 5)
-			mySSH.close()
-
 		mySSH.open(lIpAddr, lUserName, lPassWord)
 		mySSH.command('cd ' + lSourcePath, '\$', 5)
 		# Initialize_eNB_args usually start with -O and followed by the location in repository
@@ -166,10 +152,7 @@ class RANManagement():
 		result = re.search('^rru|^rcc|^du.band', str(config_file))
 		if result is not None:
 			rruCheck = True
-		# Make a copy and adapt to EPC / eNB IP addresses
 		mySSH.command('cp ' + full_config_file + ' ' + ci_full_config_file, '\$', 5)
-		localMmeIpAddr = EPC.MmeIPAddress
-		mySSH.command('sed -i -e \'s/CI_MME_IP_ADDR/' + localMmeIpAddr + '/\' ' + ci_full_config_file, '\$', 2);
 		mySSH.command('sed -i -e \'s/CI_ENB_IP_ADDR/' + lIpAddr + '/\' ' + ci_full_config_file, '\$', 2);
 		mySSH.command('sed -i -e \'s/CI_GNB_IP_ADDR/' + lIpAddr + '/\' ' + ci_full_config_file, '\$', 2);
 		mySSH.command('sed -i -e \'s/CI_RCC_IP_ADDR/' + self.eNBIPAddress + '/\' ' + ci_full_config_file, '\$', 2);
@@ -225,20 +208,6 @@ class RANManagement():
 				doLoop = False
 				logging.error('\u001B[1;37;41m eNB/gNB logging system did not show got sync! \u001B[0m')
 				HTML.CreateHtmlTestRow(self.air_interface[self.eNB_instance] + ' -O ' + config_file + extra_options, 'KO', CONST.ALL_PROCESSES_OK)
-				# In case of T tracer recording, we need to kill tshark on EPC side
-				localEpcIpAddr = EPC.IPAddress
-				localEpcUserName = EPC.UserName
-				localEpcPassword = EPC.Password
-				mySSH.open(localEpcIpAddr, localEpcUserName, localEpcPassword)
-				logging.debug('\u001B[1m Stopping tshark on EPC \u001B[0m')
-				mySSH.command('echo ' + localEpcPassword + ' | sudo -S killall --signal SIGKILL tshark', '\$', 5)
-				if self.epcPcapFile  != '':
-					mySSH.command('echo ' + localEpcPassword + ' | sudo -S chmod 666 /tmp/' + self.epcPcapFile, '\$', 5)
-				mySSH.close()
-				if self.epcPcapFile != '':
-					copyin_res = mySSH.copyin(localEpcIpAddr, localEpcUserName, localEpcPassword, '/tmp/' + self.epcPcapFile, '.')
-					if (copyin_res == 0):
-						mySSH.copyout(lIpAddr, lUserName, lPassWord, self.epcPcapFile, lSourcePath + '/cmake_targets/.')
 				return False
 			else:
 				mySSH.command('stdbuf -o0 cat enb_' + self.testCase_id + '.log | grep -E --text --color=never -i "wait|sync|Starting|Started"', '\$', 4)
@@ -316,7 +285,7 @@ class RANManagement():
 		mySSH.close()
 		return success
 
-	def TerminateeNB(self, HTML, EPC):
+	def TerminateeNB(self, HTML):
 		if self.eNB_serverId[self.eNB_instance] == '0':
 			lIpAddr = self.eNBIPAddress
 			lUserName = self.eNBUserName
@@ -359,20 +328,6 @@ class RANManagement():
 		mySSH.command('echo ' + lPassWord + ' | sudo -S killall --signal SIGKILL tshark', '\$', 5)
 		time.sleep(1)
 		mySSH.close()
-		if EPC.IPAddress != "none" and EPC.IPAddress != '':
-			localEpcIpAddr = EPC.IPAddress
-			localEpcUserName = EPC.UserName
-			localEpcPassword = EPC.Password
-			logging.debug('\u001B[1m Stopping tshark on EPC (' + localEpcIpAddr + ') \u001B[0m')
-			mySSH.open(localEpcIpAddr, localEpcUserName, localEpcPassword)
-			mySSH.command('echo ' + localEpcPassword + ' | sudo -S killall --signal SIGKILL tshark', '\$', 5)
-			time.sleep(1)
-			if self.epcPcapFile != '':
-				mySSH.command('echo ' + localEpcPassword + ' | sudo -S chmod 666 /tmp/' + self.epcPcapFile, '\$', 5)
-				mySSH.copyin(localEpcIpAddr, localEpcUserName, localEpcPassword, '/tmp/' + self.epcPcapFile, '.')
-				mySSH.copyout(lIpAddr, lUserName, lPassWord, self.epcPcapFile, lSourcePath + '/cmake_targets/.')
-			mySSH.command('killall --signal SIGKILL record', '\$', 5)
-			mySSH.close()
 		# if T tracer was run with option 0 (no logs), analyze logs
 		# from textlog, otherwise do normal analysis (e.g., option 2)
 		result = re.search('T_stdout 0', str(self.Initialize_eNB_args))
