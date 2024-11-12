@@ -575,10 +575,7 @@ elif re.match('^LogCollectSPGW$', mode, re.IGNORECASE):
 		sys.exit('Insufficient Parameter')
 	EPC.LogCollectSPGW()
 elif re.match('^LogCollectPing$', mode, re.IGNORECASE):
-	if EPC.IPAddress == '' or EPC.UserName == '' or EPC.Password == '' or EPC.SourceCodePath == '':
-		HELP.GenericHelp(CONST.Version)
-		sys.exit('Insufficient Parameter')
-	CiTestObj.LogCollectPing(EPC)
+	logging.warning("Option LogCollectPing ignored")
 elif re.match('^LogCollectIperf$', mode, re.IGNORECASE):
 	if EPC.IPAddress == '' or EPC.UserName == '' or EPC.Password == '' or EPC.SourceCodePath == '':
 		HELP.GenericHelp(CONST.Version)

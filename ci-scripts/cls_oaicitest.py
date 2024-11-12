@@ -908,17 +908,6 @@ class OaiCiTest():
 			cmd.run(f'rm -f {d}/build.log.zip')
 			cmd.run(f'cd {d} && zip -r build.log.zip build_log_*/*')
 
-	def LogCollectPing(self,EPC):
-		# Some pipelines are using "none" IP / Credentials
-		# In that case, just forget about it
-		if EPC.IPAddress == 'none':
-			sys.exit(0)
-		with cls_cmd.getConnection(EPC.IPAddress) as cmd:
-			d = f"{EPC.SourceCodePath}/scripts"
-			cmd.run(f'rm -f {d}/ping.log.zip')
-			cmd.run(f'cd {d} && zip ping.log.zip ping*.log')
-			cmd.run(f'rm {d}/ping*.log')
-
 	def LogCollectIperf(self,EPC):
 		# Some pipelines are using "none" IP / Credentials
 		# In that case, just forget about it
