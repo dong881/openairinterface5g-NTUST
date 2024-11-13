@@ -124,12 +124,12 @@ class LocalCmd(Cmd):
 			ret.args += f" &> {redirect}"
 			ret.stdout = ""
 		if not silent:
-			logging.info(f"local> {ret.args}")
+			logging.debug(f"local> {ret.args}")
 		return ret
 
 	def run(self, line, timeout=300, silent=False, reportNonZero=True):
 		if not silent:
-			logging.info(f"local> {line}")
+			logging.debug(f"local> {line}")
 		try:
 			if line.strip().endswith('&'):
 				# if we wait for stdout, subprocess does not return before the end of the command
@@ -244,7 +244,7 @@ class RemoteCmd(Cmd):
 		p = parameters if parameters else ""
 		r = f"> {redirect}" if redirect else ""
 		if not silent:
-			logging.info(f"local> ssh {host} bash -s {p} < {path} {r} # {path} from localhost")
+			logging.debug(f"local> ssh {host} bash -s {p} < {path} {r} # {path} from localhost")
 		client = RemoteCmd._ssh_init()
 		cfg = RemoteCmd._lookup_ssh_config(host)
 		client.connect(**cfg)
@@ -264,7 +264,7 @@ class RemoteCmd(Cmd):
 
 	def run(self, line, timeout=300, silent=False, reportNonZero=True):
 		if not silent:
-			logging.info(f"ssh[{self.hostname}]> {line}")
+			logging.debug(f"ssh[{self.hostname}]> {line}")
 		if self.cwd:
 			line = f"cd {self.cwd} && {line}"
 		try:
