@@ -25,6 +25,8 @@
   - Terminate_SPGW
   - Initialize_5GCN
   - Terminate_5GCN
+  - DeployCoreNetwork
+  - UndeployCoreNetwork
   - IdleSleep
   - Build_Image
   - Build_Run_Tests

@@ -854,6 +854,35 @@ class OaiCiTest():
 		HTML.CreateHtmlTestRowQueue(f'N/A', 'OK', messages)
 		return True
 
+	def DeployCoreNetwork(cn_id, HTML):
+		core_name = cn_id.strip()
+		cn = cls_corenetwork.CoreNetwork(core_name)
+		success, output = cn.deploy()
+		logging.info(f"deployment core network {core_name} success {success}, output:\n{output}")
+		if success:
+			msg = f"Started {cn}"
+			HTML.CreateHtmlTestRowQueue(core_name, 'OK', [msg])
+		else:
+			msg = f"deployment of core network {core_name} FAILED"
+			logging.error(msg)
+			HTML.CreateHtmlTestRowQueue(core_name, 'KO', [msg])
+		return success
+
+	def UndeployCoreNetwork(cn_id, HTML):
+		# Ping, Iperf, DeployObject put logs into a path based on YAML. We
+		# can't do this here (because there is no yaml), so hardcode a path for
+		# "cn_logs" for the moment
+		logPath = f'{os.getcwd()}/../cmake_targets/log/cn_logs'
+		with cls_cmd.getConnection('localhost') as local:
+			local.run(f'mkdir -p {logPath}', silent=True)
+		core_name = cn_id.strip()
+		cn = cls_corenetwork.CoreNetwork(core_name)
+		logs, output = cn.undeploy(log_dir=logPath)
+		logging.info(f"undeployed core network {core_name}, logs {logs}, output:\n{output}")
+		message = "Log files: " + ", ".join([os.path.basename(l) for l in logs])
+		HTML.CreateHtmlTestRowQueue(core_name, 'OK', [message])
+		return True
+
 	def LogCollectBuild(self,RAN):
 		# Some pipelines are using "none" IP / Credentials
 		# In that case, just forget about it
