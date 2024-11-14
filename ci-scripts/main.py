@@ -577,10 +577,7 @@ elif re.match('^LogCollectSPGW$', mode, re.IGNORECASE):
 elif re.match('^LogCollectPing$', mode, re.IGNORECASE):
 	logging.warning("Option LogCollectPing ignored")
 elif re.match('^LogCollectIperf$', mode, re.IGNORECASE):
-	if EPC.IPAddress == '' or EPC.UserName == '' or EPC.Password == '' or EPC.SourceCodePath == '':
-		HELP.GenericHelp(CONST.Version)
-		sys.exit('Insufficient Parameter')
-	CiTestObj.LogCollectIperf(EPC)
+	logging.warning("Option LogCollectIperf ignored")
 elif re.match('^LogCollectOAIUE$', mode, re.IGNORECASE):
 	logging.warning("Option LogCollectOAIUE ignored")
 elif re.match('^InitiateHtml$', mode, re.IGNORECASE):
