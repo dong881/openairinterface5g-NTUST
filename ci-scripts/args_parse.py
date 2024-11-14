@@ -41,7 +41,7 @@ import constants as CONST
 #-----------------------------------------------------------
 
 
-def ArgsParse(argvs,CiTestObj,RAN,HTML,EPC,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
+def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
 
 
     py_param_file_present = False
@@ -192,7 +192,6 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,EPC,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
                 SCA.eNBSourceCodePath=matchReg.group(1)
                 PHYSIM.eNBSourceCodePath=matchReg.group(1)
                 CLUSTER.eNBSourceCodePath=matchReg.group(1)
-                EPC.eNBSourceCodePath=matchReg.group(1)
             elif re.match('^\-\-eNB1SourceCodePath=(.+)$', myArgv, re.IGNORECASE):
                 matchReg = re.match('^\-\-eNB1SourceCodePath=(.+)$', myArgv, re.IGNORECASE)
                 RAN.eNB1SourceCodePath=matchReg.group(1)
@@ -202,26 +201,17 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,EPC,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
                 RAN.eNB2SourceCodePath=matchReg.group(1)
                 CONTAINERS.eNB2SourceCodePath=matchReg.group(1)
         elif re.match('^\-\-EPCIPAddress=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-EPCIPAddress=(.+)$', myArgv, re.IGNORECASE)
-            EPC.IPAddress=matchReg.group(1)
+            print("parameter --EPCIPAddress ignored")
         elif re.match('^\-\-EPCUserName=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-EPCUserName=(.+)$', myArgv, re.IGNORECASE)
-            EPC.UserName=matchReg.group(1)
+            print("parameter --EPCUserName ignored")
         elif re.match('^\-\-EPCPassword=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-EPCPassword=(.+)$', myArgv, re.IGNORECASE)
-            EPC.Password=matchReg.group(1)
+            print("parameter --EPCPassword ignored")
         elif re.match('^\-\-EPCSourceCodePath=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-EPCSourceCodePath=(.+)$', myArgv, re.IGNORECASE)
-            EPC.SourceCodePath=matchReg.group(1)
+            print("parameter --EPCSourceCodePath ignored")
         elif re.match('^\-\-EPCType=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-EPCType=(.+)$', myArgv, re.IGNORECASE)
-            if re.match('OAI', matchReg.group(1), re.IGNORECASE) or re.match('ltebox', matchReg.group(1), re.IGNORECASE) or re.match('OAI-Rel14-Docker', matchReg.group(1), re.IGNORECASE) or re.match('OC-OAI-CN5G', matchReg.group(1), re.IGNORECASE):
-                EPC.Type=matchReg.group(1)
-            else:
-                sys.exit('Invalid EPC Type: ' + matchReg.group(1) + ' -- (should be OAI or ltebox or OAI-Rel14-Docker or OC-OAI-CN5G)')
+            print("parameter --EPCType ignored")
         elif re.match('^\-\-EPCContainerPrefix=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-EPCContainerPrefix=(.+)$', myArgv, re.IGNORECASE)
-            EPC.ContainerPrefix=matchReg.group(1)
+            print("parameter --EPCContainerPrefix ignored")
         elif re.match('^\-\-XMLTestFile=(.+)$', myArgv, re.IGNORECASE):
             matchReg = re.match('^\-\-XMLTestFile=(.+)$', myArgv, re.IGNORECASE)
             CiTestObj.testXMLfiles.append(matchReg.group(1))
@@ -248,17 +238,14 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,EPC,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
             matchReg = re.match('^\-\-OCUserName=(.+)$', myArgv, re.IGNORECASE)
             PHYSIM.OCUserName = matchReg.group(1)
             CLUSTER.OCUserName = matchReg.group(1)
-            EPC.OCUserName = matchReg.group(1)
         elif re.match('^\-\-OCPassword=(.+)$', myArgv, re.IGNORECASE):
             matchReg = re.match('^\-\-OCPassword=(.+)$', myArgv, re.IGNORECASE)
             PHYSIM.OCPassword = matchReg.group(1)
             CLUSTER.OCPassword = matchReg.group(1)
-            EPC.OCPassword = matchReg.group(1)
         elif re.match('^\-\-OCProjectName=(.+)$', myArgv, re.IGNORECASE):
             matchReg = re.match('^\-\-OCProjectName=(.+)$', myArgv, re.IGNORECASE)
             PHYSIM.OCProjectName = matchReg.group(1)
             CLUSTER.OCProjectName = matchReg.group(1)
-            EPC.OCProjectName = matchReg.group(1)
         elif re.match('^\-\-OCUrl=(.+)$', myArgv, re.IGNORECASE):
             matchReg = re.match('^\-\-OCUrl=(.+)$', myArgv, re.IGNORECASE)
             CLUSTER.OCUrl = matchReg.group(1)

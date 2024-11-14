@@ -64,13 +64,6 @@ def OAIUESrvHelp(ipaddr, username, password, sourcepath):
 	print('  --UEPassword=[UE\'s Login Password]                      -- ' + password)
 	print('  --UESourceCodePath=[UE\'s Source Code Path]              -- ' + sourcepath)
 		
-def EPCSrvHelp(ipaddr, username, password, sourcepath, epctype):
-	print('  --EPCIPAddress=[EPC\'s IP Address]                       -- ' + ipaddr)
-	print('  --EPCUserName=[EPC\'s Login User Name]                   -- ' + username)
-	print('  --EPCPassword=[EPC\'s Login Password]                    -- ' + password)
-	print('  --EPCSourceCodePath=[EPC\'s Source Code Path]            -- ' + sourcepath)
-	print('  --EPCType=[EPC\'s Type: OAI or ltebox or OC-OAI-CN5G]    -- ' + epctype)
-
 def XmlHelp(filename):
 	print('  --XMLTestFile=[XML Test File to be run]                  -- ' + filename)
 	print('	Note: multiple xml files can be specified (--XMLFile=File1 ... --XMLTestFile=FileN) when HTML headers are created ("InitiateHtml" mode)')

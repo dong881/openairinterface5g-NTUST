@@ -29,7 +29,5 @@ docker tag oai-gnb oai-ci/oai-gnb:develop-${SHORT_COMMIT_SHA}
 python3 main.py --mode=TesteNB --ranRepository=NONE --ranBranch=${CURRENT_BRANCH} \
     --ranCommitID=${COMMIT_SHA} --ranAllowMerge=false \
     --ranTargetBranch=NONE --eNBIPAddress=NONE --eNBUserName=NONE --eNBPassword=NONE \
-    --eNBSourceCodePath=NONE --EPCIPAddress=NONE --EPCType=OAI --eNBPassword=NONE \
-    --eNBSourceCodePath=${REPO_PATH} --EPCIPAddress=NONE \
-    --EPCUserName=NONE --EPCPassword=NONE  --EPCSourceCodePath=NONE \
+    --eNBSourceCodePath=${REPO_PATH} \
     --XMLTestFile=xml_files/${TESTCASE} --local
