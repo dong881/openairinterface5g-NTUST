@@ -137,19 +137,6 @@ pipeline {
                         }
                     }
 
-                    if (params.EPC_IPAddress == null) {
-                        allParametersPresent = false
-                    }
-                    if (params.EPC_Type == null) {
-                        allParametersPresent = false
-                    }
-                    if (params.EPC_SourceCodePath == null) {
-                        allParametersPresent = false
-                    }
-                    if (params.EPC_Credentials == null) {
-                        allParametersPresent = false
-                    }
-
                     if (params.Flexric_Tag != null) {
                         echo "This pipeline is configured to run with a FlexRIC deployment."
                         echo "Appending FlexRicTag option to the list of options"
@@ -196,7 +183,6 @@ pipeline {
                         }
                         withCredentials([
                             [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.eNB_Credentials}", usernameVariable: 'eNB_Username', passwordVariable: 'eNB_Password'],
-                            [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.EPC_Credentials}", usernameVariable: 'EPC_Username', passwordVariable: 'EPC_Password'],
                         ]) {
                             sh "python3 main.py --mode=InitiateHtml --ranRepository=${eNB_Repository} --ranBranch=${eNB_Branch} --ranCommitID=${eNB_CommitID} --ranAllowMerge=${eNB_AllowMergeRequestProcess} --ranTargetBranch=${eNB_TargetBranch} ${flexricOption} ${mainPythonAllXmlFiles}"
                             String[] myXmlTestSuite = testXMLFile.split("\\r?\\n")
@@ -204,7 +190,7 @@ pipeline {
                             if (fileExists(xmlFile)) {
                                 try {
                                   timeout (time: 60, unit: 'MINUTES') {
-                                    sh "python3 main.py --mode=TesteNB --ranRepository=${eNB_Repository} --ranBranch=${eNB_Branch} --ranCommitID=${eNB_CommitID} --ranAllowMerge=${eNB_AllowMergeRequestProcess} --ranTargetBranch=${eNB_TargetBranch} ${flexricOption} --eNBIPAddress=${params.eNB_IPAddress} --eNBUserName=${eNB_Username} --eNBPassword=${eNB_Password} --eNBSourceCodePath=${params.eNB_SourceCodePath} --EPCIPAddress=${params.EPC_IPAddress} --EPCType=${params.EPC_Type} --EPCUserName=${EPC_Username} --EPCPassword=${EPC_Password} --EPCSourceCodePath=${params.EPC_SourceCodePath} --XMLTestFile=${xmlFile}"
+                                    sh "python3 main.py --mode=TesteNB --ranRepository=${eNB_Repository} --ranBranch=${eNB_Branch} --ranCommitID=${eNB_CommitID} --ranAllowMerge=${eNB_AllowMergeRequestProcess} --ranTargetBranch=${eNB_TargetBranch} ${flexricOption} --eNBIPAddress=${params.eNB_IPAddress} --eNBUserName=${eNB_Username} --eNBPassword=${eNB_Password} --eNBSourceCodePath=${params.eNB_SourceCodePath} --XMLTestFile=${xmlFile}"
                                   }
                                 } catch (Exception e) {
                                     currentBuild.result = 'FAILURE'
@@ -233,69 +219,6 @@ pipeline {
                         success {
                             script {
                                 termStatusArray[termENB] = true
-                            }
-                        }
-                    }
-                }
-                stage('Terminate SPGW') {
-                    // Bypassing this stage if EPC server is not defined
-                    when {
-                      expression { params.EPC_IPAddress != "none" }
-                    }
-                    steps {
-                        echo '\u2705 \u001B[32mTerminate SPGW\u001B[0m'
-                        withCredentials([
-                            [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.EPC_Credentials}", usernameVariable: 'EPC_Username', passwordVariable: 'EPC_Password']
-                        ]) {
-                            sh "python3 ci-scripts/main.py --mode=TerminateSPGW --EPCIPAddress=${params.EPC_IPAddress} --EPCUserName=${EPC_Username} --EPCPassword=${EPC_Password} --EPCType=${params.EPC_Type} --EPCSourceCodePath=${params.EPC_SourceCodePath}"
-                        }
-                    }
-                    post {
-                        success {
-                            script {
-                                termStatusArray[termSPGW] = true
-                            }
-                        }
-                    }
-                }
-                stage('Terminate MME') {
-                    // Bypassing this stage if EPC server is not defined
-                    when {
-                      expression { params.EPC_IPAddress != "none" }
-                    }
-                    steps {
-                        echo '\u2705 \u001B[32mTerminate MME\u001B[0m'
-                        withCredentials([
-                            [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.EPC_Credentials}", usernameVariable: 'EPC_Username', passwordVariable: 'EPC_Password']
-                        ]) {
-                            sh "python3 ci-scripts/main.py --mode=TerminateMME --EPCIPAddress=${params.EPC_IPAddress} --EPCUserName=${EPC_Username} --EPCPassword=${EPC_Password} --EPCType=${params.EPC_Type} --EPCSourceCodePath=${params.EPC_SourceCodePath}"
-                        }
-                    }
-                    post {
-                        success {
-                            script {
-                                termStatusArray[termMME] = true
-                            }
-                        }
-                    }
-                }
-                stage('Terminate HSS') {
-                    // Bypassing this stage if EPC server is not defined
-                    when {
-                      expression { params.EPC_IPAddress != "none" }
-                    }
-                    steps {
-                        echo '\u2705 \u001B[32mTerminate HSS\u001B[0m'
-                        withCredentials([
-                            [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.EPC_Credentials}", usernameVariable: 'EPC_Username', passwordVariable: 'EPC_Password']
-                        ]) {
-                            sh "python3 ci-scripts/main.py --mode=TerminateHSS --EPCIPAddress=${params.EPC_IPAddress} --EPCUserName=${EPC_Username} --EPCPassword=${EPC_Password} --EPCType=${params.EPC_Type} --EPCSourceCodePath=${params.EPC_SourceCodePath}"
-                        }
-                    }
-                    post {
-                        success {
-                            script {
-                                termStatusArray[termHSS] = true
                             }
                         }
                     }
@@ -345,72 +268,6 @@ pipeline {
                         }
                     }
                 }
-                stage('Log Collection (SPGW)') {
-                    // Bypassing this stage if EPC server is not defined
-                    when {
-                      expression { params.EPC_IPAddress != "none" }
-                    }
-                    steps {
-                        withCredentials([
-                             [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.EPC_Credentials}", usernameVariable: 'EPC_Username', passwordVariable: 'EPC_Password']
-                        ]) {
-                            echo '\u2705 \u001B[32mLog Collection (SPGW)\u001B[0m'
-                            sh "python3 ci-scripts/main.py --mode=LogCollectSPGW --EPCIPAddress=${params.EPC_IPAddress} --EPCUserName=${EPC_Username} --EPCPassword=${EPC_Password} --EPCSourceCodePath=${params.EPC_SourceCodePath} --EPCType=${params.EPC_Type}"
-
-                            echo '\u2705 \u001B[32mLog Transfer (SPGW)\u001B[0m'
-                            sh "sshpass -p \'${EPC_Password}\' scp -o 'StrictHostKeyChecking no' -o 'ConnectTimeout 10' ${EPC_Username}@${params.EPC_IPAddress}:${EPC_SourceCodePath}/scripts/spgw.log.zip ./spgw.log.${env.BUILD_ID}.zip || true"
-                        }
-                        script {
-                            if(fileExists("spgw.log.${env.BUILD_ID}.zip")) {
-                                archiveArtifacts "spgw.log.${env.BUILD_ID}.zip"
-                            }
-                        }
-                    }
-                }
-                stage('Log Collection (MME)') {
-                    // Bypassing this stage if EPC server is not defined
-                    when {
-                      expression { params.EPC_IPAddress != "none" }
-                    }
-                    steps {
-                        withCredentials([
-                             [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.EPC_Credentials}", usernameVariable: 'EPC_Username', passwordVariable: 'EPC_Password']
-                        ]) {
-                            echo '\u2705 \u001B[32mLog Collection (MME)\u001B[0m'
-                            sh "python3 ci-scripts/main.py --mode=LogCollectMME --EPCIPAddress=${params.EPC_IPAddress} --EPCUserName=${EPC_Username} --EPCPassword=${EPC_Password} --EPCSourceCodePath=${params.EPC_SourceCodePath} --EPCType=${params.EPC_Type}"
-
-                            echo '\u2705 \u001B[32mLog Transfer (MME)\u001B[0m'
-                            sh "sshpass -p \'${EPC_Password}\' scp -o 'StrictHostKeyChecking no' -o 'ConnectTimeout 10' ${EPC_Username}@${params.EPC_IPAddress}:${EPC_SourceCodePath}/scripts/mme.log.zip ./mme.log.${env.BUILD_ID}.zip || true"
-                        }
-                        script {
-                            if(fileExists("mme.log.${env.BUILD_ID}.zip")) {
-                                archiveArtifacts "mme.log.${env.BUILD_ID}.zip"
-                            }
-                        }
-                    }
-                }
-                stage('Log Collection (HSS)') {
-                    // Bypassing this stage if EPC server is not defined
-                    when {
-                      expression { params.EPC_IPAddress != "none" }
-                    }
-                    steps {
-                        withCredentials([
-                             [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.EPC_Credentials}", usernameVariable: 'EPC_Username', passwordVariable: 'EPC_Password']
-                        ]) {
-                            echo '\u2705 \u001B[32mLog Collection (HSS)\u001B[0m'
-                            sh "python3 ci-scripts/main.py --mode=LogCollectHSS --EPCIPAddress=${params.EPC_IPAddress} --EPCUserName=${EPC_Username} --EPCPassword=${EPC_Password} --EPCSourceCodePath=${params.EPC_SourceCodePath} --EPCType=${params.EPC_Type}"
-
-                            echo '\u2705 \u001B[32mLog Transfer (HSS)\u001B[0m'
-                            sh "sshpass -p \'${EPC_Password}\' scp -o 'StrictHostKeyChecking no' -o 'ConnectTimeout 10' ${EPC_Username}@${params.EPC_IPAddress}:${EPC_SourceCodePath}/scripts/hss.log.zip ./hss.log.${env.BUILD_ID}.zip || true"
-                        }
-                        script {
-                            if(fileExists("hss.log.${env.BUILD_ID}.zip")) {
-                                archiveArtifacts "hss.log.${env.BUILD_ID}.zip"
-                            }
-                        }
-                    }
-                }
             }
         }
     }
@@ -438,27 +295,6 @@ pipeline {
                         [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.eNB_Credentials}", usernameVariable: 'eNB_Username', passwordVariable: 'eNB_Password']
                     ]) {
                         sh "python3 ci-scripts/main.py --mode=TerminateeNB --eNBIPAddress=${params.eNB_IPAddress} --eNBUserName=${eNB_Username} --eNBPassword=${eNB_Password}"
-                    }
-                }
-                if ((!termStatusArray[termSPGW]) && (params.EPC_IPAddress != "none")) {
-                    withCredentials([
-                        [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.EPC_Credentials}", usernameVariable: 'EPC_Username', passwordVariable: 'EPC_Password']
-                    ]) {
-                        sh "python3 ci-scripts/main.py --mode=TerminateSPGW --EPCIPAddress=${params.EPC_IPAddress} --EPCUserName=${EPC_Username} --EPCPassword=${EPC_Password} --EPCType=${params.EPC_Type} --EPCSourceCodePath=${params.EPC_SourceCodePath}"
-                    }
-                }
-                if ((!termStatusArray[termMME]) && (params.EPC_IPAddress != "none")) {
-                    withCredentials([
-                        [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.EPC_Credentials}", usernameVariable: 'EPC_Username', passwordVariable: 'EPC_Password']
-                    ]) {
-                        sh "python3 ci-scripts/main.py --mode=TerminateMME --EPCIPAddress=${params.EPC_IPAddress} --EPCUserName=${EPC_Username} --EPCPassword=${EPC_Password} --EPCType=${params.EPC_Type} --EPCSourceCodePath=${params.EPC_SourceCodePath}"
-                    }
-                }
-                if ((!termStatusArray[termHSS]) && (params.EPC_IPAddress != "none")) {
-                    withCredentials([
-                        [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.EPC_Credentials}", usernameVariable: 'EPC_Username', passwordVariable: 'EPC_Password']
-                    ]) {
-                        sh "python3 ci-scripts/main.py --mode=TerminateHSS --EPCIPAddress=${params.EPC_IPAddress} --EPCUserName=${EPC_Username} --EPCPassword=${EPC_Password} --EPCType=${params.EPC_Type} --EPCSourceCodePath=${params.EPC_SourceCodePath}"
                     }
                 }
             }

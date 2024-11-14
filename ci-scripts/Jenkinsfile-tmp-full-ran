@@ -141,24 +141,6 @@ pipeline {
                         }
                     }
 
-                    if (params.EPC_IPAddress == null) {
-                        allParametersPresent = false
-                    } else {
-                        if (params.EPC_IPAddress == "none") {
-                            doEpcLogCollection = false
-                            echo "No EPC collections (ping/iperf/hss/mme/spgw)"
-                        }
-                    }
-                    if (params.EPC_Type == null) {
-                        allParametersPresent = false
-                    }
-                    if (params.EPC_SourceCodePath == null) {
-                        allParametersPresent = false
-                    }
-                    if (params.EPC_Credentials == null) {
-                        allParametersPresent = false
-                    }
-
                     if (allParametersPresent) {
                         echo "All parameters are present"
                         if (eNB_AllowMergeRequestProcess) {
@@ -200,7 +182,6 @@ pipeline {
                         withCredentials([
                             [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.eNB_Credentials}", usernameVariable: 'eNB_Username', passwordVariable: 'eNB_Password'],
                             [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.UE_Credentials}", usernameVariable: 'UE_Username', passwordVariable: 'UE_Password'],
-                            [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.EPC_Credentials}", usernameVariable: 'EPC_Username', passwordVariable: 'EPC_Password'],
                         ]) {
                             sh "python3 main.py --mode=InitiateHtml --ranRepository=${eNB_Repository} --ranBranch=${eNB_Branch} --ranCommitID=${eNB_CommitID} --ranAllowMerge=${eNB_AllowMergeRequestProcess} --ranTargetBranch=${eNB_TargetBranch} ${mainPythonAllXmlFiles}"
                             String[] myXmlTestSuite = testXMLFile.split("\\r?\\n")
@@ -208,7 +189,7 @@ pipeline {
                             if (fileExists(xmlFile)) {
                                 try {
                                   timeout (time: 60, unit: 'MINUTES') {
-                                    sh "python3 main.py --mode=TesteNB --ranRepository=${eNB_Repository} --ranBranch=${eNB_Branch} --ranCommitID=${eNB_CommitID} --ranAllowMerge=${eNB_AllowMergeRequestProcess} --ranTargetBranch=${eNB_TargetBranch} --eNBIPAddress=${params.eNB_IPAddress} --eNBUserName=${eNB_Username} --eNBPassword=${eNB_Password} --eNBSourceCodePath=${params.eNB_SourceCodePath} --UEIPAddress=${params.UE_IPAddress} --UEUserName=${UE_Username} --UEPassword=${UE_Password} --UESourceCodePath=${params.UE_SourceCodePath} --EPCIPAddress=${params.EPC_IPAddress} --EPCType=${params.EPC_Type} --EPCUserName=${EPC_Username} --EPCPassword=${EPC_Password} --EPCSourceCodePath=${params.EPC_SourceCodePath} --XMLTestFile=${xmlFile}"
+                                    sh "python3 main.py --mode=TesteNB --ranRepository=${eNB_Repository} --ranBranch=${eNB_Branch} --ranCommitID=${eNB_CommitID} --ranAllowMerge=${eNB_AllowMergeRequestProcess} --ranTargetBranch=${eNB_TargetBranch} --eNBIPAddress=${params.eNB_IPAddress} --eNBUserName=${eNB_Username} --eNBPassword=${eNB_Password} --eNBSourceCodePath=${params.eNB_SourceCodePath} --UEIPAddress=${params.UE_IPAddress} --UEUserName=${UE_Username} --UEPassword=${UE_Password} --UESourceCodePath=${params.UE_SourceCodePath} --XMLTestFile=${xmlFile}"
                                   }
                                 } catch (Exception e) {
                                     currentBuild.result = 'FAILURE'
@@ -315,69 +296,6 @@ pipeline {
                         script {
                             if(fileExists("ue.log.${env.BUILD_ID}.zip")) {
                                 archiveArtifacts "ue.log.${env.BUILD_ID}.zip"
-                            }
-                        }
-                    }
-                }
-                stage('Log Collection (SPGW)') {
-                    when {
-                       expression {doEpcLogCollection}
-                    }
-                    steps {
-                        withCredentials([
-                             [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.EPC_Credentials}", usernameVariable: 'EPC_Username', passwordVariable: 'EPC_Password']
-                        ]) {
-                            echo '\u2705 \u001B[32mLog Collection (SPGW)\u001B[0m'
-                            sh "python3 ci-scripts/main.py --mode=LogCollectSPGW --EPCIPAddress=${params.EPC_IPAddress} --EPCUserName=${EPC_Username} --EPCPassword=${EPC_Password} --EPCSourceCodePath=${params.EPC_SourceCodePath} --EPCType=${params.EPC_Type}"
-
-                            echo '\u2705 \u001B[32mLog Transfer (SPGW)\u001B[0m'
-                            sh "sshpass -p \'${EPC_Password}\' scp -o 'StrictHostKeyChecking no' -o 'ConnectTimeout 10' ${EPC_Username}@${params.EPC_IPAddress}:${EPC_SourceCodePath}/scripts/spgw.log.zip ./spgw.log.${env.BUILD_ID}.zip || true"
-                        }
-                        script {
-                            if(fileExists("spgw.log.${env.BUILD_ID}.zip")) {
-                                archiveArtifacts "spgw.log.${env.BUILD_ID}.zip"
-                            }
-                        }
-                    }
-                }
-                stage('Log Collection (MME)') {
-                    when {
-                       expression {doEpcLogCollection}
-                    }
-                    steps {
-                        withCredentials([
-                             [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.EPC_Credentials}", usernameVariable: 'EPC_Username', passwordVariable: 'EPC_Password']
-                        ]) {
-                            echo '\u2705 \u001B[32mLog Collection (MME)\u001B[0m'
-                            sh "python3 ci-scripts/main.py --mode=LogCollectMME --EPCIPAddress=${params.EPC_IPAddress} --EPCUserName=${EPC_Username} --EPCPassword=${EPC_Password} --EPCSourceCodePath=${params.EPC_SourceCodePath} --EPCType=${params.EPC_Type}"
-
-                            echo '\u2705 \u001B[32mLog Transfer (MME)\u001B[0m'
-                            sh "sshpass -p \'${EPC_Password}\' scp -o 'StrictHostKeyChecking no' -o 'ConnectTimeout 10' ${EPC_Username}@${params.EPC_IPAddress}:${EPC_SourceCodePath}/scripts/mme.log.zip ./mme.log.${env.BUILD_ID}.zip || true"
-                        }
-                        script {
-                            if(fileExists("mme.log.${env.BUILD_ID}.zip")) {
-                                archiveArtifacts "mme.log.${env.BUILD_ID}.zip"
-                            }
-                        }
-                    }
-                }
-                stage('Log Collection (HSS)') {
-                    when {
-                       expression {doEpcLogCollection}
-                    }
-                    steps {
-                        withCredentials([
-                             [$class: 'UsernamePasswordMultiBinding', credentialsId: "${params.EPC_Credentials}", usernameVariable: 'EPC_Username', passwordVariable: 'EPC_Password']
-                        ]) {
-                            echo '\u2705 \u001B[32mLog Collection (HSS)\u001B[0m'
-                            sh "python3 ci-scripts/main.py --mode=LogCollectHSS --EPCIPAddress=${params.EPC_IPAddress} --EPCUserName=${EPC_Username} --EPCPassword=${EPC_Password} --EPCSourceCodePath=${params.EPC_SourceCodePath} --EPCType=${params.EPC_Type}"
-
-                            echo '\u2705 \u001B[32mLog Transfer (HSS)\u001B[0m'
-                            sh "sshpass -p \'${EPC_Password}\' scp -o 'StrictHostKeyChecking no' -o 'ConnectTimeout 10' ${EPC_Username}@${params.EPC_IPAddress}:${EPC_SourceCodePath}/scripts/hss.log.zip ./hss.log.${env.BUILD_ID}.zip || true"
-                        }
-                        script {
-                            if(fileExists("hss.log.${env.BUILD_ID}.zip")) {
-                                archiveArtifacts "hss.log.${env.BUILD_ID}.zip"
                             }
                         }
                     }
