@@ -5,6 +5,7 @@
 #include "common/utils/ds/byte_array.h"
 #include "fgs_service_request.h"
 #include "fgmm_service_accept.h"
+#include "fgmm_service_reject.h"
 #include "nr_nas_msg.h"
 
 void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
@@ -127,9 +128,52 @@ static void test_service_accept(void)
   free_fgs_service_accept(&orig);
 }
 
+/** @brief Test NAS Service Reject enc/dec */
+static void test_service_reject(void)
+{
+  // Dummy NAS Service Reject message
+  fgs_service_reject_msg_t orig = {
+      .cause = Illegal_UE,
+      .has_psi_status = true,
+      .t3446 = malloc_or_fail(sizeof(*orig.t3446)),
+      .t3448 = malloc_or_fail(sizeof(*orig.t3448)),
+  };
+  orig.psi_status[1] = PDU_SESSION_INACTIVE; // PDU Session 1
+  orig.psi_status[2] = PDU_SESSION_ACTIVE; // PDU Session 2
+  orig.t3446->value = 10;
+  orig.t3446->unit = TWO_SECONDS;
+  orig.t3448->value = 1;
+  orig.t3448->unit = ONE_MINUTE;
+
+  // Expected encoded data
+  uint8_t expected_enc[] = {0x03, 0x50, 0x02, 0x04, 0x00, 0x5F, 0x01, 0x0A, 0x6B, 0x01, 0x21};
+
+  // Buffer
+  uint8_t buf[64] = {0};
+  byte_array_t buffer = {.buf = &buf[0], .len = sizeof(expected_enc)};
+
+  // Encode NAS Service Reject
+  int encoded_length = encode_fgs_service_reject(&buffer, &orig);
+  AssertFatal(encoded_length == sizeofArray(expected_enc), "encode_fgs_service_reject() failed: %d != %ld\n", encoded_length, sizeofArray(expected_enc));
+
+  // Compare the raw encoded buffer with expected encoded data
+  AssertFatal(memcmp(buffer.buf, expected_enc, buffer.len) == 0, "Encoding mismatch!\n");
+
+  // Decode NAS Service Reject
+  fgs_service_reject_msg_t dec = {0};
+  int decoded_length = decode_fgs_service_reject(&dec, &buffer);
+  AssertFatal(decoded_length >= 0, "decode_fgs_service_reject() failed\n");
+
+  // Compare original and decoded messages
+  AssertFatal(eq_service_reject(&orig, &dec), "test_service_reject() failed: original and decoded messages do not match\n");
+  free_fgs_service_reject(&dec);
+  free_fgs_service_reject(&orig);
+}
+
 int main()
 {
   test_service_request();
   test_service_accept();
+  test_service_reject();
   return 0;
 }
