@@ -100,11 +100,17 @@ porcepix-cn4g:
   Host: porcepix
   NetworkScript: docker exec prod-trf-gen ip a show dev eth0
   CmdPrefix: docker exec prod-trf-gen
+  Deploy: "! scripts/magma-epc-deploy.sh /opt/oai-epc-magma/docker-compose.yml"
+  Undeploy: "docker compose -f /opt/oai-epc-magma/docker-compose.yml down"
+  LogCollect: "! scripts/magma-epc-logcollect.sh %%log_dir%%"
 
 nano-cn4g:
   Host: nano
   NetworkScript: docker exec prod-trf-gen ip a show dev eth0
   CmdPrefix: docker exec prod-trf-gen
+  Deploy: "! scripts/magma-epc-deploy.sh /opt/oai-epc-magma/docker-compose.yml"
+  Undeploy: "docker compose -f /opt/oai-epc-magma/docker-compose.yml down"
+  LogCollect: "! scripts/magma-epc-logcollect.sh %%log_dir%%"
 
 ltebox-nano:
   Host: nano

@@ -147,6 +147,7 @@
         <ping_args>-c 20 192.168.61.200</ping_args>
         <ping_packetloss_threshold>5</ping_packetloss_threshold>
         <id>lte_oai_ue_carabe</id>
+        <svr_id>nano-cn4g</svr_id>
     </testCase>
 
     <testCase id="040613">
