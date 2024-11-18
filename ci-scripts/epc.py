@@ -97,23 +97,9 @@ class EPCManagement():
 			time.sleep(5)
 			mySSH.command('docker exec -d ' + self.containerPrefix + '-oai-hss /bin/bash -c "nohup ./bin/oai_hss -j ./etc/hss_rel14.json --reloadkey true > hss_check_run.log 2>&1"', '\$', 5)
 		elif re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
-			logging.debug('Using the OAI EPC Release 14 Cassandra-based HSS')
-			mySSH.command('cd ' + self.SourceCodePath + '/scripts', '\$', 5)
-			logging.debug('\u001B[1m Launching tshark on all interfaces \u001B[0m')
-			self.PcapFileName = 'epc_' + self.testCase_id + '.pcap'
-			mySSH.command('echo ' + self.Password + ' | sudo -S rm -f ' + self.PcapFileName, '\$', 5)
-			mySSH.command('echo $USER; nohup sudo tshark -f "tcp port not 22 and port not 53" -i any -w ' + self.SourceCodePath + '/scripts/' + self.PcapFileName + ' > /tmp/tshark.log 2>&1 &', self.UserName, 5)
-			mySSH.command('echo ' + self.Password + ' | sudo -S mkdir -p logs', '\$', 5)
-			mySSH.command('echo ' + self.Password + ' | sudo -S rm -f hss_' + self.testCase_id + '.log logs/hss*.*', '\$', 5)
-			mySSH.command('echo "oai_hss -j /usr/local/etc/oai/hss_rel14.json" > ./my-hss.sh', '\$', 5)
-			mySSH.command('chmod 755 ./my-hss.sh', '\$', 5)
-			mySSH.command('sudo daemon --unsafe --name=hss_daemon --chdir=' + self.SourceCodePath + '/scripts -o ' + self.SourceCodePath + '/scripts/hss_' + self.testCase_id + '.log ./my-hss.sh', '\$', 5)
+			raise NotImplemented("core network not supported")
 		elif re.match('OAI', self.Type, re.IGNORECASE):
-			logging.debug('Using the OAI EPC HSS')
-			mySSH.command('cd ' + self.SourceCodePath, '\$', 5)
-			mySSH.command('source oaienv', '\$', 5)
-			mySSH.command('cd scripts', '\$', 5)
-			mySSH.command('echo ' + self.Password + ' | sudo -S ./run_hss 2>&1 | stdbuf -o0 awk \'{ print strftime("[%Y/%m/%d %H:%M:%S] ",systime()) $0 }\' | stdbuf -o0 tee -a hss_' + self.testCase_id + '.log &', 'Core state: 2 -> 3', 35)
+			raise NotImplemented("core network not supported")
 		elif re.match('ltebox', self.Type, re.IGNORECASE):
 			logging.debug('Using the ltebox simulated HSS')
 			mySSH.command('if [ -d ' + self.SourceCodePath + '/scripts ]; then echo ' + self.Password + ' | sudo -S rm -Rf ' + self.SourceCodePath + '/scripts ; fi', '\$', 5)
@@ -148,23 +134,9 @@ class EPCManagement():
 			time.sleep(5)
 			mySSH.command('docker exec -d ' + self.containerPrefix + '-oai-mme /bin/bash -c "nohup ./bin/oai_mme -c ./etc/' + self.mmeConfFile + ' > mme_check_run.log 2>&1"', '\$', 5)
 		elif re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
-			logging.debug('Using the OAI EPC Release 14 MME')
-			mySSH.command('cd ' + self.SourceCodePath + '/scripts', '\$', 5)
-			mySSH.command('echo ' + self.Password + ' | sudo -S rm -f mme_' + self.testCase_id + '.log', '\$', 5)
-			mySSH.command('echo "./run_mme --config-file /usr/local/etc/oai/mme.conf --set-virt-if" > ./my-mme.sh', '\$', 5)
-			mySSH.command('chmod 755 ./my-mme.sh', '\$', 5)
-			mySSH.command('sudo daemon --unsafe --name=mme_daemon --chdir=' + self.SourceCodePath + '/scripts -o ' + self.SourceCodePath + '/scripts/mme_' + self.testCase_id + '.log ./my-mme.sh', '\$', 5)
+			raise NotImplemented("core network not supported")
 		elif re.match('OAI', self.Type, re.IGNORECASE):
-			mySSH.command('cd ' + self.SourceCodePath, '\$', 5)
-			mySSH.command('source oaienv', '\$', 5)
-			mySSH.command('cd scripts', '\$', 5)
-			mySSH.command('stdbuf -o0 hostname', '\$', 5)
-			result = re.search('hostname\\\\r\\\\n(?P<host_name>[a-zA-Z0-9\-\_]+)\\\\r\\\\n', mySSH.getBefore())
-			if result is None:
-				logging.debug('\u001B[1;37;41m Hostname Not Found! \u001B[0m')
-				sys.exit(1)
-			host_name = result.group('host_name')
-			mySSH.command('echo ' + self.Password + ' | sudo -S ./run_mme 2>&1 | stdbuf -o0 tee -a mme_' + self.testCase_id + '.log &', 'MME app initialization complete', 100)
+			raise NotImplemented("core network not supported")
 		elif re.match('ltebox', self.Type, re.IGNORECASE):
 			mySSH.command('cd /opt/ltebox/tools', '\$', 5)
 			# Clean-up the logs from previous runs
@@ -219,21 +191,9 @@ class EPCManagement():
 			time.sleep(5)
 			mySSH.command('docker exec -d ' + self.containerPrefix + '-oai-spgwu-tiny /bin/bash -c "nohup ./bin/oai_spgwu -o -c ./etc/spgw_u.conf > spgwu_check_run.log 2>&1"', '\$', 5)
 		elif re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
-			logging.debug('Using the OAI EPC Release 14 SPGW-CUPS')
-			mySSH.command('cd ' + self.SourceCodePath + '/scripts', '\$', 5)
-			mySSH.command('echo ' + self.Password + ' | sudo -S rm -f spgwc_' + self.testCase_id + '.log spgwu_' + self.testCase_id + '.log', '\$', 5)
-			mySSH.command('echo "spgwc -c /usr/local/etc/oai/spgw_c.conf" > ./my-spgwc.sh', '\$', 5)
-			mySSH.command('chmod 755 ./my-spgwc.sh', '\$', 5)
-			mySSH.command('sudo daemon --unsafe --name=spgwc_daemon --chdir=' + self.SourceCodePath + '/scripts -o ' + self.SourceCodePath + '/scripts/spgwc_' + self.testCase_id + '.log ./my-spgwc.sh', '\$', 5)
-			time.sleep(5)
-			mySSH.command('echo "spgwu -c /usr/local/etc/oai/spgw_u.conf" > ./my-spgwu.sh', '\$', 5)
-			mySSH.command('chmod 755 ./my-spgwu.sh', '\$', 5)
-			mySSH.command('sudo daemon --unsafe --name=spgwu_daemon --chdir=' + self.SourceCodePath + '/scripts -o ' + self.SourceCodePath + '/scripts/spgwu_' + self.testCase_id + '.log ./my-spgwu.sh', '\$', 5)
+			raise NotImplemented("core network not supported")
 		elif re.match('OAI', self.Type, re.IGNORECASE):
-			mySSH.command('cd ' + self.SourceCodePath, '\$', 5)
-			mySSH.command('source oaienv', '\$', 5)
-			mySSH.command('cd scripts', '\$', 5)
-			mySSH.command('echo ' + self.Password + ' | sudo -S ./run_spgw 2>&1 | stdbuf -o0 tee -a spgw_' + self.testCase_id + '.log &', 'Initializing SPGW-APP task interface: DONE', 30)
+			raise NotImplemented("core network not supported")
 		elif re.match('ltebox', self.Type, re.IGNORECASE):
 			mySSH.command('cd /opt/ltebox/tools', '\$', 5)
 			mySSH.command('echo ' + self.Password + ' | sudo -S ./start_xGw', '\$', 5)
@@ -334,20 +294,9 @@ class EPCManagement():
 			if result is not None:
 				mySSH.command('docker exec -it ' + self.containerPrefix + '-oai-hss /bin/bash -c "killall --signal SIGKILL oai_hss"', '\$', 5)
 		elif re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
-			mySSH.command('echo ' + self.Password + ' | sudo -S killall --signal SIGINT oai_hss || true', '\$', 5)
-			time.sleep(2)
-			mySSH.command('stdbuf -o0  ps -aux | grep --colour=never hss | grep -v grep', '\$', 5)
-			result = re.search('oai_hss -j', mySSH.getBefore())
-			if result is not None:
-				mySSH.command('echo ' + self.Password + ' | sudo -S killall --signal SIGKILL oai_hss || true', '\$', 5)
-			mySSH.command('rm -f ' + self.SourceCodePath + '/scripts/my-hss.sh', '\$', 5)
+			raise NotImplemented("core network not supported")
 		elif re.match('OAI', self.Type, re.IGNORECASE):
-			mySSH.command('echo ' + self.Password + ' | sudo -S killall --signal SIGINT run_hss oai_hss || true', '\$', 5)
-			time.sleep(2)
-			mySSH.command('stdbuf -o0  ps -aux | grep --colour=never hss | grep -v grep', '\$', 5)
-			result = re.search('\/bin\/bash .\/run_', mySSH.getBefore())
-			if result is not None:
-				mySSH.command('echo ' + self.Password + ' | sudo -S killall --signal SIGKILL run_hss oai_hss || true', '\$', 5)
+			raise NotImplemented("core network not supported")
 		elif re.match('ltebox', self.Type, re.IGNORECASE):
 			mySSH.command('cd ' + self.SourceCodePath, '\$', 5)
 			mySSH.command('cd scripts', '\$', 5)
@@ -375,13 +324,7 @@ class EPCManagement():
 			if result is not None:
 				mySSH.command('docker exec -it ' + self.containerPrefix + '-oai-mme /bin/bash -c "killall --signal SIGKILL oai_mme"', '\$', 5)
 		elif re.match('OAI', self.Type, re.IGNORECASE) or re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
-			mySSH.command('echo ' + self.Password + ' | sudo -S killall --signal SIGINT run_mme mme || true', '\$', 5)
-			time.sleep(2)
-			mySSH.command('stdbuf -o0 ps -aux | grep mme | grep -v grep', '\$', 5)
-			result = re.search('mme -c', mySSH.getBefore())
-			if result is not None:
-				mySSH.command('echo ' + self.Password + ' | sudo -S killall --signal SIGKILL run_mme mme || true', '\$', 5)
-			mySSH.command('rm -f ' + self.SourceCodePath + '/scripts/my-mme.sh', '\$', 5)
+			raise NotImplemented("core network not supported")
 		elif re.match('ltebox', self.Type, re.IGNORECASE):
 			mySSH.command('cd /opt/ltebox/tools', '\$', 5)
 			mySSH.command('echo ' + self.Password + ' | sudo -S ./stop_mme', '\$', 5)
@@ -408,25 +351,9 @@ class EPCManagement():
 			if result is not None:
 				mySSH.command('docker exec -it ' + self.containerPrefix + '-oai-spgwu-tiny /bin/bash -c "killall --signal SIGKILL oai_spgwu"', '\$', 5)
 		elif re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
-			mySSH.command('echo ' + self.Password + ' | sudo -S killall --signal SIGINT spgwc spgwu || true', '\$', 5)
-			time.sleep(2)
-			mySSH.command('stdbuf -o0 ps -aux | grep spgw | grep -v grep', '\$', 5)
-			result = re.search('spgwc -c |spgwu -c ', mySSH.getBefore())
-			if result is not None:
-				mySSH.command('echo ' + self.Password + ' | sudo -S killall --signal SIGKILL spgwc spgwu || true', '\$', 5)
-			mySSH.command('rm -f ' + self.SourceCodePath + '/scripts/my-spgw*.sh', '\$', 5)
-			mySSH.command('stdbuf -o0 ps -aux | grep tshark | grep -v grep', '\$', 5)
-			result = re.search('-w ', mySSH.getBefore())
-			if result is not None:
-				mySSH.command('echo ' + self.Password + ' | sudo -S killall --signal SIGINT tshark || true', '\$', 5)
-				mySSH.command('echo ' + self.Password + ' | sudo -S chmod 666 ' + self.SourceCodePath + '/scripts/*.pcap', '\$', 5)
+			raise NotImplemented("core network not supported")
 		elif re.match('OAI', self.Type, re.IGNORECASE):
-			mySSH.command('echo ' + self.Password + ' | sudo -S killall --signal SIGINT run_spgw spgw || true', '\$', 5)
-			time.sleep(2)
-			mySSH.command('stdbuf -o0 ps -aux | grep spgw | grep -v grep', '\$', 5)
-			result = re.search('\/bin\/bash .\/run_', mySSH.getBefore())
-			if result is not None:
-				mySSH.command('echo ' + self.Password + ' | sudo -S killall --signal SIGKILL run_spgw spgw || true', '\$', 5)
+			raise NotImplemented("core network not supported")
 		elif re.match('ltebox', self.Type, re.IGNORECASE):
 			mySSH.command('cd /opt/ltebox/tools', '\$', 5)
 			mySSH.command('echo ' + self.Password + ' | sudo -S ./stop_xGw', '\$', 5)
@@ -716,11 +643,7 @@ class EPCManagement():
 		elif re.match('OC-OAI-CN5G', self.Type, re.IGNORECASE):
 			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OAI', self.Type, re.IGNORECASE) or re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
-			mySSH.command('zip hss.log.zip hss*.log', '\$', 60)
-			mySSH.command('echo ' + self.Password + ' | sudo -S rm hss*.log', '\$', 5)
-			if re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
-				mySSH.command('zip hss.log.zip logs/hss*.* *.pcap', '\$', 60)
-				mySSH.command('echo ' + self.Password + ' | sudo -S rm -f logs/hss*.* *.pcap', '\$', 5)
+			raise NotImplemented("core network not supported")
 		elif re.match('ltebox', self.Type, re.IGNORECASE):
 			mySSH.command('cp /opt/hss_sim0609/hss.log .', '\$', 60)
 			mySSH.command('zip hss.log.zip hss.log', '\$', 60)
@@ -756,8 +679,7 @@ class EPCManagement():
 		elif re.match('OC-OAI-CN5G', self.Type, re.IGNORECASE):
 			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OAI', self.Type, re.IGNORECASE) or re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
-			mySSH.command('zip mme.log.zip mme*.log', '\$', 60)
-			mySSH.command('echo ' + self.Password + ' | sudo -S rm mme*.log', '\$', 5)
+			raise NotImplemented("core network not supported")
 		elif re.match('ltebox', self.Type, re.IGNORECASE):
 			mySSH.command('cp /opt/ltebox/var/log/*Log.0 .', '\$', 5)
 			mySSH.command('zip mme.log.zip mmeLog.0 s1apcLog.0 s1apsLog.0 s11cLog.0 libLog.0 s1apCodecLog.0 amfLog.0 ngapcLog.0 ngapcommonLog.0 ngapsLog.0', '\$', 60)
@@ -791,8 +713,7 @@ class EPCManagement():
 		elif re.match('OC-OAI-CN5G', self.Type, re.IGNORECASE):
 			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OAI', self.Type, re.IGNORECASE) or re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
-			mySSH.command('zip spgw.log.zip spgw*.log', '\$', 60)
-			mySSH.command('echo ' + self.Password + ' | sudo -S rm spgw*.log', '\$', 5)
+			raise NotImplemented("core network not supported")
 		elif re.match('ltebox', self.Type, re.IGNORECASE):
 			mySSH.command('cp /opt/ltebox/var/log/*Log.0 .', '\$', 5)
 			mySSH.command('zip spgw.log.zip xGwLog.0 upfLog.0', '\$', 60)
