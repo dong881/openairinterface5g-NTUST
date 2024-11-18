@@ -101,20 +101,7 @@ class EPCManagement():
 		elif re.match('OAI', self.Type, re.IGNORECASE):
 			raise NotImplemented("core network not supported")
 		elif re.match('ltebox', self.Type, re.IGNORECASE):
-			logging.debug('Using the ltebox simulated HSS')
-			mySSH.command('if [ -d ' + self.SourceCodePath + '/scripts ]; then echo ' + self.Password + ' | sudo -S rm -Rf ' + self.SourceCodePath + '/scripts ; fi', '\$', 5)
-			mySSH.command('mkdir -p ' + self.SourceCodePath + '/scripts', '\$', 5)
-			result = re.search('hss_sim s6as diam_hss', mySSH.getBefore())
-			if result is not None:
-				mySSH.command('echo ' + self.Password + ' | sudo -S killall hss_sim', '\$', 5)
-			mySSH.command('ps aux | grep --colour=never xGw | grep -v grep', '\$', 5, silent=True)
-			result = re.search('root.*xGw', mySSH.getBefore())
-			if result is not None:
-				mySSH.command('cd /opt/ltebox/tools', '\$', 5)
-				mySSH.command('echo ' + self.Password + ' | sudo -S ./stop_ltebox', '\$', 5)
-			mySSH.command('cd /opt/hss_sim0609', '\$', 5)
-			mySSH.command('echo ' + self.Password + ' | sudo -S rm -f hss.log', '\$', 5)
-			mySSH.command('echo ' + self.Password + ' | sudo -S echo "Starting sudo session" && sudo su -c "screen -dm -S simulated_hss ./starthss"', '\$', 5)
+			raise NotImplemented("use cls_corenetwork.py")
 		else:
 			logging.error('This option should not occur!')
 		mySSH.close()
@@ -138,10 +125,7 @@ class EPCManagement():
 		elif re.match('OAI', self.Type, re.IGNORECASE):
 			raise NotImplemented("core network not supported")
 		elif re.match('ltebox', self.Type, re.IGNORECASE):
-			mySSH.command('cd /opt/ltebox/tools', '\$', 5)
-			# Clean-up the logs from previous runs
-			mySSH.command('echo ' + self.Password + ' | sudo -S rm -f ../var/log/*.0', '\$', 5)
-			mySSH.command('echo ' + self.Password + ' | sudo -S ./start_mme', '\$', 5)
+			raise NotImplemented("use cls_corenetwork.py")
 		else:
 			logging.error('This option should not occur!')
 		mySSH.close()
@@ -195,8 +179,7 @@ class EPCManagement():
 		elif re.match('OAI', self.Type, re.IGNORECASE):
 			raise NotImplemented("core network not supported")
 		elif re.match('ltebox', self.Type, re.IGNORECASE):
-			mySSH.command('cd /opt/ltebox/tools', '\$', 5)
-			mySSH.command('echo ' + self.Password + ' | sudo -S ./start_xGw', '\$', 5)
+			raise NotImplemented("use cls_corenetwork.py")
 		else:
 			logging.error('This option should not occur!')
 		mySSH.close()
@@ -267,7 +250,7 @@ class EPCManagement():
 		if self.IPAddress == 'none':
 			return
 		if re.match('ltebox', self.Type, re.IGNORECASE):
-			self.MmeIPAddress = self.IPAddress
+			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OAICN5G', self.Type, re.IGNORECASE):
 			mySSH = SSH.SSHConnection()
 			mySSH.open(self.IPAddress, self.UserName, self.Password)
@@ -298,15 +281,7 @@ class EPCManagement():
 		elif re.match('OAI', self.Type, re.IGNORECASE):
 			raise NotImplemented("core network not supported")
 		elif re.match('ltebox', self.Type, re.IGNORECASE):
-			mySSH.command('cd ' + self.SourceCodePath, '\$', 5)
-			mySSH.command('cd scripts', '\$', 5)
-			time.sleep(1)
-			mySSH.command('echo ' + self.Password + ' | sudo -S screen -S simulated_hss -X quit', '\$', 5)
-			time.sleep(5)
-			mySSH.command('ps aux | grep --colour=never hss_sim | grep -v grep', '\$', 5, silent=True)
-			result = re.search('hss_sim s6as diam_hss', mySSH.getBefore())
-			if result is not None:
-				mySSH.command('echo ' + self.Password + ' | sudo -S killall hss_sim', '\$', 5)
+			raise NotImplemented("use cls_corenetwork.py")
 		else:
 			logging.error('This should not happen!')
 		mySSH.close()
@@ -326,9 +301,7 @@ class EPCManagement():
 		elif re.match('OAI', self.Type, re.IGNORECASE) or re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
 			raise NotImplemented("core network not supported")
 		elif re.match('ltebox', self.Type, re.IGNORECASE):
-			mySSH.command('cd /opt/ltebox/tools', '\$', 5)
-			mySSH.command('echo ' + self.Password + ' | sudo -S ./stop_mme', '\$', 5)
-			time.sleep(5)
+			raise NotImplemented("use cls_corenetwork.py")
 		else:
 			logging.error('This should not happen!')
 		mySSH.close()
@@ -355,8 +328,7 @@ class EPCManagement():
 		elif re.match('OAI', self.Type, re.IGNORECASE):
 			raise NotImplemented("core network not supported")
 		elif re.match('ltebox', self.Type, re.IGNORECASE):
-			mySSH.command('cd /opt/ltebox/tools', '\$', 5)
-			mySSH.command('echo ' + self.Password + ' | sudo -S ./stop_xGw', '\$', 5)
+			raise NotImplemented("use cls_corenetwork.py")
 		else:
 			logging.error('This should not happen!')
 		mySSH.close()
@@ -645,8 +617,7 @@ class EPCManagement():
 		elif re.match('OAI', self.Type, re.IGNORECASE) or re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
 			raise NotImplemented("core network not supported")
 		elif re.match('ltebox', self.Type, re.IGNORECASE):
-			mySSH.command('cp /opt/hss_sim0609/hss.log .', '\$', 60)
-			mySSH.command('zip hss.log.zip hss.log', '\$', 60)
+			raise NotImplemented("use cls_corenetwork.py")
 		else:
 			logging.error('This option should not occur!')
 		mySSH.close()
@@ -681,8 +652,7 @@ class EPCManagement():
 		elif re.match('OAI', self.Type, re.IGNORECASE) or re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
 			raise NotImplemented("core network not supported")
 		elif re.match('ltebox', self.Type, re.IGNORECASE):
-			mySSH.command('cp /opt/ltebox/var/log/*Log.0 .', '\$', 5)
-			mySSH.command('zip mme.log.zip mmeLog.0 s1apcLog.0 s1apsLog.0 s11cLog.0 libLog.0 s1apCodecLog.0 amfLog.0 ngapcLog.0 ngapcommonLog.0 ngapsLog.0', '\$', 60)
+			raise NotImplemented("use cls_corenetwork.py")
 		else:
 			logging.error('This option should not occur!')
 		mySSH.close()
@@ -715,8 +685,7 @@ class EPCManagement():
 		elif re.match('OAI', self.Type, re.IGNORECASE) or re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
 			raise NotImplemented("core network not supported")
 		elif re.match('ltebox', self.Type, re.IGNORECASE):
-			mySSH.command('cp /opt/ltebox/var/log/*Log.0 .', '\$', 5)
-			mySSH.command('zip spgw.log.zip xGwLog.0 upfLog.0', '\$', 60)
+			raise NotImplemented("use cls_corenetwork.py")
 		else:
 			logging.error('This option should not occur!')
 		mySSH.close()

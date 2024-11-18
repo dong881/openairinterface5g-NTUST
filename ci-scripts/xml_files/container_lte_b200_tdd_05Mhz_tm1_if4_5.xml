@@ -132,6 +132,7 @@
         <ping_args>-c 20 %cn_ip%</ping_args>
         <ping_packetloss_threshold>25</ping_packetloss_threshold>
         <id>adb_ue_1 adb_ue_2</id>
+        <svr_id>ltebox-nano</svr_id>
     </testCase>
 
     <testCase id="040631">

@@ -104,6 +104,13 @@ nano-cn4g:
 ltebox-nano:
   Host: nano
   NetworkScript: ip a show dev tun1
+  Deploy:
+    - "sudo su -c 'screen -dm -S simulated_hss /opt/hss_sim0609/starthss'"
+    - "sleep 1"
+    - "sudo /opt/ltebox/tools/start_mme && sudo /opt/ltebox/tools/start_xGw &"
+    - "sleep 1"
+  Undeploy: "sudo /opt/ltebox/tools/stop_xGw; sudo /opt/ltebox/tools/stop_mme; sudo killall screen"
+  LogCollect: "cp /opt/hss_sim0609/hss.log /opt/ltebox/var/log/{mmeLog.0,s1apcLog.0,s1apsLog.0,s11cLog.0,libLog.0,xGwLog.0} %%log_dir%%"
 
 sabox-nepes:
   Host: nepes
@@ -119,6 +126,13 @@ sabox-nepes:
 ltebox-nepes:
   Host: nepes
   NetworkScript: ip a show dev tun1
+  Deploy:
+    - "sudo su -c 'screen -dm -S simulated_hss /opt/hss_sim0609/starthss'"
+    - "sleep 1"
+    - "sudo /opt/ltebox/tools/start_mme && sudo /opt/ltebox/tools/start_xGw &"
+    - "sleep 1"
+  Undeploy: "sudo /opt/ltebox/tools/stop_xGw; sudo /opt/ltebox/tools/stop_mme; sudo killall screen"
+  LogCollect: "cp /opt/hss_sim0609/hss.log /opt/ltebox/var/log/{mmeLog.0,s1apcLog.0,s1apsLog.0,s11cLog.0,libLog.0,xGwLog.0} %%log_dir%%"
 
 amarisoft_ue:
   Host: amariue
