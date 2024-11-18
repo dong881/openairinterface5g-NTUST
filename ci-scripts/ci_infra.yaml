@@ -88,8 +88,13 @@ oc-cn5g-20897-aerial2:
 matix-cn5g:
   Host: matix
   NetworkScript: docker exec prod-trf-gen ip a show dev eth0
-  CmdPrefix: docker exec prod-trf-gen
   RunIperf3Server: False
+  Deploy: "cd /opt/oai-cn5g-fed-v2/docker-compose && python3 ./core-network.py --type start-basic"
+  Undeploy: "cd /opt/oai-cn5g-fed-v2/docker-compose && python3 ./core-network.py --type stop-basic"
+  LogCollect:
+    - "docker logs oai-smf > %%log_dir%%/oai-smf.log"
+    - "docker logs oai-amf > %%log_dir%%/oai-amf.log"
+    - "docker logs oai-upf > %%log_dir%%/oai-upf.log"
 
 porcepix-cn4g:
   Host: porcepix

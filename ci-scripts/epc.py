@@ -197,44 +197,7 @@ class EPCManagement():
 		if re.match('ltebox', self.Type, re.IGNORECASE):
 			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OAICN5G', self.Type, re.IGNORECASE):
-			logging.debug('Starting OAI CN5G')
-			mySSH.command('if [ -d ' + self.SourceCodePath + '/scripts ]; then echo ' + self.Password + ' | sudo -S rm -Rf ' + self.SourceCodePath + '/scripts ; fi', '\$', 5)
-			mySSH.command('mkdir -p ' + self.SourceCodePath + '/scripts', '\$', 5)
-			mySSH.command(f'cd {self.SourceCodePath}/docker-compose', '\$', 5)
-			mySSH.command('python3 ./core-network.py '+self.cfgDeploy, '\$', 60)
-			if re.search('start-mini-as-ue', self.cfgDeploy):
-				dFile = 'docker-compose-mini-nrf-asue.yaml'
-			elif re.search('basic', self.cfgDeploy):\
-				dFile = 'docker-compose-basic-nrf.yaml'
-			else:
-				dFile = 'docker-compose-mini-nrf.yaml'
-			mySSH.command('docker-compose -f ' + dFile + ' ps -a', '\$', 60)
-			if mySSH.getBefore().count('Up (healthy)') != 6:
-				logging.error('Not all container healthy')
-			else:
-				logging.debug('OK --> all containers are healthy')
-			mySSH.command('docker-compose -f ' + dFile + ' config | grep --colour=never image', '\$', 10)
-			listOfImages = mySSH.getBefore()
-			for imageLine in listOfImages.split('\\r\\n'):
-				res1 = re.search('image: (?P<name>[a-zA-Z0-9\-/]+):(?P<tag>[a-zA-Z0-9\-]+)', str(imageLine))
-				res2 = re.search('mysql', str(imageLine))
-				if res1 is not None and res2 is None:
-					html_cell += res1.group('name') + ':' + res1.group('tag') + ' '
-					nbChars = len(res1.group('name')) + len(res1.group('tag')) + 2
-					while (nbChars < 32):
-						html_cell += ' '
-						nbChars += 1
-					mySSH.command('docker image inspect --format="Size = {{.Size}} bytes" ' + res1.group('name') + ':' + res1.group('tag'), '\$', 10)
-					res3 = re.search('Size *= *(?P<size>[0-9\-]*) *bytes', mySSH.getBefore())
-					if res3 is not None:
-						imageSize = int(res3.group('size'))
-						imageSize = int(imageSize/(1024*1024))
-						html_cell += str(imageSize) + ' MBytes '
-					mySSH.command('docker image inspect --format="Date = {{.Created}}" ' + res1.group('name') + ':' + res1.group('tag'), '\$', 10)
-					res4 = re.search('Date *= *(?P<date>[0-9\-]*)T', mySSH.getBefore())
-					if res4 is not None:
-						html_cell += '(' + res4.group('date') + ')'
-					html_cell += '\n'
+			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OC-OAI-CN5G', self.Type, re.IGNORECASE):
 			raise NotImplemented("use cls_corenetwork.py")
 		else:
@@ -252,17 +215,7 @@ class EPCManagement():
 		if re.match('ltebox', self.Type, re.IGNORECASE):
 			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OAICN5G', self.Type, re.IGNORECASE):
-			mySSH = SSH.SSHConnection()
-			mySSH.open(self.IPAddress, self.UserName, self.Password)
-			response=mySSH.command3('docker container ls -f name=oai-amf', 10)
-			if len(response)>1:
-				response=mySSH.command3('docker inspect --format=\'{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}\' oai-amf', 10)
-				tmp = str(response[0],'utf-8')
-				self.MmeIPAddress = tmp.rstrip()
-				logging.debug('AMF IP Address ' + self.MmeIPAddress)
-			else:
-				logging.error('no container with name oai-amf found, could not retrieve AMF IP address')
-			mySSH.close()
+			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OC-OAI-CN5G', self.Type, re.IGNORECASE):
 			raise NotImplemented("use cls_corenetwork.py")
 
@@ -341,27 +294,7 @@ class EPCManagement():
 		if re.match('ltebox', self.Type, re.IGNORECASE):
 			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OAICN5G', self.Type, re.IGNORECASE):
-			logging.debug('OAI CN5G Collecting Log files to workspace')
-			mySSH.command('echo ' + self.Password + ' | sudo rm -rf ' + self.SourceCodePath + '/logs', '\$', 5)
-			mySSH.command('mkdir ' + self.SourceCodePath + '/logs','\$', 5)
-			containers_list=['oai-smf','oai-spgwu','oai-amf','oai-nrf']
-			for c in containers_list:
-				mySSH.command('docker logs ' + c + ' > ' + self.SourceCodePath + '/logs/' + c + '.log', '\$', 5)
-
-			logging.debug('Terminating OAI CN5G')
-			mySSH.command(f'cd {self.SourceCodePath}/docker-compose', '\$', 5)
-			mySSH.command('python3 ./core-network.py '+self.cfgUnDeploy, '\$', 60)
-			mySSH.command('docker volume prune --force || true', '\$', 60)
-			time.sleep(2)
-			mySSH.command('tshark -r /tmp/oai-cn5g-v1.5.pcap | grep -E --colour=never "Tracking area update" ','\$', 30)
-			result = re.search('Tracking area update request', mySSH.getBefore())
-			if result is not None:
-				message = 'UE requested ' + str(mySSH.getBefore().count('Tracking area update request')) + 'Tracking area update request(s)'
-			else:
-				message = 'No Tracking area update request'
-			mySSH.run(f'cd {self.SourceCodePath}/logs && zip -r -qq test_logs_CN.zip *.log')
-			mySSH.copyin(f'{self.SourceCodePath}/logs/test_logs_CN.zip','test_logs_CN.zip')
-			logging.debug(message)
+			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OC-OAI-CN5G', self.Type, re.IGNORECASE):
 			raise NotImplemented("use cls_corenetwork.py")
 		else:
@@ -611,7 +544,7 @@ class EPCManagement():
 				mySSH.command('docker cp ' + self.containerPrefix + '-oai-hss:/tmp/hss_check_run.pcap .', '\$', 60)
 				mySSH.command('zip hss.log.zip hss_check_run.*', '\$', 60)
 		elif re.match('OAICN5G', self.Type, re.IGNORECASE):
-			logging.debug('LogCollect is bypassed for that variant')
+			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OC-OAI-CN5G', self.Type, re.IGNORECASE):
 			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OAI', self.Type, re.IGNORECASE) or re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
@@ -643,10 +576,7 @@ class EPCManagement():
 				mySSH.command('docker cp ' + self.containerPrefix + '-oai-mme:/tmp/mme_check_run.pcap .', '\$', 60)
 				mySSH.command('zip mme.log.zip mme_check_run.*', '\$', 60)
 		elif re.match('OAICN5G', self.Type, re.IGNORECASE):
-			mySSH.command('cd ' + self.SourceCodePath + '/logs','\$', 5)
-			mySSH.command('cp -f /tmp/oai-cn5g-v1.5.pcap .','\$', 30)
-			mySSH.command('zip mme.log.zip oai-amf.log oai-nrf.log oai-cn5g*.pcap','\$', 30)
-			mySSH.command('mv mme.log.zip ' + self.SourceCodePath + '/scripts','\$', 30)
+			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OC-OAI-CN5G', self.Type, re.IGNORECASE):
 			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OAI', self.Type, re.IGNORECASE) or re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
@@ -677,9 +607,7 @@ class EPCManagement():
 				mySSH.command('docker cp ' + self.containerPrefix + '-oai-spgwu-tiny:/tmp/spgwu_check_run.pcap .', '\$', 60)
 				mySSH.command('zip spgw.log.zip spgw*_check_run.*', '\$', 60)
 		elif re.match('OAICN5G', self.Type, re.IGNORECASE):
-			mySSH.command('cd ' + self.SourceCodePath + '/logs','\$', 5)
-			mySSH.command('zip spgw.log.zip oai-smf.log oai-spgwu.log','\$', 30)
-			mySSH.command('mv spgw.log.zip ' + self.SourceCodePath + '/scripts','\$', 30)
+			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OC-OAI-CN5G', self.Type, re.IGNORECASE):
 			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OAI', self.Type, re.IGNORECASE) or re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
