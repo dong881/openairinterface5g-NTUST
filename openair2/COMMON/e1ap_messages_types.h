@@ -625,5 +625,14 @@ typedef struct e1ap_lost_connection_t {
   int dummy;
 } e1ap_lost_connection_t;
 
+/// @brief 9.2.2.6 BEARER CONTEXT MODIFICATION FAILURE
+typedef struct e1ap_bearer_context_mod_failure_s {
+  // gNB-CU-CP UE E1AP ID (M)
+  uint32_t gNB_cu_cp_ue_id;
+  // gNB-CU-UP UE E1AP ID (M)
+  uint32_t gNB_cu_up_ue_id;
+  // NG-RAN PDU Session Resource Modified List (O)
+  e1ap_cause_t cause;
+} e1ap_bearer_context_mod_failure_t;
 
 #endif /* E1AP_MESSAGES_TYPES_H */

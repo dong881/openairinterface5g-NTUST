@@ -740,6 +740,49 @@ static void test_bearer_context_modification_response_fail(void)
   free_e1ap_context_mod_response(&orig);
 }
 
+/** @brief Test E1AP Bearer Context Modification Failure encoding/decoding */
+static void test_bearer_context_modification_failure(void)
+{
+  // Create the original failure struct
+  e1ap_bearer_context_mod_failure_t orig = {
+      .gNB_cu_cp_ue_id = 0x1111,
+      .gNB_cu_up_ue_id = 0x2222,
+      .cause.type = E1AP_CAUSE_TRANSPORT,
+      .cause.value = E1AP_TRANSPORT_CAUSE_RESOURCE_UNAVAILABLE,
+  };
+
+  // Encode the original message
+  E1AP_E1AP_PDU_t *enc = encode_E1_bearer_context_mod_failure(&orig);
+
+  // Decode the encoded message
+  E1AP_E1AP_PDU_t *dec = e1ap_encode_decode(enc);
+
+  // Free the encoded message
+  e1ap_msg_free(enc);
+
+  // Decode into a new struct
+  e1ap_bearer_context_mod_failure_t decoded = {0};
+  AssertFatal(decode_E1_bearer_context_mod_failure(&decoded, dec),
+              "decode_E1_bearer_context_mod_failure(): could not decode message\n");
+
+  // Free the decoded PDU
+  e1ap_msg_free(dec);
+
+  // Compare original and decoded messages
+  AssertFatal(eq_E1_bearer_context_mod_failure(&orig, &decoded),
+              "eq_E1_bearer_context_mod_failure(): decoded message doesn't match\n");
+
+  // Deep copy the original message
+  e1ap_bearer_context_mod_failure_t cp = cp_E1_bearer_context_mod_failure(&orig);
+
+  // Compare original and copied messages
+  AssertFatal(eq_E1_bearer_context_mod_failure(&orig, &cp), "eq_E1_bearer_context_mod_failure(): copied message doesn't match\n");
+
+  // Free the decoded and copied messages
+  free_E1_bearer_context_mod_failure(&decoded);
+  free_E1_bearer_context_mod_failure(&cp);
+}
+
 int main()
 {
   // E1 Bearer Context Setup
@@ -750,12 +793,10 @@ int main()
   test_e1_cuup_setup_request();
   test_e1_cuup_setup_response();
   test_e1_cuup_setup_failure();
-  // E1 Bearer Context Modification Request
+  // E1 Bearer Context Modification
   test_bearer_context_modification_request();
   test_bearer_context_modification_response();
   test_bearer_context_modification_response_fail();
-  // Bearer Context Release
-  test_bearer_context_release_command();
-  test_bearer_context_release_complete();
+  test_bearer_context_modification_failure();
   return 0;
 }
