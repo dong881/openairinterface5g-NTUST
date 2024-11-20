@@ -57,7 +57,7 @@ const e1ap_message_processing_t e1ap_message_processing[E1AP_NUM_MSG_HANDLERS][3
      e1apCUCP_handle_BEARER_CONTEXT_SETUP_FAILURE}, /* bearerContextSetup */
     {e1apCUUP_handle_BEARER_CONTEXT_MODIFICATION_REQUEST,
      e1apCUCP_handle_BEARER_CONTEXT_MODIFICATION_RESPONSE,
-     0}, /* bearerContextModification */
+     e1apCUCP_handle_BEARER_CONTEXT_MODIFICATION_FAILURE}, /* bearerContextModification */
     {0, 0, 0}, /* bearerContextModificationRequired */
     {e1apCUUP_handle_BEARER_CONTEXT_RELEASE_COMMAND, e1apCUCP_handle_BEARER_CONTEXT_RELEASE_COMPLETE, 0}, /* bearerContextRelease */
     {0, 0, 0}, /* bearerContextReleaseRequired */
@@ -451,10 +451,11 @@ static int e1apCUUP_send_BEARER_CONTEXT_MODIFICATION_RESPONSE(sctp_assoc_t assoc
   return e1ap_encode_send(UPtype, assoc_id, pdu, 0, __func__);
 }
 
-int e1apCUUP_send_BEARER_CONTEXT_MODIFICATION_FAILURE(instance_t instance)
+static int e1apCUUP_send_BEARER_CONTEXT_MODIFICATION_FAILURE(sctp_assoc_t assoc_id, const e1ap_bearer_context_mod_failure_t *out)
 {
-  AssertFatal(false, "Not implemented yet\n");
-  return -1;
+  E1AP_E1AP_PDU_t *pdu = encode_E1_bearer_context_mod_failure(out);
+  e1ap_encode_send(UPtype, assoc_id, pdu, 0, __func__);
+  return 0;
 }
 
 /**
@@ -490,13 +491,21 @@ int e1apCUCP_handle_BEARER_CONTEXT_MODIFICATION_RESPONSE(sctp_assoc_t assoc_id,
   return 0;
 }
 
-int e1apCUCP_handle_BEARER_CONTEXT_MODIFICATION_FAILURE(instance_t instance,
-                                                        sctp_assoc_t assoc_id,
-                                                        uint32_t stream,
-                                                        E1AP_E1AP_PDU_t *pdu)
+int e1apCUCP_handle_BEARER_CONTEXT_MODIFICATION_FAILURE(sctp_assoc_t assoc_id, e1ap_upcp_inst_t *inst, const E1AP_E1AP_PDU_t *pdu)
 {
-  AssertFatal(false, "Not implemented yet\n");
-  return -1;
+  e1ap_bearer_context_mod_failure_t failure = {0};
+  if (!decode_E1_bearer_context_mod_failure(&failure, pdu)) {
+    free_E1_bearer_context_mod_failure(&failure);
+    return -1;
+  }
+  LOG_E(E1AP,
+        "Received Bearer Context Modification Failure from CU-UP %d with cause value %d \n",
+        failure.gNB_cu_up_ue_id,
+        failure.cause.value);
+  MessageDef *msg = itti_alloc_new_message(TASK_CUUP_E1, 0, E1AP_BEARER_CONTEXT_MODIFICATION_FAIL);
+  E1AP_BEARER_CONTEXT_MODIFICATION_FAIL(msg) = cp_E1_bearer_context_mod_failure(&failure);
+  itti_send_msg_to_task(TASK_RRC_GNB, 0, msg);
+  return 0;
 }
 
 int e1apCUUP_send_BEARER_CONTEXT_MODIFICATION_REQUIRED(instance_t instance)
@@ -926,6 +935,14 @@ void *E1AP_CUUP_task(void *arg)
         AssertFatal(inst, "no E1 instance found for instance %ld\n", myInstance);
         e1apCUUP_send_BEARER_CONTEXT_MODIFICATION_RESPONSE(inst->cuup.assoc_id, resp);
         free_e1ap_context_mod_response(resp);
+      } break;
+
+      case E1AP_BEARER_CONTEXT_MODIFICATION_FAIL: {
+        const e1ap_bearer_context_mod_failure_t *fail = &E1AP_BEARER_CONTEXT_MODIFICATION_FAIL(msg);
+        const e1ap_upcp_inst_t *inst = getCxtE1(myInstance);
+        AssertFatal(inst, "no E1 instance found for instance %ld\n", myInstance);
+        e1apCUUP_send_BEARER_CONTEXT_MODIFICATION_FAILURE(inst->cuup.assoc_id, fail);
+        free_E1_bearer_context_mod_failure(fail);
       } break;
 
       case E1AP_BEARER_CONTEXT_RELEASE_CPLT: {

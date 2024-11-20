@@ -53,6 +53,7 @@
 #define E1AP_BEARER_CONTEXT_SETUP_FAILURE(mSGpTR)         (mSGpTR)->ittiMsg.e1ap_bearer_setup_fail
 #define E1AP_BEARER_CONTEXT_MODIFICATION_REQ(mSGpTR)      (mSGpTR)->ittiMsg.e1ap_bearer_mod_req
 #define E1AP_BEARER_CONTEXT_MODIFICATION_RESP(mSGpTR)     (mSGpTR)->ittiMsg.e1ap_bearer_modif_resp
+#define E1AP_BEARER_CONTEXT_MODIFICATION_FAIL(mSGpTR)     (mSGpTR)->ittiMsg.e1ap_bearer_modif_fail
 #define E1AP_BEARER_CONTEXT_RELEASE_CMD(mSGpTR)           (mSGpTR)->ittiMsg.e1ap_bearer_release_cmd
 #define E1AP_BEARER_CONTEXT_RELEASE_CPLT(mSGpTR)          (mSGpTR)->ittiMsg.e1ap_bearer_release_cplt
 #define E1AP_LOST_CONNECTION(mSGpTR)                      (mSGpTR)->ittiMsg.e1ap_lost_connection

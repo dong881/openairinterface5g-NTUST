@@ -2582,6 +2582,23 @@ void rrc_gNB_process_e1_bearer_context_modif_resp(const e1ap_bearer_modif_resp_t
   }
 }
 
+/** @brief E1AP Bearer Context Modification Failure processing on CU-CP */
+static void rrc_gNB_process_e1_bearer_context_modif_fail(const e1ap_bearer_context_mod_failure_t *fail)
+{
+  gNB_RRC_INST *rrc = RC.nrrrc[0];
+  rrc_gNB_ue_context_t *ue_context_p = rrc_gNB_get_ue_context(rrc, fail->gNB_cu_cp_ue_id);
+  if (ue_context_p == NULL) {
+    LOG_E(NR_RRC, "No UE with CU-CP UE ID %d found (Bearer Context Modification Failure)\n", fail->gNB_cu_cp_ue_id);
+    return;
+  }
+
+  LOG_W(NR_RRC,
+        "Bearer Context Modification Failure received for UE ID %d (CU-UP ID %d), cause: %d\n",
+        fail->gNB_cu_cp_ue_id,
+        fail->gNB_cu_up_ue_id,
+        fail->cause.value);
+}
+
 /**
  * @brief E1AP Bearer Context Release processing
  */
@@ -2884,6 +2901,10 @@ void *rrc_gnb_task(void *args_p) {
       case E1AP_BEARER_CONTEXT_MODIFICATION_RESP:
         rrc_gNB_process_e1_bearer_context_modif_resp(&E1AP_BEARER_CONTEXT_MODIFICATION_RESP(msg_p));
         free_e1ap_context_mod_response(&E1AP_BEARER_CONTEXT_MODIFICATION_RESP(msg_p));
+        break;
+
+      case E1AP_BEARER_CONTEXT_MODIFICATION_FAIL:
+        rrc_gNB_process_e1_bearer_context_modif_fail(&E1AP_BEARER_CONTEXT_MODIFICATION_FAIL(msg_p));
         break;
 
       case E1AP_BEARER_CONTEXT_RELEASE_CPLT:
