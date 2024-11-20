@@ -344,6 +344,7 @@ typedef enum qos_flow_mapping_indication_e {
   QF_BOTH
 } qos_flow_mapping_indication_t;
 
+// 9.3.1.12 QoS Flow List
 typedef struct qos_flow_list_s {
   long qfi; // qos flow identifier
   qos_flow_mapping_indication_t *indication;
@@ -517,6 +518,12 @@ typedef struct e1ap_bearer_release_cplt_s {
   uint32_t gNB_cu_up_ue_id;
 } e1ap_bearer_release_cplt_t;
 
+// 9.3.1.45 Flow Failed List
+typedef struct qos_flow_failed_s {
+  long qfi;
+  e1ap_cause_t cause;
+} qos_flow_failed_t;
+
 typedef struct DRB_nGRAN_setup_s {
   // DRB ID (M)
   long id;
@@ -525,6 +532,9 @@ typedef struct DRB_nGRAN_setup_s {
   // Flow Setup List (M)
   int numQosFlowSetup;
   qos_flow_list_t qosFlows[E1AP_MAX_NUM_QOS_FLOWS];
+  // Flow Failed List (O)
+  int numQosFlowFailed;
+  qos_flow_failed_t qosFlowsFailed[E1AP_MAX_NUM_QOS_FLOWS];
 } DRB_nGRAN_setup_t;
 
 /* DRB Modified Item */
@@ -537,6 +547,9 @@ typedef struct DRB_nGRAN_modified_s {
   // Flow Setup List (O)
   int numQosFlowSetup;
   qos_flow_list_t qosFlows[E1AP_MAX_NUM_QOS_FLOWS];
+  // Flow Failed List (O)
+  int numQosFlowFailed;
+  qos_flow_failed_t qosFlowsFailed[E1AP_MAX_NUM_QOS_FLOWS];
   // Old QoS Flow List (O)
   int numOldQosFlow;
   qos_flow_list_t oldQosFlows[E1AP_MAX_NUM_QOS_FLOWS];
@@ -569,9 +582,15 @@ typedef struct pdu_session_modif_s {
   // DRB Modified List (O)
   int numDRBModified;
   DRB_nGRAN_modified_t DRBnGRanModList[E1AP_MAX_NUM_DRBS];
+  // DRB Failed to Modify List (O)
+  int numDRBFailedToMod;
+  DRB_nGRAN_failed_t DRBnGRanFailedModList[E1AP_MAX_NUM_DRBS];
   // DRB Setup List (O)
   int numDRBSetup;
   DRB_nGRAN_setup_t DRBnGRanSetupList[E1AP_MAX_NUM_DRBS];
+  // DRB Failed List (O)
+  int numDRBFailed;
+  DRB_nGRAN_failed_t DRBnGRanFailedList[E1AP_MAX_NUM_DRBS];
 } pdu_session_modif_t;
 
 typedef struct e1ap_bearer_setup_resp_s {

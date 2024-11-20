@@ -41,6 +41,11 @@
 #include "E1AP_Cell-Group-Information-Item.h"
 #include "E1AP_Dynamic5QIDescriptor.h"
 #include "E1AP_Non-Dynamic5QIDescriptor.h"
+#include "E1AP_SecurityResult.h"
+#include "E1AP_Data-Forwarding-Information.h"
+#include "E1AP_PDCP-SN-Status-Information.h"
+#include "E1AP_PDCP-Count.h"
+
 // E1 Bearer Context Setup Request
 #include "E1AP_BearerContextSetupRequest.h"
 #include "E1AP_GNB-CU-CP-E1SetupRequest.h"
@@ -73,5 +78,13 @@
 #include "E1AP_DRB-To-Modify-Item-NG-RAN.h"
 #include "E1AP_PDU-Session-Resource-To-Setup-Mod-Item.h"
 #include "E1AP_DRB-To-Setup-Mod-Item-NG-RAN.h"
+// E1 Bearer Context Modification Response
+#include "E1AP_PDU-Session-Resource-Modified-Item.h"
+#include "E1AP_DRB-Modified-List-NG-RAN.h"
+#include "E1AP_DRB-Modified-Item-NG-RAN.h"
+#include "E1AP_DRB-Failed-To-Modify-List-NG-RAN.h"
+#include "E1AP_QoS-Flow-Failed-List.h"
+#include "E1AP_QoS-Flow-Failed-Item.h"
+#include "E1AP_DRB-Failed-To-Modify-Item-NG-RAN.h"
 
 #endif /* E1AP_LIB_INCLUDES_H_ */
