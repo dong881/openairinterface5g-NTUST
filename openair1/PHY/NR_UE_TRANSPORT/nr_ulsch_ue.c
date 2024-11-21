@@ -828,25 +828,17 @@ uint8_t nr_ue_pusch_common_procedures(PHY_VARS_NR_UE *UE,
                                       const NR_DL_FRAME_PARMS *frame_parms,
                                       const uint8_t n_antenna_ports,
                                       c16_t **txdataF,
+                                      c16_t **txdata,
                                       uint32_t linktype,
                                       bool was_symbol_used[NR_NUMBER_OF_SYMBOLS_PER_SLOT])
 {
-  const int tx_offset = frame_parms->get_samples_slot_timestamp(slot, frame_parms, 0);
-
   int N_RB = (linktype == link_type_sl) ? frame_parms->N_RB_SL : frame_parms->N_RB_UL;
 
-  c16_t **txdata = UE->common_vars.txData;
   for (int i = 0; i < NR_NUMBER_OF_SYMBOLS_PER_SLOT; i++) {
     if (was_symbol_used[i] == false)
       continue;
-    for(int ap = 0; ap < n_antenna_ports; ap++) {
-      apply_nr_rotation_TX(frame_parms,
-                          txdataF[ap],
-                          frame_parms->symbol_rotation[linktype],
-                          slot,
-                          N_RB,
-                          i,
-                          1);
+    for (int ap = 0; ap < n_antenna_ports; ap++) {
+      apply_nr_rotation_TX(frame_parms, txdataF[ap], frame_parms->symbol_rotation[linktype], slot, N_RB, i, 1);
     }
   }
 
@@ -855,25 +847,20 @@ uint8_t nr_ue_pusch_common_procedures(PHY_VARS_NR_UE *UE,
     if (frame_parms->Ncp == 1) { // extended cyclic prefix
       for (int i = 0; i < NR_NUMBER_OF_SYMBOLS_PER_SLOT_EXTENDED_CP; i++) {
         if (was_symbol_used[i] == false) {
-          memset(&txdata[ap][tx_offset + (frame_parms->ofdm_symbol_size + frame_parms->nb_prefix_samples) * i],
+          memset(&txdata[ap][(frame_parms->ofdm_symbol_size + frame_parms->nb_prefix_samples) * i],
                  0,
                  (frame_parms->nb_prefix_samples + frame_parms->ofdm_symbol_size) * sizeof(int32_t));
           continue;
         }
         PHY_ofdm_mod((int *)&txdataF[ap][frame_parms->ofdm_symbol_size * i],
-                    (int *)&txdata[ap][tx_offset + frame_parms->ofdm_symbol_size * i],
-                    frame_parms->ofdm_symbol_size,
-                    1,
-                    frame_parms->nb_prefix_samples,
-                    CYCLIC_PREFIX);
+                     (int *)&txdata[ap][frame_parms->ofdm_symbol_size * i],
+                     frame_parms->ofdm_symbol_size,
+                     1,
+                     frame_parms->nb_prefix_samples,
+                     CYCLIC_PREFIX);
       }
     } else { // normal cyclic prefix
-      nr_normal_prefix_mod(txdataF[ap],
-                           &txdata[ap][tx_offset],
-                           NR_NUMBER_OF_SYMBOLS_PER_SLOT,
-                           frame_parms,
-                           slot,
-                           was_symbol_used);
+      nr_normal_prefix_mod(txdataF[ap], txdata[ap], NR_NUMBER_OF_SYMBOLS_PER_SLOT, frame_parms, slot, was_symbol_used);
     }
   }
 
