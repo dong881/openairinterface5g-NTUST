@@ -52,8 +52,8 @@
 // - idft for short sequence assumes we are transmitting starting in symbol 0 of a PRACH slot
 // - Assumes that PRACH SCS is same as PUSCH SCS @ 30 kHz, take values for formats 0-2 and adjust for others below
 // - Preamble index different from 0 is not detected by gNB
-int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t slot){
-
+int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t slot, c16_t **txData)
+{
   NR_DL_FRAME_PARMS *fp=&ue->frame_parms;
   fapi_nr_config_request_t *nrUE_config = &ue->nrUE_config;
   fapi_nr_ul_config_prach_pdu *prach_pdu = &ue->prach_vars[gNB_id]->prach_pdu;
@@ -66,7 +66,7 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
   c16_t prachF_tmp[(4688 + 4 * 24576) * 4] __attribute__((aligned(32))) = {0};
 
   int Ncp = 0;
-  int prach_start, prach_sequence_length, prach_len, dftlen, mu, n_ra_prb, k, prachStartSymbol, sample_offset_slot;
+  int prach_start, prach_sequence_length, prach_len, dftlen, mu, n_ra_prb, k, prachStartSymbol;
 
   fd_occasion             = prach_pdu->num_ra;
   prach_len               = 0;
@@ -98,22 +98,21 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
   }
 
   if (prachStartSymbol == 0) {
-    sample_offset_slot = 0;
+    prach_start = 0;
   } else if (fp->slots_per_subframe == 1) {
     if (prachStartSymbol <= 7)
-      sample_offset_slot = (fp->ofdm_symbol_size + fp->nb_prefix_samples) * (prachStartSymbol - 1) + (fp->ofdm_symbol_size + fp->nb_prefix_samples0);
+      prach_start =
+          (fp->ofdm_symbol_size + fp->nb_prefix_samples) * (prachStartSymbol - 1) + (fp->ofdm_symbol_size + fp->nb_prefix_samples0);
     else
-      sample_offset_slot = (fp->ofdm_symbol_size + fp->nb_prefix_samples) * (prachStartSymbol - 2) + (fp->ofdm_symbol_size + fp->nb_prefix_samples0) * 2;
+      prach_start = (fp->ofdm_symbol_size + fp->nb_prefix_samples) * (prachStartSymbol - 2)
+                    + (fp->ofdm_symbol_size + fp->nb_prefix_samples0) * 2;
   } else {
     if (slot % (fp->slots_per_subframe / 2) == 0)
-      sample_offset_slot = (fp->ofdm_symbol_size + fp->nb_prefix_samples) * (prachStartSymbol - 1) + (fp->ofdm_symbol_size + fp->nb_prefix_samples0);
+      prach_start =
+          (fp->ofdm_symbol_size + fp->nb_prefix_samples) * (prachStartSymbol - 1) + (fp->ofdm_symbol_size + fp->nb_prefix_samples0);
     else
-      sample_offset_slot = (fp->ofdm_symbol_size + fp->nb_prefix_samples) * prachStartSymbol;
+      prach_start = (fp->ofdm_symbol_size + fp->nb_prefix_samples) * prachStartSymbol;
   }
-
-  prach_start = fp->get_samples_slot_timestamp(slot, fp, 0) + sample_offset_slot;
-
-  //printf("prachstartsymbold %d, sample_offset_slot %d, prach_start %d\n",prachStartSymbol, sample_offset_slot, prach_start);
 
   // First compute physical root sequence
   /************************************************************************
@@ -506,13 +505,12 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
   LOG_I(PHY, "PRACH [UE %d] N_RB_UL %d prach_start %d, prach_len %d\n", Mod_id, fp->N_RB_UL, prach_start, prach_len);
 #endif
 
-  memcpy(ue->common_vars.txData[0] + prach_start, prach, sizeof(c16_t) * prach_len);
+  memcpy(txData[0] + prach_start, prach, sizeof(c16_t) * prach_len);
 
 #ifdef PRACH_WRITE_OUTPUT_DEBUG
   LOG_M("prach_tx0.m", "prachtx0", prach + (Ncp << 1), prach_len - Ncp, 1, 1);
-  LOG_M("Prach_txsig.m", "txs", (int16_t *)(&ue->common_vars.txdata[0][prach_start]), 2 * (prach_start + prach_len), 1, 1)
+  LOG_M("Prach_txsig.m", "txs", (int16_t *)(&txdata[0][prach_start]), 2 * (prach_start + prach_len), 1, 1)
 #endif
 
   return signal_energy((int *)prach, 256);
 }
-
