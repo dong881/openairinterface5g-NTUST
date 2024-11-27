@@ -96,6 +96,10 @@ typedef struct {
   uint8_t *registration_request_buf;
   uint32_t registration_request_len;
   instance_t UE_id;
+  /* RRC Inactive Indication */
+  bool is_rrc_inactive;
+  /* Timer T3512 */
+  int t3512;
 } nr_ue_nas_t;
 
 nr_ue_nas_t *get_ue_nas_info(module_id_t module_id);
