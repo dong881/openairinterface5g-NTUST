@@ -586,9 +586,6 @@ void processSlotTX(void *arg)
   c16_t *txp[fp->nb_antennas_tx];
   for (int i = 0; i < fp->nb_antennas_tx; i++) {
     txp[i] = UE->common_vars.txData[i] + fp->get_samples_slot_timestamp(proc->nr_slot_tx, fp, 0);
-    // We should not need to set it to 0
-    // but in mixed slots, in TDD continuous tx (should not exist), ... we don't know the parts to ignore
-    memset(txp[i], 0, fp->get_samples_per_slot(proc->nr_slot_tx, fp) * sizeof(**txp));
   }
 
   if (proc->tx_slot_type == NR_UPLINK_SLOT || proc->tx_slot_type == NR_MIXED_SLOT) {
