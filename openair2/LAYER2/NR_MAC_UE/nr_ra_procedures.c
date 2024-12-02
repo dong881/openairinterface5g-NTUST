@@ -418,6 +418,9 @@ static void ra_resource_selection(NR_UE_MAC_INST_t *mac)
   // setting the RA ssb value as the progressive number of SSB transmitted
   // non-transmitted SSBs are not taken into account
   ra->ra_ssb = mac->ssb_list.nb_ssb_per_index[ssb];
+
+  // TODO not sure how to handle the RO mask when it is limiting the RO occasions
+  AssertFatal(ra->ro_mask_index <= 0, "Handling of RACH occasion masking indication not implemented\n");
 }
 
 static bool check_mixed_slot_prach(frame_structure_t *fs, int slot, int start_prach, int end_prach)
