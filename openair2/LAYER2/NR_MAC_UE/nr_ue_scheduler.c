@@ -2083,10 +2083,7 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
         return;
       }
 
-      uint16_t format = prach_occasion_info->format;
-      uint16_t format0 = format & 0xff;        // single PRACH format
-      uint16_t format1 = (format >> 8) & 0xff; // dual PRACH format
-
+      int format = prach_occasion_info->format;
       fapi_nr_prach_config_t *prach_config = &mac->phy_config.config_req.prach_config;
       pdu->prach_config_pdu = (fapi_nr_ul_config_prach_pdu){
           .phys_cell_id = mac->physCellId,
@@ -2094,7 +2091,7 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
           .prach_slot = prach_occasion_info->slot,
           .prach_start_symbol = prach_occasion_info->start_symbol,
           .num_ra = prach_occasion_info->fdm,
-          .num_cs = get_NCS(ra->zeroCorrelationZoneConfig, format0, ra->restricted_set_config),
+          .num_cs = get_NCS(ra->zeroCorrelationZoneConfig, format, ra->restricted_set_config),
           .root_seq_id = prach_config->num_prach_fd_occasions_list[prach_occasion_info->fdm].prach_root_sequence_index,
           .restricted_set = prach_config->restricted_set_config,
           .freq_msg1 = prach_config->num_prach_fd_occasions_list[prach_occasion_info->fdm].k1};
@@ -2106,72 +2103,46 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
             pdu->prach_config_pdu.prach_start_symbol,
             pdu->prach_config_pdu.num_ra);
 
-      if (format1 != 0xff) {
-        switch (format0) { // dual PRACH format
-          case 0xa1:
-            pdu->prach_config_pdu.prach_format = 11;
-            break;
-          case 0xa2:
-            pdu->prach_config_pdu.prach_format = 12;
-            break;
-          case 0xa3:
-            pdu->prach_config_pdu.prach_format = 13;
-            break;
-          default:
-            AssertFatal(1 == 0, "Only formats A1/B1 A2/B2 A3/B3 are valid for dual format");
-        }
-      } else {
-        switch (format0) { // single PRACH format
-          case 0:
-            pdu->prach_config_pdu.prach_format = 0;
-            break;
-          case 1:
-            pdu->prach_config_pdu.prach_format = 1;
-            break;
-          case 2:
-            pdu->prach_config_pdu.prach_format = 2;
-            break;
-          case 3:
-            pdu->prach_config_pdu.prach_format = 3;
-            break;
-          case 0xa1:
-            pdu->prach_config_pdu.prach_format = 4;
-            break;
-          case 0xa2:
-            pdu->prach_config_pdu.prach_format = 5;
-            break;
-          case 0xa3:
-            pdu->prach_config_pdu.prach_format = 6;
-            break;
-          case 0xb1:
-            pdu->prach_config_pdu.prach_format = 7;
-            break;
-          case 0xb4:
-            pdu->prach_config_pdu.prach_format = 8;
-            break;
-          case 0xc0:
-            pdu->prach_config_pdu.prach_format = 9;
-            break;
-          case 0xc2:
-            pdu->prach_config_pdu.prach_format = 10;
-            break;
-          default:
-            AssertFatal(1 == 0, "Invalid PRACH format");
-        }
-      } // if format1
+      switch (format) { // single PRACH format
+        case 0:
+          pdu->prach_config_pdu.prach_format = 0;
+          break;
+        case 1:
+          pdu->prach_config_pdu.prach_format = 1;
+          break;
+        case 2:
+          pdu->prach_config_pdu.prach_format = 2;
+          break;
+        case 3:
+          pdu->prach_config_pdu.prach_format = 3;
+          break;
+        case 0xa1:
+          pdu->prach_config_pdu.prach_format = 4;
+          break;
+        case 0xa2:
+          pdu->prach_config_pdu.prach_format = 5;
+          break;
+        case 0xa3:
+          pdu->prach_config_pdu.prach_format = 6;
+          break;
+        case 0xb1:
+          pdu->prach_config_pdu.prach_format = 7;
+          break;
+        case 0xb4:
+          pdu->prach_config_pdu.prach_format = 8;
+          break;
+        case 0xc0:
+          pdu->prach_config_pdu.prach_format = 9;
+          break;
+        case 0xc2:
+          pdu->prach_config_pdu.prach_format = 10;
+          break;
+        default:
+          AssertFatal(false, "Invalid PRACH format");
+      }
 
       pdu->prach_config_pdu.ra_PreambleIndex = ra->ra_PreambleIndex;
       pdu->prach_config_pdu.prach_tx_power = get_prach_tx_power(mac);
-      unsigned int slot_RA;
-      // 3GPP TS 38.321 Section 5.1.3 says t_id for RA-RNTI depends on mu as specified in clause 5.3.2 in TS 38.211
-      // so mu = 0 for prach format < 4.
-      if (pdu->prach_config_pdu.prach_format < 4) {
-        unsigned int slots_per_sf = (1 << mac->current_UL_BWP->scs);
-        slot_RA = pdu->prach_config_pdu.prach_slot / slots_per_sf;
-      } else {
-        slot_RA = pdu->prach_config_pdu.prach_slot;
-      }
-      mac->ra.ra_rnti = nr_get_ra_rnti(pdu->prach_config_pdu.prach_start_symbol, slot_RA, pdu->prach_config_pdu.num_ra, 0);
       release_ul_config(pdu, false);
       nr_scheduled_response_t scheduled_response = {.ul_config = mac->ul_config_request + slotP,
                                                     .mac = mac,
@@ -2184,7 +2155,7 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
         T_INT(pdu->prach_config_pdu.ra_PreambleIndex), T_INT(pdu->prach_config_pdu.prach_tx_power));
 
       if (ra->ra_type == RA_4_STEP) {
-        nr_Msg1_transmitted(mac);
+        ra->ra_state = nrRA_WAIT_RAR;
       } else if (ra->ra_type == RA_2_STEP) {
         NR_MsgA_PUSCH_Resource_r16_t *msgA_PUSCH_Resource =
             mac->current_UL_BWP->msgA_ConfigCommon_r16->msgA_PUSCH_Config_r16->msgA_PUSCH_ResourceGroupA_r16;
@@ -2217,9 +2188,6 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
           remove_ul_config_last_item(pdu);
         release_ul_config(pdu, false);
 
-        // Compute MsgB RNTI
-        ra->MsgB_rnti =
-            nr_get_MsgB_rnti(prach_occasion_info->start_symbol, slot_RA, prach_occasion_info->fdm, 0);
         LOG_D(NR_MAC, "ra->ra_state %s\n", nrra_ue_text[ra->ra_state]);
         ra->ra_state = nrRA_WAIT_MSGB;
         ra->t_crnti = 0;
