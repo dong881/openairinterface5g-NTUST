@@ -453,6 +453,170 @@ static void test_bearer_context_modification_request(void)
   free_e1ap_context_mod_request(&orig);
 }
 
+const e1ap_cause_t dummy_cause = {
+  .value = E1AP_RADIO_CAUSE_UNSPECIFIED,
+  .type = E1AP_CAUSE_RADIO_NETWORK,
+};
+
+const DRB_nGRAN_failed_t dummy_drb_failed = {
+    .id = 2,
+    .cause.value = E1AP_RADIO_CAUSE_UNKNOWN_DRB_ID,
+    .cause.type = E1AP_CAUSE_RADIO_NETWORK,
+};
+
+/**
+ * @brief Test E1AP Bearer Context Modification Response encoding/decoding
+ */
+static void test_bearer_context_modification_response(void)
+{
+  // DRB Modified List
+  DRB_nGRAN_modified_t drb_mod = {
+      .id = 1,
+      .numQosFlowSetup = 1,
+      .qosFlows[0].qfi = 1,
+  };
+
+  // DRB Setup List
+  DRB_nGRAN_setup_t setup = {
+      .id = 1,
+      .numUpParam = 1,
+      .UpParamList[0].cell_group_id = MCG,
+      .UpParamList[0].tl_info = create_up_tl_info(),
+      .numQosFlowSetup = 1,
+      .qosFlows[0].qfi = 1,
+      .numQosFlowFailed = 1,
+      .qosFlowsFailed[0].qfi = 9,
+      .qosFlowsFailed[0].cause = dummy_cause,
+  };
+
+  // PDU Session Modified
+  pdu_session_modif_t pdu_mod = {
+      .id = 1,
+      .integrityProtectionIndication = malloc_or_fail(sizeof(*pdu_mod.integrityProtectionIndication)),
+      .confidentialityProtectionIndication = malloc_or_fail(sizeof(*pdu_mod.confidentialityProtectionIndication)),
+      .ng_DL_UP_TL_info = malloc_or_fail(sizeof(*pdu_mod.ng_DL_UP_TL_info)),
+      .numDRBModified = 1,
+      .DRBnGRanModList[0] = drb_mod,
+      .numDRBFailedToMod = 1,
+      .DRBnGRanFailedModList[0] = dummy_drb_failed,
+      .numDRBSetup = 1,
+      .DRBnGRanSetupList[0] = setup,
+      .numDRBFailed = 1,
+      .DRBnGRanFailedList[0] = dummy_drb_failed,
+  };
+
+  *pdu_mod.integrityProtectionIndication = SECURITY_PREFERRED;
+  *pdu_mod.confidentialityProtectionIndication = SECURITY_PREFERRED;
+  *pdu_mod.ng_DL_UP_TL_info = create_up_tl_info();
+
+  e1ap_bearer_modif_resp_t orig = {
+      .gNB_cu_cp_ue_id = 0x1234,
+      .gNB_cu_up_ue_id = 0x5678,
+      .numPDUSessionsMod = 1,
+      .pduSessionMod[0] = pdu_mod,
+  };
+
+  // Encode the original message
+  E1AP_E1AP_PDU_t *enc = encode_E1_bearer_context_mod_response(&orig);
+
+  // Decode the encoded message
+  E1AP_E1AP_PDU_t *dec = e1ap_encode_decode(enc);
+
+  // Free the encoded message
+  e1ap_msg_free(enc);
+
+  // Decode the message into a new struct
+  e1ap_bearer_modif_resp_t decoded = {0};
+  bool ret = decode_E1_bearer_context_mod_response(&decoded, dec);
+  AssertFatal(ret, "decode_E1_bearer_context_mod_response(): could not decode message\n");
+
+  // Free the decoded E1AP message
+  e1ap_msg_free(dec);
+
+  // Compare the original and decoded structs
+  ret = eq_bearer_context_mod_response(&orig, &decoded);
+  AssertFatal(ret, "eq_bearer_context_mod_response(): decoded message doesn't match\n");
+
+  // Free the memory for the decoded message
+  free_e1ap_context_mod_response(&decoded);
+
+  // Deep copy the original message
+  e1ap_bearer_modif_resp_t cp = cp_bearer_context_mod_response(&orig);
+
+  // Verify the deep copy matches the original
+  ret = eq_bearer_context_mod_response(&orig, &cp);
+  AssertFatal(ret, "eq_bearer_context_mod_response(): copied message doesn't match\n");
+
+  // Free the copied and original message
+  free_e1ap_context_mod_response(&cp);
+  free_e1ap_context_mod_response(&orig);
+}
+
+/** @brief Test E1AP Bearer Context Modification Response encoding/decoding
+ *         with failed DRBs (setup and modification) */
+static void test_bearer_context_modification_response_fail(void)
+{
+  const e1ap_cause_t cause = {
+      .value = E1AP_PROTOCOL_CAUSE_SEMANTIC_ERROR,
+      .type = E1AP_CAUSE_PROTOCOL,
+  };
+
+  DRB_nGRAN_failed_t failed_setup_drb = {
+      .id = 5,
+      .cause = cause,
+  };
+
+  DRB_nGRAN_failed_t failed_mod_drb = {
+      .id = 6,
+      .cause = cause,
+  };
+
+  pdu_session_modif_t pdu_mod = {
+      .id = 2,
+      .numDRBModified = 0,
+      .numDRBFailedToMod = 1,
+      .DRBnGRanFailedModList[0] = failed_mod_drb,
+      .numDRBSetup = 0,
+      .numDRBFailed = 1,
+      .DRBnGRanFailedList[0] = failed_setup_drb,
+      .integrityProtectionIndication = NULL,
+      .confidentialityProtectionIndication = NULL,
+      .ng_DL_UP_TL_info = NULL,
+  };
+
+  e1ap_bearer_modif_resp_t orig = {
+      .gNB_cu_cp_ue_id = 0xABCD,
+      .gNB_cu_up_ue_id = 0xDCBA,
+      .numPDUSessionsMod = 1,
+      .pduSessionMod[0] = pdu_mod,
+  };
+
+  // Encode the original message
+  E1AP_E1AP_PDU_t *enc = encode_E1_bearer_context_mod_response(&orig);
+
+  // Decode the encoded message
+  E1AP_E1AP_PDU_t *dec = e1ap_encode_decode(enc);
+
+  // Free the encoded message
+  e1ap_msg_free(enc);
+
+  // Decode into a new struct
+  e1ap_bearer_modif_resp_t decoded = {0};
+  bool ret = decode_E1_bearer_context_mod_response(&decoded, dec);
+  AssertFatal(ret, "decode_E1_bearer_context_mod_response(): could not decode failed DRB setup+mod case\n");
+
+  // Free the decoded E1AP message
+  e1ap_msg_free(dec);
+
+  // Compare the original and decoded structs
+  ret = eq_bearer_context_mod_response(&orig, &decoded);
+  AssertFatal(ret, "eq_bearer_context_mod_response(): failed DRB setup+mod case mismatch\n");
+
+  // Free all memory
+  free_e1ap_context_mod_response(&decoded);
+  free_e1ap_context_mod_response(&orig);
+}
+
 int main()
 {
   // E1 Bearer Context Setup
@@ -464,5 +628,7 @@ int main()
   test_e1_cuup_setup_failure();
   // E1 Bearer Context Modification Request
   test_bearer_context_modification_request();
+  test_bearer_context_modification_response();
+  test_bearer_context_modification_response_fail();
   return 0;
 }
