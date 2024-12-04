@@ -390,8 +390,7 @@ static bool is_my_dci(NR_UE_MAC_INST_t *mac, nfapi_nr_dl_dci_pdu_t *received_pdu
      already. Only once the RA procedure succeeds is the CRNTI value updated
      to the TC_RNTI. */
   if (get_softmodem_params()->nsa) {
-    if (received_pdu->RNTI != mac->crnti &&
-        (received_pdu->RNTI != mac->ra.ra_rnti || mac->ra.RA_RAPID_found))
+    if (received_pdu->RNTI != mac->crnti && (received_pdu->RNTI != mac->ra.ra_rnti))
       return false;
   }
   if (IS_SA_MODE(get_softmodem_params())) {
@@ -1292,11 +1291,11 @@ static uint32_t nr_ue_dl_processing(NR_UE_MAC_INST_t *mac, nr_downlink_indicatio
           ret_mask |= (handle_dlsch(mac, dl_info, i)) << FAPI_NR_RX_PDU_TYPE_DLSCH;
           break;
         case FAPI_NR_RX_PDU_TYPE_RAR:
-          ret_mask |= (handle_dlsch(mac, dl_info, i)) << FAPI_NR_RX_PDU_TYPE_RAR;
           if (!dl_info->rx_ind->rx_indication_body[i].pdsch_pdu.ack_nack)
             LOG_W(PHY, "Received a RAR-Msg2 but LDPC decode failed\n");
           else
             LOG_I(PHY, "RAR-Msg2 decoded\n");
+          ret_mask |= (handle_dlsch(mac, dl_info, i)) << FAPI_NR_RX_PDU_TYPE_RAR;
           break;
         case FAPI_NR_CSIRS_IND:
           ret_mask |= (handle_csirs_measurements(mac,

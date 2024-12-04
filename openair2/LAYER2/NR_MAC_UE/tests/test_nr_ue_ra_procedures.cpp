@@ -101,6 +101,7 @@ TEST(test_init_ra, four_step_cbra)
   mac.p_Max = 23;
   mac.nr_band = 78;
   mac.frame_structure.frame_type = TDD;
+  mac.frame_structure.numb_slots_frame = 20;
   mac.frequency_range = FR1;
   mac.first_sync_frame = 0;
   int frame = 151;
@@ -135,6 +136,7 @@ TEST(test_init_ra, four_step_cfra)
   mac.p_Max = 23;
   mac.nr_band = 78;
   mac.frame_structure.frame_type = TDD;
+  mac.frame_structure.numb_slots_frame = 20;
   mac.frequency_range = FR1;
   mac.first_sync_frame = 0;
   int frame = 151;
