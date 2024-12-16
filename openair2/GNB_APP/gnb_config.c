@@ -2131,18 +2131,11 @@ gNB_RRC_INST *RCconfig_NRRRC()
   return rrc;
 }
 
-int RCconfig_NR_NG(MessageDef *msg_p, uint32_t i) {
-
+int RCconfig_NR_NG(MessageDef *msg_p, uint32_t i)
+{
   int               j,k = 0;
   int               gnb_id;
-  int32_t           my_int;
-  const char*       active_gnb[MAX_GNB];
 
-  // for no gcc warnings 
-
-  (void)  my_int;
-
-  memset((char*)active_gnb,0,MAX_GNB* sizeof(char*));
   char*             gnb_ipv4_address_for_NGU      = NULL;
   uint32_t          gnb_port_for_NGU              = 0;
   char*             gnb_ipv4_address_for_S1U      = NULL;
