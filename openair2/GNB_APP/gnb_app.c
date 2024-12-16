@@ -181,43 +181,6 @@ void *gNB_app_task(void *args_p)
     case NGAP_REGISTER_GNB_CNF:
       LOG_I(GNB_APP, "[gNB %ld] Received %s: associated AMF %d\n", instance, msg_name,
             NGAP_REGISTER_GNB_CNF(msg_p).nb_amf);
-/*
-      DevAssert(register_gnb_pending > 0);
-      register_gnb_pending--;
-
-      // Check if at least gNB is registered with one AMF 
-      if (NGAP_REGISTER_GNB_CNF(msg_p).nb_amf > 0) {
-        registered_gnb++;
-      }
-
-      // Check if all register gNB requests have been processed 
-      if (register_gnb_pending == 0) {
-        if (registered_gnb == gnb_nb) {
-          // If all gNB are registered, start L2L1 task 
-          MessageDef *msg_init_p;
-
-          msg_init_p = itti_alloc_new_message (TASK_GNB_APP, 0, INITIALIZE_MESSAGE);
-          itti_send_msg_to_task (TASK_L2L1, INSTANCE_DEFAULT, msg_init_p);
-
-        } else {
-          uint32_t not_associated = gnb_nb - registered_gnb;
-
-          LOG_W(GNB_APP, " %d gNB %s not associated with a AMF, retrying registration in %d seconds ...\n",
-                not_associated, not_associated > 1 ? "are" : "is", GNB_REGISTER_RETRY_DELAY);
-
-          // Restart the gNB registration process in GNB_REGISTER_RETRY_DELAY seconds 
-          if (timer_setup (GNB_REGISTER_RETRY_DELAY, 0, TASK_GNB_APP, INSTANCE_DEFAULT, TIMER_ONE_SHOT,
-                           NULL, &gnb_register_retry_timer_id) < 0) {
-            LOG_E(GNB_APP, " Can not start gNB register retry timer, use \"sleep\" instead!\n");
-
-            sleep(GNB_REGISTER_RETRY_DELAY);
-            // Restart the registration process 
-            registered_gnb = 0;
-            register_gnb_pending = gNB_app_register (gnb_id_start, gnb_id_end);//, gnb_properties_p);
-          }
-        }
-      }
-*/
       break;
 
     case F1AP_SETUP_RESP:
@@ -247,13 +210,6 @@ void *gNB_app_task(void *args_p)
 
     case TIMER_HAS_EXPIRED:
       LOG_I(GNB_APP, " Received %s: timer_id %ld\n", msg_name, TIMER_HAS_EXPIRED(msg_p).timer_id);
-
-      //if (TIMER_HAS_EXPIRED (msg_p).timer_id == gnb_register_retry_timer_id) {
-        /* Restart the registration process */
-      //  registered_gnb = 0;
-      //  register_gnb_pending = gNB_app_register(gnb_id_start, gnb_id_end);//, gnb_properties_p);
-      //}
-
       break;
 
     default:
