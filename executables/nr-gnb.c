@@ -31,54 +31,45 @@
  */
 
 #define _GNU_SOURCE
-#include <pthread.h>
+#undef MALLOC //there are two conflicting definitions, so we better make sure we don't use it at all
 
-#include "assertions.h"
-#include <common/utils/LOG/log.h>
-#include <common/utils/system.h>
-
-#include "PHY/types.h"
-
-#include "PHY/INIT/nr_phy_init.h"
-
-#include "PHY/defs_gNB.h"
-#include "SCHED_NR/sched_nr.h"
-#include "SCHED_NR/fapi_nr_l1.h"
-#include "PHY/NR_TRANSPORT/nr_transport_proto.h"
-#include "PHY/MODULATION/nr_modulation.h"
-#include "PHY/NR_TRANSPORT/nr_dlsch.h"
-#include "openair2/NR_PHY_INTERFACE/nr_sched_response.h"
-#include "LAYER2/NR_MAC_gNB/mac_proto.h"
-
-#include "radio/COMMON/common_lib.h"
-#include "PHY/LTE_TRANSPORT/if4_tools.h"
-
-#include "PHY/phy_extern.h"
-
-#include "common/ran_context.h"
-#include "RRC/LTE/rrc_extern.h"
-#include "PHY_INTERFACE/phy_interface.h"
+#include <fcntl.h> // for SEEK_SET
+#include <pthread.h> // for pthread_join
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
 #include "common/utils/LOG/log.h"
-#include "UTIL/OTG/otg_tx.h"
-#include "UTIL/OTG/otg_externs.h"
-#include "common/utils/LOG/vcd_signal_dumper.h"
-#include "UTIL/OPT/opt.h"
-#include "gnb_paramdef.h"
-
-#include <executables/softmodem-common.h>
-
-#include "T.h"
-#include "nfapi/oai_integration/vendor_ext.h"
+#include "common/utils/system.h"
+#include "PHY/NR_ESTIMATION/nr_ul_estimation.h"
+#include "openair1/PHY/NR_TRANSPORT/nr_dlsch.h"
+#include "openair1/PHY/NR_TRANSPORT/nr_ulsch.h"
+#include "NR_PHY_INTERFACE/NR_IF_Module.h"
+#include "PHY/INIT/nr_phy_init.h"
+#include "PHY/MODULATION/nr_modulation.h"
+#include "PHY/NR_TRANSPORT/nr_transport_proto.h"
+#include "PHY/TOOLS/tools_defs.h"
+#include "PHY/defs_RU.h"
+#include "PHY/defs_common.h"
+#include "PHY/defs_gNB.h"
+#include "PHY/defs_nr_common.h"
+#include "PHY/impl_defs_nr.h"
+#include "SCHED_NR/fapi_nr_l1.h"
+#include "SCHED_NR/phy_frame_config_nr.h"
+#include "SCHED_NR/sched_nr.h"
+#include "assertions.h"
+#include "common/ran_context.h"
+#include "common/utils/LOG/log.h"
 #include "executables/softmodem-common.h"
-#include <nfapi/oai_integration/nfapi_pnf.h>
-#include <openair1/PHY/NR_TRANSPORT/nr_ulsch.h>
-#include <openair1/PHY/NR_TRANSPORT/nr_dlsch.h>
-#include <PHY/NR_ESTIMATION/nr_ul_estimation.h>
+#include "nfapi/oai_integration/vendor_ext.h"
+#include "nfapi_nr_interface_scf.h"
+#include "notified_fifo.h"
+#include "openair2/NR_PHY_INTERFACE/nr_sched_response.h"
+#include "thread-pool.h"
+#include "time_meas.h"
+#include "utils.h"
 
-// #define USRP_DEBUG 1
-#include "executables/thread-common.h"
-
-//#define TICK_TO_US(ts) (ts.diff)
 #define TICK_TO_US(ts) (ts.trials==0?0:ts.diff/ts.trials)
 #define L1STATSSTRLEN 16384
 static void rx_func(processingData_L1_t *param);
