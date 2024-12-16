@@ -64,7 +64,7 @@ static void ldpc8blocks(void *p)
 
   // nrLDPC_encoder output is in "d"
   // let's make this interface happy!
-  uint8_t tmp[8][68 * 384] __attribute__((aligned(32)));
+  uint8_t tmp[8][68 * 384] __attribute__((aligned(64)));
   uint8_t *d[impp->n_segments];
   for (int rr = impp->macro_num * 8, i = 0; rr < impp->n_segments && rr < (impp->macro_num + 1) * 8; rr++, i++)
     d[rr] = tmp[i];

@@ -103,10 +103,12 @@ int LDPCencoder(uint8_t **input, uint8_t **output, encoder_implemparams_t *impp)
 
   AssertFatal(Zc > 0, "no valid Zc found for block length %d\n", block_length);
   if ((Zc&31) > 0) simd_size = 16;
-  else
-    simd_size = 32;
-  unsigned char cc[22*Zc] __attribute__((aligned(32))); //padded input, unpacked, max size
-  unsigned char dd[46*Zc] __attribute__((aligned(32))); //coded parity part output, unpacked, max size
+#ifdef __AVX512F__
+  else if ((BG==1) && Zc==384) simd_size =64;
+#endif
+  else simd_size=32;
+  unsigned char cc[22*Zc] __attribute__((aligned(64))); //padded input, unpacked, max size
+  unsigned char dd[46*Zc] __attribute__((aligned(64))); //coded parity part output, unpacked, max size
 
   // calculate number of punctured bits
   no_punctured_columns=(int)((nrows-2)*Zc+block_length-block_length*rate)/Zc;
@@ -114,8 +116,8 @@ int LDPCencoder(uint8_t **input, uint8_t **output, encoder_implemparams_t *impp)
   //printf("%d\n",no_punctured_columns);
   //printf("%d\n",removed_bit);
   // unpack input
-  memset(cc,0,sizeof(unsigned char) * ncols * Zc);
-  memset(dd,0,sizeof(unsigned char) * nrows * Zc);
+  memset(cc,0,sizeof(cc));
+  memset(dd,0,sizeof(dd));
 
   if(impp->tinput != NULL) start_meas(impp->tinput);
 #if 0
@@ -172,6 +174,42 @@ int LDPCencoder(uint8_t **input, uint8_t **output, encoder_implemparams_t *impp)
   memcpy(&output[0], &c[2*Zc], (block_length-2*Zc)*sizeof(unsigned char));
   memcpy(&output[block_length-2*Zc], &d[0], ((nrows-no_punctured_columns) * Zc-removed_bit)*sizeof(unsigned char));
   */
+#ifdef __AVX512F__
+
+  uint32_t l1 = (block_length-(2*Zc));
+  uint32_t l2 = ((nrows-no_punctured_columns) * Zc-removed_bit);
+  if ((((2*Zc)&63) == 0) && (((block_length-(2*Zc))&63) == 0)) {
+    __m512i *c512p = (__m512i *)&cc[2*Zc];
+    __m512i *d512p = (__m512i *)&dd[0];
+    __m512i mask0 = _mm512_set1_epi8(0x1);
+
+    for (int i=0;i<l1>>6;i++)
+    	for (int j=macro_segment; j < macro_segment_end; j++) 
+		((__m512i *)output[j])[i] = _mm512_and_si512(_mm512_srai_epi16(c512p[i],j-macro_segment),mask0);
+    for (int i1=0, i=l1>>6;i1<l2>>6;i1++,i++)
+    	for (int j=macro_segment; j < macro_segment_end; j++)  
+		((__m512i *)output[j])[i] = _mm512_and_si512(_mm512_srai_epi16(d512p[i1],j-macro_segment),mask0);
+  }
+  else if ((((2*Zc)&31) == 0) && (((block_length-(2*Zc))&31) == 0)) {
+    uint32_t l1 = (block_length-(2*Zc))>>5;
+    uint32_t l2 = ((nrows-no_punctured_columns) * Zc-removed_bit)>>5;
+    simde__m256i *c256p = (simde__m256i *)&cc[2*Zc];
+    simde__m256i *d256p = (simde__m256i *)&dd[0];
+    //  if (((block_length-(2*Zc))&31)>0) l1++;
+
+    for (int i=0;i<l1;i++)
+      //for (j=0;j<n_segments;j++) ((simde__m256i *)output[j])[i] = simde_mm256_and_si256(simde_mm256_srai_epi16(c256p[i],j),masks[0]);
+    	for (int j=macro_segment; j < macro_segment_end; j++) ((simde__m256i *)output[j])[i] = simde_mm256_and_si256(simde_mm256_srai_epi16(c256p[i],j-macro_segment),masks[0]);
+
+
+    //  if ((((nrows-no_punctured_columns) * Zc-removed_bit)&31)>0) l2++;
+
+    for (int i1=0, i=l1;i1<l2;i1++,i++)
+      //for (j=0;j<n_segments;j++) ((simde__m256i *)output[j])[i] = simde_mm256_and_si256(simde_mm256_srai_epi16(d256p[i1],j),masks[0]);
+    	for (int j=macro_segment; j < macro_segment_end; j++)  ((simde__m256i *)output[j])[i] = simde_mm256_and_si256(simde_mm256_srai_epi16(d256p[i1],j-macro_segment),masks[0]);
+  }
+  
+#else
   if ((((2*Zc)&31) == 0) && (((block_length-(2*Zc))&31) == 0)) {
     //AssertFatal(((2*Zc)&31) == 0,"2*Zc needs to be a multiple of 32 for now\n");
     //AssertFatal(((block_length-(2*Zc))&31) == 0,"block_length-(2*Zc) needs to be a multiple of 32 for now\n");
@@ -192,6 +230,7 @@ int LDPCencoder(uint8_t **input, uint8_t **output, encoder_implemparams_t *impp)
       //for (j=0;j<n_segments;j++) ((simde__m256i *)output[j])[i] = simde_mm256_and_si256(simde_mm256_srai_epi16(d256p[i1],j),masks[0]);
     	for (int j=macro_segment; j < macro_segment_end; j++)  ((simde__m256i *)output[j])[i] = simde_mm256_and_si256(simde_mm256_srai_epi16(d256p[i1],j-macro_segment),masks[0]);
   }
+#endif
   else {
 #ifdef DEBUG_LDPC
   LOG_W(PHY,"using non-optimized version\n");
