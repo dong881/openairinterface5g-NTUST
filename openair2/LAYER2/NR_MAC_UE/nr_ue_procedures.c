@@ -3896,6 +3896,8 @@ static void handle_rar_reception(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t
                                            rar_grant.Msg3_t_alloc);
   if (!tda_info.valid_tda || tda_info.nrOfSymbols == 0) {
     LOG_E(MAC, "Cannot schedule Msg3. Something wrong in TDA information\n");
+    // resume RAR response window timer if MSG2 decoding failed
+    nr_timer_suspension(&mac->ra.response_window_timer);
     return;
   }
   frame_t frame_tx = 0;
@@ -4082,6 +4084,8 @@ static void nr_ue_process_rar(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *d
             slot,
             rarh->RAPID,
             preamble_index);
+      // resume RAR response window timer if MSG2 decoding failed
+      nr_timer_suspension(&mac->ra.response_window_timer);
       break;
     } else {
       rarh += sizeof(NR_MAC_RAR) + 1;
