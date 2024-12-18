@@ -397,6 +397,17 @@ void rrc_gNB_process_f1_setup_req(f1ap_setup_req_t *req, sctp_assoc_t assoc_id)
       .num_SI = 0,
   };
 
+  seq_arr_t *sibs = rrc->SIBs;
+  if (sibs) {
+    for (int i = 0; i < sibs->size; i++) {
+      rrc_SIBs_t *si = (rrc_SIBs_t *)seq_arr_at(sibs, i);
+      cell.SI_msg[cell.num_SI].SI_container = si->SIB_buffer;
+      cell.SI_msg[cell.num_SI].SI_container_length = si->SIB_size;
+      cell.SI_msg[cell.num_SI].SI_type = si->SIB_type;
+      cell.num_SI++;
+    }
+  }
+
   if (du->mib != NULL && du->sib1 != NULL)
     label_intra_frequency_neighbours(rrc, du, cell_info);
 
