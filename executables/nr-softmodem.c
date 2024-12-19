@@ -464,23 +464,14 @@ int start_L1L2(module_id_t gnb_id)
 
   NR_BCCH_BCH_Message_t *mib = mac->common_channels[0].mib;
   const NR_BCCH_DL_SCH_Message_t *sib1 = mac->common_channels[0].sib1;
-
-  /* update existing config in F1 Setup request structures */
   f1ap_setup_req_t *sr = mac->f1_config.setup_req;
   DevAssert(sr->num_cells_available == 1);
   f1ap_served_cell_info_t *info = &sr->cell[0].info;
   DevAssert(info->mode == F1AP_MODE_TDD);
+  /* update existing config in F1 Setup request structures */
   DevAssert(scc->tdd_UL_DL_ConfigurationCommon != NULL);
   info->tdd = read_tdd_config(scc); /* updates radio config */
-  /* send gNB-DU configuration update to RRC */
-  f1ap_gnb_du_configuration_update_t update = {
-    .transaction_id = 1,
-    .num_cells_to_modify = 1,
-  };
-  update.cell_to_modify[0].old_nr_cellid = info->nr_cellid;
-  update.cell_to_modify[0].info = *info;
-  update.cell_to_modify[0].sys_info = get_sys_info(mib, sib1);
-  mac->mac_rrc.gnb_du_configuration_update(&update);
+  prepare_du_configuration_update(mac, info, mib, sib1);
 
   init_NR_RU(config_get_if(), NULL);
 

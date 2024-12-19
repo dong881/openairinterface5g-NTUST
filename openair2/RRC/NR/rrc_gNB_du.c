@@ -61,6 +61,15 @@ int get_ssb_scs(const struct f1ap_served_cell_info_t *cell_info)
   return cell_info->mode == F1AP_MODE_TDD ? cell_info->tdd.tbw.scs : cell_info->fdd.dl_tbw.scs;
 }
 
+static NR_SSB_MTC_t *get_ssb_mtc(const NR_MeasurementTimingConfiguration_t *mtc)
+{
+  // TODO verify which element of the list to pick
+  NR_MeasTimingList_t *mtlist = mtc->criticalExtensions.choice.c1->choice.measTimingConf->measTiming;
+  NR_SSB_MTC_t *ssb_mtc = calloc(1, sizeof(*ssb_mtc));
+  *ssb_mtc = mtlist->list.array[0]->frequencyAndTiming->ssb_MeasurementTimingConfiguration;
+  return ssb_mtc;
+}
+
 static int ssb_arfcn_mtc(const NR_MeasurementTimingConfiguration_t *mtc)
 {
   /* format has been verified when accepting MeasurementTimingConfiguration */
@@ -397,14 +406,23 @@ void rrc_gNB_process_f1_setup_req(f1ap_setup_req_t *req, sctp_assoc_t assoc_id)
       .num_SI = 0,
   };
 
+  // Encode CU SIBs and configure setup response with sysinfo
   seq_arr_t *sibs = rrc->SIBs;
   if (sibs) {
     for (int i = 0; i < sibs->size; i++) {
-      rrc_SIBs_t *si = (rrc_SIBs_t *)seq_arr_at(sibs, i);
-      cell.SI_msg[cell.num_SI].SI_container = si->SIB_buffer;
-      cell.SI_msg[cell.num_SI].SI_container_length = si->SIB_size;
-      cell.SI_msg[cell.num_SI].SI_type = si->SIB_type;
-      cell.num_SI++;
+      nr_SIBs_t *sib = (nr_SIBs_t *)seq_arr_at(sibs, i);
+      switch (sib->SIB_type) {
+        case 2: {
+          NR_SSB_MTC_t *ssbmtc = get_ssb_mtc(mtc);
+          sib->SIB_size = do_SIB2_NR(&sib->SIB_buffer, ssbmtc);
+          cell.SI_msg[cell.num_SI].SI_container = sib->SIB_buffer;
+          cell.SI_msg[cell.num_SI].SI_container_length = sib->SIB_size;
+          cell.SI_msg[cell.num_SI].SI_type = sib->SIB_type;
+          cell.num_SI++;
+        } break;
+        default:
+          AssertFatal(false, "SIB%d not handled yet\n", sib->SIB_type);
+      }
     }
   }
 

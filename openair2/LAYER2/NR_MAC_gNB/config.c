@@ -38,6 +38,7 @@
 #include "BIT_STRING.h"
 #include "LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "LAYER2/NR_MAC_gNB/mac_proto.h"
+#include "GNB_APP/gnb_config.h"
 #include "NR_MIB.h"
 #include "NR_MAC_gNB/nr_mac_gNB.h"
 #include "NR_BCCH-BCH-Message.h"
@@ -889,6 +890,94 @@ void nr_fill_sched_osi(gNB_MAC_INST *nrmac, const struct NR_SetupRelease_PDCCH_C
   }
 }
 
+bool nr_mac_configure_other_sib(gNB_MAC_INST *nrmac, int num_cu_sib, const f1ap_sib_msg_t cu_sib[num_cu_sib])
+{
+  NR_COMMON_channels_t *cc = &nrmac->common_channels[0];
+  seq_arr_t *du_SIBs = nrmac->common_channels[0].du_SIBs;
+  int num_du_sib = 0;
+  if (du_SIBs)
+    num_du_sib = du_SIBs->size;
+  if (num_cu_sib + num_du_sib == 0)
+    return false; /* no updates */
+
+  int config_sibs[num_cu_sib + num_du_sib];
+  NR_SystemInformation_IEs_t *sysInfo = calloc(1, sizeof(*sysInfo)); //for SIB up to 14 included
+  NR_SystemInformation_IEs_t *sysInfov17 = calloc(1, sizeof(*sysInfov17)); // for othersibs
+  for (int i = 0; i < num_cu_sib; i++) {
+    config_sibs[i] = cu_sib[i].SI_type;
+    switch (config_sibs[i]) {
+      case 2: {
+        struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type = calloc(1, sizeof(*type));
+        type->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib2;
+        // SIB2 coming from CU need to decode it
+        NR_SIB2_t *sib2 = NULL;
+        asn_dec_rval_t dec_rval = uper_decode(NULL,
+                                              &asn_DEF_NR_SIB2,
+                                              (void **)&sib2,
+                                              cu_sib[i].SI_container,
+                                              cu_sib[i].SI_container_length,
+                                              0,
+                                              0);
+        if (dec_rval.code != RC_OK) {
+          LOG_E(NR_MAC, "cannot decode SIB%d from CU\n", config_sibs[i]);
+          ASN_STRUCT_FREE(asn_DEF_NR_SIB2, cu_sib[i].SI_container);
+        }
+        type->choice.sib2 = sib2;
+        add_sib_to_systeminformation(sysInfo, type);
+        break;
+      }
+      default :
+        AssertFatal(false, "Invalid or not supported SIB%d\n", config_sibs[i]);
+    }
+  }
+
+  for (int i = 0; i < num_du_sib; i++) {
+    nr_SIBs_t *si = (nr_SIBs_t *)seq_arr_at(du_SIBs, i);
+    int sib_idx = i + num_cu_sib;
+    config_sibs[sib_idx] = si->SIB_type;
+    switch (config_sibs[sib_idx]) {
+      case 19: {
+        struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type_du = calloc(1, sizeof(*type_du));
+        type_du->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib19_v1700;
+        NR_SIB19_r17_t *sib19 = get_SIB19_NR(cc->ServingCellConfigCommon);
+        type_du->choice.sib19_v1700 = sib19;
+        add_sib_to_systeminformation(sysInfov17, type_du);
+        break;
+      }
+      default :
+        AssertFatal(false, "Invalid or not supported SIB%d\n", sib_idx);
+    }
+  }
+
+  update_SIB1_NR_SI(cc->sib1, num_cu_sib + num_du_sib, config_sibs);
+  cc->sib1_bcch_length = encode_SIB_NR(cc->sib1, cc->sib1_bcch_pdu, sizeof(cc->sib1_bcch_pdu));
+  AssertFatal(cc->sib1_bcch_length > 0, "could not encode SIB1\n");
+
+  // generate otherSIB payloads
+  cc->other_sib_bcch_length[0] = encode_sysinfo_ie(sysInfo, cc->other_sib_bcch_pdu[0], sizeof(cc->other_sib_bcch_pdu[0]));
+  cc->other_sib_bcch_length[1] = encode_sysinfo_ie(sysInfov17, cc->other_sib_bcch_pdu[1], sizeof(cc->other_sib_bcch_pdu[1]));
+
+  ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, sysInfo);
+  ASN_STRUCT_FREE(asn_DEF_NR_SystemInformation_IEs, sysInfov17);
+  return true;
+}
+
+void prepare_du_configuration_update(gNB_MAC_INST *mac,
+                                     f1ap_served_cell_info_t *info,
+                                     NR_BCCH_BCH_Message_t *mib,
+                                     const NR_BCCH_DL_SCH_Message_t *sib1)
+{
+  /* send gNB-DU configuration update to RRC */
+  f1ap_gnb_du_configuration_update_t update = {
+    .transaction_id = 1,
+    .num_cells_to_modify = 1,
+  };
+  update.cell_to_modify[0].old_nr_cellid = info->nr_cellid;
+  update.cell_to_modify[0].info = *info;
+  update.cell_to_modify[0].sys_info = get_sys_info(mib, sib1, NULL);
+  mac->mac_rrc.gnb_du_configuration_update(&update);
+}
+
 void nr_mac_configure_sib1(gNB_MAC_INST *nrmac, const f1ap_plmn_t *plmn, uint64_t cellID, int tac)
 {
   AssertFatal(IS_SA_MODE(get_softmodem_params()), "error: SIB1 only applicable for SA\n");
@@ -897,19 +986,8 @@ void nr_mac_configure_sib1(gNB_MAC_INST *nrmac, const f1ap_plmn_t *plmn, uint64_
   NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
   NR_BCCH_DL_SCH_Message_t *sib1 = get_SIB1_NR(scc, plmn, cellID, tac, &nrmac->radio_config);
   cc->sib1 = sib1;
-  cc->sib1_bcch_length = encode_SIB1_NR(sib1, cc->sib1_bcch_pdu, sizeof(cc->sib1_bcch_pdu));
+  cc->sib1_bcch_length = encode_SIB_NR(sib1, cc->sib1_bcch_pdu, sizeof(cc->sib1_bcch_pdu));
   AssertFatal(cc->sib1_bcch_length > 0, "could not encode SIB1\n");
-}
-
-void nr_mac_configure_sib19(gNB_MAC_INST *nrmac)
-{
-  AssertFatal(IS_SA_MODE(get_softmodem_params()), "error: SIB19 only applicable for SA\n");
-  NR_COMMON_channels_t *cc = &nrmac->common_channels[0];
-  NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
-  NR_BCCH_DL_SCH_Message_t *sib19 = get_SIB19_NR(scc);
-  cc->sib19 = sib19;
-  cc->sib19_bcch_length = encode_SIB19_NR(sib19, cc->sib19_bcch_pdu, sizeof(cc->sib19_bcch_pdu));
-  AssertFatal(cc->sib19_bcch_length > 0, "could not encode SIB19\n");
 }
 
 bool nr_mac_add_test_ue(gNB_MAC_INST *nrmac, uint32_t rnti, NR_CellGroupConfig_t *CellGroup)

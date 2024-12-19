@@ -140,6 +140,7 @@ typedef enum {
 #define GNB_CONFIG_STRING_BEAM_WEIGHTS_LIST             "beam_weights"
 #define GNB_CONFIG_STRING_UESS_AGG_LEVEL_LIST           "uess_agg_levels"
 #define GNB_CONFIG_STRING_CU_SIB_LIST                   "cu_sibs"
+#define GNB_CONFIG_STRING_DU_SIB_LIST                   "du_sibs"
 
 #define GNB_CONFIG_HLP_STRING_ENABLE_SDAP               "enable the SDAP layer\n"
 #define GNB_CONFIG_HLP_FORCE256QAMOFF                   "suppress activation of 256 QAM despite UE support"
@@ -152,6 +153,7 @@ typedef enum {
 #define GNB_CONFIG_HLP_NUM_UL_HARQ                      "Set Num UL harq processes. Valid values 16,32. Default 16"
 #define GNB_CONFIG_HLP_UESS_AGG_LEVEL_LIST              "List of aggregation levels with number of candidates per level. Element 0 - aggregation level 1"
 #define GNB_CONFIG_HLP_CU_SIBS                          "List of CU generated SIBs to be transmitted"
+#define GNB_CONFIG_HLP_DU_SIBS                          "List of DU generated SIBs to be transmitted"
 
 /*-----------------------------------------------------------------------------------------------------------------------------------------*/
 /*                                            cell configuration parameters                                                                */
@@ -198,6 +200,7 @@ typedef enum {
 {GNB_CONFIG_STRING_UESS_AGG_LEVEL_LIST, \
                     GNB_CONFIG_HLP_UESS_AGG_LEVEL_LIST,  0,       .iptr=NULL,       .defintarrayval=NULL,         TYPE_INTARRAY,  0},  \
 {GNB_CONFIG_STRING_CU_SIB_LIST,                  GNB_CONFIG_HLP_CU_SIBS, 0, .iptr=NULL, .defintarrayval=0,        TYPE_INTARRAY,  0},  \
+{GNB_CONFIG_STRING_DU_SIB_LIST,                  GNB_CONFIG_HLP_DU_SIBS, 0, .iptr=NULL, .defintarrayval=0,        TYPE_INTARRAY,  0},  \
 }
 // clang-format on
 
@@ -240,6 +243,7 @@ typedef enum {
 #define GNB_BEAMWEIGHTS_IDX             35
 #define GNB_UESS_AGG_LEVEL_LIST_IDX     36
 #define GNB_CU_SIBS_IDX                 37
+#define GNB_DU_SIBS_IDX                 38
 
 #define TRACKING_AREA_CODE_OKRANGE {0x0001,0xFFFD}
 #define NUM_DL_HARQ_OKVALUES {2,4,6,8,10,12,16,32}
@@ -281,6 +285,7 @@ typedef enum {
   { .s5 = { NULL } },                                             \
   { .s1 =  { config_check_intval, NUM_DL_HARQ_OKVALUES,8 } },     \
   { .s1 =  { config_check_intval, NUM_UL_HARQ_OKVALUES,2 } },     \
+  { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \
   { .s5 = { NULL } },                                             \

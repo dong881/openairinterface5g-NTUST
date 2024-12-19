@@ -95,14 +95,8 @@ gNB_RRC_INST *RCconfig_NRRRC();
 int RCconfig_NR_NG(MessageDef *msg_p, uint32_t i);
 int RCconfig_NR_X2(MessageDef *msg_p, uint32_t i);
 void wait_f1_setup_response(void);
-f1ap_setup_req_t *RC_read_F1Setup(uint64_t id,
-                                  const char *name,
-                                  const f1ap_served_cell_info_t *info,
-                                  const NR_ServingCellConfigCommon_t *scc,
-                                  NR_BCCH_BCH_Message_t *mib,
-                                  const NR_BCCH_DL_SCH_Message_t *sib1);
 f1ap_tdd_info_t read_tdd_config(const NR_ServingCellConfigCommon_t *scc);
-f1ap_gnb_du_system_info_t *get_sys_info(NR_BCCH_BCH_Message_t *mib, const NR_BCCH_DL_SCH_Message_t *sib1);
+f1ap_gnb_du_system_info_t *get_sys_info(NR_BCCH_BCH_Message_t *mib, const NR_BCCH_DL_SCH_Message_t *sib1, seq_arr_t *du_SIBs);
 int gNB_app_handle_f1ap_gnb_cu_configuration_update(f1ap_gnb_cu_configuration_update_t *gnb_cu_cfg_update);
 MessageDef *RCconfig_NR_CU_E1(const E1_t *entity);
 ngran_node_t get_node_type(void);

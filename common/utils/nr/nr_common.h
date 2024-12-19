@@ -93,6 +93,12 @@ static inline const char *rnti_types(nr_rnti_type_t rr)
 // the total shift is 2 * 15, in dB scale thats 10log10(2^(15*2))
 #define SQ15_SQUARED_NORM_FACTOR_DB 90.3089986992
 
+typedef struct {
+  uint8_t *SIB_buffer;
+  int SIB_size;
+  int SIB_type;
+} nr_SIBs_t;
+
 typedef struct nr_bandentry_s {
   int16_t band;
   uint64_t ul_min;

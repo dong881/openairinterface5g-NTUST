@@ -361,12 +361,6 @@ typedef struct nr_rrc_cuup_container_t {
   sctp_assoc_t assoc_id;
 } nr_rrc_cuup_container_t;
 
-typedef struct {
-  uint8_t *SIB_buffer;
-  int SIB_size;
-  int SIB_type;
-} rrc_SIBs_t;
-
 //---NR---(completely change)---------------------
 typedef struct gNB_RRC_INST_s {
 
