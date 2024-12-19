@@ -458,6 +458,33 @@ nr_ue_nas_t *get_ue_nas_info(module_id_t module_id)
   return &nr_ue_nas[module_id];
 }
 
+static FGSRegistrationType set_fgs_registration_type(nr_ue_nas_t *nas)
+{
+  if (nas->fiveGMM_state == FGS_REGISTERED && nas->fiveGMM_mode == FGS_IDLE && nas->t3512) {
+    // TODO: if the timer expires, do PERIODIC_REGISTRATION_UPDATING
+    /** The UE shall initiate the registration procedure for
+     *  mobility and periodic registration update according to
+     *  5.5.1.3.2 of 3GPP TS 24.501: Mobility and periodic
+     *  registration update initiation */
+    LOG_E(NAS, "Registration type periodic registration updating is not handled\n");
+    return REG_TYPE_RESERVED;
+  } else if (nas->fiveGMM_state == FGS_REGISTERED) {
+    // in any other case, The UE in state 5GMM-REGISTERED shall indicate "mobility registration updating".
+    return MOBILITY_REGISTRATION_UPDATING;
+  }
+
+  if (nas->fiveGMM_mode == FGS_CONNECTED && nas->is_rrc_inactive) {
+    /** the UE shall do the registration procedure for mobility
+     *  and/or periodic registration update depending on the
+     *  indication received from the lower layers according to
+     *  5.3.1.4 of 3GPP TS 24.501: 5GMM-CONNECTED mode with RRC inactive indication */
+    LOG_E(NAS, "RRC inactive indication not handled by NAS\n");
+    return REG_TYPE_RESERVED;
+  }
+
+  return INITIAL_REGISTRATION;
+}
+
 void generateRegistrationRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas)
 {
   int size = sizeof(fgmm_msg_header_t);
