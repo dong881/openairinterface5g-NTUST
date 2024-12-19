@@ -60,8 +60,6 @@ uint64_t downlink_frequency[MAX_NUM_CCs][4];
 
 double cpuf;
 uint8_t const nr_rv_round_map[4] = {0, 2, 3, 1};
-const short conjugate[8]__attribute__((aligned(16))) = {-1,1,-1,1,-1,1,-1,1};
-const short conjugate2[8]__attribute__((aligned(16))) = {1,-1,1,-1,1,-1,1,-1};
 // needed for some functions
 PHY_VARS_NR_UE *PHY_vars_UE_g[1][1] = {{NULL}};
 static softmodem_params_t softmodem_params;

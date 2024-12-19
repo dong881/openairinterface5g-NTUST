@@ -822,8 +822,8 @@ set(PHY_SRC_COMMON
   ${OPENAIR1_DIR}/PHY/TOOLS/dB_routines.c
   ${OPENAIR1_DIR}/PHY/TOOLS/sqrt.c
   ${OPENAIR1_DIR}/PHY/TOOLS/lut.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/simde_operations.c
   ${OPENAIR1_DIR}/PHY/TOOLS/get_sin_cos.c
+  ${OPENAIR1_DIR}/PHY/TOOLS/oai_arith_operations.c
   )
 
 set(PHY_SRC
@@ -957,7 +957,7 @@ set(PHY_SRC_UE
   ${OPENAIR1_DIR}/PHY/TOOLS/dB_routines.c
   ${OPENAIR1_DIR}/PHY/TOOLS/sqrt.c
   ${OPENAIR1_DIR}/PHY/TOOLS/lut.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/simde_operations.c
+  ${OPENAIR1_DIR}/PHY/TOOLS/oai_arith_operations.c
   ${PHY_POLARSRC}
   ${PHY_SMALLBLOCKSRC}
   ${PHY_NRLDPC_CODINGIF}
@@ -1010,7 +1010,7 @@ set(PHY_SRC_UE
   ${OPENAIR1_DIR}/PHY/TOOLS/dB_routines.c
   ${OPENAIR1_DIR}/PHY/TOOLS/sqrt.c
   ${OPENAIR1_DIR}/PHY/TOOLS/lut.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/simde_operations.c
+  ${OPENAIR1_DIR}/PHY/TOOLS/oai_arith_operations.c
   ${OPENAIR1_DIR}/PHY/INIT/nr_init_ue.c
   ${PHY_POLARSRC}
   ${PHY_SMALLBLOCKSRC}

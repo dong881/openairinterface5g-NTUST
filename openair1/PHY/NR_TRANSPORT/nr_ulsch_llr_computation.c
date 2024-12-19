@@ -93,7 +93,7 @@ void nr_ulsch_qpsk_qpsk(c16_t *stream0_in, c16_t *stream1_in, int16_t *stream0_o
 
     /// Compute real and imaginary parts of MF output for stream 0 (desired stream)
     simde__m128i y0r, y0i;
-    simde_mm128_separate_real_imag_parts(&y0r, &y0i, stream0_128i_in[i], stream0_128i_in[i + 1]);
+    simde_mm_separate_real_imag_parts(&y0r, &y0i, stream0_128i_in[i], stream0_128i_in[i + 1]);
     simde__m128i y0r_over2 = simde_mm_mulhi_epi16(y0r, ONE_OVER_2_SQRT_2);
     y0r_over2 = simde_mm_slli_epi16(y0r_over2, 1); // y0r_over2 = Re(y0) / sqrt(2)
     simde__m128i y0i_over2 = simde_mm_mulhi_epi16(y0i, ONE_OVER_2_SQRT_2);
@@ -101,13 +101,13 @@ void nr_ulsch_qpsk_qpsk(c16_t *stream0_in, c16_t *stream1_in, int16_t *stream0_o
 
     /// Compute real and imaginary parts of MF output for stream 1 (interference stream)
     simde__m128i y1r_over2, y1i_over2;
-    simde_mm128_separate_real_imag_parts(&y1r_over2, &y1i_over2, stream1_128i_in[i], stream1_128i_in[i + 1]);
+    simde_mm_separate_real_imag_parts(&y1r_over2, &y1i_over2, stream1_128i_in[i], stream1_128i_in[i + 1]);
     y1r_over2 = simde_mm_srai_epi16(y1r_over2, 1);  // y1r_over2 = Re(y1) / 2
     y1i_over2 = simde_mm_srai_epi16(y1i_over2, 1);  // y1i_over2 = Im(y1) / 2
 
     /// Get real and imaginary parts of rho
     simde__m128i rhor, rhoi;
-    simde_mm128_separate_real_imag_parts(&rhor, &rhoi, rho01_128i[i], rho01_128i[i + 1]);
+    simde_mm_separate_real_imag_parts(&rhor, &rhoi, rho01_128i[i], rho01_128i[i + 1]);
 
     /// Compute |psi_r| and |psi_i|
 
@@ -666,7 +666,7 @@ void nr_ulsch_qam16_qam16(c16_t *stream0_in,
   for (int i = 0; i < length >> 2; i += 2) {
 
     // Get rho
-    simde_mm128_separate_real_imag_parts(&xmm2, &xmm3, rho01_128i[i], rho01_128i[i + 1]);
+    simde_mm_separate_real_imag_parts(&xmm2, &xmm3, rho01_128i[i], rho01_128i[i + 1]);
     rho_rpi = simde_mm_adds_epi16(xmm2, xmm3); // rho = Re(rho) + Im(rho)
     rho_rmi = simde_mm_subs_epi16(xmm2, xmm3); // rho* = Re(rho) - Im(rho)
 
@@ -691,7 +691,7 @@ void nr_ulsch_qam16_qam16(c16_t *stream0_in,
     rho_rs[6] = simde_mm_subs_epi16(xmm6, xmm7);
 
     // Rearrange interfering MF output
-    simde_mm128_separate_real_imag_parts(&y1r, &y1i, stream1_128i_in[i], stream1_128i_in[i + 1]);
+    simde_mm_separate_real_imag_parts(&y1r, &y1i, stream1_128i_in[i], stream1_128i_in[i + 1]);
 
     // |  [Re(rho)+ Im(rho)]/sqrt(10) - y1r  |
     for(int j=0; j<8; j++){ // psi_rs[0~7], rho_rs[0~7]
@@ -709,14 +709,14 @@ void nr_ulsch_qam16_qam16(c16_t *stream0_in,
     }
 
     // Rearrange desired MF output
-    simde_mm128_separate_real_imag_parts(&y0r, &y0i, stream0_128i_in[i], stream0_128i_in[i + 1]);
+    simde_mm_separate_real_imag_parts(&y0r, &y0i, stream0_128i_in[i], stream0_128i_in[i + 1]);
 
     // Rearrange desired channel magnitudes
     // [|h|^2(1),|h|^2(2),|h|^2(3),|h|^2(4)]*(2/sqrt(10))
-    simde_mm128_separate_real_imag_parts(&ch_mag_des, &xmm2, ch_mag_128i[i], ch_mag_128i[i + 1]);
+    simde_mm_separate_real_imag_parts(&ch_mag_des, &xmm2, ch_mag_128i[i], ch_mag_128i[i + 1]);
 
     // Rearrange interfering channel magnitudes
-    simde_mm128_separate_real_imag_parts(&ch_mag_int, &xmm2, ch_mag_128i_i[i], ch_mag_128i_i[i + 1]);
+    simde_mm_separate_real_imag_parts(&ch_mag_int, &xmm2, ch_mag_128i_i[i], ch_mag_128i_i[i + 1]);
 
     // Scale MF output of desired signal
     y0r_over_sqrt10 = simde_mm_mulhi_epi16(y0r, ONE_OVER_SQRT_10);
@@ -1125,7 +1125,7 @@ void nr_ulsch_qam64_qam64(c16_t *stream0_in,
 
     // Get rho
     simde__m128i xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6, xmm7, xmm8;
-    simde_mm128_separate_real_imag_parts(&xmm2, &xmm3, rho01_128i[i], rho01_128i[i + 1]);
+    simde_mm_separate_real_imag_parts(&xmm2, &xmm3, rho01_128i[i], rho01_128i[i + 1]);
 
     simde__m128i rho_rpi = simde_mm_adds_epi16(xmm2, xmm3); // rho = Re(rho) + Im(rho)
     simde__m128i rho_rmi = simde_mm_subs_epi16(xmm2, xmm3); // rho* = Re(rho) - Im(rho)
@@ -1189,7 +1189,7 @@ void nr_ulsch_qam64_qam64(c16_t *stream0_in,
 
     // Rearrange interfering MF output
     simde__m128i y1r, y1i;
-    simde_mm128_separate_real_imag_parts(&y1r, &y1i, stream1_128i_in[i], stream1_128i_in[i + 1]);
+    simde_mm_separate_real_imag_parts(&y1r, &y1i, stream1_128i_in[i], stream1_128i_in[i + 1]);
 
     // Psi_r calculation from rho_rpi or rho_rmi
     xmm0 = simde_mm_set1_epi16(0); // ZERO for abs_pi16
@@ -1219,15 +1219,15 @@ void nr_ulsch_qam64_qam64(c16_t *stream0_in,
 
     // Rearrange desired MF output
     simde__m128i y0r, y0i;
-    simde_mm128_separate_real_imag_parts(&y0r, &y0i, stream0_128i_in[i], stream0_128i_in[i + 1]);
+    simde_mm_separate_real_imag_parts(&y0r, &y0i, stream0_128i_in[i], stream0_128i_in[i + 1]);
 
     // Rearrange desired channel magnitudes
     // [|h|^2(1),|h|^2(1),|h|^2(2),|h|^2(2),...,,|h|^2(7),|h|^2(7)]*(2/sqrt(10))
     // xmm2 is dummy variable that contains the same values as ch_mag_des
-    simde_mm128_separate_real_imag_parts(&ch_mag_des, &xmm2, ch_mag_128i[i], ch_mag_128i[i + 1]);
+    simde_mm_separate_real_imag_parts(&ch_mag_des, &xmm2, ch_mag_128i[i], ch_mag_128i[i + 1]);
 
     // Rearrange interfering channel magnitudes
-    simde_mm128_separate_real_imag_parts(&ch_mag_int, &xmm2, ch_mag_128i_i[i], ch_mag_128i_i[i + 1]);
+    simde_mm_separate_real_imag_parts(&ch_mag_int, &xmm2, ch_mag_128i_i[i], ch_mag_128i_i[i + 1]);
 
     y0r_one_over_sqrt_21   = simde_mm_mulhi_epi16(y0r, ONE_OVER_SQRT_42);
     y0r_three_over_sqrt_21 = simde_mm_mulhi_epi16(y0r, THREE_OVER_SQRT_42);
