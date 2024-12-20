@@ -1091,11 +1091,16 @@ printf("%d\n", slot);
                          frame_parms->nb_prefix_samples,
                          CYCLIC_PREFIX);
           } else {
+            bool was_symbol_used[NR_NUMBER_OF_SYMBOLS_PER_SLOT];
+            for (int i = 0; i < 14; i++) {
+              was_symbol_used[i] = true;
+            }
             nr_normal_prefix_mod(&gNB->common_vars.txdataF[0][aa][txdataF_offset],
                                  &txdata[aa][slot_offset],
                                  14,
                                  frame_parms,
-                                 slot);
+                                 slot,
+                                 was_symbol_used);
           }
         }
         if (n_trials==1) {
