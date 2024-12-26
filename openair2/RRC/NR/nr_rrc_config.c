@@ -2359,7 +2359,9 @@ void update_SIB1_NR_SI(NR_BCCH_DL_SCH_Message_t *sib1_bcch, int num_sibs, int si
   NR_SIB1_t *sib1 = sib1_bcch->message.choice.c1->choice.systemInformationBlockType1;
   //si-SchedulingInfo
   NR_SI_SchedulingInfo_t *info = calloc(1, sizeof(*info));
-  info->si_WindowLength = NR_SI_SchedulingInfo__si_WindowLength_s40;
+  // TODO need to compute optimal SI-windowlength automatically
+  //      based on the number of SSBs, TDD configuration and SS configuration
+  info->si_WindowLength = NR_SI_SchedulingInfo__si_WindowLength_s10;
   NR_SchedulingInfo_t *schedulingInfo = calloc(1, sizeof(*schedulingInfo));
   schedulingInfo->si_BroadcastStatus = NR_SchedulingInfo__si_BroadcastStatus_broadcasting;
   schedulingInfo->si_Periodicity = NR_SchedulingInfo__si_Periodicity_rf16;
