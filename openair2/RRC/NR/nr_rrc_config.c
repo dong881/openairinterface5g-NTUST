@@ -277,7 +277,6 @@ NR_SearchSpace_t *rrc_searchspace_config(bool is_common,
   ss->nrofCandidates->aggregationLevel4 = num_agg_level_candidates[PDCCH_AGG_LEVEL4];
   ss->nrofCandidates->aggregationLevel8 = num_agg_level_candidates[PDCCH_AGG_LEVEL8];
   ss->nrofCandidates->aggregationLevel16 = num_agg_level_candidates[PDCCH_AGG_LEVEL16];
-
   ss->searchSpaceType = calloc(1,sizeof(*ss->searchSpaceType));
   if (is_common) {
     ss->searchSpaceType->present = NR_SearchSpace__searchSpaceType_PR_common;
