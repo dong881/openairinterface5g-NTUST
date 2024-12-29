@@ -65,7 +65,22 @@ int LDPCencoder(uint8_t **input, uint8_t **output, encoder_implemparams_t *impp)
   macro_segment_end = (impp->n_segments > 8*(impp->macro_num+1)) ? 8*(impp->macro_num+1) : impp->n_segments;
   ///printf("macro_segment: %d\n", macro_segment);
   ///printf("macro_segment_end: %d\n", macro_segment_end );
+#ifdef __aarch64__
+  simde__m128i shufmask = simde_mm_set_epi64x(0x0101010101010101, 0x0000000000000000);
+  simde__m128i andmask  = simde_mm_set1_epi64x(0x0102040810204080);  // every 8 bits -> 8 bytes, pattern repeats.
+  simde__m128i zero128   = simde_mm_setzero_si128();
+  simde__m128i masks[8];
+  register simde__m128i c128;
+  masks[0] = simde_mm_set1_epi8(0x1);
+  masks[1] = simde_mm_set1_epi8(0x2);
+  masks[2] = simde_mm_set1_epi8(0x4);
+  masks[3] = simde_mm_set1_epi8(0x8);
+  masks[4] = simde_mm_set1_epi8(0x10);
+  masks[5] = simde_mm_set1_epi8(0x20);
+  masks[6] = simde_mm_set1_epi8(0x40);
+  masks[7] = simde_mm_set1_epi8(0x80);
 
+#else
   simde__m256i shufmask = simde_mm256_set_epi64x(0x0303030303030303, 0x0202020202020202,0x0101010101010101, 0x0000000000000000);
   simde__m256i andmask  = simde_mm256_set1_epi64x(0x0102040810204080);  // every 8 bits -> 8 bytes, pattern repeats.
   simde__m256i zero256   = simde_mm256_setzero_si256();
@@ -79,7 +94,7 @@ int LDPCencoder(uint8_t **input, uint8_t **output, encoder_implemparams_t *impp)
   masks[5] = simde_mm256_set1_epi8(0x20);
   masks[6] = simde_mm256_set1_epi8(0x40);
   masks[7] = simde_mm256_set1_epi8(0x80);
-
+#endif
 
 
   //determine number of bits in codeword
@@ -120,6 +135,7 @@ int LDPCencoder(uint8_t **input, uint8_t **output, encoder_implemparams_t *impp)
   memset(dd,0,sizeof(dd));
 
   if(impp->tinput != NULL) start_meas(impp->tinput);
+  //interleave up to 8 transport-block segements at a time
 #if 0
   for (i=0; i<block_length; i++) {
 	//for (j=0; j<n_segments; j++) {
@@ -128,6 +144,25 @@ int LDPCencoder(uint8_t **input, uint8_t **output, encoder_implemparams_t *impp)
       temp = (input[j][i/8]&(1<<(i&7)))>>(i&7);
       //printf("c(%d,%d)=%d\n",j,i,temp);
       c[i] |= (temp << (j-macro_segment));
+    }
+  }
+#elif defined(__aarch64__)
+  for (int i=0; i<block_length>>4; i++) {
+    c128 = simde_mm_and_si128(simde_mm_cmpeq_epi8(simde_mm_andnot_si128(simde_mm_shuffle_epi8(simde_mm_set1_epi16(((uint16_t*)input[macro_segment])[i]), shufmask),andmask),zero128),masks[0]);
+    //for (j=1; j<n_segments; j++) {
+    for (int j=macro_segment+1; j < macro_segment_end; j++) {    
+      c128 = simde_mm_or_si128(simde_mm_and_si128(simde_mm_cmpeq_epi8(simde_mm_andnot_si128(simde_mm_shuffle_epi8(simde_mm_set1_epi32(((uint16_t*)input[j])[i]), shufmask),andmask),zero128),masks[j-macro_segment]),c128);
+    }
+    ((simde__m128i *)cc)[i] = c128;
+  }
+
+  for (int i=(block_length>>4)<<4;i<block_length;i++) {
+    //for (j=0; j<n_segments; j++) {
+	  for (int j=macro_segment; j < macro_segment_end; j++) {
+
+	    temp = (input[j][i/8]&(128>>(i&7)))>>(7-(i&7));
+      //printf("c(%d,%d)=%d\n",j,i,temp);
+      cc[i] |= (temp << (j-macro_segment));
     }
   }
 #else
@@ -208,7 +243,24 @@ int LDPCencoder(uint8_t **input, uint8_t **output, encoder_implemparams_t *impp)
       //for (j=0;j<n_segments;j++) ((simde__m256i *)output[j])[i] = simde_mm256_and_si256(simde_mm256_srai_epi16(d256p[i1],j),masks[0]);
     	for (int j=macro_segment; j < macro_segment_end; j++)  ((simde__m256i *)output[j])[i] = simde_mm256_and_si256(simde_mm256_srai_epi16(d256p[i1],j-macro_segment),masks[0]);
   }
-  
+#elif defined(__aarch64__)
+  if ((((2*Zc)&31) == 0) && (((block_length-(2*Zc))&31) == 0)) {
+    //AssertFatal(((2*Zc)&31) == 0,"2*Zc needs to be a multiple of 32 for now\n");
+    //AssertFatal(((block_length-(2*Zc))&31) == 0,"block_length-(2*Zc) needs to be a multiple of 32 for now\n");
+    uint32_t l1 = (block_length-(2*Zc))>>4;
+    uint32_t l2 = ((nrows-no_punctured_columns) * Zc-removed_bit)>>4;
+    simde__m128i *c128p = (simde__m128i *)&cc[2*Zc];
+    simde__m128i *d128p = (simde__m128i *)&dd[0];
+    //  if (((block_length-(2*Zc))&31)>0) l1++;
+
+    for (int i=0;i<l1;i++)
+    	for (int j=macro_segment; j < macro_segment_end; j++) ((simde__m128i *)output[j])[i] = simde_mm_and_si128(simde_mm_srai_epi16(c128p[i],j-macro_segment),masks[0]);
+
+
+
+    for (int i1=0, i=l1;i1<l2;i1++,i++)
+    	for (int j=macro_segment; j < macro_segment_end; j++)  ((simde__m128i *)output[j])[i] = simde_mm_and_si128(simde_mm_srai_epi16(d128p[i1],j-macro_segment),masks[0]);
+  }
 #else
   if ((((2*Zc)&31) == 0) && (((block_length-(2*Zc))&31) == 0)) {
     //AssertFatal(((2*Zc)&31) == 0,"2*Zc needs to be a multiple of 32 for now\n");
