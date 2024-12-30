@@ -342,7 +342,7 @@ static uint32_t get_tbs_bch(NR_Type0_PDCCH_CSS_config_t *type0_PDCCH_CSS_config,
   return TBS;
 }
 
-static uint32_t schedule_control_sib1(module_id_t module_id,
+static uint32_t schedule_control_sib1(gNB_MAC_INST *gNB_mac,
                                       int CC_id,
                                       NR_Type0_PDCCH_CSS_config_t *type0_PDCCH_CSS_config,
                                       int time_domain_allocation,
@@ -352,7 +352,6 @@ static uint32_t schedule_control_sib1(module_id_t module_id,
                                       int beam,
                                       uint16_t num_total_bytes)
 {
-  gNB_MAC_INST *gNB_mac = RC.nrmac[module_id];
   AssertFatal(gNB_mac->sched_ctrlCommon, "sched_ctrlCommon is NULL\n");
   NR_COMMON_channels_t *cc = &gNB_mac->common_channels[CC_id];
   uint16_t *vrb_map = cc->vrb_map[beam];
@@ -625,7 +624,8 @@ void schedule_nr_sib1(module_id_t module_idP,
 
       NR_COMMON_channels_t *cc = &gNB_mac->common_channels[0];
       // Configure sched_ctrlCommon for SIB1
-      uint32_t TBS = schedule_control_sib1(module_idP, CC_id,
+      uint32_t TBS = schedule_control_sib1(gNB_mac,
+                                           CC_id,
                                            type0_PDCCH_CSS_config,
                                            time_domain_allocation,
                                            &dmrs_parms,
@@ -709,8 +709,11 @@ static void other_sib_sched_control(module_id_t module_idP,
   int n_slots_frame = gNB_mac->frame_structure.numb_slots_frame;
   NR_beam_alloc_t beam = beam_allocation_procedure(&gNB_mac->beam_info, frame, slot, beam_index, n_slots_frame);
   AssertFatal(beam.idx >= 0, "Cannot allocate otherSIB corresponding for SSB number %d in any available beam\n", beam_index);
-  LOG_D(NR_MAC, "(%d.%d) otherSIB transmission for ssb number %d\n", frame, slot, beam_index);
+  LOG_D(NR_MAC, "(%d.%d) otherSIB payload %d transmission for ssb number %d\n", frame, slot, payload_idx, beam_index);
 
+  NR_COMMON_channels_t *cc = &gNB_mac->common_channels[0];
+  NR_Type0_PDCCH_CSS_config_t *type0_PDCCH_CSS_config = &gNB_mac->type0_PDCCH_CSS_config[cc->ssb_index[beam_index]];
+  AssertFatal(gNB_mac->sched_ctrlCommon, "sched_ctrlCommon is NULL\n");
   NR_PDSCH_ConfigCommon_t *pdsch_ConfigCommon = scc->downlinkConfigCommon->initialDownlinkBWP->pdsch_ConfigCommon->choice.setup;
   int time_domain_allocation = 1;
   NR_tda_info_t tda_info = set_tda_info_from_list(pdsch_ConfigCommon->pdsch_TimeDomainAllocationList, time_domain_allocation);
@@ -728,8 +731,6 @@ static void other_sib_sched_control(module_id_t module_idP,
 
   AssertFatal(nr_of_candidates > 0, "nr_of_candidates is 0\n");
   NR_ControlResourceSet_t *coreset = get_coreset(gNB_mac, scc, NULL, ss, NR_SearchSpace__searchSpaceType_PR_common);
-  NR_COMMON_channels_t *cc = &gNB_mac->common_channels[0];
-  NR_Type0_PDCCH_CSS_config_t *type0_PDCCH_CSS_config = &gNB_mac->type0_PDCCH_CSS_config[cc->ssb_index[beam_index]];
   if (!gNB_mac->sched_pdcch_otherSI) {
     gNB_mac->sched_pdcch_otherSI = calloc(1, sizeof(*gNB_mac->sched_pdcch_otherSI));
     *gNB_mac->sched_pdcch_otherSI = set_pdcch_structure(gNB_mac, ss, coreset, scc, NULL, type0_PDCCH_CSS_config);

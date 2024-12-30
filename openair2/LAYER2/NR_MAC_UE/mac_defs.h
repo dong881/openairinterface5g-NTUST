@@ -539,7 +539,7 @@ typedef struct NR_UE_MAC_INST_s {
   int servCellIndex;
   long physCellId;
   bool get_sib1;
-  bool get_otherSI;
+  bool get_otherSI[MAX_SI_GROUPS];
   NR_MIB_t *mib;
 
   si_schedInfo_t si_SchedInfo;
