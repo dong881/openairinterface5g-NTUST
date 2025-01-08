@@ -814,6 +814,33 @@ static inline int get_readBlockSize(uint16_t slot, NR_DL_FRAME_PARMS *fp) {
   return rem_samples + next_slot_first_symbol;
 }
 
+static inline void apply_ntn_config(PHY_VARS_NR_UE *UE,
+                                    NR_DL_FRAME_PARMS *fp,
+                                    int slot_nr,
+                                    bool *update_ntn_system_information,
+                                    int *duration_rx_to_tx,
+                                    int *timing_advance,
+                                    int *ntn_koffset)
+{
+  if (*update_ntn_system_information) {
+    *update_ntn_system_information = false;
+
+    *duration_rx_to_tx = NR_UE_CAPABILITY_SLOT_RX_TO_TX + UE->ntn_config_message->ntn_config_params.cell_specific_k_offset;
+    UE->timing_advance = fp->samples_per_subframe * UE->ntn_config_message->ntn_config_params.ntn_total_time_advance_ms;
+    *timing_advance +=
+        fp->get_samples_slot_timestamp(slot_nr,
+                                       fp,
+                                       UE->ntn_config_message->ntn_config_params.cell_specific_k_offset - *ntn_koffset);
+    *ntn_koffset = UE->ntn_config_message->ntn_config_params.cell_specific_k_offset;
+
+    LOG_I(PHY,
+          "cell_specific_k_offset = %d ms, ntn_total_time_advance_ms = %f ms (%d samples)\n",
+          *ntn_koffset,
+          UE->ntn_config_message->ntn_config_params.ntn_total_time_advance_ms,
+          UE->timing_advance);
+  }
+}
+
 void *UE_thread(void *arg)
 {
   //this thread should be over the processing thread to keep in real time
@@ -869,7 +896,6 @@ void *UE_thread(void *arg)
       readFrame(UE, &tmp, true);
   }
 
-  double ntn_ta_common = 0;
   int ntn_koffset = 0;
 
   int duration_rx_to_tx = NR_UE_CAPABILITY_SLOT_RX_TO_TX;
@@ -1000,16 +1026,6 @@ void *UE_thread(void *arg)
     absolute_slot++;
     TracyCFrameMark;
 
-    if (update_ntn_system_information) {
-      update_ntn_system_information = false;
-      int ta_offset = UE->frame_parms.samples_per_subframe * (UE->ntn_config_message->ntn_config_params.ntn_total_time_advance_ms - ntn_ta_common);
-
-      UE->timing_advance += ta_offset;
-      ntn_ta_common = UE->ntn_config_message->ntn_config_params.ntn_total_time_advance_ms;
-      ntn_koffset = UE->ntn_config_message->ntn_config_params.cell_specific_k_offset;
-      timing_advance = ntn_koffset * (UE->frame_parms.samples_per_subframe >> mac->current_UL_BWP->scs);
-    }
-
     if (UE->ntn_config_message->update) {
       UE->ntn_config_message->update = false;
       update_ntn_system_information = true;
@@ -1129,10 +1145,9 @@ void *UE_thread(void *arg)
                            newTx);
     stream_status = STREAM_STATUS_SYNCED;
     tx_wait_for_dlsch[slot] = 0;
+
     // apply new duration next run to avoid thread dead lock
-    if (update_ntn_system_information) {
-      duration_rx_to_tx = NR_UE_CAPABILITY_SLOT_RX_TO_TX + UE->ntn_config_message->ntn_config_params.cell_specific_k_offset;
-    }
+    apply_ntn_config(UE, fp, slot_nr, &update_ntn_system_information, &duration_rx_to_tx, &timing_advance, &ntn_koffset);
   }
 
   return NULL;
