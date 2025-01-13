@@ -475,6 +475,19 @@ cmake .. -GNinja -DOAI_FHI72=ON -Dxran_LOCATION=$HOME/phy/fhi_lib/lib
 ninja nr-softmodem oran_fhlib_5g params_libconfig
 ```
 
+Note that in tags 2025.w06 and prior, the FHI72 driver used polling to wait for
+the next slot. This is inefficient as it burns CPU time, and has been replaced
+with a more efficient mechanism. Nevertheless, if you experience problems that
+did not occur previously, it is possible to re-enable polling, either with
+`build_oai` like this
+
+    ./build_oai --gNB --ninja -t oran_fhlib_5g --cmake-opt -Dxran_LOCATION=$HOME/phy/fhi_lib/lib --cmake-opt -DOAI_FHI72_USE_POLLING=ON
+
+or with `cmake` like so
+
+    cmake .. -GNinja -DOAI_FHI72=ON -Dxran_LOCATION=$HOME/phy/fhi_lib/lib -DOAI_FHI72_USE_POLLING=ON
+    ninja oran_fhlib_5g
+
 # Configuration
 
 RU and DU configurations have a circular dependency: you have to configure DU MAC address in the RU configuration and the RU MAC address, VLAN and Timing advance parameters in the DU configuration.
@@ -1040,6 +1053,8 @@ In this case, you should reverify that `ptp4l` and `phc2sys` are working, e.g.,
 do not do any jumps (during the last hour). While an occasional jump is not
 necessarily problematic for the gNB, many such messages mean that the system is
 not working, and UEs might not be able to attach or reach good performance.
+Also, you can try to compile with polling (see [the build
+section](.#build-oai-gnb)) to see if it resolves the problem.
 
 # Operation with multiple RUs
 
