@@ -50,6 +50,8 @@ void rxAddInput(const c16_t *input_sig,
                 uint32_t CirSize,
                 bool add_noise)
 {
+  static uint64_t last_TS = 0;
+
   if ((channelDesc->sat_height > 0) && (channelDesc->enable_dynamic_delay || channelDesc->enable_dynamic_Doppler)) { // model for transparent satellite on circular orbit
     /* assumptions:
        - The Earth is spherical, the ground station is static, and that the Earth does not rotate.
@@ -82,42 +84,76 @@ void rxAddInput(const c16_t *input_sig,
     const double pos_ue_y = 0;
     const double pos_ue_z = radius_earth;
 
-    const double dir_sat_ue_x = pos_ue_x - pos_sat_x;
-    const double dir_sat_ue_y = pos_ue_y - pos_sat_y;
-    const double dir_sat_ue_z = pos_ue_z - pos_sat_z;
-
-    const double dist_sat_ue = sqrt(dir_sat_ue_x * dir_sat_ue_x + dir_sat_ue_y * dir_sat_ue_y + dir_sat_ue_z * dir_sat_ue_z);
-    const double vel_sat_ue = (vel_sat_x * dir_sat_ue_x + vel_sat_y * dir_sat_ue_y + vel_sat_z * dir_sat_ue_z) / dist_sat_ue;
-
-    double dist_gnb_sat = 0;
-    double vel_gnb_sat = 0;
-    if (channelDesc->modelid == SAT_LEO_TRANS) {
-      const double pos_gnb_x = 0;
-      const double pos_gnb_y = 0;
-      const double pos_gnb_z = radius_earth;
-
-      const double dir_gnb_sat_x = pos_sat_x - pos_gnb_x;
-      const double dir_gnb_sat_y = pos_sat_y - pos_gnb_y;
-      const double dir_gnb_sat_z = pos_sat_z - pos_gnb_z;
-
-      dist_gnb_sat = sqrt(dir_gnb_sat_x * dir_gnb_sat_x + dir_gnb_sat_y * dir_gnb_sat_y + dir_gnb_sat_z * dir_gnb_sat_z);
-      vel_gnb_sat = (vel_sat_x * dir_gnb_sat_x + vel_sat_y * dir_gnb_sat_y + vel_sat_z * dir_gnb_sat_z) / dist_gnb_sat;
-    }
-
     const double c = 299792458; // m/s
-    const double prop_delay = (dist_gnb_sat + dist_sat_ue) / c;
-    if (channelDesc->enable_dynamic_delay)
-      channelDesc->channel_offset = prop_delay * channelDesc->sampling_rate;
 
-    const double f_Doppler_shift_sat_ue = (vel_sat_ue / (c - vel_sat_ue)) * channelDesc->center_freq;
-    const double f_Doppler_shift_gnb_sat = (-vel_gnb_sat / c) * channelDesc->center_freq;
-    if (channelDesc->enable_dynamic_Doppler)
-      channelDesc->Doppler_phase_inc = 2 * M_PI * (f_Doppler_shift_gnb_sat + f_Doppler_shift_sat_ue) / channelDesc->sampling_rate;
+    if (channelDesc->is_uplink) {
+      const double dir_ue_sat_x = pos_sat_x - pos_ue_x;
+      const double dir_ue_sat_y = pos_sat_y - pos_ue_y;
+      const double dir_ue_sat_z = pos_sat_z - pos_ue_z;
 
-    static uint64_t last_TS = 0;
-    if(TS - last_TS >= channelDesc->sampling_rate) {
-      last_TS = TS;
-      LOG_I(HW, "Satellite orbit: time %f s, Doppler: gNB->SAT %f kHz, SAT->UE %f kHz, Delay %f ms\n", t, f_Doppler_shift_gnb_sat / 1000, f_Doppler_shift_sat_ue / 1000, prop_delay * 1000);
+      const double dist_ue_sat = sqrt(dir_ue_sat_x * dir_ue_sat_x + dir_ue_sat_y * dir_ue_sat_y + dir_ue_sat_z * dir_ue_sat_z);
+      const double vel_ue_sat = (vel_sat_x * dir_ue_sat_x + vel_sat_y * dir_ue_sat_y + vel_sat_z * dir_ue_sat_z) / dist_ue_sat;
+
+      double dist_sat_gnb = 0;
+      if (channelDesc->modelid == SAT_LEO_TRANS) {
+        const double pos_gnb_x = 0;
+        const double pos_gnb_y = 0;
+        const double pos_gnb_z = radius_earth;
+
+        const double dir_sat_gnb_x = pos_gnb_x - pos_sat_x;
+        const double dir_sat_gnb_y = pos_gnb_y - pos_sat_y;
+        const double dir_sat_gnb_z = pos_gnb_z - pos_sat_z;
+
+        dist_sat_gnb = sqrt(dir_sat_gnb_x * dir_sat_gnb_x + dir_sat_gnb_y * dir_sat_gnb_y + dir_sat_gnb_z * dir_sat_gnb_z);
+      }
+
+      const double prop_delay = (dist_ue_sat + dist_sat_gnb) / c;
+      if (channelDesc->enable_dynamic_delay)
+        channelDesc->channel_offset = prop_delay * channelDesc->sampling_rate;
+
+      const double f_Doppler_shift_ue_sat = (-vel_ue_sat / c) * channelDesc->center_freq;
+      if (channelDesc->enable_dynamic_Doppler)
+        channelDesc->Doppler_phase_inc = 2 * M_PI * f_Doppler_shift_ue_sat / channelDesc->sampling_rate;
+
+      if(TS - last_TS >= channelDesc->sampling_rate) {
+        last_TS = TS;
+        LOG_D(HW, "Satellite orbit: time %f s, Position = (%f, %f, %f), Velocity = (%f, %f, %f)\n", t, pos_sat_x, pos_sat_y, pos_sat_z, vel_sat_x, vel_sat_y, vel_sat_z);
+        LOG_D(HW, "Uplink delay %f ms, Doppler shift UE->SAT %f kHz\n", prop_delay * 1000, f_Doppler_shift_ue_sat / 1000);
+      }
+    } else {
+      const double dir_sat_ue_x = pos_ue_x - pos_sat_x;
+      const double dir_sat_ue_y = pos_ue_y - pos_sat_y;
+      const double dir_sat_ue_z = pos_ue_z - pos_sat_z;
+
+      const double dist_sat_ue = sqrt(dir_sat_ue_x * dir_sat_ue_x + dir_sat_ue_y * dir_sat_ue_y + dir_sat_ue_z * dir_sat_ue_z);
+      const double vel_sat_ue = (vel_sat_x * dir_sat_ue_x + vel_sat_y * dir_sat_ue_y + vel_sat_z * dir_sat_ue_z) / dist_sat_ue;
+
+      double dist_gnb_sat = 0;
+      if (channelDesc->modelid == SAT_LEO_TRANS) {
+        const double pos_gnb_x = 0;
+        const double pos_gnb_y = 0;
+        const double pos_gnb_z = radius_earth;
+
+        const double dir_gnb_sat_x = pos_sat_x - pos_gnb_x;
+        const double dir_gnb_sat_y = pos_sat_y - pos_gnb_y;
+        const double dir_gnb_sat_z = pos_sat_z - pos_gnb_z;
+
+        dist_gnb_sat = sqrt(dir_gnb_sat_x * dir_gnb_sat_x + dir_gnb_sat_y * dir_gnb_sat_y + dir_gnb_sat_z * dir_gnb_sat_z);
+      }
+
+      const double prop_delay = (dist_gnb_sat + dist_sat_ue) / c;
+      if (channelDesc->enable_dynamic_delay)
+        channelDesc->channel_offset = prop_delay * channelDesc->sampling_rate;
+
+      const double f_Doppler_shift_sat_ue = (vel_sat_ue / (c - vel_sat_ue)) * channelDesc->center_freq;
+      if (channelDesc->enable_dynamic_Doppler)
+        channelDesc->Doppler_phase_inc = 2 * M_PI * f_Doppler_shift_sat_ue / channelDesc->sampling_rate;
+
+      if(TS - last_TS >= channelDesc->sampling_rate) {
+        last_TS = TS;
+        LOG_D(HW, "Satellite orbit: time %f s, Position = (%f, %f, %f), Velocity = (%f, %f, %f)\n", t, pos_sat_x, pos_sat_y, pos_sat_z, vel_sat_x, vel_sat_y, vel_sat_z);
+        LOG_D(HW, "Downlink delay %f ms, Doppler shift SAT->UE %f kHz\n", prop_delay * 1000, f_Doppler_shift_sat_ue / 1000);
+      }
     }
   }
 
@@ -131,6 +167,8 @@ void rxAddInput(const c16_t *input_sig,
   const double noise_per_sample = add_noise ? pow(10,channelDesc->noise_power_dB/10.0) * 256 : 0;
   const uint64_t dd = channelDesc->channel_offset;
   const int nbTx=channelDesc->nb_tx;
+  double Doppler_phase_cur = channelDesc->Doppler_phase_cur[rxAnt];
+  Doppler_phase_cur -= 2 * M_PI * round(Doppler_phase_cur / (2 * M_PI));
 
   for (int i=0; i<nbSamples; i++) {
     cf_t *out_ptr = after_channel_sig + i;
@@ -161,16 +199,18 @@ void rxAddInput(const c16_t *input_sig,
 #else
       double complex in = rx_tmp.r + rx_tmp.i * I;
 #endif
-      double complex out = in * cexp(channelDesc->Doppler_phase_cur[rxAnt] * I);
+      double complex out = in * cexp(Doppler_phase_cur * I);
       rx_tmp.r = creal(out);
       rx_tmp.i = cimag(out);
-      channelDesc->Doppler_phase_cur[rxAnt] += channelDesc->Doppler_phase_inc;
+      Doppler_phase_cur += channelDesc->Doppler_phase_inc;
     }
 
     out_ptr->r += rx_tmp.r * pathLossLinear + noise_per_sample * gaussZiggurat(0.0, 1.0);
     out_ptr->i += rx_tmp.i * pathLossLinear + noise_per_sample * gaussZiggurat(0.0, 1.0);
     out_ptr++;
   }
+
+  channelDesc->Doppler_phase_cur[rxAnt] = Doppler_phase_cur;
 
   if ( (TS*nbTx)%CirSize+nbSamples <= CirSize )
     // Cast to a wrong type for compatibility !

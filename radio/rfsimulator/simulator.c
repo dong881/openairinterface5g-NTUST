@@ -274,6 +274,7 @@ static int allocCirBuf(rfsimulator_state_t *bridge, int sock)
     }
 
     set_channeldesc_owner(ptr->channel_model, RFSIMU_MODULEID);
+    set_channeldesc_direction(ptr->channel_model, bridge->role == SIMU_ROLE_SERVER);
     random_channel(ptr->channel_model,false);
     LOG_I(HW, "Random channel %s in rfsimulator activated\n", modelname);
   }
@@ -467,6 +468,7 @@ static int rfsimu_setchanmod_cmd(char *buff, int debug, telnet_printfunc_t prnt,
                                                           t->chan_pathloss,
                                                           0); // noise_power
           set_channeldesc_owner(newmodel, RFSIMU_MODULEID);
+          set_channeldesc_direction(newmodel, t->role == SIMU_ROLE_SERVER);
           set_channeldesc_name(newmodel,modelname);
           random_channel(newmodel,false);
           channel_desc_t *oldmodel=b->channel_model;

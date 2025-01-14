@@ -1663,7 +1663,7 @@ channel_desc_t *new_channel_desc_scm(uint8_t nb_tx,
       maxDoppler = 0;
       chan_desc->sat_height = 600e3;
       chan_desc->enable_dynamic_delay = true;
-      chan_desc->enable_dynamic_Doppler = false; // TODO: requires UE to support continuous Doppler estimation, compensation and pre-compensation
+      chan_desc->enable_dynamic_Doppler = true;
       fill_channel_desc(chan_desc,nb_tx,
                         nb_rx,
                         nb_taps,
@@ -1760,6 +1760,11 @@ void set_channeldesc_name(channel_desc_t *cdesc,char *modelname) {
     free(cdesc->model_name);
 
   cdesc->model_name=strdup(modelname);
+}
+
+void set_channeldesc_direction(channel_desc_t *cdesc, bool is_uplink)
+{
+  cdesc->is_uplink = is_uplink;
 }
 
 #ifdef DEBUG_CH_POWER

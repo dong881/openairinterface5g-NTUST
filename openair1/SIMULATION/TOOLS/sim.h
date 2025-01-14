@@ -139,6 +139,8 @@ typedef struct {
   float Doppler_phase_inc;
   /// current Doppler phase of each RX antenna (for continuous phase from one block to the next)
   float *Doppler_phase_cur;
+  /// flag indicating if channel direction is UL or DL
+  bool is_uplink;
 } channel_desc_t;
 
 typedef struct {
@@ -358,12 +360,20 @@ void free_channel_desc_scm(channel_desc_t *ch);
 \param module_id identifies the channel model. should be define as a macro in simu.h
 */
 void set_channeldesc_owner(channel_desc_t *cdesc, channelmod_moduleid_t module_id);
+
 /**
 \brief This function set a model name to a model descriptor, can be later used to identify a allocated channel model
 \param cdesc points to the model descriptor
 \param modelname is the C string to use as model name for the channel pointed by cdesc
 */
 void set_channeldesc_name(channel_desc_t *cdesc,char *modelname);
+
+/**
+\brief This function set a channel model direction to either uplink or downlink
+\param cdesc points to the model descriptor
+\param is_uplink indicates if this channel is applied in uplink (not downlink) direction
+*/
+void set_channeldesc_direction(channel_desc_t *cdesc, bool is_uplink);
 
 /** \fn void get_cexp_doppler(struct complexd *cexp_doppler, channel_desc_t *chan_desc, const uint32_t length)
 \brief This routine generates the complex exponential to apply the Doppler shift
