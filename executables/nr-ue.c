@@ -41,6 +41,7 @@
 #include "instrumentation.h"
 #include "common/utils/threadPool/notified_fifo.h"
 #include "position_interface.h"
+#include "nr_phy_common.h"
 
 /*
  *  NR SLOT PROCESSING SEQUENCE
@@ -554,6 +555,15 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action)
 
     writeTimestamp += dummyBlockSize;
     writeBlockSize -= dummyBlockSize;
+  }
+
+  // pre-compensate UL frequency offset
+  if (flags != TX_BURST_INVALID && get_nrUE_params()->cont_fo_comp) {
+    double ul_freq_offset = -UE->freq_offset * ((double)fp->ul_CarrierFreq / (double)fp->dl_CarrierFreq);
+    if (get_nrUE_params()->cont_fo_comp == 2) // different from LO frequency error compensation, Doppler UL pre-compensation has to be negative
+      ul_freq_offset = -ul_freq_offset;
+    for (int i = 0; i < fp->nb_antennas_tx; i++)
+      nr_fo_compensation(ul_freq_offset, fp->samples_per_subframe, writeTimestamp, txp[i], writeBlockSize);
   }
 
   int tmp = openair0_write_reorder(&UE->rfdevice, writeTimestamp, txp, writeBlockSize, fp->nb_antennas_tx, flags);
