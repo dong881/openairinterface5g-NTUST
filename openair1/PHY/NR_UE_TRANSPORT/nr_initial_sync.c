@@ -199,6 +199,9 @@ void nr_scan_ssb(void *arg)
   // initial sync performed on two successive frames, if pbch passes on first frame, no need to process second frame
   // only one frame is used for simulation tools
   for (int frame_id = 0; frame_id < ssbInfo->nFrames && !ssbInfo->syncRes.cell_detected; frame_id++) {
+    if (ssbInfo->freqOffset)
+      compensate_freq_offset(rxdata, fp, ssbInfo->freqOffset, frame_id);
+
     /* process pss search on received buffer */
     ssbInfo->syncRes.frame_id = frame_id;
     int nid2;
@@ -268,7 +271,7 @@ void nr_scan_ssb(void *arg)
           phase_tdd_ncp,
           ssbInfo->syncRes.rx_offset);
 #endif
-    ssbInfo->freqOffset = freq_offset_pss + freq_offset_sss;
+    ssbInfo->freqOffset += freq_offset_pss + freq_offset_sss;
 
     if (ssbInfo->syncRes.cell_detected) { // we got sss channel
       ssbInfo->syncRes.cell_detected = nr_pbch_detection(ssbInfo->proc,
@@ -319,6 +322,7 @@ nr_initial_sync_t nr_initial_sync(UE_nr_rxtx_proc_t *proc,
                                   .syncRes.cell_detected = false,
                                   .nFrames = n_frames,
                                   .foFlag = ue->UE_fo_compensation,
+                                  .freqOffset = ue->initial_fo,
                                   .targetNidCell = ue->target_Nid_cell};
     ssbInfo->rxdata = malloc16_clear(fp->nb_antennas_rx * sizeof(c16_t *));
     for (int ant = 0; ant < fp->nb_antennas_rx; ant++) {
