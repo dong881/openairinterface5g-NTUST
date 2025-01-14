@@ -25,6 +25,7 @@
 #include "nr_modulation.h"
 #include "PHY/LTE_ESTIMATION/lte_estimation.h"
 #include "PHY/NR_UE_ESTIMATION/nr_estimation.h"
+#include "PHY/nr_phy_common/inc/nr_phy_common.h"
 #include <common/utils/LOG/log.h>
 
 //#define DEBUG_FEP
@@ -106,6 +107,12 @@ int nr_slot_fep(PHY_VARS_NR_UE *ue,
       memcpy((void *)&tmp_dft_in[0], (void *)&rxdata[aa][rx_offset], frame_parms->ofdm_symbol_size * sizeof(int32_t));
 
       rxdata_ptr = (int16_t *)tmp_dft_in;
+    }
+
+    if (ue && ue->cont_fo_comp) {
+      start_meas_nr_ue_phy(ue, RX_FO_COMPENSATION_STATS);
+      nr_fo_compensation(ue->freq_offset, frame_parms->samples_per_subframe, rx_offset, (c16_t *)rxdata_ptr, frame_parms->ofdm_symbol_size);
+      stop_meas_nr_ue_phy(ue, RX_FO_COMPENSATION_STATS);
     }
 
     if (ue)

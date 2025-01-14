@@ -438,9 +438,13 @@ static void UE_synch(void *arg) {
         ((ret.rx_offset << 1) / fp->samples_per_subframe * fp->slots_per_subframe)
         + round((float)((ret.rx_offset << 1) % fp->samples_per_subframe) / fp->samples_per_slot0);
 
-    // rerun with new cell parameters and frequency-offset
-    // todo: the freq_offset computed on DL shall be scaled before being applied to UL
-    nr_rf_card_config_freq(cfg0, ul_carrier, dl_carrier, freq_offset);
+    if (get_nrUE_params()->cont_fo_comp) {
+      UE->freq_offset = freq_offset;
+    } else {
+      // rerun with new cell parameters and frequency-offset
+      nr_rf_card_config_freq(cfg0, ul_carrier, dl_carrier, freq_offset);
+      UE->rfdevice.trx_set_freq_func(&UE->rfdevice, cfg0);
+    }
 
     if (get_nrUE_params()->agc) {
       nr_ue_adjust_rx_gain(UE, cfg0, UE->adjust_rxgain);
@@ -454,7 +458,6 @@ static void UE_synch(void *arg) {
           cfg0->rx_freq[0],
           cfg0->tx_freq[0]);
 
-    UE->rfdevice.trx_set_freq_func(&UE->rfdevice, cfg0);
     UE->is_synchronized = 1;
   } else {
     int gain_change = 0;
@@ -919,6 +922,8 @@ void *UE_thread(void *arg)
   AssertFatal(tmp2 == 0, "Could not start the device\n");
   if (usrp_tx_thread == 1)
     UE->rfdevice.trx_write_init(&UE->rfdevice);
+
+  InitSinLUT();
 
   notifiedFIFO_t nf;
   initNotifiedFIFO(&nf);

@@ -453,3 +453,16 @@ unsigned int nr_get_tx_amp(int power_dBm, int power_max_dBm, int total_nb_rb, in
   }
   return (0);
 }
+
+void nr_fo_compensation(double fo_Hz, int samples_per_ms, int sample_offset, c16_t *rxdata_ptr, int size)
+{
+  const double phase_inc = -fo_Hz / (samples_per_ms * 1000);
+  double phase = sample_offset * phase_inc;
+  phase -= (int)phase;
+  for (int i = 0; i < size; i++) {
+    c16_t rot = get_sin_cos(phase);
+    *rxdata_ptr = c16mulShift(*rxdata_ptr, rot, 14);
+    rxdata_ptr++;
+    phase += phase_inc;
+  }
+}
