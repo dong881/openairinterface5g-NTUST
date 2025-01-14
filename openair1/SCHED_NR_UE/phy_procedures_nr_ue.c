@@ -932,9 +932,13 @@ int pbch_pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_
 
             if (get_nrUE_params()->cont_fo_comp && pbchSuccess == 0) {
               double freq_offset = nr_ue_pbch_freq_offset(fp, estimateSz, dl_ch_estimates);
-              LOG_D(PHY,"compensated frequency offset = %.3f Hz, detected residual frequency offset = %.3f Hz\n", ue->freq_offset, freq_offset);
+              LOG_D(PHY,"compensated frequency offset = %.3f Hz, detected residual frequency offset = %.3f Hz, accumulated frequency offset = %.3f Hz\n", ue->freq_offset, freq_offset, ue->freq_off_acc);
 
-              ue->freq_offset += freq_offset;
+              // PI controller
+              const double PID_P = get_nrUE_params()->freq_sync_P;
+              const double PID_I = get_nrUE_params()->freq_sync_I;
+              ue->freq_offset += freq_offset * PID_P + ue->freq_off_acc * PID_I;
+              ue->freq_off_acc += freq_offset;
             }
           }
           LOG_D(PHY, "Doing N0 measurements in %s\n", __FUNCTION__);

@@ -463,6 +463,7 @@ typedef struct PHY_VARS_NR_UE_s {
   double initial_fo; /// initial frequency offset provided by the user
   int cont_fo_comp; /// flag enabling the continuous frequency offset estimation and compensation
   double freq_offset; /// currently compensated frequency offset
+  double freq_off_acc; /// accumulated frequency error (for PI controller)
 
   /// Timing Advance updates variables
   /// Timing advance update computed from the TA command signalled from gNB
