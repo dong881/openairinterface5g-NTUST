@@ -279,7 +279,7 @@ static void nr_rrc_f1_ho_complete(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
   f1ap_ue_context_release_cmd_t cmd = {
       .gNB_CU_ue_id = UE->rrc_ue_id,
       .gNB_DU_ue_id = source_ctx->du_ue_id,
-      .cause = F1AP_CAUSE_RADIO_NETWORK, // better
+      .cause = F1AP_CAUSE_RADIO_NETWORK,
       .cause_value = 5, // 5 = F1AP_CauseRadioNetwork_interaction_with_other_procedure
       .srb_id = DL_SCH_LCID_DCCH,
   };
