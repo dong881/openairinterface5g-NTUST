@@ -39,15 +39,12 @@
 typedef enum { HO_CTX_BOTH, HO_CTX_SOURCE, HO_CTX_TARGET } ho_ctx_type_t;
 static nr_handover_context_t *alloc_ho_ctx(ho_ctx_type_t type)
 {
-  nr_handover_context_t *ho_ctx = calloc(1, sizeof(*ho_ctx));
-  AssertFatal(ho_ctx != NULL, "out of memory\n");
+  nr_handover_context_t *ho_ctx = calloc_or_fail(1, sizeof(*ho_ctx));
   if (type == HO_CTX_SOURCE || type == HO_CTX_BOTH) {
-    ho_ctx->source = calloc(1, sizeof(*ho_ctx->source));
-    AssertFatal(ho_ctx->source != NULL, "out of memory\n");
+    ho_ctx->source = calloc_or_fail(1, sizeof(*ho_ctx->source));
   }
   if (type == HO_CTX_TARGET || type == HO_CTX_BOTH) {
-    ho_ctx->target = calloc(1, sizeof(*ho_ctx->target));
-    AssertFatal(ho_ctx->target != NULL, "out of memory\n");
+    ho_ctx->target = calloc_or_fail(1, sizeof(*ho_ctx->target));
   }
   return ho_ctx;
 }
@@ -157,8 +154,7 @@ static void nr_initiate_handover(const gNB_RRC_INST *rrc,
     // this changes
     AssertFatal(pdu->param.nb_qos == 1, "only 1 Qos flow supported\n");
     drb->drb_info.flows_to_be_setup_length = 1;
-    drb->drb_info.flows_mapped_to_drb = calloc(1, sizeof(f1ap_flows_mapped_to_drb_t));
-    AssertFatal(drb->drb_info.flows_mapped_to_drb, "could not allocate memory\n");
+    drb->drb_info.flows_mapped_to_drb = calloc_or_fail(1, sizeof(f1ap_flows_mapped_to_drb_t));
     int qfi = rrc_drb->cnAssociation.sdap_config.mappedQoS_FlowsToAdd[0];
     DevAssert(qfi > 0);
     drb->drb_info.flows_mapped_to_drb[0].qfi = qfi;

@@ -1415,15 +1415,12 @@ int do_NR_Paging(uint8_t Mod_id, uint8_t *buffer, uint32_t tmsi)
  * in encoded form which we decode + add to the handoverPreparationInformation */
 int do_NR_HandoverPreparationInformation(const uint8_t *uecap_buf, int uecap_buf_size, uint8_t *buf, int buf_size)
 {
-  NR_HandoverPreparationInformation_t *hpi = calloc(1, sizeof(*hpi));
-  AssertFatal(hpi != NULL, "out of memory\n");
+  NR_HandoverPreparationInformation_t *hpi = calloc_or_fail(1, sizeof(*hpi));
   hpi->criticalExtensions.present = NR_HandoverPreparationInformation__criticalExtensions_PR_c1;
-  hpi->criticalExtensions.choice.c1 = calloc(1, sizeof(*hpi->criticalExtensions.choice.c1));
-  AssertFatal(hpi->criticalExtensions.choice.c1 != NULL, "out of memory\n");
+  hpi->criticalExtensions.choice.c1 = calloc_or_fail(1, sizeof(*hpi->criticalExtensions.choice.c1));
   hpi->criticalExtensions.choice.c1->present =
       NR_HandoverPreparationInformation__criticalExtensions__c1_PR_handoverPreparationInformation;
-  NR_HandoverPreparationInformation_IEs_t *hpi_ie = calloc(1, sizeof(*hpi_ie));
-  AssertFatal(hpi_ie != NULL, "out of memory\n");
+  NR_HandoverPreparationInformation_IEs_t *hpi_ie = calloc_or_fail(1, sizeof(*hpi_ie));
   hpi->criticalExtensions.choice.c1->choice.handoverPreparationInformation = hpi_ie;
 
   NR_UE_CapabilityRAT_ContainerList_t *list = NULL;
