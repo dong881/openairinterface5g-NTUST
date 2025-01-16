@@ -1276,7 +1276,11 @@ static void process_Event_Based_Measurement_Report(gNB_RRC_UE_t *ue, NR_ReportCo
       break;
 
     case NR_EventTriggerConfig__eventId_PR_eventA3: {
-      LOG_W(NR_RRC, "HO LOG: Event A3 Report - Neighbour Becomes Better than Serving!\n");
+      LOG_W(NR_RRC, "HO LOG: Event A3 Report for UE %d - Neighbour Becomes Better than Serving!\n", ue->rrc_ue_id);
+      if (!measurementReport->criticalExtensions.choice.measurementReport) {
+        LOG_E(NR_RRC, "HO LOG: Event A3 Report: measurementReport is null\n");
+        break;
+      }
       const NR_MeasResults_t *measResults = &measurementReport->criticalExtensions.choice.measurementReport->measResults;
 
       for (int serving_cell_idx = 0; serving_cell_idx < measResults->measResultServingMOList.list.count; serving_cell_idx++) {
@@ -1290,11 +1294,11 @@ static void process_Event_Based_Measurement_Report(gNB_RRC_UE_t *ue, NR_ReportCo
         LOG_D(NR_RRC, "Serving Cell RSRP: %d\n", servingCellRSRP);
       }
 
-      if (measResults->measResultNeighCells == NULL)
+      if (measResults->measResultNeighCells == NULL ||
+          measResults->measResultNeighCells->present != NR_MeasResults__measResultNeighCells_PR_measResultListNR) {
+        LOG_D(NR_RRC, "HO LOG: No neighbor cell measurements available\n");
         break;
-
-      if (measResults->measResultNeighCells->present != NR_MeasResults__measResultNeighCells_PR_measResultListNR)
-        break;
+      }
 
       const NR_MeasResultListNR_t *measResultListNR = measResults->measResultNeighCells->choice.measResultListNR;
       for (int neigh_meas_idx = 0; neigh_meas_idx < measResultListNR->list.count; neigh_meas_idx++) {
@@ -1392,7 +1396,7 @@ static void rrc_gNB_process_MeasurementReport(gNB_RRC_UE_t *UE, NR_MeasurementRe
     }
   }
 
-  if (report_config == NULL) {
+  if (report_config == NULL || report_config->choice.reportConfigNR == NULL) {
     LOG_E(NR_RRC, "There is no related report configuration for this measId!\n");
     return;
   }
@@ -1741,7 +1745,11 @@ static int rrc_gNB_decode_dcch(gNB_RRC_INST *rrc, const f1ap_ul_rrc_message_t *m
         break;
 
       case NR_UL_DCCH_MessageType__c1_PR_measurementReport:
-        rrc_gNB_process_MeasurementReport(UE, ul_dcch_msg->message.choice.c1->choice.measurementReport);
+        if (ul_dcch_msg->message.choice.c1->choice.measurementReport != NULL) {
+          rrc_gNB_process_MeasurementReport(UE, ul_dcch_msg->message.choice.c1->choice.measurementReport);
+        } else {
+          LOG_E(NR_RRC, "UE %d: No measurementReport CHOICE is given\n", ue_context_p->ue_context.rrc_ue_id);
+        }
         break;
 
       case NR_UL_DCCH_MessageType__c1_PR_ulInformationTransfer:
