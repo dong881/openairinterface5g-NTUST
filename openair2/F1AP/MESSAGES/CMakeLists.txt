@@ -4,6 +4,8 @@ string(REPLACE ";" "." F1AP_RELEASE "${F1AP_VERSION}")
 
 if(F1AP_RELEASE VERSION_EQUAL "16.3.1")
   include(ASN1/f1ap-16.3.1.cmake)
+elseif(F1AP_RELEASE VERSION_EQUAL "17.3.0")
+  include(ASN1/f1ap-17.3.0.cmake)
 else()
   message(FATAL_ERROR "unknown F1AP_RELEASE ${F1AP_RELEASE}")
 endif()
