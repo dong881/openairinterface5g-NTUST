@@ -35,6 +35,7 @@
 #include "NasKeySetIdentifier.h"
 #include "NrUESecurityCapability.h"
 #include "SecurityHeaderType.h"
+#include "FGCNasMessageContainer.h"
 
 #ifndef REGISTRATION_REQUEST_H_
 #define REGISTRATION_REQUEST_H_
@@ -102,6 +103,7 @@ typedef struct registration_request_msg_tag {
   NasKeySetIdentifier naskeysetidentifier;
   FGSMobileIdentity fgsmobileidentity;
   /* Optional fields */
+  FGCNasMessageContainer fgsnasmessagecontainer;
   uint32_t presencemask;
   FGMMCapability fgmmcapability;
   NrUESecurityCapability nruesecuritycapability;
