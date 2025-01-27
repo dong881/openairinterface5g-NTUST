@@ -42,12 +42,13 @@
   legacy: we regenerate each sub frame in UL, and each frame only in DL
 */
 void rxAddInput(const c16_t *input_sig,
-                c16_t *after_channel_sig,
+                cf_t *after_channel_sig,
                 int rxAnt,
                 channel_desc_t *channelDesc,
                 int nbSamples,
                 uint64_t TS,
-                uint32_t CirSize)
+                uint32_t CirSize,
+                bool add_noise)
 {
   if ((channelDesc->sat_height > 0) && (channelDesc->enable_dynamic_delay || channelDesc->enable_dynamic_Doppler)) { // model for transparent satellite on circular orbit
     /* assumptions:
@@ -127,12 +128,12 @@ void rxAddInput(const c16_t *input_sig,
   const double pathLossLinear = pow(10,channelDesc->path_loss_dB/20.0);
   // Energy in one sample to calibrate input noise
   // the normalized OAI value seems to be 256 as average amplitude (numerical amplification = 1)
-  const double noise_per_sample = pow(10,channelDesc->noise_power_dB/10.0) * 256;
+  const double noise_per_sample = add_noise ? pow(10,channelDesc->noise_power_dB/10.0) * 256 : 0;
   const uint64_t dd = channelDesc->channel_offset;
   const int nbTx=channelDesc->nb_tx;
 
   for (int i=0; i<nbSamples; i++) {
-    struct complex16 *out_ptr=after_channel_sig+i;
+    cf_t *out_ptr = after_channel_sig + i;
     struct complexd rx_tmp= {0};
 
     for (int txAnt=0; txAnt < nbTx; txAnt++) {
@@ -166,8 +167,8 @@ void rxAddInput(const c16_t *input_sig,
       channelDesc->Doppler_phase_cur[rxAnt] += channelDesc->Doppler_phase_inc;
     }
 
-    out_ptr->r = lround(rx_tmp.r*pathLossLinear + noise_per_sample*gaussZiggurat(0.0,1.0));
-    out_ptr->i = lround(rx_tmp.i*pathLossLinear + noise_per_sample*gaussZiggurat(0.0,1.0));
+    out_ptr->r += rx_tmp.r * pathLossLinear + noise_per_sample * gaussZiggurat(0.0, 1.0);
+    out_ptr->i += rx_tmp.i * pathLossLinear + noise_per_sample * gaussZiggurat(0.0, 1.0);
     out_ptr++;
   }
 

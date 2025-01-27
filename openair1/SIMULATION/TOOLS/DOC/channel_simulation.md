@@ -142,6 +142,7 @@ Channel simulation parameters can also be specified on the command line by using
 |:---                 |:----       |:----               |:----|
 |`modellist`          |char string |`DefaultChannelList`|select and load the `modellist` from the config file.|
 |`max_chan`           |integer     |10                  |set the maximum number of channel models that can be defined in the system. Must be greater than the number of model definitions in the model list loaded at init time.|
+|`noise_power_dBFS`   |integer     |0                   |Noise power in dBFS. If set, noise per channel is not applied. To achieve positive SNR use values below the default gNB/nrUE amp backoff value (-36dBFS)|
 
 Example usage:
 ```bash
