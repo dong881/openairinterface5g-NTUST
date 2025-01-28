@@ -98,6 +98,8 @@ typedef struct {
   bool is_rrc_inactive;
   /* Timer T3512 */
   int t3512;
+  // Timer t3448 in seconds (-1 = disabled)
+  int t3448;
 } nr_ue_nas_t;
 
 nr_ue_nas_t *get_ue_nas_info(module_id_t module_id);

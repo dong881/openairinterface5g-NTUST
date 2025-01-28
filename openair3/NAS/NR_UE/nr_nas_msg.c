@@ -36,6 +36,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "common/utils/ds/byte_array.h"
 #include "AuthenticationResponseParameter.h"
 #include "FGCNasMessageContainer.h"
 #include "FGSDeregistrationRequestUEOriginating.h"
@@ -64,6 +65,7 @@
 #include "utils.h"
 #include "openair2/SDAP/nr_sdap/nr_sdap.h"
 #include "fgs_nas_utils.h"
+#include "fgmm_service_accept.h"
 
 #define MAX_NAS_UE 4
 
@@ -112,6 +114,16 @@ static void servingNetworkName(uint8_t *msg, char *imsiStr, int mnc_size)
   int size = 64;
 
   snprintf((char *)msg, size, "5G:mnc%3s.mcc%3s.3gppnetwork.org", mnc, mcc);
+}
+
+static const char *print_info(uint8_t id, const text_info_t *array, uint8_t array_size)
+{
+  for (uint8_t i = 0; i < array_size; i++) {
+    if (array[i].id == id) {
+      return array[i].text;
+    }
+  }
+  return "N/A";
 }
 
 static security_state_t nas_security_rx_process(nr_ue_nas_t *nas, uint8_t *pdu_buffer, int pdu_length)
@@ -1472,6 +1484,48 @@ static void handle_registration_accept(nr_ue_nas_t *nas, const uint8_t *pdu_buff
   }
 }
 
+/* 3GPP TS 24.008 10.5.7.3 GPRS Timer */
+static int process_gprs_timer(gprs_timer_t *timer)
+{
+  if (!timer)
+    return -1;
+
+  int factor = 0;
+  switch (timer->unit) {
+    case TWO_SECONDS:
+      factor = 2;
+      break;
+    case ONE_MINUTE:
+      factor = 60;
+      break;
+    case DECIHOURS:
+      factor = 360; // 6 minutes
+      break;
+    case DEACTIVATED:
+      return -1;
+    default:
+      factor = 60; // default is 60 seconds
+      break;
+  }
+
+  return timer->value * factor;
+}
+
+static void handle_service_accept(nr_ue_nas_t *nas, const byte_array_t *buffer)
+{
+  LOG_I(NAS, "Received NAS Service Accept message\n");
+  fgs_service_accept_msg_t msg = {0};
+  decode_fgs_service_accept(&msg, buffer);
+  // Extract timer t3448 in seconds (optional IE)
+  nas->t3448 = process_gprs_timer(msg.t3448);
+  // Extract possible reactivation errors
+  for (int i = 0; i < msg.num_errors; i++)
+    LOG_E(NAS,
+          "Received PDU Session %d reactivation result error cause %s\n",
+          msg.cause->pdu_session_id,
+          print_info(msg.cause->cause, cause_text_info, sizeofArray(cause_text_info)));
+}
+
 void *nas_nrue(void *args_p)
 {
   // Wait for a message or an event
@@ -1673,6 +1727,11 @@ void *nas_nrue(void *args_p)
             LOG_E(NAS, "Received Registration reject cause: %s\n", cause_text_info[pdu_buffer[17]].text);
             exit(1);
             break;
+          case FGS_SERVICE_ACCEPT: {
+            byte_array_t buffer = {.buf = pdu_buffer, .len = pdu_length};
+            handle_service_accept(nas, &buffer);
+            break;
+          }
           default:
             LOG_W(NR_RRC, "unknown message type %d\n", msg_type);
             break;
