@@ -308,6 +308,20 @@ static void nr_rrc_configure_default_SI(NR_UE_RRC_SI_INFO *SI_info,
   }
 }
 
+static void verify_NTN_access(const NR_UE_RRC_SI_INFO *SI_info, const NR_SIB1_v1700_IEs_t *sib1_v1700)
+{
+  // SIB1 indicates if NTN access is present in the cell
+  bool ntn_access = false;
+  if (sib1_v1700 && sib1_v1700->cellBarredNTN_r17
+      && *sib1_v1700->cellBarredNTN_r17 == NR_SIB1_v1700_IEs__cellBarredNTN_r17_notBarred)
+    ntn_access = true;
+
+  uint32_t sib19_mask = 1 << NR_SIB_TypeInfo_v1700__sibType_r17__type1_r17_sibType19;
+  int sib19_present = SI_info->SInfo_r17.default_otherSI_map_r17 & sib19_mask;
+
+  AssertFatal(!ntn_access || sib19_present, "NTN cell, but SIB19 not configured.\n");
+}
+
 static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_info, NR_SIB1_t *sib1)
 {
   if(g_log->log_component[NR_RRC].level >= OAILOG_DEBUG)
@@ -321,15 +335,19 @@ static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_inf
     nr_rrc_ue_prepare_RRCSetupRequest(rrc);
   }
 
+  NR_SIB1_v1700_IEs_t *sib1_v1700 = NULL;
   NR_SI_SchedulingInfo_v1700_t *si_SchedInfo_v1700 = NULL;
   if (sib1->nonCriticalExtension
       && sib1->nonCriticalExtension->nonCriticalExtension
       && sib1->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension) {
-    si_SchedInfo_v1700 = sib1->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->si_SchedulingInfo_v1700;
+    sib1_v1700 = sib1->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension;
+    si_SchedInfo_v1700 = sib1_v1700->si_SchedulingInfo_v1700;
   }
 
   // configure default SI
   nr_rrc_configure_default_SI(SI_info, sib1->si_SchedulingInfo, si_SchedInfo_v1700);
+  verify_NTN_access(SI_info, sib1_v1700);
+
   // configure timers and constant
   nr_rrc_set_sib1_timers_and_constants(&rrc->timers_and_constants, sib1);
   // RRC storage of SIB1 timers and constants (eg needed in re-establishment)
