@@ -46,7 +46,6 @@
 #ifdef __aarch64__
 #define USE128BIT
 #endif
-#define USE128BIT
 
 static void nr_pdsch_codeword_scrambling(uint8_t *in, uint32_t size, uint8_t q, uint32_t Nid, uint32_t n_RNTI, uint32_t *out)
 {
@@ -57,7 +56,7 @@ static int do_ptrs_symbol(nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15,
                           int start_sc,
                           int k,
                           uint *cur_re,
-                          NR_DL_FRAME_PARMS *frame_parms,
+			  int symbol_sz,
                           c16_t *output,
                           c16_t *tx_layer,
                           int amp,
@@ -74,7 +73,7 @@ static int do_ptrs_symbol(nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15,
                                     rel15->rbSize,
                                     rel15->PTRSReOffset,
                                     start_sc,
-                                    frame_parms->ofdm_symbol_size);
+                                    symbol_sz);
     if (is_ptrs_re) {
       /* check if cuurent RE is PTRS RE*/
       uint16_t beta_ptrs = 1;
@@ -96,30 +95,26 @@ static int do_ptrs_symbol(nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15,
 #endif
       *cur_re = *cur_re + 1;
     }
-    if (++k >= frame_parms->ofdm_symbol_size)
-      k -= frame_parms->ofdm_symbol_size;
+    if (++k >= symbol_sz)
+      k -= symbol_sz;
   }
   return k;
 }
 
-static inline void dmrs_case1(c16_t *txF,
-                              c16_t *dmrs_mux,
-                              c16_t *mod_dmrs,
-                              const int amp_dmrs,
-                              int sz,
-                              int start_sc,
-                              int upper_limit,
-                              int remaining_re)
+static inline void
+dmrs_case1(c16_t *txF, c16_t *mod_dmrs, const int amp_dmrs, int sz, int start_sc, int upper_limit, int remaining_re)
 {
 #ifdef DEBUG_DLSCH_MAPPING
   printf("doing DMRS pattern for port 0 : d0 0 d1 0 ... dNm2 0 dNm1 0 (ul %d, rr %d)\n", upper_limit, remaining_re);
 #endif
-#if defined(USE128BIT)
+  // add filler to process all as SIMD
+  c16_t dmrs_mux[(sz+63)&~63] __attribute__((aligned(64)));
 
+#if defined(USE128BIT)
   simde__m128i d0, d2, d3, zeros = simde_mm_setzero_si128(), amp_dmrs128 = simde_mm_set1_epi16(amp_dmrs);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 3; i++) {
-    d0 = simde_mm_mulhrs_epi16(((simde__m128i *)mod_dmrs)[i], amp_dmrs128);
+    d0 = simde_mm_mulhrs_epi16(simde_mm_loadu_si128((simde__m128i *)mod_dmrs+i), amp_dmrs128);
     d2 = simde_mm_unpacklo_epi32(d0, zeros);
     d3 = simde_mm_unpackhi_epi32(d0, zeros);
     ((simde__m128i *)dmrs_mux)[j++] = d2;
@@ -141,7 +136,7 @@ static inline void dmrs_case1(c16_t *txF,
   __m512i permh = _mm512_set_epi32(31, 15, 30, 14, 29, 13, 28, 12, 27, 11, 26, 10, 25, 9, 24, 8);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 5; i++) {
-    d0 = _mm512_mulhrs_epi16(((__m512i *)mod_dmrs)[i], amp_dmrs512);
+    d0 = _mm512_mulhrs_epi16(_mm512_loadu_si512((__m512i *)mod_dmrs + i), amp_dmrs512);
     ((__m512i *)dmrs_mux)[j++] = _mm512_permutex2var_epi32(d0, perml, zeros); //
     ((__m512i *)dmrs_mux)[j++] = _mm512_permutex2var_epi32(d0, permh, zeros);
   }
@@ -159,7 +154,7 @@ static inline void dmrs_case1(c16_t *txF,
   simde__m256i d0, d2, d3, zeros = simde_mm256_setzero_si256(), amp_dmrs256 = simde_mm256_set1_epi16(amp_dmrs);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 4; i++) {
-    d0 = simde_mm256_mulhrs_epi16(((simde__m256i *)mod_dmrs)[i], amp_dmrs256);
+    d0 = simde_mm256_mulhrs_epi16(simde_mm256_loadu_si256((simde__m256i *)mod_dmrs + i), amp_dmrs256);
     d2 = simde_mm256_unpacklo_epi32(d0, zeros);
     d3 = simde_mm256_unpackhi_epi32(d0, zeros);
     ((simde__m256i *)dmrs_mux)[j++] = simde_mm256_permute2x128_si256(d2, d3, 32);
@@ -181,18 +176,14 @@ static inline void dmrs_case1(c16_t *txF,
     memcpy(&txF[0], &dmrs_mux[upper_limit], sizeof(c16_t) * remaining_re);
 }
 
-static inline void dmrs_case2(c16_t *txF,
-                              c16_t *dmrs_mux,
-                              c16_t *mod_dmrs,
-                              const int amp_dmrs,
-                              int sz,
-                              int start_sc,
-                              int upper_limit,
-                              int remaining_re)
+static inline void
+dmrs_case2(c16_t *txF, c16_t *mod_dmrs, const int amp_dmrs, int sz, int start_sc, int upper_limit, int remaining_re)
 {
 #ifdef DEBUG_DLSCH_MAPPING
   printf("doing DMRS pattern for port 1 : d0 0 -d1 0 ...dNm2 0 -dNm1 0\n");
 #endif
+    // add filler to process all as SIMD
+  c16_t dmrs_mux[(sz+63)&~63] __attribute__((aligned(64)));
 
 #if defined(USE128BIT)
   simde__m128i d0, d2, d3,
@@ -200,7 +191,7 @@ static inline void dmrs_case2(c16_t *txF,
       amp_dmrs128 = simde_mm_set_epi16(-amp_dmrs, -amp_dmrs, amp_dmrs, amp_dmrs, -amp_dmrs, -amp_dmrs, amp_dmrs, amp_dmrs);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 3; i++) {
-    d0 = simde_mm_mulhrs_epi16(((simde__m128i *)mod_dmrs)[i], amp_dmrs128);
+    d0 = simde_mm_mulhrs_epi16(simde_mm_loadu_si128((simde__m128i *)mod_dmrs + i), amp_dmrs128);
     d2 = simde_mm_unpacklo_epi32(d0, zeros);
     d3 = simde_mm_unpackhi_epi32(d0, zeros);
     ((simde__m128i *)dmrs_mux)[j++] = d2;
@@ -260,7 +251,7 @@ static inline void dmrs_case2(c16_t *txF,
   __m512i permh = _mm512_set_epi32(31, 15, 30, 14, 29, 13, 28, 12, 27, 11, 26, 10, 25, 9, 24, 8);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 5; i++) {
-    d0 = _mm512_mulhrs_epi16(((__m512i *)mod_dmrs)[i], amp_dmrs512);
+    d0 = _mm512_mulhrs_epi16(_mm512_loadu_si512((__m512i *)mod_dmrs + i), amp_dmrs512);
     ((__m512i *)dmrs_mux)[j++] = _mm512_permutex2var_epi32(d0, perml, zeros); //
     ((__m512i *)dmrs_mux)[j++] = _mm512_permutex2var_epi32(d0, permh, zeros);
   }
@@ -295,7 +286,7 @@ static inline void dmrs_case2(c16_t *txF,
                                                                amp_dmrs);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 4; i++) {
-    d0 = simde_mm256_mulhrs_epi16(((simde__m256i *)mod_dmrs)[i], amp_dmrs256);
+    d0 = simde_mm256_mulhrs_epi16(simde_mm256_loadu_si256((simde__m256i *)mod_dmrs + i), amp_dmrs256);
     d2 = simde_mm256_unpacklo_epi32(d0, zeros);
     d3 = simde_mm256_unpackhi_epi32(d0, zeros);
     ((simde__m256i *)dmrs_mux)[j++] = simde_mm256_permute2x128_si256(d2, d3, 32);
@@ -323,23 +314,21 @@ static inline void dmrs_case2(c16_t *txF,
     memcpy(&txF[0], &dmrs_mux[upper_limit], sizeof(c16_t) * remaining_re);
 }
 
-static inline void dmrs_case3(c16_t *txF,
-                              c16_t *dmrs_mux,
-                              c16_t *mod_dmrs,
-                              const int amp_dmrs,
-                              int sz,
-                              int start_sc,
-                              int upper_limit,
-                              int remaining_re)
+static inline void
+dmrs_case3(c16_t *txF, c16_t *mod_dmrs, const int amp_dmrs, int sz, int start_sc, int upper_limit, int remaining_re)
 {
 #ifdef DEBUG_DLSCH_MAPPING
   printf("doing DMRS pattern for port 2 : 0 d0 0 d1 ... 0 dNm2 0 dNm1\n");
 #endif
+  // add filler to process all as SIMD
+  c16_t dmrs_mux[(sz+63)&~63] __attribute__((aligned(64)));
+
+
 #if defined(USE128BIT)
   simde__m128i d0, d2, d3, zeros = simde_mm_setzero_si128(), amp_dmrs128 = simde_mm_set1_epi16(amp_dmrs);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 3; i++) {
-    d0 = simde_mm_mulhrs_epi16(((simde__m128i *)mod_dmrs)[i], amp_dmrs128);
+    d0 = simde_mm_mulhrs_epi16(simde_mm_loadu_si128((simde__m128i *)mod_dmrs + i), amp_dmrs128);
     d2 = simde_mm_unpacklo_epi32(zeros, d0);
     d3 = simde_mm_unpackhi_epi32(zeros, d0);
     ((simde__m128i *)dmrs_mux)[j++] = d2;
@@ -361,7 +350,7 @@ static inline void dmrs_case3(c16_t *txF,
   __m512i permh = _mm512_set_epi32(31, 15, 30, 14, 29, 13, 28, 12, 27, 11, 26, 10, 25, 9, 24, 8);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 5; i++) {
-    d0 = _mm512_mulhrs_epi16(((__m512i *)mod_dmrs)[i], amp_dmrs512);
+    d0 = _mm512_mulhrs_epi16(_mm512_loadu_si512((__m512i *)mod_dmrs + i), amp_dmrs512);
     d2 = _mm512_unpacklo_epi32(zeros, d0); // 0 d0_0 0 d0_1 0 d0_4 0 d0_5 0 d0_8 0 d0_9 0 d0_12 0 d0_13
     d3 = _mm512_unpackhi_epi32(zeros, d0); // 0 d0_2 0 d0_3 0 d0_6 0 d0_7 0 d0_10 0 d0_11 d0_14 0 d0_15
     ((__m512i *)dmrs_mux)[j++] = _mm512_permutex2var_epi32(d2, perml, d3); //
@@ -382,7 +371,7 @@ static inline void dmrs_case3(c16_t *txF,
   simde__m256i d0, d2, d3, zeros = simde_mm256_setzero_si256(), amp_dmrs256 = simde_mm256_set1_epi16(amp_dmrs);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 4; i++) {
-    d0 = simde_mm256_mulhrs_epi16(((simde__m256i *)mod_dmrs)[i], amp_dmrs256);
+    d0 = simde_mm256_mulhrs_epi16(simde_mm256_loadu_si256((simde__m256i *)mod_dmrs + i), amp_dmrs256);
     d2 = simde_mm256_unpacklo_epi32(zeros, d0);
     d3 = simde_mm256_unpackhi_epi32(zeros, d0);
     ((simde__m256i *)dmrs_mux)[j++] = simde_mm256_permute2x128_si256(d2, d3, 32);
@@ -404,25 +393,22 @@ static inline void dmrs_case3(c16_t *txF,
     memcpy(&txF[0], &dmrs_mux[upper_limit], sizeof(c16_t) * remaining_re);
 }
 
-static inline void dmrs_case4(c16_t *txF,
-                              c16_t *dmrs_mux,
-                              c16_t *mod_dmrs,
-                              const int amp_dmrs,
-                              int sz,
-                              int start_sc,
-                              int upper_limit,
-                              int remaining_re)
+static inline void
+dmrs_case4(c16_t *txF, c16_t *mod_dmrs, const int amp_dmrs, int sz, int start_sc, int upper_limit, int remaining_re)
 {
 #ifdef DEBUG_DLSCH_MAPPING
   printf("doing DMRS pattern for port 3 : 0 d0 0 -d1 ... 0 dNm2 0 -dNm1\n");
 #endif
+    // add filler to process all as SIMD
+  c16_t dmrs_mux[(sz+63)&~63] __attribute__((aligned(64)));
+
 #if defined(USE128BIT)
   simde__m128i d0, d2, d3,
       zeros = simde_mm_setzero_si128(),
       amp_dmrs128 = simde_mm_set_epi16(-amp_dmrs, -amp_dmrs, amp_dmrs, amp_dmrs, -amp_dmrs, -amp_dmrs, amp_dmrs, amp_dmrs);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 3; i++) {
-    d0 = simde_mm_mulhrs_epi16(((simde__m128i *)mod_dmrs)[i], amp_dmrs128);
+    d0 = simde_mm_mulhrs_epi16(simde_mm_loadu_si128((simde__m128i *)mod_dmrs + i), amp_dmrs128);
     d2 = simde_mm_unpacklo_epi32(zeros, d0);
     d3 = simde_mm_unpackhi_epi32(zeros, d0);
     ((simde__m128i *)dmrs_mux)[j++] = d2;
@@ -484,7 +470,7 @@ static inline void dmrs_case4(c16_t *txF,
   __m512i permh = _mm512_set_epi32(31, 15, 30, 14, 29, 13, 28, 12, 27, 11, 26, 10, 25, 9, 24, 8);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 5; i++) {
-    d0 = _mm512_mulhrs_epi16(((__m512i *)mod_dmrs)[i], amp_dmrs512);
+    d0 = _mm512_mulhrs_epi16(_mm512_loadu_si512((__m512i *)mod_dmrs + i), amp_dmrs512);
     ((__m512i *)dmrs_mux)[j++] = _mm512_permutex2var_epi32(zeros, perml, d0); //
     ((__m512i *)dmrs_mux)[j++] = _mm512_permutex2var_epi32(zeros, permh, d0);
   }
@@ -524,7 +510,7 @@ static inline void dmrs_case4(c16_t *txF,
                                                                amp_dmrs);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 4; i++) {
-    d0 = simde_mm256_mulhrs_epi16(((simde__m256i *)mod_dmrs)[i], amp_dmrs256);
+    d0 = simde_mm256_mulhrs_epi16(simde_mm256_loadu_si256((simde__m256i *)mod_dmrs + i), amp_dmrs256);
     d2 = simde_mm256_unpacklo_epi32(zeros, d0);
     d3 = simde_mm256_unpackhi_epi32(zeros, d0);
     ((simde__m256i *)dmrs_mux)[j++] = simde_mm256_permute2x128_si256(d2, d3, 32);
@@ -556,7 +542,6 @@ static inline void dmrs_case4(c16_t *txF,
 
 static inline void dmrs_case5(c16_t *txF,
                               c16_t *txl,
-                              c16_t *dmrs_mux,
                               c16_t *mod_dmrs,
                               const int amp_dmrs,
                               const int amp,
@@ -569,12 +554,15 @@ static inline void dmrs_case5(c16_t *txF,
 #ifdef DEBUG_DLSCH_MAPPING
   printf("doing DMRS pattern for port 0 : d0 X0 d1 X1 ... dNm2 XNm2 dNm1 XNm1\n");
 #endif
+    // add filler to process all as SIMD
+  c16_t dmrs_mux[(sz+63)&~63] __attribute__((aligned(64)));
+
   c16_t *txlc = txl + *cur_re;
 #if defined(USE128BIT)
   simde__m128i d0, d1, d2, d3, amp_dmrs128 = simde_mm_set1_epi16(amp_dmrs), amp128 = simde_mm_set1_epi16(amp);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 3; i++) {
-    d0 = simde_mm_mulhrs_epi16(((simde__m128i *)mod_dmrs)[i], amp_dmrs128);
+    d0 = simde_mm_mulhrs_epi16(simde_mm_loadu_si128((simde__m128i *)mod_dmrs + i), amp_dmrs128);
     d1 = simde_mm_mulhrs_epi16(simde_mm_loadu_si128(((simde__m128i *)txlc) + i), amp128);
     d2 = simde_mm_unpacklo_epi32(d0, d1);
     d3 = simde_mm_unpackhi_epi32(d0, d1);
@@ -597,7 +585,7 @@ static inline void dmrs_case5(c16_t *txF,
   __m512i permh = _mm512_set_epi32(31, 15, 30, 14, 29, 13, 28, 12, 27, 11, 26, 10, 25, 9, 24, 8);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 5; i++) {
-    d0 = _mm512_mulhrs_epi16(((__m512i *)mod_dmrs)[i], amp_dmrs512);
+    d0 = _mm512_mulhrs_epi16(_mm512_loadu_si512((__m512i *)mod_dmrs + i), amp_dmrs512);
     d1 = _mm512_mulhrs_epi16(_mm512_loadu_si512(((__m512i *)txlc) + i), amp512);
     ((__m512i *)dmrs_mux)[j++] = _mm512_permutex2var_epi32(d0, perml, d1); //
     ((__m512i *)dmrs_mux)[j++] = _mm512_permutex2var_epi32(d0, permh, d1);
@@ -616,7 +604,7 @@ static inline void dmrs_case5(c16_t *txF,
   simde__m256i d0, d1, d2, d3, amp_dmrs256 = simde_mm256_set1_epi16(amp_dmrs), amp256 = simde_mm256_set1_epi16(amp);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 4; i++) {
-    d0 = simde_mm256_mulhrs_epi16(((simde__m256i *)mod_dmrs)[i], amp_dmrs256);
+    d0 = simde_mm256_mulhrs_epi16(simde_mm256_loadu_si256((simde__m256i *)mod_dmrs + i), amp_dmrs256);
     d1 = simde_mm256_mulhrs_epi16(simde_mm256_loadu_si256(((simde__m256i *)txlc) + i), amp256);
     d2 = simde_mm256_unpacklo_epi32(d0, d1);
     d3 = simde_mm256_unpackhi_epi32(d0, d1);
@@ -642,7 +630,6 @@ static inline void dmrs_case5(c16_t *txF,
 
 static inline void dmrs_case6(c16_t *txF,
                               c16_t *txl,
-                              c16_t *dmrs_mux,
                               c16_t *mod_dmrs,
                               const int amp_dmrs,
                               const int amp,
@@ -655,6 +642,8 @@ static inline void dmrs_case6(c16_t *txF,
 #ifdef DEBUG_DLSCH_MAPPING
   printf("doing DMRS pattern for port 1 : d0 X0 -d1 X1 ...dNm2 XNm2 -dNm1 XNm1\n");
 #endif
+    // add filler to process all as SIMD
+  c16_t dmrs_mux[(sz+63)&~63] __attribute__((aligned(64)));
   c16_t *txlc = txl + *cur_re;
 #if defined(USE128BIT)
   simde__m128i d0, d1, d2, d3,
@@ -662,7 +651,7 @@ static inline void dmrs_case6(c16_t *txF,
       amp128 = simde_mm_set1_epi16(amp);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 3; i++) {
-    d0 = simde_mm_mulhrs_epi16(((simde__m128i *)mod_dmrs)[i], amp_dmrs128);
+    d0 = simde_mm_mulhrs_epi16(simde_mm_loadu_si128((simde__m128i *)mod_dmrs + i), amp_dmrs128);
     d1 = simde_mm_mulhrs_epi16(simde_mm_loadu_si128(((simde__m128i *)txlc) + i), amp128);
     d2 = simde_mm_unpacklo_epi32(d0, d1);
     d3 = simde_mm_unpackhi_epi32(d0, d1);
@@ -725,7 +714,7 @@ static inline void dmrs_case6(c16_t *txF,
   __m512i permh = _mm512_set_epi32(31, 15, 30, 14, 29, 13, 28, 12, 27, 11, 26, 10, 25, 9, 24, 8);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 5; i++) {
-    d0 = _mm512_mulhrs_epi16(((__m512i *)mod_dmrs)[i], amp_dmrs512);
+    d0 = _mm512_mulhrs_epi16(_mm512_loadu_si512((__m512i *)mod_dmrs + i), amp_dmrs512);
     d1 = _mm512_mulhrs_epi16(_mm512_loadu_si512(((__m512i *)txlc) + i), amp512);
     ((__m512i *)dmrs_mux)[j++] = _mm512_permutex2var_epi32(d0, perml, d1); //
     ((__m512i *)dmrs_mux)[j++] = _mm512_permutex2var_epi32(d0, permh, d1);
@@ -767,7 +756,7 @@ static inline void dmrs_case6(c16_t *txF,
       amp256 = simde_mm256_set1_epi16(amp);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 4; i++) {
-    d0 = simde_mm256_mulhrs_epi16(((simde__m256i *)mod_dmrs)[i], amp_dmrs256);
+    d0 = simde_mm256_mulhrs_epi16(simde_mm256_loadu_si256((simde__m256i *)mod_dmrs + i), amp_dmrs256);
     d1 = simde_mm256_mulhrs_epi16(simde_mm256_loadu_si256(((simde__m256i *)txlc) + i), amp256);
     d2 = simde_mm256_unpacklo_epi32(d0, d1);
     d3 = simde_mm256_unpackhi_epi32(d0, d1);
@@ -800,7 +789,6 @@ static inline void dmrs_case6(c16_t *txF,
 
 static inline void dmrs_case7(c16_t *txF,
                               c16_t *txl,
-                              c16_t *dmrs_mux,
                               c16_t *mod_dmrs,
                               const int amp_dmrs,
                               const int amp,
@@ -813,13 +801,16 @@ static inline void dmrs_case7(c16_t *txF,
 #ifdef DEBUG_DLSCH_MAPPING
   printf("doing DMRS pattern for port 2 : X0 d0 X1 d1 ... XNm2 dNm2 XNm1 dNm1\n");
 #endif
+    // add filler to process all as SIMD
+  c16_t dmrs_mux[(sz+63)&~63] __attribute__((aligned(64)));
+
   c16_t *txlc = txl + *cur_re;
 
 #if defined(USE128BIT)
   simde__m128i d0, d1, d2, d3, amp_dmrs128 = simde_mm_set1_epi16(amp_dmrs), amp128 = simde_mm_set1_epi16(amp);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 3; i++) {
-    d1 = simde_mm_mulhrs_epi16(((simde__m128i *)mod_dmrs)[i], amp_dmrs128);
+    d1 = simde_mm_mulhrs_epi16(simde_mm_loadu_si128((simde__m128i *)mod_dmrs + i), amp_dmrs128);
     d0 = simde_mm_mulhrs_epi16(simde_mm_loadu_si128(((simde__m128i *)txlc) + i), amp128);
     d2 = simde_mm_unpacklo_epi32(d0, d1);
     d3 = simde_mm_unpackhi_epi32(d0, d1);
@@ -842,7 +833,7 @@ static inline void dmrs_case7(c16_t *txF,
   __m512i permh = _mm512_set_epi32(31, 15, 30, 14, 29, 13, 28, 12, 27, 11, 26, 10, 25, 9, 24, 8);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 5; i++) {
-    d0 = _mm512_mulhrs_epi16(((__m512i *)mod_dmrs)[i], amp_dmrs512);
+    d0 = _mm512_mulhrs_epi16(_mm512_loadu_si512((__m512i *)mod_dmrs + i), amp_dmrs512);
     d1 = _mm512_mulhrs_epi16(_mm512_loadu_si512(((__m512i *)txlc) + i), amp512);
     ((__m512i *)dmrs_mux)[j++] = _mm512_permutex2var_epi32(d1, perml, d0); //
     ((__m512i *)dmrs_mux)[j++] = _mm512_permutex2var_epi32(d1, permh, d0);
@@ -861,7 +852,7 @@ static inline void dmrs_case7(c16_t *txF,
   simde__m256i d0, d1, d2, d3, amp_dmrs256 = simde_mm256_set1_epi16(amp_dmrs), amp256 = simde_mm256_set1_epi16(amp);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 4; i++) {
-    d1 = simde_mm256_mulhrs_epi16(((simde__m256i *)mod_dmrs)[i], amp_dmrs256);
+    d1 = simde_mm256_mulhrs_epi16(simde_mm256_loadu_si256((simde__m256i *)mod_dmrs + i), amp_dmrs256);
     d0 = simde_mm256_mulhrs_epi16(simde_mm256_loadu_si256(((simde__m256i *)txlc) + i), amp256);
     d2 = simde_mm256_unpacklo_epi32(d0, d1);
     d3 = simde_mm256_unpackhi_epi32(d0, d1);
@@ -887,7 +878,6 @@ static inline void dmrs_case7(c16_t *txF,
 
 static inline void dmrs_case8(c16_t *txF,
                               c16_t *txl,
-                              c16_t *dmrs_mux,
                               c16_t *mod_dmrs,
                               const int amp_dmrs,
                               const int amp,
@@ -900,6 +890,10 @@ static inline void dmrs_case8(c16_t *txF,
 #ifdef DEBUG_DLSCH_MAPPING
   printf("doing DMRS pattern for port 3 : X0 d0 X1 -d1 ... XNm2 dNm2 XNm1 -dNm1\n");
 #endif
+    // add filler to process all as SIMD
+  c16_t dmrs_mux[(sz+63)&~63] __attribute__((aligned(64)));
+
+
   c16_t *txlc = txl + *cur_re;
 #if defined(USE128BIT)
   simde__m128i d0, d1, d2, d3,
@@ -907,7 +901,7 @@ static inline void dmrs_case8(c16_t *txF,
       amp128 = simde_mm_set1_epi16(amp);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 3; i++) {
-    d1 = simde_mm_mulhrs_epi16(((simde__m128i *)mod_dmrs)[i], amp_dmrs128);
+    d1 = simde_mm_mulhrs_epi16(simde_mm_loadu_si128((simde__m128i *)mod_dmrs + i), amp_dmrs128);
     d0 = simde_mm_mulhrs_epi16(simde_mm_loadu_si128(((simde__m128i *)txlc) + i), amp128);
     d2 = simde_mm_unpacklo_epi32(d0, d1);
     d3 = simde_mm_unpackhi_epi32(d0, d1);
@@ -969,7 +963,7 @@ static inline void dmrs_case8(c16_t *txF,
   __m512i permh = _mm512_set_epi32(31, 15, 30, 14, 29, 13, 28, 12, 27, 11, 26, 10, 25, 9, 24, 8);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 5; i++) {
-    d0 = _mm512_mulhrs_epi16(((__m512i *)mod_dmrs)[i], amp_dmrs512);
+    d0 = _mm512_mulhrs_epi16(_mm512_loadu_si512((__m512i *)mod_dmrs + i), amp_dmrs512);
     d1 = _mm512_mulhrs_epi16(_mm512_loadu_si512(((__m512i *)txlc) + i), amp512);
     ((__m512i *)dmrs_mux)[j++] = _mm512_permutex2var_epi32(d1, perml, d0); //
     ((__m512i *)dmrs_mux)[j++] = _mm512_permutex2var_epi32(d1, permh, d0);
@@ -1012,7 +1006,7 @@ static inline void dmrs_case8(c16_t *txF,
       amp256 = simde_mm256_set1_epi16(amp);
   int i, j;
   for (i = 0, j = 0; i < (sz) >> 4; i++) {
-    d1 = simde_mm256_mulhrs_epi16(((simde__m256i *)mod_dmrs)[i], amp_dmrs256);
+    d1 = simde_mm256_mulhrs_epi16(simde_mm256_loadu_si256((simde__m256i *)mod_dmrs + i), amp_dmrs256);
     d0 = simde_mm256_mulhrs_epi16(simde_mm256_loadu_si256(((simde__m256i *)txlc) + i), amp256);
     d2 = simde_mm256_unpacklo_epi32(d0, d1);
     d3 = simde_mm256_unpackhi_epi32(d0, d1);
@@ -1056,26 +1050,29 @@ static inline int dmrs_case9(int k,
                              const int dmrs_Type,
                              uint8_t *k_prime,
                              uint16_t *n,
-                             NR_DL_FRAME_PARMS *frame_parms,
+			     int symbol_sz,
                              int l_prime,
                              nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15)
 {
+    // add filler to process all as SIMD
+  //c16_t dmrs_mux[(sz+63)&~63] __attribute__((aligned(64)));
+  
   // DMRS params for this dmrs port
   int Wt[2], Wf[2];
   get_Wt(Wt, dmrs_port, dmrs_Type);
   get_Wf(Wf, dmrs_port, dmrs_Type);
   const int8_t delta = get_delta(dmrs_port, dmrs_Type);
-  int dmrs_idx2 = 0;
+  int dmrs_idx = 0;
   for (int i = 0; i < sz; i++) {
-    if (k == ((start_sc + get_dmrs_freq_idx(*n, *k_prime, delta, dmrs_Type)) % (frame_parms->ofdm_symbol_size))) {
-      txF[k] = c16mulRealShift(mod_dmrs[dmrs_idx2], Wt[l_prime] * Wf[*k_prime] * amp_dmrs, 15);
-      dmrs_idx2++;
+    if (k == ((start_sc + get_dmrs_freq_idx(*n, *k_prime, delta, dmrs_Type)) % (symbol_sz))) {
+      txF[k] = c16mulRealShift(mod_dmrs[dmrs_idx], Wt[l_prime] * Wf[*k_prime] * amp_dmrs, 15);
+      dmrs_idx++;
       *k_prime = (*k_prime + 1) & 1;
       *n = *n + ((*k_prime) ? 0 : 1);
     }
     /* Map PTRS Symbol */
     /* Map DATA Symbol */
-    else if (allowed_xlsch_re_in_dmrs_symbol(k, start_sc, frame_parms->ofdm_symbol_size, rel15->numDmrsCdmGrpsNoData, dmrs_Type)) {
+    else if (allowed_xlsch_re_in_dmrs_symbol(k, start_sc, symbol_sz, rel15->numDmrsCdmGrpsNoData, dmrs_Type)) {
       txF[k] = c16mulRealShift(txl[*cur_re], amp, 15);
       *cur_re = *cur_re + 1;
     }
@@ -1083,8 +1080,8 @@ static inline int dmrs_case9(int k,
     else {
       txF[k] = (c16_t){0};
     }
-    if (++k >= frame_parms->ofdm_symbol_size)
-      k -= frame_parms->ofdm_symbol_size;
+    if (++k >= symbol_sz)
+      k -= symbol_sz;
   } // RE loop
   return k;
 }
@@ -1101,12 +1098,11 @@ static inline int no_ptrs_dmrs_case(int k,
                                     int remaining_re,
                                     uint8_t *k_prime,
                                     uint16_t *n,
-                                    NR_DL_FRAME_PARMS *frame_parms,
+				    int symbol_sz,
                                     int l_prime,
                                     nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15)
 {
   // Loop Over SCs:
-
 #if defined(USE128BIT)
   simde__m128i *txF128 = (simde__m128i *)&txF[start_sc];
 
@@ -1127,8 +1123,8 @@ static inline int no_ptrs_dmrs_case(int k,
 #endif
     /* handle this, mute RE */
     /*else {
-      txdataF_precoding[layer][((l*frame_parms->ofdm_symbol_size + k)<<1) ] = 0;
-      txdataF_precoding[layer][((l*frame_parms->ofdm_symbol_size + k)<<1) + 1] = 0;
+      txdataF_precoding[layer][((l*symbol_sz + k)<<1) ] = 0;
+      txdataF_precoding[layer][((l*symbol_sz + k)<<1) + 1] = 0;
       }*/
   }
   if (i * 4 != upper_limit) {
@@ -1161,8 +1157,8 @@ static inline int no_ptrs_dmrs_case(int k,
 #endif
       /* handle this, mute RE */
       /*else {
-  txdataF_precoding[layer][((l*frame_parms->ofdm_symbol_size + k)<<1)    ] = 0;
-  txdataF_precoding[layer][((l*frame_parms->ofdm_symbol_size + k)<<1) + 1] = 0;
+  txdataF_precoding[layer][((l*symbol_sz + k)<<1)    ] = 0;
+  txdataF_precoding[layer][((l*symbol_sz + k)<<1) + 1] = 0;
   }*/
     } // RE loop, second part
     if (i * 4 != remaining_re) {
@@ -1200,8 +1196,8 @@ static inline int no_ptrs_dmrs_case(int k,
 #endif
     /* handle this, mute RE */
     /*else {
-      txdataF_precoding[layer][((l*frame_parms->ofdm_symbol_size + k)<<1) ] = 0;
-      txdataF_precoding[layer][((l*frame_parms->ofdm_symbol_size + k)<<1) + 1] = 0;
+      txdataF_precoding[layer][((l*symbol_sz + k)<<1) ] = 0;
+      txdataF_precoding[layer][((l*symbol_sz + k)<<1) + 1] = 0;
       }*/
   }
   if (i * 16 != upper_limit) {
@@ -1243,8 +1239,8 @@ static inline int no_ptrs_dmrs_case(int k,
 #endif
       /* handle this, mute RE */
       /*else {
-  txdataF_precoding[layer][((l*frame_parms->ofdm_symbol_size + k)<<1)    ] = 0;
-  txdataF_precoding[layer][((l*frame_parms->ofdm_symbol_size + k)<<1) + 1] = 0;
+  txdataF_precoding[layer][((l*symbol_sz + k)<<1)    ] = 0;
+  txdataF_precoding[layer][((l*symbol_sz + k)<<1) + 1] = 0;
   }*/
     } // RE loop, second part
     if (i * 16 != remaining_re) {
@@ -1269,8 +1265,8 @@ static inline int no_ptrs_dmrs_case(int k,
     simde_mm256_storeu_si256(txF256 + i, simde_mm256_mulhrs_epi16(amp64, txL));
     /* handle this, mute RE */
     /*else {
-      txdataF_precoding[layer][((l*frame_parms->ofdm_symbol_size + k)<<1) ] = 0;
-      txdataF_precoding[layer][((l*frame_parms->ofdm_symbol_size + k)<<1) + 1] = 0;
+      txdataF_precoding[layer][((l*symbol_sz + k)<<1) ] = 0;
+      txdataF_precoding[layer][((l*symbol_sz + k)<<1) + 1] = 0;
       }*/
   }
   if (i * 8 != upper_limit) {
@@ -1291,8 +1287,8 @@ static inline int no_ptrs_dmrs_case(int k,
       simde_mm256_storeu_si256(txF256 + i, simde_mm256_mulhrs_epi16(amp64, txL));
       /* handle this, mute RE */
       /*else {
-  txdataF_precoding[layer][((l*frame_parms->ofdm_symbol_size + k)<<1)    ] = 0;
-  txdataF_precoding[layer][((l*frame_parms->ofdm_symbol_size + k)<<1) + 1] = 0;
+  txdataF_precoding[layer][((l*symbol_sz + k)<<1)    ] = 0;
+  txdataF_precoding[layer][((l*symbol_sz + k)<<1) + 1] = 0;
   }*/
     } // RE loop, second part
     if (i * 8 != remaining_re) {
@@ -1319,6 +1315,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   NR_DL_gNB_HARQ_t *harq = &dlsch->harq_process;
   nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15 = &harq->pdsch_pdu.pdsch_pdu_rel15;
   const int layerSz = frame_parms->N_RB_DL * NR_SYMBOLS_PER_SLOT * NR_NB_SC_PER_RB;
+  const int symbol_sz=frame_parms->ofdm_symbol_size;
   const int dmrs_Type = rel15->dmrsConfigType;
   const int nb_re_dmrs = rel15->numDmrsCdmGrpsNoData * (rel15->dmrsConfigType == NFAPI_NR_DMRS_TYPE1 ? 6 : 4);
   const int amp_dmrs = (int)((double)amp * sqrt(rel15->numDmrsCdmGrpsNoData)); // 3GPP TS 38.214 Section 4.1: Table 4.1-1
@@ -1377,8 +1374,6 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
     start_meas(dlsch_scrambling_stats);
     uint32_t scrambled_output[(encoded_length >> 5) + 4]; // modulator acces by 4 bytes in some cases
     memset(scrambled_output, 0, sizeof(scrambled_output));
-    if (encoded_length > rel15->rbSize * NR_SYMBOLS_PER_SLOT * NR_NB_SC_PER_RB * Qm * rel15->nrOfLayers)
-      abort();
     nr_pdsch_codeword_scrambling(input_ptr, encoded_length, codeWord, rel15->dataScramblingId, rel15->rnti, scrambled_output);
 
 #ifdef DEBUG_DLSCH
@@ -1410,11 +1405,11 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   /// Resource mapping
   // Non interleaved VRB to PRB mapping
   uint16_t start_sc = frame_parms->first_carrier_offset + (rel15->rbStart + rel15->BWPStart) * NR_NB_SC_PER_RB;
-  if (start_sc >= frame_parms->ofdm_symbol_size)
-    start_sc -= frame_parms->ofdm_symbol_size;
+  if (start_sc >= symbol_sz)
+    start_sc -= symbol_sz;
 
   const uint32_t txdataF_offset = slot * frame_parms->samples_per_slot_wCP;
-  c16_t txdataF_precoding[rel15->nrOfLayers][NR_NUMBER_OF_SYMBOLS_PER_SLOT][frame_parms->ofdm_symbol_size]
+  c16_t txdataF_precoding[rel15->nrOfLayers][NR_NUMBER_OF_SYMBOLS_PER_SLOT][(symbol_sz+63)&~63]
       __attribute__((aligned(64)));
 
 #ifdef DEBUG_DLSCH_MAPPING
@@ -1427,15 +1422,20 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
 #endif
 
   AssertFatal(n_dmrs, "n_dmrs can't be 0\n");
-  c16_t mod_dmrs[n_dmrs] __attribute__((aligned(64)));
-  unsigned int cur_re0 = 0;
+  // make a large enough tail to process all re with SIMD regardless a garbadge filler
+  c16_t mod_dmrs[(n_dmrs+63)&~63] __attribute__((aligned(64)));
+  unsigned int re_beginning_of_symbol = 0;
+
   start_meas(&gNB->dlsch_resource_mapping_stats);
+  int layerSz2 = (layerSz + 63) & ~63;
+  c16_t tx_layers[rel15->nrOfLayers][layerSz2] __attribute__((aligned(64)));
+  nr_layer_mapping(rel15->NrOfCodewords, encoded_length, mod_symbs, rel15->nrOfLayers, layerSz2, nb_re, tx_layers);
+
   // Loop Over OFDM symbols:
   for (int l_symbol = rel15->StartSymbolIndex; l_symbol < rel15->StartSymbolIndex + rel15->NrOfSymbols; l_symbol++) {
-    int8_t l_prime = 0; // single symbol layer 0
-    int8_t l_overline = get_l0(rel15->dlDmrsSymbPos);
+    int l_prime = 0; // single symbol layer 0
+    int l_overline = get_l0(rel15->dlDmrsSymbPos);
 
-    uint32_t dmrs_idx = 0;
 #ifdef DEBUG_DLSCH_MAPPING
     printf("PDSCH resource mapping symbol %d\n", l_symbol);
 #endif
@@ -1450,13 +1450,15 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
         l_overline = l_symbol;
         l_prime = 0;
       }
-      /// DMRS QPSK modulation
-      NR_DL_FRAME_PARMS *fp = &gNB->frame_parms;
 #ifdef DEBUG_DLSCH_MAPPING
       printf("dlDmrsScramblingId %d, SCID %d slot %d l_symbol %d\n", rel15->dlDmrsScramblingId, rel15->SCID, slot, l_symbol);
 #endif
-      const uint32_t *gold =
-          nr_gold_pdsch(fp->N_RB_DL, fp->symbols_per_slot, rel15->dlDmrsScramblingId, rel15->SCID, slot, l_symbol);
+      const uint32_t *gold = nr_gold_pdsch(frame_parms->N_RB_DL,
+                                           frame_parms->symbols_per_slot,
+                                           rel15->dlDmrsScramblingId,
+                                           rel15->SCID,
+                                           slot,
+                                           l_symbol);
       // Qm = 1 as DMRS is QPSK modulated
       nr_modulation(gold, n_dmrs * DMRS_MOD_ORDER, DMRS_MOD_ORDER, (int16_t *)mod_dmrs);
 
@@ -1470,35 +1472,26 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
       }
 #endif
     }
-
-    uint32_t cur_re = cur_re0;
-    int layerSz2 = layerSz;
-    if ((layerSz * sizeof(c16_t) & 63) > 0)
-      layerSz2 += (layerSz * sizeof(c16_t) - (((layerSz * sizeof(c16_t)) >> 6) << 6)) / sizeof(c16_t);
-    c16_t tx_layers[rel15->nrOfLayers][layerSz2] __attribute__((aligned(64)));
-    if (l_symbol == rel15->StartSymbolIndex)
-      nr_layer_mapping(rel15->NrOfCodewords, encoded_length, mod_symbs, rel15->nrOfLayers, layerSz2, nb_re, tx_layers);
-    dmrs_idx = rel15->rbStart;
+    uint32_t cur_re = re_beginning_of_symbol;
+    uint32_t dmrs_idx = rel15->rbStart;
     if (rel15->rnti != SI_RNTI)
       dmrs_idx += rel15->BWPStart;
     dmrs_idx *= dmrs_Type == NFAPI_NR_DMRS_TYPE1 ? 6 : 4;
-    if (dmrs_idx > 0)
-      memmove(mod_dmrs,
-              mod_dmrs + dmrs_idx,
-              rel15->rbSize * (rel15->dmrsConfigType == NFAPI_NR_DMRS_TYPE1 ? 6 : 4) * sizeof(c16_t));
+    c16_t *dmrs_start = mod_dmrs + dmrs_idx;
+
     for (int layer = 0; layer < rel15->nrOfLayers; layer++) {
       uint8_t k_prime = 0;
       uint16_t n = 0;
-      cur_re = cur_re0;
+      cur_re = re_beginning_of_symbol;
       c16_t *txF = txdataF_precoding[layer][l_symbol];
       c16_t *txl = tx_layers[layer];
       uint16_t k = start_sc;
       const uint sz = rel15->rbSize * NR_NB_SC_PER_RB;
       int upper_limit = sz;
       int remaining_re = 0;
-      if (start_sc + upper_limit > frame_parms->ofdm_symbol_size) {
-        remaining_re = upper_limit + start_sc - frame_parms->ofdm_symbol_size;
-        upper_limit = frame_parms->ofdm_symbol_size - start_sc;
+      if (start_sc + upper_limit > symbol_sz) {
+        remaining_re = upper_limit + start_sc - symbol_sz;
+        upper_limit = symbol_sz - start_sc;
       }
 
       /* calculate if current symbol is PTRS symbols */
@@ -1510,13 +1503,16 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
       if (ptrs_symbol) {
           /* PTRS QPSK Modulation for each OFDM symbol in a slot */
           LOG_D(PHY, "Doing ptrs modulation for symbol %d, n_ptrs %d\n", l_symbol, n_ptrs);
-	  c16_t mod_ptrs[max(n_ptrs, 1)]
-	    __attribute__((aligned(64))); // max only to please sanitizer, that kills if 0 even if it is not a error
-          NR_DL_FRAME_PARMS *fp = &gNB->frame_parms;
-          const uint32_t *gold =
-	    nr_gold_pdsch(fp->N_RB_DL, fp->symbols_per_slot, rel15->dlDmrsScramblingId, rel15->SCID, slot, l_symbol);
+          c16_t mod_ptrs[max(n_ptrs, 1)]
+              __attribute__((aligned(64))); // max only to please sanitizer, that kills if 0 even if it is not a error
+          const uint32_t *gold = nr_gold_pdsch(frame_parms->N_RB_DL,
+                                               frame_parms->symbols_per_slot,
+                                               rel15->dlDmrsScramblingId,
+                                               rel15->SCID,
+                                               slot,
+                                               l_symbol);
           nr_modulation(gold, n_ptrs * DMRS_MOD_ORDER, DMRS_MOD_ORDER, (int16_t *)mod_ptrs);
-          k = do_ptrs_symbol(rel15, start_sc, k, &cur_re, frame_parms, txF, txl, amp, mod_ptrs);
+          k = do_ptrs_symbol(rel15, start_sc, k, &cur_re, symbol_sz, txF, txl, amp, mod_ptrs);
 
       } else if (dmrs_symbol_map & (1 << l_symbol)) {
         /* Map DMRS Symbol */
@@ -1545,29 +1541,27 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
             l_overline,
             dmrs_symbol);
 #endif
-        c16_t dmrs_mux[sz] __attribute__((aligned(64)));
-
         if (rel15->numDmrsCdmGrpsNoData == 2 && dmrs_Type == 0 && (dmrs_port & 3) == 0 && l_prime == 0) {
-          dmrs_case1(txF, dmrs_mux, mod_dmrs, amp_dmrs, sz, start_sc, upper_limit, remaining_re);
+          dmrs_case1(txF, dmrs_start, amp_dmrs, sz, start_sc, upper_limit, remaining_re);
         } else if (rel15->numDmrsCdmGrpsNoData == 2 && dmrs_Type == 0 && (dmrs_port & 3) == 1 && l_prime == 0) {
-          dmrs_case2(txF, dmrs_mux, mod_dmrs, amp_dmrs, sz, start_sc, upper_limit, remaining_re);
+          dmrs_case2(txF, dmrs_start, amp_dmrs, sz, start_sc, upper_limit, remaining_re);
         } else if (rel15->numDmrsCdmGrpsNoData == 2 && dmrs_Type == 0 && (dmrs_port & 3) == 2 && l_prime == 0) {
-          dmrs_case3(txF, dmrs_mux, mod_dmrs, amp_dmrs, sz, start_sc, upper_limit, remaining_re);
+          dmrs_case3(txF, dmrs_start, amp_dmrs, sz, start_sc, upper_limit, remaining_re);
         } else if (rel15->numDmrsCdmGrpsNoData == 2 && dmrs_Type == 0 && (dmrs_port & 3) == 3 && l_prime == 0) {
-          dmrs_case4(txF, dmrs_mux, mod_dmrs, amp_dmrs, sz, start_sc, upper_limit, remaining_re);
+          dmrs_case4(txF, dmrs_start, amp_dmrs, sz, start_sc, upper_limit, remaining_re);
         } else if (rel15->numDmrsCdmGrpsNoData == 1 && dmrs_Type == 0 && (dmrs_port & 3) == 0 && l_prime == 0) {
-          dmrs_case5(txF, txl, dmrs_mux, mod_dmrs, amp_dmrs, amp, sz, &cur_re, start_sc, upper_limit, remaining_re);
+          dmrs_case5(txF, txl, dmrs_start, amp_dmrs, amp, sz, &cur_re, start_sc, upper_limit, remaining_re);
         } else if (rel15->numDmrsCdmGrpsNoData == 1 && dmrs_Type == 0 && (dmrs_port & 3) == 1 && l_prime == 0) {
-          dmrs_case6(txF, txl, dmrs_mux, mod_dmrs, amp_dmrs, amp, sz, &cur_re, start_sc, upper_limit, remaining_re);
+          dmrs_case6(txF, txl, dmrs_start, amp_dmrs, amp, sz, &cur_re, start_sc, upper_limit, remaining_re);
         } else if (rel15->numDmrsCdmGrpsNoData == 1 && dmrs_Type == 0 && (dmrs_port & 3) == 2 && l_prime == 0) {
-          dmrs_case7(txF, txl, dmrs_mux, mod_dmrs, amp_dmrs, amp, sz, &cur_re, start_sc, upper_limit, remaining_re);
+          dmrs_case7(txF, txl, dmrs_start, amp_dmrs, amp, sz, &cur_re, start_sc, upper_limit, remaining_re);
         } else if (rel15->numDmrsCdmGrpsNoData == 1 && dmrs_Type == 0 && (dmrs_port & 3) == 3 && l_prime == 0) {
-          dmrs_case8(txF, txl, dmrs_mux, mod_dmrs, amp_dmrs, amp, sz, &cur_re, start_sc, upper_limit, remaining_re);
+          dmrs_case8(txF, txl, dmrs_start, amp_dmrs, amp, sz, &cur_re, start_sc, upper_limit, remaining_re);
         } else {
           k = dmrs_case9(k,
                          txF,
                          txl,
-                         mod_dmrs,
+                         dmrs_start,
                          amp_dmrs,
                          amp,
                          sz,
@@ -1578,7 +1572,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
                          dmrs_Type,
                          &k_prime,
                          &n,
-                         frame_parms,
+                         symbol_sz,
                          l_prime,
                          rel15);
         } // generic DMRS case
@@ -1586,7 +1580,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
         k = no_ptrs_dmrs_case(k,
                               txF,
                               txl,
-                              mod_dmrs,
+                              dmrs_start,
                               amp_dmrs,
                               amp,
                               &cur_re,
@@ -1595,12 +1589,12 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
                               remaining_re,
                               &k_prime,
                               &n,
-                              frame_parms,
+                              symbol_sz,
                               l_prime,
                               rel15);
       } // no DMRS/PTRS in symbol
     } // layer loop
-    cur_re0 = cur_re;
+    re_beginning_of_symbol = cur_re;
   } // symbol loop
   stop_meas(&gNB->dlsch_resource_mapping_stats);
 
@@ -1626,7 +1620,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   for (int ant = 0; ant < frame_parms->nb_antennas_tx; ant++) {
     for (int l_symbol = rel15->StartSymbolIndex; l_symbol < rel15->StartSymbolIndex + rel15->NrOfSymbols; l_symbol++) {
       uint16_t subCarrier = start_sc;
-      const size_t txdataF_offset_per_symbol = l_symbol * frame_parms->ofdm_symbol_size + txdataF_offset;
+      const size_t txdataF_offset_per_symbol = l_symbol * symbol_sz + txdataF_offset;
       int rb = 0;
 
       while (rb < rel15->rbSize) {
@@ -1640,7 +1634,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
         const int re_cnt = NR_NB_SC_PER_RB * rb_step;
 
         if (pmi == 0) { // unitary Precoding
-          if (subCarrier + re_cnt <= frame_parms->ofdm_symbol_size) { // RB does not cross DC
+          if (subCarrier + re_cnt <= symbol_sz) { // RB does not cross DC
             if (ant < rel15->nrOfLayers)
               memcpy(&txdataF[ant][txdataF_offset_per_symbol + subCarrier],
                      &txdataF_precoding[ant][l_symbol][subCarrier],
@@ -1648,7 +1642,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
             else
               memset(&txdataF[ant][txdataF_offset_per_symbol + subCarrier], 0, re_cnt * sizeof(**txdataF));
           } else { // RB does cross DC
-            const int neg_length = frame_parms->ofdm_symbol_size - subCarrier;
+            const int neg_length = symbol_sz - subCarrier;
             const int pos_length = re_cnt - neg_length;
             if (ant < rel15->nrOfLayers) {
               memcpy(&txdataF[ant][txdataF_offset_per_symbol + subCarrier],
@@ -1661,8 +1655,8 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
             }
           }
           subCarrier += re_cnt;
-          if (subCarrier >= frame_parms->ofdm_symbol_size) {
-            subCarrier -= frame_parms->ofdm_symbol_size;
+          if (subCarrier >= symbol_sz) {
+            subCarrier -= symbol_sz;
           }
         } else { // non-unitary Precoding
           AssertFatal(frame_parms->nb_antennas_tx > 1, "No precoding can be done with a single antenna port\n");
@@ -1677,10 +1671,10 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
                       "Number of layers %d doesn't match to the one in precoding matrix %d\n",
                       rel15->nrOfLayers,
                       pmi_pdu->numLayers);
-          if ((subCarrier + re_cnt) < frame_parms->ofdm_symbol_size) { // within ofdm_symbol_size, use SIMDe
+          if ((subCarrier + re_cnt) < symbol_sz) { // within ofdm_symbol_size, use SIMDe
             nr_layer_precoder_simd(rel15->nrOfLayers,
                                    NR_SYMBOLS_PER_SLOT,
-                                   frame_parms->ofdm_symbol_size,
+                                   symbol_sz,
                                    txdataF_precoding,
                                    ant,
                                    pmi_pdu,
@@ -1693,7 +1687,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
             for (int i = 0; i < re_cnt; i++) {
               txdataF[ant][txdataF_offset_per_symbol + subCarrier] = nr_layer_precoder_cm(rel15->nrOfLayers,
                                                                                           NR_SYMBOLS_PER_SLOT,
-                                                                                          frame_parms->ofdm_symbol_size,
+                                                                                          symbol_sz,
                                                                                           txdataF_precoding,
                                                                                           ant,
                                                                                           pmi_pdu,
@@ -1704,11 +1698,11 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
                      ant,
                      l_symbol,
                      subCarrier,
-                     txdataF[ant][l_symbol * frame_parms->ofdm_symbol_size + subCarrier + txdataF_offset].r,
-                     txdataF[ant][l_symbol * frame_parms->ofdm_symbol_size + subCarrier + txdataF_offset].i);
+                     txdataF[ant][l_symbol * symbol_sz + subCarrier + txdataF_offset].r,
+                     txdataF[ant][l_symbol * symbol_sz + subCarrier + txdataF_offset].i);
 #endif
-              if (++subCarrier >= frame_parms->ofdm_symbol_size) {
-                subCarrier -= frame_parms->ofdm_symbol_size;
+              if (++subCarrier >= symbol_sz) {
+                subCarrier -= symbol_sz;
               }
             }
           } // else{ // crossing ofdm_symbol_size, use simple arithmetic operations
