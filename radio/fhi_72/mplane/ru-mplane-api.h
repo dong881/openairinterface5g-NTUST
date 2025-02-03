@@ -92,4 +92,6 @@ typedef struct {
 
 } ru_session_list_t;
 
+bool get_config_for_xran(const char *buffer, const int max_num_ant, xran_mplane_t *xran_mplane);
+
 #endif /* RU_MPLANE_API_H */

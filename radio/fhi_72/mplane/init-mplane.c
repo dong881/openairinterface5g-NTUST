@@ -165,6 +165,11 @@ bool manage_ru(ru_session_t *ru_session, const openair0_config_t *oai, const siz
   AssertError(success, return false, "[MPLANE] Unable to update the watchdog timer. RU will do a reset after default supervision timer of (60+10)[s] expires.\n");
   MP_LOG_I("Watchdog timer answer: \n\t%s\n", watchdog_answer);
 
+  // save RU info for xran
+  const int max_num_ant = max(oai->tx_num_channels/num_rus, oai->rx_num_channels/num_rus);
+  success = get_config_for_xran(operational_ds, max_num_ant, &ru_session->xran_mplane);
+  AssertError(success, return false, "[MPLANE] Unable to retrieve required info for xran from RU \"%s\".\n", ru_session->ru_ip_add);
+
   free(operational_ds);
   free(watchdog_answer);
 

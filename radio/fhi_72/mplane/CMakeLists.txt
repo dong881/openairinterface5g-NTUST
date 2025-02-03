@@ -30,6 +30,7 @@ target_sources(oran_fhlib_5g_mplane PRIVATE
                rpc-send-recv.c
                get-mplane.c
                subscribe-mplane.c
+               ru-mplane-api.c
                xml/get-xml.c
 )
 
