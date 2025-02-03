@@ -41,6 +41,7 @@
 
 #ifdef OAI_MPLANE
 #include "mplane/init-mplane.h"
+#include "mplane/connect-mplane.h"
 #endif
 
 typedef struct {
@@ -293,6 +294,15 @@ __attribute__((__visibility__("default"))) int transport_init(openair0_device *d
   ru_session_list_t ru_session_list = {0};
   success = init_mplane(&ru_session_list);
   AssertFatal(success, "[MPLANE] Cannot initialize M-plane.\n");
+
+  bool ru_configured[ru_session_list.num_rus];
+  for (size_t i = 0; i < ru_session_list.num_rus; i++) {
+    ru_session_t *ru_session = &ru_session_list.ru_session[i];
+    ru_configured[i] = connect_mplane(ru_session);
+    if (!ru_configured[i]) {
+      continue;
+    }
+  }
 #else
   success = get_xran_config(openair0_cfg, &fh_init, fh_config);
   AssertFatal(success, "cannot get configuration for xran\n");
