@@ -22,6 +22,7 @@
 #include "init-mplane.h"
 #include "radio/fhi_72/oran-params.h"
 #include "get-mplane.h"
+#include "subscribe-mplane.h"
 #include "xml/get-xml.h"
 
 #include <libyang/libyang.h>
@@ -146,6 +147,17 @@ bool manage_ru(ru_session_t *ru_session, const openair0_config_t *oai, const siz
     MP_LOG_I("RU is already PTP synchronized.\n");
     ptp_state = true;
   }
+
+  /* 1) as per M-plane spec, RU must be in supervised mode,
+        where stream = NULL && filter = "/o-ran-supervision:supervision-notification";
+     2) additionally, we want to subscribe to PTP state change,
+        where stream = NULL && filter = "/o-ran-sync:synchronization-state-change";
+    => since more than one subscription at the time within one session is not possible, we will subscribe to all notifications */
+  const char *stream = "NETCONF";
+  const char *filter = NULL;
+  ru_session->ru_notif.ptp_state = ptp_state;
+  success = subscribe_mplane(ru_session, stream, filter, (void *)&ru_session->ru_notif);
+  AssertError(success, return false, "[MPLANE] Unable to continue: could not get RU answer via subscribe_mplane().\n");
 
   free(operational_ds);
 
