@@ -23,6 +23,7 @@
 #include "radio/fhi_72/oran-params.h"
 #include "get-mplane.h"
 #include "subscribe-mplane.h"
+#include "config-mplane.h"
 #include "xml/get-xml.h"
 
 #include <libyang/libyang.h>
@@ -173,6 +174,11 @@ bool manage_ru(ru_session_t *ru_session, const openair0_config_t *oai, const siz
   // save the U-plane info
   success = get_uplane_info(operational_ds, &ru_session->ru_mplane_config);
   AssertError(success, return false, "[MPLANE] Unable to get U-plane info from RU operational datastore.\n");
+
+  if (ru_session->ru_notif.ptp_state) {
+    success = edit_config_mplane(ru_session, operational_ds, oai, num_rus);
+    AssertError(success, return false, "[MPLANE] Unable to edit the RU configuration.\n");
+  }
 
   free(operational_ds);
   free(watchdog_answer);
