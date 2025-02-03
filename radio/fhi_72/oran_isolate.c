@@ -344,8 +344,11 @@ __attribute__((__visibility__("default"))) int transport_init(openair0_device *d
   }
 
   eth->mplane_priv = (void *)&ru_session_list;
+
+  success = get_xran_config((void *)&ru_session_list, openair0_cfg, &fh_init, fh_config);
+  AssertFatal(success, "[MPLANE] Cannot configure xran with M-plane info.\n");
 #else
-  success = get_xran_config(openair0_cfg, &fh_init, fh_config);
+  success = get_xran_config(NULL, openair0_cfg, &fh_init, fh_config);
   AssertFatal(success, "cannot get configuration for xran\n");
 #endif
 
