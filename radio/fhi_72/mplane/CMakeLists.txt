@@ -32,6 +32,7 @@ target_sources(oran_fhlib_5g_mplane PRIVATE
                subscribe-mplane.c
                ru-mplane-api.c
                xml/get-xml.c
+               yang/get-yang.c
 )
 
 pkg_check_modules(libyang REQUIRED libyang)
