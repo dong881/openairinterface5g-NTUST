@@ -125,3 +125,33 @@ bool get_config_for_xran(const char *buffer, const int max_num_ant, xran_mplane_
 
   return true;
 }
+
+bool get_uplane_info(const char *buffer, ru_mplane_config_t *ru_mplane_config)
+{
+  // Interface name
+  ru_mplane_config->interface_name = get_ru_xml_node(buffer, "interface");
+
+  // PDSCH
+  uplane_info_t *tx_end = &ru_mplane_config->tx_endpoints;
+  get_ru_xml_list(buffer, "static-low-level-tx-endpoints", &tx_end->name, &tx_end->num);
+  AssertError(tx_end->name != NULL, return false, "[MPLANE] Cannot get TX endpoint names.\n");
+
+  // TX carriers
+  uplane_info_t *tx_carriers = &ru_mplane_config->tx_carriers;
+  get_ru_xml_list(buffer, "tx-arrays", &tx_carriers->name, &tx_carriers->num);
+  AssertError(tx_carriers->name != NULL, return false, "[MPLANE] Cannot get TX carrier names.\n");
+
+  // PUSCH and PRACH
+  uplane_info_t *rx_end = &ru_mplane_config->rx_endpoints;
+  get_ru_xml_list(buffer, "static-low-level-rx-endpoints", &rx_end->name, &rx_end->num);
+  AssertError(rx_end->name != NULL, return false, "[MPLANE] Cannot get RX endpoint names.\n");
+
+  // RX carriers
+  uplane_info_t *rx_carriers = &ru_mplane_config->rx_carriers;
+  get_ru_xml_list(buffer, "rx-arrays", &rx_carriers->name, &rx_carriers->num);
+  AssertError(rx_carriers->name != NULL, return false, "[MPLANE] Cannot get RX carrier names.\n");
+
+  MP_LOG_I("Successfully retrieved all the U-plane info - interface name, TX/RX carrier names, and TX/RX endpoint names.\n");
+
+  return true;
+}

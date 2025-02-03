@@ -170,6 +170,10 @@ bool manage_ru(ru_session_t *ru_session, const openair0_config_t *oai, const siz
   success = get_config_for_xran(operational_ds, max_num_ant, &ru_session->xran_mplane);
   AssertError(success, return false, "[MPLANE] Unable to retrieve required info for xran from RU \"%s\".\n", ru_session->ru_ip_add);
 
+  // save the U-plane info
+  success = get_uplane_info(operational_ds, &ru_session->ru_mplane_config);
+  AssertError(success, return false, "[MPLANE] Unable to get U-plane info from RU operational datastore.\n");
+
   free(operational_ds);
   free(watchdog_answer);
 

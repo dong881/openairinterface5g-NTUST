@@ -94,4 +94,6 @@ typedef struct {
 
 bool get_config_for_xran(const char *buffer, const int max_num_ant, xran_mplane_t *xran_mplane);
 
+bool get_uplane_info(const char *buffer, ru_mplane_config_t *ru_mplane_config);
+
 #endif /* RU_MPLANE_API_H */
