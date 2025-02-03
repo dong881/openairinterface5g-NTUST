@@ -27,4 +27,6 @@
 
 bool edit_config_mplane(ru_session_t *ru_session, const char *buffer, const openair0_config_t *oai, const size_t num_rus);
 
+bool validate_config_mplane(ru_session_t *ru_session);
+
 #endif /* CONFIGURE_MPLANE_H */

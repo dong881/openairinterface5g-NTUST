@@ -178,6 +178,9 @@ bool manage_ru(ru_session_t *ru_session, const openair0_config_t *oai, const siz
   if (ru_session->ru_notif.ptp_state) {
     success = edit_config_mplane(ru_session, operational_ds, oai, num_rus);
     AssertError(success, return false, "[MPLANE] Unable to edit the RU configuration.\n");
+
+    success = validate_config_mplane(ru_session);
+    AssertError(success, return false, "[MPLANE] Unable to validate the RU configuration.\n");
   }
 
   free(operational_ds);

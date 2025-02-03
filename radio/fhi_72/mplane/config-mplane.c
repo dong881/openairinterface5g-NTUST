@@ -68,3 +68,26 @@ bool edit_config_mplane(ru_session_t *ru_session, const char *buffer, const open
 
   return true;
 }
+
+bool validate_config_mplane(ru_session_t *ru_session)
+{
+  int timeout = CLI_RPC_REPLY_TIMEOUT;
+  struct nc_rpc *rpc;
+  NC_WD_MODE wd = NC_WD_ALL;
+  NC_PARAMTYPE param = NC_PARAMTYPE_CONST;
+  char *src_start = NULL;
+  NC_DATASTORE source = NC_DATASTORE_CANDIDATE;
+
+  MP_LOG_I("RPC request to RU \"%s\" = <validate> candidate datastore.\n", ru_session->ru_ip_add);
+  rpc = nc_rpc_validate(source, src_start, param);
+  AssertError(rpc != NULL, return false, "[MPLANE] <validate> RPC creation failed.\n");
+
+  bool success = rpc_send_recv((struct nc_session *)ru_session->session, rpc, wd, timeout, NULL);
+  AssertError(success, return false, "[MPLANE] Failed to validate candidate datastore.\n");
+
+  MP_LOG_I("Successfully validated candidate datastore for RU \"%s\".\n", ru_session->ru_ip_add);
+
+  nc_rpc_free(rpc);
+
+  return true;
+}
