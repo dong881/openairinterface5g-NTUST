@@ -159,7 +159,14 @@ bool manage_ru(ru_session_t *ru_session, const openair0_config_t *oai, const siz
   success = subscribe_mplane(ru_session, stream, filter, (void *)&ru_session->ru_notif);
   AssertError(success, return false, "[MPLANE] Unable to continue: could not get RU answer via subscribe_mplane().\n");
 
+  // when subscribed to the supervision notification, the watchdog timer needs to be updated
+  char *watchdog_answer = NULL;
+  success = update_timer_mplane(ru_session, &watchdog_answer);
+  AssertError(success, return false, "[MPLANE] Unable to update the watchdog timer. RU will do a reset after default supervision timer of (60+10)[s] expires.\n");
+  MP_LOG_I("Watchdog timer answer: \n\t%s\n", watchdog_answer);
+
   free(operational_ds);
+  free(watchdog_answer);
 
   return true;
 }

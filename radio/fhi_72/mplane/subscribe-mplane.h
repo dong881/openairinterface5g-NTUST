@@ -28,4 +28,6 @@
 
 bool subscribe_mplane(ru_session_t *ru_session, const char *stream, const char *filter, void *answer);
 
+bool update_timer_mplane(ru_session_t *ru_session, char **answer);
+
 #endif /* SUBSCRIBE_MPLANE_H */

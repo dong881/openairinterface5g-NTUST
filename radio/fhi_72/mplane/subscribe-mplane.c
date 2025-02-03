@@ -131,3 +131,28 @@ bool subscribe_mplane(ru_session_t *ru_session, const char *stream, const char *
 
   return true;
 }
+
+bool update_timer_mplane(ru_session_t *ru_session, char **answer)
+{
+  int timeout = CLI_RPC_REPLY_TIMEOUT;
+  struct nc_rpc *rpc;
+  NC_WD_MODE wd = NC_WD_ALL;
+  NC_PARAMTYPE param = NC_PARAMTYPE_CONST;
+  const char *content = "<supervision-watchdog-reset xmlns=\"urn:o-ran:supervision:1.0\">\n\
+<supervision-notification-interval>65535</supervision-notification-interval>\n\
+<guard-timer-overhead>65535</guard-timer-overhead>\n\
+</supervision-watchdog-reset>";
+
+  MP_LOG_I("RPC request to RU \"%s\" = \"%s\".\n", ru_session->ru_ip_add, content);
+  rpc = nc_rpc_act_generic_xml(content, param);
+  AssertError(rpc != NULL, return false, "[MPLANE] <supervision-watchdog-reset> RPC creation failed.\n");
+
+  bool success = rpc_send_recv((struct nc_session *)ru_session->session, rpc, wd, timeout, answer);
+  AssertError(success, return false, "[MPLANE] Failed to update the watchdog timer.\n");
+
+  MP_LOG_I("Successfully updated supervision timer to (65535+65535)[s] for RU \"%s\".\n", ru_session->ru_ip_add);
+
+  nc_rpc_free(rpc);
+
+  return true;
+}
