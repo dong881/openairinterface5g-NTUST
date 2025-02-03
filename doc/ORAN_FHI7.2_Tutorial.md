@@ -999,7 +999,7 @@ Layer mapping (eAxC offsets) happens as follows:
 **Note**
 
 - At the moment, OAI is compatible with CAT A O-RU only. Therefore, SRS is not supported.
-- XRAN retreives DU MAC address with `rte_eth_macaddr_get()` function. Hence, `fhi_72.du_addr` parameter is not taken into account.
+- XRAN retrieves DU MAC address with `rte_eth_macaddr_get()` function. Hence, `fhi_72.du_addr` parameter is not taken into account.
 
 # Start and Operation of OAI gNB
 
@@ -1207,6 +1207,815 @@ PRACH I0 = 30.6 dB
 Note the eight entries after `avg_IO`.
 
 You should be able to connect a UE now.
+
+
+# OAI Management Plane
+We support Configuration Management in OAI gNB, where gNB configures CU-planes, interfaces, TX/RX antennas, and TX/RX carriers for the RU.
+The reference specifications:
+* `O-RAN.WG4.MP.0-v05.00`
+* `O-RAN.WG4.MP-YANGs-v04.00`
+
+## M-plane prerequisites
+Before proceeding, please make sure you have a support for 7.2 interface, as described in [Prerequisites](#prerequisites).
+
+### DHCP server
+The M-plane requires a DHCP server, where the M-plane connection can be established over untagged or tagged VLAN. We tested with untagged (the default VLAN is 1).
+Please modify `/etc/dhcp/dhcpd.conf` configuration based on your testbed.
+
+<details>
+<summary>Example DHCP server configuration</summary>
+
+```
+class "vendor-class" {
+  match option vendor-class-identifier;
+}
+subclass "vendor-class" "o-ran-ru2/Benetel" {
+  vendor-option-space VC;
+}
+option space VC;
+option VC.server-address code 129 = array of ip-address;
+option VC.server-fqdn code 130 = string;
+# Netconf client IP address - DHCP option 43
+option VC.server-address 192.168.80.1;
+option VC.server-fqdn "o_du_1.operator.com";
+set vendor-string = option vendor-class-identifier;
+# option 143 - DHCPv4 SZTP Redirect Option (RFC8572)
+# 2 bytes of URI's length + URI
+option sztp code 143 = { unsigned integer 16, string };
+option sztp 15 "https://192.168.80.1";
+# port is optional in URI, e.g. "https://192.168.80.1:222"
+#option sztp 20 "https://192.168.80.1:2222";
+subnet 192.168.80.0 netmask 255.255.255.0 {
+  option routers 192.168.80.1;
+  option subnet-mask 255.255.255.0;
+  option domain-name "oai.com";
+  option domain-name-servers 172.21.3.100;
+  host benetel_ru {
+    # RU MAC address
+    hardware ethernet <ru-mac-address>;
+    # RU IP address
+    fixed-address <desired-ru-ip-address>;
+  }
+}
+```
+</details>
+
+Please, configure the interface as:
+```bash
+sudo ip address add 192.168.80.1/24 dev <interface>
+```
+
+### Mandatory packages
+* On Fedora (we haven't yet tested RHEL):
+```bash
+sudo dnf install pcre-devel libssh-devel libxml2-devel libyang2-devel libnetconf2-devel
+```
+
+* On Ubuntu:
+```bash
+sudo apt-get install libpcre3-dev libssh-dev libxml2-dev
+```
+
+On Ubuntu, please note: `sudo apt-get install libyang2-dev libnetconf2-dev` will install unsupported versions (i.e. v2.0.112/v2.0.24 for `libyang2-dev`/`libnetconf2-dev`, but minimum required are v2.1.4/v2.1.25).
+Therefore, please compile these libraries from source, as following:
+
+<details>
+<summary>Installing latest v2 libyang2 and libnetconf2 libraries</summary>
+
+```
+rm -rf /tmp/build_mplane_v2
+mkdir /tmp/build_mplane_v2
+
+# libyang
+cd /tmp/build_mplane_v2
+git clone https://github.com/CESNET/libyang.git
+cd libyang
+git checkout v2.1.111
+mkdir build && cd build
+cmake -DENABLE_TESTS=OFF \
+      -DENABLE_VALGRIND_TESTS=OFF \
+      -DCMAKE_INSTALL_PREFIX=/usr/local \
+      -DCMAKE_INSTALL_RPATH=/usr/local/lib \
+      -DPLUGINS_DIR=/usr/local/lib/libyang \
+      -DPLUGINS_DIR_EXTENSIONS=/usr/local/lib/libyang/extensions \
+      -DPLUGINS_DIR_TYPES=/usr/local/lib/libyang/types \
+      -DYANG_MODULE_DIR=/usr/local/share/yang/modules/libyang ..
+make -j8
+sudo make install
+sudo ldconfig
+
+#libnetconf
+cd /tmp/build_mplane_v2
+git clone https://github.com/CESNET/libnetconf2.git
+cd libnetconf2
+git checkout v2.1.37
+mkdir build && cd build
+cmake -DENABLE_TESTS=OFF \
+      -DENABLE_EXAMPLES=OFF \
+      -DENABLE_VALGRIND_TESTS=OFF \
+      -DCLIENT_SEARCH_DIR=/usr/local/share/yang/modules \
+      -DCMAKE_INSTALL_PREFIX=/usr/local \
+      -DCMAKE_INSTALL_RPATH=/usr/local/lib \
+      -DLIBYANG_INCLUDE_DIR=/usr/local/include \
+      -DLIBYANG_LIBRARY=/usr/local/lib/libyang.so \
+      -DLY_VERSION_PATH=/usr/local/include \
+      -DYANG_MODULE_DIR=/usr/local/share/yang/modules/libnetconf2 ..
+make -j8
+sudo make install
+sudo ldconfig
+
+# to uninstall libraries
+# cd /tmp/build_mplane_v2/libyang/build && sudo make uninstall
+# cd /tmp/build_mplane_v2/libnetconf2/build && sudo make uninstall
+# cd
+# rm -rf /tmp/build_mplane_v2
+```
+</details>
+
+If you would like to install these libraries in the custom path, please replace `/usr/local` default path to e.g. `/opt/mplane-v2`.
+
+## Benetel O-RU
+Note: Only v1.2.2 RAN550 and RAN650 have been successfully tested.
+
+### One time steps
+Connect to the RU as user `root`, enable the mplane service, and reboot:
+```bash
+ssh root@<ru-ip-address>
+systemctl enable mplane
+reboot
+```
+Once the mplane service is successfully enabled on the RU, two new users are being added in `/etc/passwd`:
+```bash
+...
+oranbenetel:x:1000:1000::/home/oranbenetel:/bin/sh
+oranext:x:1001:1001::/home/oranext:/bin/sh
+```
+Create `oranbenetel` home directory:
+```bash
+mkdir /home/oranbenetel && chown oranbenetel:oranbenetel /home/oranbenetel
+```
+Connect to the RU as user `oranbenetel`, generate ssh keys, and copy DU public key into RU for NETCONF authentication:
+```bash
+ssh oranbenetel@<ru-ip-address>
+ssh-keygen
+echo "<DU-pub-key>" >>  ~/.ssh/authorized_keys
+```
+
+
+## gNB configuration
+The reference gNB configuration file for one Benetel RAN550:
+[`gnb.sa.band78.273prb.fhi72.4x4-benetel550-mplane.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi72.4x4-benetel550-mplane.conf)
+The reference DU configuration file for two Benetel RAN650:
+[gnb-du.sa.band77.273prb.fhi72.8x8-benetel650_650-mplane.conf](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-du.sa.band77.273prb.fhi72.8x8-benetel650_650-mplane.conf)
+
+In order to run gNB/DU with M-plane, we need to modify the `fhi_72` section in the configuration file.
+Example for one RU:
+```bash
+fhi_72 = {
+  dpdk_devices = ("0000:c3:11.0", "0000:c3:11.1"); # one VF can be used as well
+  system_core = 0;
+  io_core = 1;
+  worker_cores = (2);
+  du_key_pair = ("<path-to>/.ssh/id_rsa.pub", "<path-to>/.ssh/id_rsa");
+  du_addr = ("00:11:22:33:44:66", "00:11:22:33:44:67"); # only one needed if one VF configured
+  vlan_tag = (9, 9); # only one needed if one VF configured
+  ru_ip_addr = ("192.168.80.9");
+  fh_config = ({
+    T1a_cp_dl = (419, 470);
+    T1a_cp_ul = (285, 336);
+    T1a_up = (294, 345);
+    Ta4 = (0, 200);
+  });
+};
+```
+Example for two RUs:
+```bash
+fhi_72 = {
+  dpdk_devices = ("0000:c3:11.0", "0000:c3:11.1", "0000:c3:11.2", "0000:c3:11.3"); # two VFs can be used as well
+  system_core = 0;
+  io_core = 1;
+  worker_cores = (2);
+  du_key_pair = ("/home/oaicicd/.ssh/id_rsa.pub", "/home/oaicicd/.ssh/id_rsa");
+  du_addr = ("00:11:22:33:44:66", "00:11:22:33:44:67", "00:11:22:33:44:68", "00:11:22:33:44:69"); # only two needed if two VFs configured
+  vlan_tag = (9, 9, 11, 11); # only two needed if two VFs configured
+  ru_ip_addr = ("192.168.80.9", "192.168.80.10");
+  fh_config = (
+# RAN550 #1
+  {
+    T1a_cp_dl = (419, 470);
+    T1a_cp_ul = (285, 336);
+    T1a_up = (294, 345);
+    Ta4 = (0, 200);
+  },
+# RAN550 #2
+  {
+    T1a_cp_dl = (419, 470);
+    T1a_cp_ul = (285, 336);
+    T1a_up = (294, 345);
+    Ta4 = (0, 200);
+  });
+};
+```
+
+* `fhi_72` :
+  * `dpdk_devices`: [*]
+  * `system_core`: [*]
+  * `io_core`: [*]
+  * `worker_cores`: [*]
+  * `file_prefix`: [*]
+  * `du_key_pair`: ssh public and private keys to authenticate RU with NETCONF
+  * `du_addr`: DU MAC address(es) to create CU-plane interface(s) in the RU
+  * `vlan_tag`: VLAN U and C plane tags to create CU-plane interface(s) in the RU
+  * `ru_ip_addr`: RU IP address to connect to the RU via M-plane
+  * `dpdk_mem_size`: [*]
+  * `dpdk_iova_mode`: [*]
+  * `owdm_enable`: [*]
+  * `fh_config`: only DU delay profile (`T1a` and `Ta4`)
+
+[*] see [Configure OAI gNB](#configure-oai-gnb) for more details
+
+The following parameters are retrieved from the RU and forwarded to the xran:
+* `MTU`
+* `RU MAC address`
+* `IQ compression`: if RU supports multiple, the first value in the list is taken; please note that the same value is used for PxSCH/PRACH
+* `PRACH offset`: hardcoded based on the RU vendor (i.e. for Benetel `max(Nrx,Ntx)`)
+
+## Build and compile gNB
+The following cmake options are available:
+* `OAI_FHI72` = CUS support
+* `OAI_FHI72_MPLANE` = M support
+
+Compiled libraries:
+* `OAI_FHI72` <=> `oran_fhlib_5g`
+* `OAI_FHI72` && `OAI_FHI72_MPLANE` <=> `oran_fhlib_5g` (CUS) && `oran_fhlib_5g_mplane` (CUSM)
+
+### Using build_oai script
+```bash
+git clone https://gitlab.eurecom.fr/oai/openairinterface5g.git ~/openairinterface5g
+cd ~/openairinterface5g/cmake_targets/
+./build_oai -I  # if you never installed OAI, use this command once before the next line
+./build_oai --install-optional-packages  # for pcre/libpcre3, libssh, and libxml2 library installation
+./build_oai --gNB --ninja -t oran_fhlib_5g_mplane --cmake-opt -Dxran_LOCATION=$HOME/phy/fhi_lib/lib
+# if libyang2 and libnetconf2 are installed in `/opt/mplane-v2`, please use the following command:
+PKG_CONFIG_PATH=/opt/mplane-v2/lib/pkgconfig ./build_oai --gNB --ninja -t oran_fhlib_5g_mplane --cmake-opt -Dxran_LOCATION=$HOME/phy/fhi_lib/lib
+```
+
+### Using cmake directly
+```bash
+git clone https://gitlab.eurecom.fr/oai/openairinterface5g.git ~/openairinterface5g
+cd ~/openairinterface5g/
+mkdir build && cd build
+cmake .. -GNinja -DOAI_FHI72=ON -DOAI_FHI72_MPLANE=ON -Dxran_LOCATION=$HOME/phy/fhi_lib/lib
+# if libyang2 and libnetconf2 are installed in `/opt/mplane-v2`, please use the following command:
+PKG_CONFIG_PATH=/opt/mplane-v2/lib/pkgconfig cmake .. -GNinja -DOAI_FHI72=ON -DOAI_FHI72_MPLANE=ON -Dxran_LOCATION=$HOME/phy/fhi_lib/lib
+ninja nr-softmodem oran_fhlib_5g_mplane params_libconfig
+```
+
+## Start the gNB
+Run the `nr-softmodem` from the build directory:
+```bash
+cd ~/openairinterface5g/cmake_targets/ran_build/build
+sudo ./nr-softmodem -O <mplane-configuration file> --thread-pool <list of non isolated cpus>
+```
+
+**Warning**: Make sure that the configuration file you add after the `-O` option is adapted to your machine, especially to its isolated cores.
+
+M-plane sequence diagram:
+
+```mermaid
+sequenceDiagram
+  participant dhcp as DHCP server
+  participant du as O-DU
+  participant ru as O-RU
+
+  dhcp->ru: 1. Transport Layer Initialization
+  note over dhcp,ru: (a) perform VLAN scan (untagged or tagged VLAN)<br/>(b) DHCP assigns IP address to RU<br/>(c) DHCP sends DU IP address to RU
+  
+  du->ru: 2. NETCONF/SSH connect
+
+  du->>ru: 3. DU retrieves RU info 
+  note left of du: <get>
+
+  note over du: Check if RU is PTP synced
+  
+  du->>ru: 4. DU subscribes to all RU notifications 
+  note left of du: <subscribe>
+  
+  du->>ru: 5. DU updates the supervision timer
+  note left of du: <supervision-watchdog-reset>
+  
+  note over du: Store RU MAC, MTU, IQ bitwidth, and PRACH offset info for xran
+  
+  note over du: Store all the RU U-plane info - interface name, TX/RX carrier, and TX/RX endpoint names
+  
+  du->>ru: 6. DU loads yang models
+  note left of du: <get-schema>
+  note right of ru: ietf-netconf-monitoring.yang
+  
+  du->>ru: 7. DU performs CU-plane configuration
+  note left of du: <edit-config>
+  
+  note over ru: (1) o-ran-interface.yang - create new interface with VLAN tag, DU and RU MAC addresses<br/>(2)(opt.) o-ran-transceiver.yang - for file upload<br/>(3) o-ran-processing-elements.yang - element with which RU ports should be assigned<br/>(4) o-ran-uplane-conf.yang<br/>#8193;(4a) low-level-tx/rx-endpoints - PxSCH, PRACH<br/>#8193;(4b) tx/rx-array-carriers - center frequency, BW, gain, ACTIVE,...<br/>#8193;(4c) low-level-tx/rx-links - mapping endpoints, carriers and processing element<br/>#8193;(4d)(opt.) if CAT B, SRS configuration<br/>#8193;(4e)(opt.) TDD configuration
+  
+  du->>ru: 8. DU checks if CU-plane configuration is valid
+  note left of du: <validate>
+  
+  du->>ru: 9. If valid, DU commits the changes
+  note left of du: <commit>
+  
+  du->>ru: 10. DU retrieves RU states
+  note right of ru: ietf-hardware.yang
+  note left of du: <get>
+  note over ru: admin-state, power-state, oper-state,<br/>availability-state, usage-state
+  
+  ru->>du: 11. RU notifies DU about the configuration change
+  
+  note over du: DU configures xran
+  
+  du->ru: 12. DU and RU exchange packets
+```
+
+
+<details>
+<summary>4x4 MIMO and 100MHz BW with Benetel 550 RU example run</summary>
+
+```
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <connect> with username "oranbenetel" and port ID "830".
+[HW]   [MPLANE] Successfuly connected to RU "192.168.80.9" with username "oranbenetel" and port ID "830".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get> operational datastore.
+[HW]   [MPLANE] Successfully retrieved operational datastore from RU "192.168.80.9".
+[HW]   [MPLANE] RU is already PTP synchronized.
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <subscribe> with stream "NETCONF" and filter "(null)".
+[HW]   [MPLANE] RPC reply = OK.
+[HW]   [MPLANE] Successfully subscribed to all notifications from RU "192.168.80.9".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = "<supervision-watchdog-reset xmlns="urn:o-ran:supervision:1.0">
+<supervision-notification-interval>65535</supervision-notification-interval>
+<guard-timer-overhead>65535</guard-timer-overhead>
+</supervision-watchdog-reset>".
+[HW]   [MPLANE] Successfully updated supervision timer to (65535+65535)[s] for RU "192.168.80.9".
+[HW]   [MPLANE] Watchdog timer answer: 
+	<next-update-at xmlns="urn:o-ran:supervision:1.0">2025-03-30T08:52:31+02:00</next-update-at>
+
+[HW]   [MPLANE] Interface MTU 1500 unreliable/not correctly reported by Benetel O-RU, hardcoding to 9600.
+[HW]   [MPLANE] IQ bitwidth 16 unreliable/not correctly reported by Benetel O-RU, hardcoding to 9.
+[HW]   [MPLANE] Storing the following information to forward to xran:
+    RU MAC address 8c:1f:64:d1:11:c0
+    MTU 9600
+    IQ bitwidth 9
+    PRACH offset 4
+    DU port bitmask 61440
+    Band sector bitmask 3840
+    CC ID bitmask 240
+    RU port ID bitmask 15
+    DU port ID 0
+    Band sector ID 0
+    CC ID 0
+    RU port ID 0
+[HW]   [MPLANE] Successfully retrieved all the U-plane info - interface name, TX/RX carrier names, and TX/RX endpoint names.
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "ietf-yang-metadata".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "yang".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "ietf-inet-types".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "ietf-yang-types".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "ietf-yang-schema-mount".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "ietf-yang-structure-ext".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "ietf-datastores".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "sysrepo".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "ietf-netconf-acm".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "ietf-factory-default".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "sysrepo-factory-default".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "ietf-yang-library".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "sysrepo-monitoring".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "sysrepo-plugind".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "ietf-netconf".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "ietf-netconf-with-defaults".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "ietf-netconf-notifications".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "ietf-origin".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "ietf-netconf-monitoring".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "ietf-netconf-nmda".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <get-schema> for module "nc-notifications".
+[HW]   [MPLANE] [LIBYANG] ERROR: Data model "notifications" not found in local searchdirs. (path: (null)).
+[HW]   [MPLANE] [LIBYANG] ERROR: Loading "notifications" module failed. (path: (null)).
+[HW]   [MPLANE] [LIBYANG] ERROR: Parsing module "nc-notifications" failed. (path: (null)).
+[HW]   [MPLANE] Unable to load module "nc-notifications" from RU "192.168.80.9".
+[HW]   [MPLANE] Unable to load all yang modules from operational datastore for RU "192.168.80.9". Using yang models present in "models" subfolder.
+[HW]   [MPLANE] Successfully loaded all yang modules for RU "192.168.80.9".
+[HW]   [MPLANE] The VLAN tags for C and U plane for the RU "192.168.80.9" are the same. Therefore, configuring one common interface and one processing element.
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <edit-config>:
+<interfaces xmlns="urn:ietf:params:xml:ns:yang:ietf-interfaces">
+  <interface>
+    <name>INTERFACE_0</name>
+    <type xmlns:ianaift="urn:ietf:params:xml:ns:yang:iana-if-type">ianaift:l2vlan</type>
+    <enabled>true</enabled>
+    <mac-address xmlns="urn:o-ran:interfaces:1.0">8c:1f:64:d1:11:c0</mac-address>
+    <base-interface xmlns="urn:o-ran:interfaces:1.0">eth0</base-interface>
+    <vlan-id xmlns="urn:o-ran:interfaces:1.0">9</vlan-id>
+  </interface>
+</interfaces>
+<processing-elements xmlns="urn:o-ran:processing-element:1.0">
+  <transport-session-type>ETH-INTERFACE</transport-session-type>
+  <ru-elements>
+    <name>PLANE_0</name>
+    <transport-flow>
+      <interface-name>INTERFACE_0</interface-name>
+      <eth-flow>
+        <ru-mac-address>8c:1f:64:d1:11:c0</ru-mac-address>
+        <vlan-id>9</vlan-id>
+        <o-du-mac-address>00:11:22:33:44:66</o-du-mac-address>
+      </eth-flow>
+    </transport-flow>
+  </ru-elements>
+</processing-elements>
+<user-plane-configuration xmlns="urn:o-ran:uplane-conf:1.0">
+  <low-level-tx-links>
+    <name>PdschLink0</name>
+    <processing-element>PLANE_0</processing-element>
+    <tx-array-carrier>TxArray0</tx-array-carrier>
+    <low-level-tx-endpoint>LowLevelTxEndpoint0</low-level-tx-endpoint>
+  </low-level-tx-links>
+  <low-level-tx-links>
+    <name>PdschLink1</name>
+    <processing-element>PLANE_0</processing-element>
+    <tx-array-carrier>TxArray0</tx-array-carrier>
+    <low-level-tx-endpoint>LowLevelTxEndpoint1</low-level-tx-endpoint>
+  </low-level-tx-links>
+  <low-level-tx-links>
+    <name>PdschLink2</name>
+    <processing-element>PLANE_0</processing-element>
+    <tx-array-carrier>TxArray0</tx-array-carrier>
+    <low-level-tx-endpoint>LowLevelTxEndpoint2</low-level-tx-endpoint>
+  </low-level-tx-links>
+  <low-level-tx-links>
+    <name>PdschLink3</name>
+    <processing-element>PLANE_0</processing-element>
+    <tx-array-carrier>TxArray0</tx-array-carrier>
+    <low-level-tx-endpoint>LowLevelTxEndpoint3</low-level-tx-endpoint>
+  </low-level-tx-links>
+  <low-level-rx-links>
+    <name>PuschLink0</name>
+    <processing-element>PLANE_0</processing-element>
+    <rx-array-carrier>RxArray0</rx-array-carrier>
+    <low-level-rx-endpoint>LowLevelRxEndpoint0</low-level-rx-endpoint>
+  </low-level-rx-links>
+  <low-level-rx-links>
+    <name>PrachLink0</name>
+    <processing-element>PLANE_0</processing-element>
+    <rx-array-carrier>RxArray0</rx-array-carrier>
+    <low-level-rx-endpoint>LowLevelRxPrachEndpoint0</low-level-rx-endpoint>
+  </low-level-rx-links>
+  <low-level-rx-links>
+    <name>PuschLink1</name>
+    <processing-element>PLANE_0</processing-element>
+    <rx-array-carrier>RxArray0</rx-array-carrier>
+    <low-level-rx-endpoint>LowLevelRxEndpoint1</low-level-rx-endpoint>
+  </low-level-rx-links>
+  <low-level-rx-links>
+    <name>PrachLink1</name>
+    <processing-element>PLANE_0</processing-element>
+    <rx-array-carrier>RxArray0</rx-array-carrier>
+    <low-level-rx-endpoint>LowLevelRxPrachEndpoint1</low-level-rx-endpoint>
+  </low-level-rx-links>
+  <low-level-rx-links>
+    <name>PuschLink2</name>
+    <processing-element>PLANE_0</processing-element>
+    <rx-array-carrier>RxArray0</rx-array-carrier>
+    <low-level-rx-endpoint>LowLevelRxEndpoint2</low-level-rx-endpoint>
+  </low-level-rx-links>
+  <low-level-rx-links>
+    <name>PrachLink2</name>
+    <processing-element>PLANE_0</processing-element>
+    <rx-array-carrier>RxArray0</rx-array-carrier>
+    <low-level-rx-endpoint>LowLevelRxPrachEndpoint2</low-level-rx-endpoint>
+  </low-level-rx-links>
+  <low-level-rx-links>
+    <name>PuschLink3</name>
+    <processing-element>PLANE_0</processing-element>
+    <rx-array-carrier>RxArray0</rx-array-carrier>
+    <low-level-rx-endpoint>LowLevelRxEndpoint3</low-level-rx-endpoint>
+  </low-level-rx-links>
+  <low-level-rx-links>
+    <name>PrachLink3</name>
+    <processing-element>PLANE_0</processing-element>
+    <rx-array-carrier>RxArray0</rx-array-carrier>
+    <low-level-rx-endpoint>LowLevelRxPrachEndpoint3</low-level-rx-endpoint>
+  </low-level-rx-links>
+  <low-level-tx-endpoints>
+    <name>LowLevelTxEndpoint0</name>
+    <compression>
+      <iq-bitwidth>9</iq-bitwidth>
+      <compression-type>STATIC</compression-type>
+    </compression>
+    <cp-length>0</cp-length>
+    <cp-length-other>0</cp-length-other>
+    <offset-to-absolute-frequency-center>0</offset-to-absolute-frequency-center>
+    <e-axcid>
+      <o-du-port-bitmask>61440</o-du-port-bitmask>
+      <band-sector-bitmask>3840</band-sector-bitmask>
+      <ccid-bitmask>240</ccid-bitmask>
+      <ru-port-bitmask>15</ru-port-bitmask>
+      <eaxc-id>0</eaxc-id>
+    </e-axcid>
+  </low-level-tx-endpoints>
+  <low-level-tx-endpoints>
+    <name>LowLevelTxEndpoint1</name>
+    <compression>
+      <iq-bitwidth>9</iq-bitwidth>
+      <compression-type>STATIC</compression-type>
+    </compression>
+    <cp-length>0</cp-length>
+    <cp-length-other>0</cp-length-other>
+    <offset-to-absolute-frequency-center>0</offset-to-absolute-frequency-center>
+    <e-axcid>
+      <o-du-port-bitmask>61440</o-du-port-bitmask>
+      <band-sector-bitmask>3840</band-sector-bitmask>
+      <ccid-bitmask>240</ccid-bitmask>
+      <ru-port-bitmask>15</ru-port-bitmask>
+      <eaxc-id>1</eaxc-id>
+    </e-axcid>
+  </low-level-tx-endpoints>
+  <low-level-tx-endpoints>
+    <name>LowLevelTxEndpoint2</name>
+    <compression>
+      <iq-bitwidth>9</iq-bitwidth>
+      <compression-type>STATIC</compression-type>
+    </compression>
+    <cp-length>0</cp-length>
+    <cp-length-other>0</cp-length-other>
+    <offset-to-absolute-frequency-center>0</offset-to-absolute-frequency-center>
+    <e-axcid>
+      <o-du-port-bitmask>61440</o-du-port-bitmask>
+      <band-sector-bitmask>3840</band-sector-bitmask>
+      <ccid-bitmask>240</ccid-bitmask>
+      <ru-port-bitmask>15</ru-port-bitmask>
+      <eaxc-id>2</eaxc-id>
+    </e-axcid>
+  </low-level-tx-endpoints>
+  <low-level-tx-endpoints>
+    <name>LowLevelTxEndpoint3</name>
+    <compression>
+      <iq-bitwidth>9</iq-bitwidth>
+      <compression-type>STATIC</compression-type>
+    </compression>
+    <cp-length>0</cp-length>
+    <cp-length-other>0</cp-length-other>
+    <offset-to-absolute-frequency-center>0</offset-to-absolute-frequency-center>
+    <e-axcid>
+      <o-du-port-bitmask>61440</o-du-port-bitmask>
+      <band-sector-bitmask>3840</band-sector-bitmask>
+      <ccid-bitmask>240</ccid-bitmask>
+      <ru-port-bitmask>15</ru-port-bitmask>
+      <eaxc-id>3</eaxc-id>
+    </e-axcid>
+  </low-level-tx-endpoints>
+  <low-level-rx-endpoints>
+    <name>LowLevelRxEndpoint0</name>
+    <compression>
+      <iq-bitwidth>9</iq-bitwidth>
+      <compression-type>STATIC</compression-type>
+    </compression>
+    <cp-length>0</cp-length>
+    <cp-length-other>0</cp-length-other>
+    <offset-to-absolute-frequency-center>0</offset-to-absolute-frequency-center>
+    <e-axcid>
+      <o-du-port-bitmask>61440</o-du-port-bitmask>
+      <band-sector-bitmask>3840</band-sector-bitmask>
+      <ccid-bitmask>240</ccid-bitmask>
+      <ru-port-bitmask>15</ru-port-bitmask>
+      <eaxc-id>0</eaxc-id>
+    </e-axcid>
+  </low-level-rx-endpoints>
+  <low-level-rx-endpoints>
+    <name>LowLevelRxPrachEndpoint0</name>
+    <compression>
+      <iq-bitwidth>9</iq-bitwidth>
+      <compression-type>STATIC</compression-type>
+    </compression>
+    <cp-length>0</cp-length>
+    <cp-length-other>0</cp-length-other>
+    <offset-to-absolute-frequency-center>0</offset-to-absolute-frequency-center>
+    <e-axcid>
+      <o-du-port-bitmask>61440</o-du-port-bitmask>
+      <band-sector-bitmask>3840</band-sector-bitmask>
+      <ccid-bitmask>240</ccid-bitmask>
+      <ru-port-bitmask>15</ru-port-bitmask>
+      <eaxc-id>4</eaxc-id>
+    </e-axcid>
+  </low-level-rx-endpoints>
+  <low-level-rx-endpoints>
+    <name>LowLevelRxEndpoint1</name>
+    <compression>
+      <iq-bitwidth>9</iq-bitwidth>
+      <compression-type>STATIC</compression-type>
+    </compression>
+    <cp-length>0</cp-length>
+    <cp-length-other>0</cp-length-other>
+    <offset-to-absolute-frequency-center>0</offset-to-absolute-frequency-center>
+    <e-axcid>
+      <o-du-port-bitmask>61440</o-du-port-bitmask>
+      <band-sector-bitmask>3840</band-sector-bitmask>
+      <ccid-bitmask>240</ccid-bitmask>
+      <ru-port-bitmask>15</ru-port-bitmask>
+      <eaxc-id>1</eaxc-id>
+    </e-axcid>
+  </low-level-rx-endpoints>
+  <low-level-rx-endpoints>
+    <name>LowLevelRxPrachEndpoint1</name>
+    <compression>
+      <iq-bitwidth>9</iq-bitwidth>
+      <compression-type>STATIC</compression-type>
+    </compression>
+    <cp-length>0</cp-length>
+    <cp-length-other>0</cp-length-other>
+    <offset-to-absolute-frequency-center>0</offset-to-absolute-frequency-center>
+    <e-axcid>
+      <o-du-port-bitmask>61440</o-du-port-bitmask>
+      <band-sector-bitmask>3840</band-sector-bitmask>
+      <ccid-bitmask>240</ccid-bitmask>
+      <ru-port-bitmask>15</ru-port-bitmask>
+      <eaxc-id>5</eaxc-id>
+    </e-axcid>
+  </low-level-rx-endpoints>
+  <low-level-rx-endpoints>
+    <name>LowLevelRxEndpoint2</name>
+    <compression>
+      <iq-bitwidth>9</iq-bitwidth>
+      <compression-type>STATIC</compression-type>
+    </compression>
+    <cp-length>0</cp-length>
+    <cp-length-other>0</cp-length-other>
+    <offset-to-absolute-frequency-center>0</offset-to-absolute-frequency-center>
+    <e-axcid>
+      <o-du-port-bitmask>61440</o-du-port-bitmask>
+      <band-sector-bitmask>3840</band-sector-bitmask>
+      <ccid-bitmask>240</ccid-bitmask>
+      <ru-port-bitmask>15</ru-port-bitmask>
+      <eaxc-id>2</eaxc-id>
+    </e-axcid>
+  </low-level-rx-endpoints>
+  <low-level-rx-endpoints>
+    <name>LowLevelRxPrachEndpoint2</name>
+    <compression>
+      <iq-bitwidth>9</iq-bitwidth>
+      <compression-type>STATIC</compression-type>
+    </compression>
+    <cp-length>0</cp-length>
+    <cp-length-other>0</cp-length-other>
+    <offset-to-absolute-frequency-center>0</offset-to-absolute-frequency-center>
+    <e-axcid>
+      <o-du-port-bitmask>61440</o-du-port-bitmask>
+      <band-sector-bitmask>3840</band-sector-bitmask>
+      <ccid-bitmask>240</ccid-bitmask>
+      <ru-port-bitmask>15</ru-port-bitmask>
+      <eaxc-id>6</eaxc-id>
+    </e-axcid>
+  </low-level-rx-endpoints>
+  <low-level-rx-endpoints>
+    <name>LowLevelRxEndpoint3</name>
+    <compression>
+      <iq-bitwidth>9</iq-bitwidth>
+      <compression-type>STATIC</compression-type>
+    </compression>
+    <cp-length>0</cp-length>
+    <cp-length-other>0</cp-length-other>
+    <offset-to-absolute-frequency-center>0</offset-to-absolute-frequency-center>
+    <e-axcid>
+      <o-du-port-bitmask>61440</o-du-port-bitmask>
+      <band-sector-bitmask>3840</band-sector-bitmask>
+      <ccid-bitmask>240</ccid-bitmask>
+      <ru-port-bitmask>15</ru-port-bitmask>
+      <eaxc-id>3</eaxc-id>
+    </e-axcid>
+  </low-level-rx-endpoints>
+  <low-level-rx-endpoints>
+    <name>LowLevelRxPrachEndpoint3</name>
+    <compression>
+      <iq-bitwidth>9</iq-bitwidth>
+      <compression-type>STATIC</compression-type>
+    </compression>
+    <cp-length>0</cp-length>
+    <cp-length-other>0</cp-length-other>
+    <offset-to-absolute-frequency-center>0</offset-to-absolute-frequency-center>
+    <e-axcid>
+      <o-du-port-bitmask>61440</o-du-port-bitmask>
+      <band-sector-bitmask>3840</band-sector-bitmask>
+      <ccid-bitmask>240</ccid-bitmask>
+      <ru-port-bitmask>15</ru-port-bitmask>
+      <eaxc-id>7</eaxc-id>
+    </e-axcid>
+  </low-level-rx-endpoints>
+  <tx-array-carriers>
+    <name>TxArray0</name>
+    <absolute-frequency-center>663360</absolute-frequency-center>
+    <center-of-channel-bandwidth>3950400000</center-of-channel-bandwidth>
+    <channel-bandwidth>100000000</channel-bandwidth>
+    <active>ACTIVE</active>
+    <gain>0.0</gain>
+    <downlink-radio-frame-offset>0</downlink-radio-frame-offset>
+    <downlink-sfn-offset>0</downlink-sfn-offset>
+  </tx-array-carriers>
+  <rx-array-carriers>
+    <name>RxArray0</name>
+    <absolute-frequency-center>663360</absolute-frequency-center>
+    <center-of-channel-bandwidth>3950400000</center-of-channel-bandwidth>
+    <channel-bandwidth>100000000</channel-bandwidth>
+    <active>ACTIVE</active>
+    <downlink-radio-frame-offset>0</downlink-radio-frame-offset>
+    <downlink-sfn-offset>0</downlink-sfn-offset>
+    <gain-correction>0.0</gain-correction>
+    <n-ta-offset>0</n-ta-offset>
+  </rx-array-carriers>
+</user-plane-configuration>
+
+[HW]   [MPLANE] RPC reply = OK.
+[HW]   [MPLANE] Successfully edited the candidate datastore for RU "192.168.80.9".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <validate> candidate datastore.
+[HW]   [MPLANE] RPC reply = OK.
+[HW]   [MPLANE] Successfully validated candidate datastore for RU "192.168.80.9".
+[HW]   [MPLANE] RPC request to RU "192.168.80.9" = <commit> candidate datastore.
+[HW]   [MPLANE] RPC reply = OK.
+[HW]   [MPLANE] Successfully commited CU-planes configuration into running datastore for RU "192.168.80.9".
+[HW]   [MPLANE] Usage state = "idle" for RU "192.168.80.9".
+[HW]   [MPLANE] Received notification from RU "192.168.80.9" at (2025-03-29T12:40:23.049085102+00:00)
+{
+  "o-ran-uplane-conf:rx-array-carriers-state-change": {
+    "rx-array-carriers": [
+      {
+        "name": "RxArray0",
+        "state": "BUSY"
+      }
+    ]
+  }
+}
+
+[HW]   [MPLANE] Received notification from RU "192.168.80.9" at (2025-03-29T12:40:23.058136880+00:00)
+{
+  "o-ran-uplane-conf:tx-array-carriers-state-change": {
+    "tx-array-carriers": [
+      {
+        "name": "TxArray0",
+        "state": "BUSY"
+      }
+    ]
+  }
+}
+
+[HW]   [MPLANE] Received notification from RU "192.168.80.9" at (2025-03-29T12:40:23.078776163+00:00)
+{
+  "o-ran-uplane-conf:rx-array-carriers-state-change": {
+    "rx-array-carriers": [
+      {
+        "name": "RxArray0",
+        "state": "READY"
+      }
+    ]
+  }
+}
+
+[HW]   [MPLANE] Received notification from RU "192.168.80.9" at (2025-03-29T12:40:23.093039138+00:00)
+{
+  "o-ran-uplane-conf:tx-array-carriers-state-change": {
+    "tx-array-carriers": [
+      {
+        "name": "TxArray0",
+        "state": "READY"
+      }
+    ]
+  }
+}
+
+[HW]   [MPLANE] Received notification from RU "192.168.80.9" at (2025-03-29T12:40:23.452751936+00:00)
+{
+  "ietf-netconf-notifications:netconf-config-change": {
+    "changed-by": {
+      "username": "root",
+      "session-id": 0
+    },
+    "datastore": "running",
+    "edit": [
+      {
+        "target": "/ietf-interfaces:interfaces/interface[name='INTERFACE_0']",
+        "operation": "create"
+      },
+      {
+        "target": "/ietf-interfaces:interfaces/interface[name='INTERFACE_0']/name",
+        "operation": "create"
+      },
+...
+}
+
+[HW]   [MPLANE] RU "192.168.80.9" is now ready.
+```
+</details>
+
+
+Note: If you wish to run the fronthaul without M-plane, no need for recompilation, as the library `oran_fhlib_5g` already exists.
+The only mandatory step is to link `oran_fhlib_5g` to `oai_transpro` library.
+```bash
+cd ~/openairinterface5g/cmake_targets/ran_build/build
+rm liboai_transpro.so
+ln -s liboran_fhlib_5g.so liboai_transpro.so
+sudo ./nr-softmodem -O <without-mplane-configuration file> --thread-pool <list of non isolated cpus>
+```
+
 
 # Contact in case of questions
 
