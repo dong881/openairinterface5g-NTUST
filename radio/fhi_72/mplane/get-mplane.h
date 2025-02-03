@@ -19,14 +19,11 @@
  *      contact@openairinterface.org
  */
 
-#ifndef OAI_MPLANE_H
-#define OAI_MPLANE_H
+#ifndef GET_MPLANE_H
+#define GET_MPLANE_H
 
 #include "ru-mplane-api.h"
-#include "radio/COMMON/common_lib.h"
 
-bool init_mplane(ru_session_list_t *ru_session_list);
+bool get_mplane(ru_session_t *ru_session, char **answer);
 
-bool manage_ru(ru_session_t *ru_session, const openair0_config_t *oai, const size_t num_rus);
-
-#endif /* OAI_MPLANE_H */
+#endif /* GET_MPLANE_H */

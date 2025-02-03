@@ -28,6 +28,7 @@ target_sources(oran_fhlib_5g_mplane PRIVATE
                init-mplane.c
                connect-mplane.c
                rpc-send-recv.c
+               get-mplane.c
 )
 
 pkg_check_modules(libyang REQUIRED libyang)

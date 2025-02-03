@@ -302,6 +302,7 @@ __attribute__((__visibility__("default"))) int transport_init(openair0_device *d
     if (!ru_configured[i]) {
       continue;
     }
+    ru_configured[i] = manage_ru(ru_session, openair0_cfg, ru_session_list.num_rus);
   }
 #else
   success = get_xran_config(openair0_cfg, &fh_init, fh_config);
