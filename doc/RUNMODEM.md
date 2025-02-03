@@ -247,7 +247,7 @@ These parameters can be provided to the gNB in the conf file in the section `ser
 ...
 # GEO satellite
       cellSpecificKoffset_r17                                       = 478;
-      ta-Common-r17                                                 = 29314900; # 119.37 ms
+      ta-Common-r17                                                 = 58629666; # 238.74 ms
       positionX-r17                                                 = 0;
       positionY-r17                                                 = 0;
       positionZ-r17                                                 = 32433846;
@@ -256,7 +256,7 @@ These parameters can be provided to the gNB in the conf file in the section `ser
       velocityVZ-r17                                                = 0;
 # LEO satellite
 #      cellSpecificKoffset_r17                                       = 40;
-#      ta-Common-r17                                                 = 2317000; # 9.435 ms
+#      ta-Common-r17                                                 = 4634000; # 18.87 ms
 #      ta-CommonDrift-r17                                            = -230000; # -46 µs/s
 #      positionX-r17                                                 = 0;
 #      positionY-r17                                                 = -2166908; # -2816980.4 m

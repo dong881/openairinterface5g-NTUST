@@ -556,9 +556,9 @@ typedef struct {
 } fapi_nr_ta_command_pdu;
 
 typedef struct {
-  // N_common_ta_adj represents common propagation delay received in SIB19 (ms)
+  // N_common_ta_adj represents common round-trip-time between gNB and SAT received in SIB19 (ms)
   double N_common_ta_adj;
-  // N_UE_TA_adj calculated propagation delay from UE and SAT (ms)
+  // N_UE_TA_adj calculated round-trip-time between UE and SAT (ms)
   double N_UE_TA_adj;
   // drift rate of common ta in µs/s
   double ntn_ta_commondrift;

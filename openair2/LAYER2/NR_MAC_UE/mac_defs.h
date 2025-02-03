@@ -554,9 +554,9 @@ typedef struct {
 } si_schedInfo_t;
 
 typedef struct ntn_timing_advance_components {
-  // N_common_ta_adj represents common propagation delay received in SIB19 (ms)
+  // N_common_ta_adj represents common round-trip-time between gNB and SAT received in SIB19 (ms)
   double N_common_ta_adj;
-  // N_UE_TA_adj calculated propagation delay from UE and SAT (ms)
+  // N_UE_TA_adj calculated round-trip-time between UE and SAT (ms)
   double N_UE_TA_adj;
   // drift rate of common ta in µs/s
   double ntn_ta_commondrift;
@@ -682,7 +682,7 @@ static inline int GET_NTN_UE_K_OFFSET(const ntn_timing_advance_componets_t *ntn_
 
 static inline double GET_COMPLETE_TIME_ADVANCE_MS(const ntn_timing_advance_componets_t *ntn_ta)
 {
-  return (ntn_ta->N_common_ta_adj + ntn_ta->N_UE_TA_adj) * 2;
+  return ntn_ta->N_common_ta_adj + ntn_ta->N_UE_TA_adj;
 }
 
 static inline long GET_DURATION_RX_TO_TX(const ntn_timing_advance_componets_t *ntn_ta)

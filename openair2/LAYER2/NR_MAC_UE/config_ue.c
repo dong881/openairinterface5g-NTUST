@@ -222,7 +222,7 @@ static void config_common_ue_sa(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommo
 
 }
 
-// computes delay between ue and sat based on SIB19 ephemeris data
+// computes round-trip-time between ue and sat based on SIB19 ephemeris data
 static double calculate_ue_sat_ta(const position_t *position_params, NR_PositionVelocity_r17_t *sat_pos)
 {
   // get UE position coordinates
@@ -235,9 +235,8 @@ static double calculate_ue_sat_ta(const position_t *position_params, NR_Position
   double posy_0 = (double)sat_pos->positionY_r17 * 1.3;
   double posz_0 = (double)sat_pos->positionZ_r17 * 1.3;
 
-  double distance = sqrt(pow(posx - posx_0, 2) + pow(posy - posy_0, 2) + pow(posz - posz_0, 2));
-  // this computation will ensure 3 decimal precision
-  double ta_ms = round(((distance / SPEED_OF_LIGHT) * 1000) * 1000.0) / 1000.0;
+  double distance = 2 * sqrt(pow(posx - posx_0, 2) + pow(posy - posy_0, 2) + pow(posz - posz_0, 2));
+  double ta_ms = (distance / SPEED_OF_LIGHT) * 1000;
 
   return ta_ms;
 }
