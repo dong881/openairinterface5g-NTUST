@@ -181,6 +181,9 @@ bool manage_ru(ru_session_t *ru_session, const openair0_config_t *oai, const siz
 
     success = validate_config_mplane(ru_session);
     AssertError(success, return false, "[MPLANE] Unable to validate the RU configuration.\n");
+
+    success = commit_config_mplane(ru_session);
+    AssertError(success, return false, "[MPLANE] Unable to commit the RU configuration.\n");
   }
 
   free(operational_ds);

@@ -29,4 +29,6 @@ bool edit_config_mplane(ru_session_t *ru_session, const char *buffer, const open
 
 bool validate_config_mplane(ru_session_t *ru_session);
 
+bool commit_config_mplane(ru_session_t *ru_session);
+
 #endif /* CONFIGURE_MPLANE_H */
