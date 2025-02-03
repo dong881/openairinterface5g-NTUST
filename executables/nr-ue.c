@@ -1110,6 +1110,9 @@ void *UE_thread(void *arg)
       shiftForNextFrame = ret;
     pushNotifiedFIFO(&UE->dl_actors[curMsg.proc.nr_slot_rx % NUM_DL_ACTORS].fifo, newRx);
 
+    // apply new duration next run to avoid thread dead lock
+    apply_ntn_config(UE, fp, slot_nr, &update_ntn_system_information, &duration_rx_to_tx, &timing_advance, &ntn_koffset);
+
     // Start TX slot processing here. It runs in parallel with RX slot processing
     // in current code, DURATION_RX_TO_TX constant is the limit to get UL data to encode from a RX slot
     notifiedFIFO_elt_t *newTx = newNotifiedFIFO_elt(sizeof(nr_rxtx_thread_data_t), 0, 0, processSlotTX);
@@ -1123,16 +1126,9 @@ void *UE_thread(void *arg)
 
     int slot = curMsgTx->proc.nr_slot_tx;
     int slot_and_frame = slot + curMsgTx->proc.frame_tx * UE->frame_parms.slots_per_frame;
-
+    int next_tx_slot_and_frame = absolute_slot + duration_rx_to_tx + 1;
     int wait_for_prev_slot = stream_status == STREAM_STATUS_SYNCED ? 1 : 0;
 
-    int next_duration_rx_to_tx =
-        update_ntn_system_information
-            ? NR_UE_CAPABILITY_SLOT_RX_TO_TX + UE->ntn_config_message->ntn_config_params.cell_specific_k_offset
-            : duration_rx_to_tx;
-    int next_nr_slot_tx = (absolute_slot + next_duration_rx_to_tx) % nb_slot_frame;
-    int next_frame_tx = ((absolute_slot + next_duration_rx_to_tx) / nb_slot_frame) % MAX_FRAME_NUMBER;
-    int next_tx_slot_and_frame = next_nr_slot_tx + next_frame_tx * UE->frame_parms.slots_per_frame + 1;
     dynamic_barrier_t *next_barrier = &UE->process_slot_tx_barriers[next_tx_slot_and_frame % NUM_PROCESS_SLOT_TX_BARRIERS];
     curMsgTx->next_barrier = next_barrier;
     dynamic_barrier_update(&UE->process_slot_tx_barriers[slot_and_frame % NUM_PROCESS_SLOT_TX_BARRIERS],
@@ -1141,9 +1137,6 @@ void *UE_thread(void *arg)
                            newTx);
     stream_status = STREAM_STATUS_SYNCED;
     tx_wait_for_dlsch[slot] = 0;
-
-    // apply new duration next run to avoid thread dead lock
-    apply_ntn_config(UE, fp, slot_nr, &update_ntn_system_information, &duration_rx_to_tx, &timing_advance, &ntn_koffset);
   }
 
   return NULL;
