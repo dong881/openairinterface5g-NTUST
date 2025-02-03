@@ -22,6 +22,7 @@
 #include "init-mplane.h"
 #include "radio/fhi_72/oran-params.h"
 #include "get-mplane.h"
+#include "xml/get-xml.h"
 
 #include <libyang/libyang.h>
 #include <nc_client.h>
@@ -138,6 +139,13 @@ bool manage_ru(ru_session_t *ru_session, const openair0_config_t *oai, const siz
   char *operational_ds = NULL;
   success = get_mplane(ru_session, &operational_ds);
   AssertError(success, return false, "[MPLANE] Unable to continue: could not get RU answer via get_mplane().\n");
+
+  bool ptp_state = false;
+  const char *sync_state = get_ru_xml_node(operational_ds, "sync-state");
+  if (strcmp(sync_state, "LOCKED") == 0) {
+    MP_LOG_I("RU is already PTP synchronized.\n");
+    ptp_state = true;
+  }
 
   free(operational_ds);
 
