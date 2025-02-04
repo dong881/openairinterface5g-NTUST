@@ -199,6 +199,24 @@ static int fill_suci(FGSMobileIdentity *mi, const uicc_t *uicc)
   mi->suci.mccdigit2 = uicc->imsiStr[1] - '0';
   mi->suci.mccdigit3 = uicc->imsiStr[2] - '0';
   memcpy(mi->suci.schemeoutput, uicc->imsiStr + 3 + uicc->nmc_size, strlen(uicc->imsiStr) - (3 + uicc->nmc_size));
+  LOG_D(NAS,
+        "SUCI in registration request: SUPI type: %d Type of Identity: %u MCC: %u%u%u, MNC: %u%u%u, \
+     Routing Indicator %d%d%d%d Protection Scheme ID: %u, Home Network PKI: %u, Scheme Output: %s\n",
+        mi->suci.supiformat,
+        mi->suci.typeofidentity,
+        mi->suci.mccdigit1,
+        mi->suci.mccdigit2,
+        mi->suci.mccdigit3,
+        mi->suci.mncdigit1,
+        mi->suci.mncdigit2,
+        uicc->nmc_size == 2 ? 0 : mi->suci.mncdigit3,
+        mi->suci.routingindicatordigit1,
+        mi->suci.routingindicatordigit2,
+        mi->suci.routingindicatordigit3,
+        mi->suci.routingindicatordigit4,
+        mi->suci.protectionschemeId,
+        mi->suci.homenetworkpki,
+        mi->suci.schemeoutput);
   return sizeof(Suci5GSMobileIdentity_t);
 }
 
@@ -206,6 +224,18 @@ static int fill_guti(FGSMobileIdentity *mi, const Guti5GSMobileIdentity_t *guti)
 {
   AssertFatal(guti != NULL, "UE has no GUTI\n");
   mi->guti = *guti;
+  LOG_D(NAS,
+        "5G-GUTI in registration request: MCC: %u%u%u, MNC: %u%u, AMF Region ID: %u, AMF Set ID: %u, AMF Pointer: %u, 5G-TMSI: "
+        "%u\n",
+        mi->guti.mccdigit1,
+        mi->guti.mccdigit2,
+        mi->guti.mccdigit3,
+        mi->guti.mncdigit1,
+        mi->guti.mncdigit2,
+        mi->guti.amfregionid,
+        mi->guti.amfsetid,
+        mi->guti.amfpointer,
+        mi->guti.tmsi);
   return 13;
 }
 
@@ -576,39 +606,8 @@ void generateRegistrationRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas,
   // 5GMM Mobile Identity
   if(nas->guti){
     size += fill_guti(&rr->fgsmobileidentity, nas->guti);
-    LOG_D(NAS,
-          "5G-GUTI in registration request: MCC: %u%u%u, MNC: %u%u, AMF Region ID: %u, AMF Set ID: %u, AMF Pointer: %u, 5G-TMSI: "
-          "%u\n",
-          nas->guti->mccdigit1,
-          nas->guti->mccdigit2,
-          nas->guti->mccdigit3,
-          nas->guti->mncdigit1,
-          nas->guti->mncdigit2,
-          nas->guti->amfregionid,
-          nas->guti->amfsetid,
-          nas->guti->amfpointer,
-          nas->guti->tmsi);
   } else {
     size += fill_suci(&rr->fgsmobileidentity, nas->uicc);
-    Suci5GSMobileIdentity_t *suci = &rr->fgsmobileidentity.suci;
-    LOG_D(NAS,
-          "SUCI in registration request: SUPI type: %d Type of Identity: %u MCC: %u%u%u, MNC: %u%u%u, \
-     Routing Indicator %d%d%d%d Protection Scheme ID: %u, Home Network PKI: %u, Scheme Output: %s\n",
-          suci->supiformat,
-          suci->typeofidentity,
-          suci->mccdigit1,
-          suci->mccdigit2,
-          suci->mccdigit3,
-          suci->mncdigit1,
-          suci->mncdigit2,
-          nas->uicc->nmc_size == 2 ? 0 : suci->mncdigit3,
-          suci->routingindicatordigit1,
-          suci->routingindicatordigit2,
-          suci->routingindicatordigit3,
-          suci->routingindicatordigit4,
-          suci->protectionschemeId,
-          suci->homenetworkpki,
-          suci->schemeoutput);
   }
 
   // Security Capability
