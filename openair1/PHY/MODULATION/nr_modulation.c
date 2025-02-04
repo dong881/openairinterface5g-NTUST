@@ -458,10 +458,10 @@ void nr_layer_mapping(int nbCodes,
       int i;
       for (i = 0; i < n_symbs >> 4; i++) {
         e = _mm512_permutexvar_epi32(perm4, ((__m512i *)mod_symbs[0])[i]);
-        ((__m128i *)tx_layers[0])[i] = _mm512_extracti64x2_epi64(e, 0);
-        ((__m128i *)tx_layers[1])[i] = _mm512_extracti64x2_epi64(e, 1);
-        ((__m128i *)tx_layers[2])[i] = _mm512_extracti64x2_epi64(e, 2);
-        ((__m128i *)tx_layers[3])[i] = _mm512_extracti64x2_epi64(e, 3);
+        ((simde__m128i *)tx_layers[0])[i] = _mm512_extracti64x2_epi64(e, 0);
+        ((simde__m128i *)tx_layers[1])[i] = _mm512_extracti64x2_epi64(e, 1);
+        ((simde__m128i *)tx_layers[2])[i] = _mm512_extracti64x2_epi64(e, 2);
+        ((simde__m128i *)tx_layers[3])[i] = _mm512_extracti64x2_epi64(e, 3);
       }
       if (i << 4 != n_symbs) {
         for (int i2 = ((n_symbs >> 4) << 4); i2 < n_symbs; i2 += 4) {

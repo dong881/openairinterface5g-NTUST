@@ -41,11 +41,9 @@
 #include "executables/softmodem-common.h"
 #include "SCHED_NR/sched_nr.h"
 
-//#define DEBUG_DLSCH
-//#define DEBUG_DLSCH_MAPPING
-#ifdef __aarch64__
+// #define DEBUG_DLSCH
+// #define DEBUG_DLSCH_MAPPING
 #define USE128BIT
-#endif
 
 static void nr_pdsch_codeword_scrambling(uint8_t *in, uint32_t size, uint8_t q, uint32_t Nid, uint32_t n_RNTI, uint32_t *out)
 {
@@ -62,18 +60,11 @@ static int do_ptrs_symbol(nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15,
                           int amp,
                           c16_t *mod_ptrs)
 {
-  bool is_ptrs_re = false;
   int ptrs_idx = 0;
-
   for (int i = 0; i < rel15->rbSize * NR_NB_SC_PER_RB; i++) {
     /* check for PTRS symbol and set flag for PTRS RE */
-    is_ptrs_re = is_ptrs_subcarrier(k,
-                                    rel15->rnti,
-                                    rel15->PTRSFreqDensity,
-                                    rel15->rbSize,
-                                    rel15->PTRSReOffset,
-                                    start_sc,
-                                    symbol_sz);
+    bool is_ptrs_re =
+        is_ptrs_subcarrier(k, rel15->rnti, rel15->PTRSFreqDensity, rel15->rbSize, rel15->PTRSReOffset, start_sc, symbol_sz);
     if (is_ptrs_re) {
       /* check if cuurent RE is PTRS RE*/
       uint16_t beta_ptrs = 1;
@@ -916,223 +907,36 @@ static inline int dmrs_case9(int k,
   return k;
 }
 
-static inline int no_ptrs_dmrs_case(int k,
-                                    c16_t *txF,
-                                    c16_t *txl,
-                                    c16_t *mod_dmrs,
-                                    const int amp_dmrs,
-                                    const int amp,
-                                    uint *cur_re,
-                                    int start_sc,
-                                    int upper_limit,
-                                    int remaining_re,
-                                    uint8_t *k_prime,
-                                    uint16_t *n,
-				    int symbol_sz,
-                                    int l_prime,
-                                    nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15)
+static inline int no_ptrs_dmrs_case(c16_t *txF, c16_t *txl, const int amp_dmrs, const int amp, const int sz)
 {
   // Loop Over SCs:
+  int i = 0;
+#if defined(__AVX512BW__)
+  __m512i amp512 = _mm512_set1_epi16(amp);
+  for (; i < (sz & ~15); i += 16) {
+    const __m512i txL = _mm512_loadu_si512((__m512i *)(txl + i));
+    _mm512_storeu_si512((__m512i *)(txF + i), _mm512_mulhrs_epi16(amp512, txL));
+  }
+#endif
+#if defined(__AVX2__)
+  simde__m256i amp256 = simde_mm256_set1_epi16(amp);
+  for (; i < (sz & ~7); i += 8) {
+    const simde__m256i txL = simde_mm256_loadu_si256((simde__m256i *)(txl + i));
+    simde_mm256_storeu_si256((simde__m256i *)(txF + i), _mm256_mulhrs_epi16(amp256, txL));
+  }
+#endif
 #if defined(USE128BIT)
-  simde__m128i *txF128 = (simde__m128i *)&txF[start_sc];
-
-  simde__m128i *txl128 = (simde__m128i *)&txl[*cur_re];
-  simde__m128i amp64 = simde_mm_set1_epi16(amp);
-  int i;
-  for (i = 0; i < (upper_limit >> 2); i++) {
-    const simde__m128i txL = simde_mm_loadu_si128(txl128 + i);
-    simde_mm_storeu_si128(txF128 + i, simde_mm_mulhrs_epi16(amp64, txL));
-#ifdef DEBUG_DLSCH_MAPPING
-    for (int j = 0; j < 4; j++)
-      printf("re %u\t l %d \t k %d \t txdataF: %d %d\n",
-             *cur_re + 4 * i + j,
-             l_symbol,
-             start_sc + 4 * i + j,
-             txdataF_precoding[layer][l_symbol][start_sc + 4 * i + j].r,
-             txdataF_precoding[layer][l_symbol][start_sc + 4 * i + j].i);
-#endif
-    /* handle this, mute RE */
-    /*else {
-      txdataF_precoding[layer][((l*symbol_sz + k)<<1) ] = 0;
-      txdataF_precoding[layer][((l*symbol_sz + k)<<1) + 1] = 0;
-      }*/
+  simde__m128i amp128 = simde_mm_set1_epi16(amp);
+  for (; i < (sz & ~3); i += 4) {
+    const simde__m128i txL = simde_mm_loadu_si128((simde__m128i *)(txl + i));
+    simde_mm_storeu_si128((simde__m128i *)(txF + i), simde_mm_mulhrs_epi16(amp128, txL));
   }
-  if (i * 4 != upper_limit) {
-    c16_t *txFc = &txF[start_sc];
-    c16_t *txlc = &txl[*cur_re];
-    for (i = (upper_limit >> 2) << 2; i < upper_limit; i++) {
-      txFc[i].r = (((txlc[i].r * amp) >> 14) + 1) >> 1;
-      txFc[i].i = (((txlc[i].i * amp) >> 14) + 1) >> 1;
-#ifdef DEBUG_DLSCH_MAPPING
-      printf("re %u\t l %d \t k %d \t txdataF: %d %d\n", cur_re + i, l_symbol, start_sc + i, txFc[i].r, txFc[i].i);
 #endif
-    }
+  for (; i < sz; i++) {
+    txF[i].r = (((txl[i].r * amp) >> 14) + 1) >> 1;
+    txF[i].i = (((txl[i].i * amp) >> 14) + 1) >> 1;
   }
-  *cur_re = *cur_re + upper_limit;
-  if (remaining_re > 0) {
-    txF128 = (simde__m128i *)txF;
-    txl128 = (simde__m128i *)&txl[*cur_re];
-    int i;
-    for (i = 0; i < (remaining_re >> 2); i++) {
-      const simde__m128i txL = simde_mm_loadu_si128(txl128 + i);
-      simde_mm_storeu_si128(txF128 + i, simde_mm_mulhrs_epi16(amp64, txL));
-#ifdef DEBUG_DLSCH_MAPPING
-      for (int j = 0; j < 4; j++)
-        printf("re %u\t l %d \t k %d \t txdataF: %d %d\n",
-               *cur_re + 4 * i + j,
-               l_symbol,
-               4 * i + j,
-               txF[4 * i + j].r,
-               txF[4 * i + j].i);
-#endif
-      /* handle this, mute RE */
-      /*else {
-  txdataF_precoding[layer][((l*symbol_sz + k)<<1)    ] = 0;
-  txdataF_precoding[layer][((l*symbol_sz + k)<<1) + 1] = 0;
-  }*/
-    } // RE loop, second part
-    if (i * 4 != remaining_re) {
-      c16_t *txFc = txF;
-      c16_t *txlc = &txl[*cur_re];
-      for (i = (remaining_re >> 2) << 2; i < remaining_re; i++) {
-        txFc[i].r = (((txlc[i].r * amp) >> 14) + 1) >> 1;
-        txFc[i].i = (((txlc[i].i * amp) >> 14) + 1) >> 1;
-#ifdef DEBUG_DLSCH_MAPPING
-        printf("re %u\t l %d \t k %d \t txdataF: %d %d\n", *cur_re + i, l_symbol, i, txFc[i].r, txFc[i].i);
-#endif
-      }
-    }
-  } // remaining_re > 0
-#elif defined(__AVX512__)
-  __m512i *txF512 = (__m512i *)&txF[start_sc];
-
-  __m512i *txl512 = (__m512i *)&txl[*cur_re];
-  __m512i amp64 = _mm512_set1_epi16(amp);
-  int i;
-  for (i = 0; i < (upper_limit >> 4); i++) {
-    const __m512i txL = _mm512_loadu_si512(txl512 + i);
-    _mm512_storeu_si512(txF512 + i, _mm512_mulhrs_epi16(amp64, txL));
-#ifdef DEBUG_DLSCH_MAPPING
-    for (int j = 0; j < 16; j++)
-      printf("re %u\t l %d\t layer %d\t k %d \t txL %d %d txdataF: %d %d\n",
-             *cur_re + 16 * i + j,
-             l_symbol,
-             layer,
-             start_sc + 16 * i + j,
-             ((c16_t *)&txL)[j].r,
-             ((c16_t *)&txL)[j].i,
-             txF[start_sc + 16 * i + j].r,
-             txF[start_sc + 16 * i + j].i);
-#endif
-    /* handle this, mute RE */
-    /*else {
-      txdataF_precoding[layer][((l*symbol_sz + k)<<1) ] = 0;
-      txdataF_precoding[layer][((l*symbol_sz + k)<<1) + 1] = 0;
-      }*/
-  }
-  if (i * 16 != upper_limit) {
-    c16_t *txFc = &[start_sc];
-    c16_t *txlc = &txl[*cur_re];
-    for (i = (upper_limit >> 4) << 4; i < upper_limit; i++) {
-      txFc[i].r = (((txlc[i].r * amp) >> 14) + 1) >> 1;
-      txFc[i].i = (((txlc[i].i * amp) >> 14) + 1) >> 1;
-#ifdef DEBUG_DLSCH_MAPPING
-      printf("re %u\t l %d\t layer %d \t k %d \t txL %d %d txdataF: %d %d\n",
-             *cur_re + i,
-             l_symbol,
-             layer,
-             start_sc + i,
-             txlc[i].r,
-             txlc[i].i,
-             txFc[i].r,
-             txFc[i].i);
-#endif
-    }
-  }
-  *cur_re = *cur_re + upper_limit;
-  if (remaining_re > 0) {
-    txF512 = (__m512i *)&txF;
-    txlc512 = (__m512i *)&txl[*cur_re];
-    int i;
-    for (i = 0; i < (remaining_re >> 4); i++) {
-      const __m512i txL = _mm512_loadu_si512(txlc512 + i);
-      _mm512_storeu_si512(txF512 + i, _mm512_mulhrs_epi16(amp64, txL));
-#ifdef DEBUG_DLSCH_MAPPING
-      for (int j = 0; j < 16; j++)
-        printf("re %u\t l %d\t layer %d\t k %d \t txdataF: %d %d\n",
-               *cur_re + 16 * i + j,
-               l_symbol,
-               layer,
-               16 * i + j,
-               txF[16 * i + j].r,
-               txF[16 * i + j].i);
-#endif
-      /* handle this, mute RE */
-      /*else {
-  txdataF_precoding[layer][((l*symbol_sz + k)<<1)    ] = 0;
-  txdataF_precoding[layer][((l*symbol_sz + k)<<1) + 1] = 0;
-  }*/
-    } // RE loop, second part
-    if (i * 16 != remaining_re) {
-      c16_t *txFc = txF;
-      c16_t *txlc = &txl[*cur_re];
-      for (i = (remaining_re >> 4) << 4; i < remaining_re; i++) {
-        txFc[i].r = (((txlc[i].r * amp) >> 14) + 1) >> 1;
-        txFc[i].i = (((txlc[i].i * amp) >> 14) + 1) >> 1;
-#ifdef DEBUG_DLSCH_MAPPING
-        printf("re %u\t l %d\t layer %d\t k %d \t txdataF: %d %d\n", *cur_re + i, l_symbol, layer, i, txFc[i].r, txFc[i].i);
-#endif
-      }
-    }
-  } // remaining_re > 0
-#else
-  simde__m256i *txF256 = (simde__m256i *)&txF[start_sc];
-  simde__m256i *txl256 = (simde__m256i *)&txl[*cur_re];
-  simde__m256i amp64 = simde_mm256_set1_epi16(amp);
-  int i;
-  for (i = 0; i < (upper_limit >> 3); i++) {
-    const simde__m256i txL = simde_mm256_loadu_si256(txl256 + i);
-    simde_mm256_storeu_si256(txF256 + i, simde_mm256_mulhrs_epi16(amp64, txL));
-    /* handle this, mute RE */
-    /*else {
-      txdataF_precoding[layer][((l*symbol_sz + k)<<1) ] = 0;
-      txdataF_precoding[layer][((l*symbol_sz + k)<<1) + 1] = 0;
-      }*/
-  }
-  if (i * 8 != upper_limit) {
-    c16_t *txFc = &txF[start_sc];
-    c16_t *txlc = &txl[*cur_re];
-    for (i = (upper_limit >> 3) << 3; i < upper_limit; i++) {
-      txFc[i].r = (((txlc[i].r * amp) >> 14) + 1) >> 1;
-      txFc[i].i = (((txlc[i].i * amp) >> 14) + 1) >> 1;
-    }
-  }
-  *cur_re = *cur_re + upper_limit;
-  if (remaining_re > 0) {
-    txF256 = (simde__m256i *)txF;
-    txl256 = (simde__m256i *)&txl[*cur_re];
-    int i;
-    for (i = 0; i < (remaining_re >> 3); i++) {
-      const simde__m256i txL = simde_mm256_loadu_si256(txl256 + i);
-      simde_mm256_storeu_si256(txF256 + i, simde_mm256_mulhrs_epi16(amp64, txL));
-      /* handle this, mute RE */
-      /*else {
-  txdataF_precoding[layer][((l*symbol_sz + k)<<1)    ] = 0;
-  txdataF_precoding[layer][((l*symbol_sz + k)<<1) + 1] = 0;
-  }*/
-    } // RE loop, second part
-    if (i * 8 != remaining_re) {
-      c16_t *txFc = txF;
-      c16_t *txlc = &txl[*cur_re];
-      for (i = (remaining_re >> 3) << 3; i < remaining_re; i++) {
-        txFc[i].r = (((txlc[i].r * amp) >> 14) + 1) >> 1;
-        txFc[i].i = (((txlc[i].i * amp) >> 14) + 1) >> 1;
-      }
-    }
-  } // remaining_re > 0
-#endif
-  *cur_re = *cur_re+remaining_re;
-  return k;
+  return sz;
 }
 
 static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSCH_t *dlsch, int slot)
@@ -1315,7 +1119,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
       cur_re = re_beginning_of_symbol;
       c16_t *txF = txdataF_precoding[layer][l_symbol];
       c16_t *txl = tx_layers[layer];
-      uint16_t k = start_sc;
+      int k = start_sc;
       const uint sz = rel15->rbSize * NR_NB_SC_PER_RB;
       int upper_limit = sz;
       int remaining_re = 0;
@@ -1411,21 +1215,8 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
                          rel15);
         } // generic DMRS case
       } else { // no PTRS or DMRS in this symbol
-        k = no_ptrs_dmrs_case(k,
-                              txF,
-                              txl,
-                              dmrs_start,
-                              amp_dmrs,
-                              amp,
-                              &cur_re,
-                              start_sc,
-                              upper_limit,
-                              remaining_re,
-                              &k_prime,
-                              &n,
-                              symbol_sz,
-                              l_prime,
-                              rel15);
+        cur_re += no_ptrs_dmrs_case(txF + start_sc, txl + cur_re, amp_dmrs, amp, upper_limit);
+        cur_re += no_ptrs_dmrs_case(txF, txl + cur_re, amp_dmrs, amp, remaining_re);
       } // no DMRS/PTRS in symbol
     } // layer loop
     re_beginning_of_symbol = cur_re;
