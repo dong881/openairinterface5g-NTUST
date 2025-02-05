@@ -839,13 +839,9 @@ static bool e1_decode_pdu_session_setup_item(pdu_session_setup_t *pduSetup, E1AP
   }
   // DRB Failed to Setup List (O)
   if (in->dRB_Failed_List_NG_RAN) {
+    pduSetup->numDRBFailed = in->dRB_Failed_List_NG_RAN->list.count;
     for (int j = 0; j < in->dRB_Failed_List_NG_RAN->list.count; j++) {
-      DRB_nGRAN_failed_t *drbFailed = pduSetup->DRBnGRanFailedList + j;
-      E1AP_DRB_Failed_Item_NG_RAN_t *item = in->dRB_Failed_List_NG_RAN->list.array[j];
-      // DRB ID (M)
-      drbFailed->id = item->dRB_ID;
-      // Cause (M)
-      drbFailed->cause = e1_decode_cause_ie(&item->cause);
+      decode_drb_failed_item(&pduSetup->DRBnGRanFailedList[j], in->dRB_Failed_List_NG_RAN->list.array[j]);
     }
   }
   return true;
@@ -879,10 +875,7 @@ static bool e1_encode_pdu_session_setup_item(E1AP_PDU_Session_Resource_Setup_Ite
   // DRB Failed Item
   for (const DRB_nGRAN_failed_t *j = in->DRBnGRanFailedList; j < in->DRBnGRanFailedList + in->numDRBFailed; j++) {
     asn1cSequenceAdd(item->dRB_Failed_List_NG_RAN->list, E1AP_DRB_Failed_Item_NG_RAN_t, ieC3_1_1);
-    // DRB ID (M)
-    ieC3_1_1->dRB_ID = j->id;
-    // Cause (M)
-    ieC3_1_1->cause = e1_encode_cause_ie(&j->cause);
+    encode_drb_failed_item(ieC3_1_1, j);
   }
   return true;
 }
