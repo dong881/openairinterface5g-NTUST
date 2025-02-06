@@ -129,9 +129,9 @@ static void nr_initiate_handover(const gNB_RRC_INST *rrc,
       .handoverPreparationInfo_length = ho_prep_len,
   };
 
-  f1ap_drb_to_be_setup_t drbs[32] = {0}; // maximum DRB can be 32
+  f1ap_drb_to_be_setup_t drbs[MAX_DRBS_PER_UE] = {0};
   int nb_drb = 0;
-  for (int i = 0; i < 32; ++i) { /* for each DRB */
+  for (int i = 0; i < sizeofArray(drbs); ++i) {
     drb_t *rrc_drb = &ue->established_drbs[i];
     if (rrc_drb->status == DRB_INACTIVE)
       continue;
