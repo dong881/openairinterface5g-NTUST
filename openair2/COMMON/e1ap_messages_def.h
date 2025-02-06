@@ -38,6 +38,8 @@ MESSAGE_DEF(E1AP_SETUP_FAIL, MESSAGE_PRIORITY_MED, e1ap_setup_fail_t, e1ap_setup
 MESSAGE_DEF(E1AP_BEARER_CONTEXT_SETUP_REQ , MESSAGE_PRIORITY_MED , e1ap_bearer_setup_req_t , e1ap_bearer_setup_req)
 /* E1AP Bearer Context Setup Response: gNB-CU-UP -> gNB-CU-CP */
 MESSAGE_DEF(E1AP_BEARER_CONTEXT_SETUP_RESP , MESSAGE_PRIORITY_MED , e1ap_bearer_setup_resp_t , e1ap_bearer_setup_resp)
+/* E1AP Bearer Context Setup Failure: gNB-CU-UP -> gNB-CU-CP */
+MESSAGE_DEF(E1AP_BEARER_CONTEXT_SETUP_FAILURE , MESSAGE_PRIORITY_MED , e1ap_bearer_context_setup_failure_t , e1ap_bearer_setup_fail)
 /* E1AP Bearer Context Modification Request: gNB-CU-CP -> gNB-CU-UP */
 MESSAGE_DEF(E1AP_BEARER_CONTEXT_MODIFICATION_REQ , MESSAGE_PRIORITY_MED , e1ap_bearer_mod_req_t , e1ap_bearer_mod_req)
 /* E1AP Bearer Context Modification Response: gNB-CU-UP -> gNB-CU-CP */

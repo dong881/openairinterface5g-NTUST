@@ -386,10 +386,10 @@ void e1apCUUP_send_BEARER_CONTEXT_SETUP_RESPONSE(sctp_assoc_t assoc_id, const e1
   e1ap_encode_send(UPtype, assoc_id, pdu, 0, __func__);
 }
 
-int e1apCUUP_send_BEARER_CONTEXT_SETUP_FAILURE(instance_t instance)
+static void e1apCUUP_send_BEARER_CONTEXT_SETUP_FAILURE(sctp_assoc_t assoc_id, const e1ap_bearer_context_setup_failure_t *msg)
 {
-  AssertFatal(false, "Not implemented yet\n");
-  return -1;
+  E1AP_E1AP_PDU_t *pdu = encode_E1_bearer_context_setup_failure(msg);
+  e1ap_encode_send(UPtype, assoc_id, pdu, 0, __func__);
 }
 
 int e1apCUUP_handle_BEARER_CONTEXT_SETUP_REQUEST(sctp_assoc_t assoc_id, e1ap_upcp_inst_t *e1_inst, const E1AP_E1AP_PDU_t *pdu)
@@ -423,8 +423,20 @@ int e1apCUCP_handle_BEARER_CONTEXT_SETUP_RESPONSE(sctp_assoc_t assoc_id, e1ap_up
 
 int e1apCUCP_handle_BEARER_CONTEXT_SETUP_FAILURE(sctp_assoc_t assoc_id, e1ap_upcp_inst_t *inst, const E1AP_E1AP_PDU_t *pdu)
 {
-  AssertFatal(false, "Not implemented yet\n");
-  return -1;
+  e1ap_bearer_context_setup_failure_t fail = {0};
+  if (!decode_E1_bearer_context_setup_failure(&fail, pdu)) {
+    LOG_E(E1AP, "Failed to decode Bearer Context Setup Failure\n");
+    free_e1_bearer_context_setup_failure(&fail);
+    return -1;
+  }
+  LOG_E(E1AP, "Received Bearer Context Setup Failure with cause value%d \n", fail.cause.value);
+
+  MessageDef *msg = itti_alloc_new_message(TASK_CUCP_E1, 0, E1AP_BEARER_CONTEXT_SETUP_FAILURE);
+  E1AP_BEARER_CONTEXT_SETUP_FAILURE(msg) = fail;
+  msg->ittiMsgHeader.originInstance = assoc_id;
+  instance_t instance = 0;
+  itti_send_msg_to_task(TASK_RRC_GNB, instance, msg);
+  return 0;
 }
 
 static void e1apCUCP_send_BEARER_CONTEXT_MODIFICATION_REQUEST(sctp_assoc_t assoc_id, e1ap_bearer_mod_req_t *const bearerCxt)
@@ -1026,6 +1038,14 @@ void *E1AP_CUUP_task(void *arg)
         AssertFatal(inst, "no E1 instance found for instance %ld\n", myInstance);
         e1apCUUP_send_BEARER_CONTEXT_SETUP_RESPONSE(inst->cuup.assoc_id, resp);
         free_e1ap_context_setup_response(resp);
+      } break;
+
+      case E1AP_BEARER_CONTEXT_SETUP_FAILURE: {
+        const e1ap_bearer_context_setup_failure_t *fail = &E1AP_BEARER_CONTEXT_SETUP_FAILURE(msg);
+        const e1ap_upcp_inst_t *inst = getCxtE1(myInstance);
+        AssertFatal(inst, "no E1 instance found for instance %ld\n", myInstance);
+        e1apCUUP_send_BEARER_CONTEXT_SETUP_FAILURE(inst->cuup.assoc_id, fail);
+        free_e1_bearer_context_setup_failure(fail);
       } break;
 
       case E1AP_BEARER_CONTEXT_MODIFICATION_RESP: {

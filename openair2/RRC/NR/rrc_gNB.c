@@ -2551,6 +2551,16 @@ void rrc_gNB_process_e1_bearer_context_setup_resp(e1ap_bearer_setup_resp_t *resp
     rrc_gNB_generate_UeContextModificationRequest(rrc, ue_context_p, nb_drb, drbs, 0, NULL);
 }
 
+/** @brief E1AP Bearer Context Setup Failure processing on CU-CP */
+void rrc_gNB_process_e1_bearer_context_setup_failure(e1ap_bearer_context_setup_failure_t *msg)
+{
+  LOG_E(RRC,
+        "Received E1AP Bearer Context Setup Failure for UE CU-CP ID %d with cause (%d, %d)\n",
+        msg->gNB_cu_cp_ue_id,
+        msg->cause.type,
+        msg->cause.value);
+}
+
 /**
  * @brief E1AP Bearer Context Modification Response processing on CU-CP
  */
@@ -2862,6 +2872,11 @@ void *rrc_gnb_task(void *args_p) {
       case E1AP_BEARER_CONTEXT_SETUP_RESP:
         rrc_gNB_process_e1_bearer_context_setup_resp(&E1AP_BEARER_CONTEXT_SETUP_RESP(msg_p), instance);
         free_e1ap_context_setup_response(&E1AP_BEARER_CONTEXT_SETUP_RESP(msg_p));
+        break;
+
+      case E1AP_BEARER_CONTEXT_SETUP_FAILURE:
+        rrc_gNB_process_e1_bearer_context_setup_failure(&E1AP_BEARER_CONTEXT_SETUP_FAILURE(msg_p));
+        free_e1_bearer_context_setup_failure(&E1AP_BEARER_CONTEXT_SETUP_FAILURE(msg_p));
         break;
 
       case E1AP_BEARER_CONTEXT_MODIFICATION_RESP:
