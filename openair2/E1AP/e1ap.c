@@ -538,37 +538,10 @@ static int e1apCUCP_send_BEARER_CONTEXT_RELEASE_COMMAND(sctp_assoc_t assoc_id, e
   return e1ap_encode_send(CPtype, assoc_id, pdu, 0, __func__);
 }
 
-static int fill_BEARER_CONTEXT_RELEASE_COMPLETE(const e1ap_bearer_release_cplt_t *cplt, E1AP_E1AP_PDU_t *pdu)
-{
-  pdu->present = E1AP_E1AP_PDU_PR_successfulOutcome;
-  asn1cCalloc(pdu->choice.successfulOutcome, msg);
-  msg->procedureCode = E1AP_ProcedureCode_id_bearerContextRelease;
-  msg->criticality   = E1AP_Criticality_reject;
-  msg->value.present = E1AP_SuccessfulOutcome__value_PR_BearerContextReleaseComplete;
-  E1AP_BearerContextReleaseComplete_t *out = &pdu->choice.successfulOutcome->value.choice.BearerContextReleaseComplete;
-  /* mandatory */
-  /* c1. gNB-CU-CP UE E1AP ID */
-  asn1cSequenceAdd(out->protocolIEs.list, E1AP_BearerContextReleaseCompleteIEs_t, ieC1);
-  ieC1->id                         = E1AP_ProtocolIE_ID_id_gNB_CU_CP_UE_E1AP_ID;
-  ieC1->criticality                = E1AP_Criticality_reject;
-  ieC1->value.present              = E1AP_BearerContextReleaseCompleteIEs__value_PR_GNB_CU_CP_UE_E1AP_ID;
-  ieC1->value.choice.GNB_CU_CP_UE_E1AP_ID = cplt->gNB_cu_cp_ue_id;
-  /* mandatory */
-  /* c2. gNB-CU-UP UE E1AP ID */
-  asn1cSequenceAdd(out->protocolIEs.list, E1AP_BearerContextReleaseCompleteIEs_t, ieC2);
-  ieC2->id                         = E1AP_ProtocolIE_ID_id_gNB_CU_UP_UE_E1AP_ID;
-  ieC2->criticality                = E1AP_Criticality_reject;
-  ieC2->value.present              = E1AP_BearerContextReleaseCompleteIEs__value_PR_GNB_CU_UP_UE_E1AP_ID;
-  ieC2->value.choice.GNB_CU_UP_UE_E1AP_ID = cplt->gNB_cu_cp_ue_id;
-
-  return 0;
-}
-
 int e1apCUUP_send_BEARER_CONTEXT_RELEASE_COMPLETE(sctp_assoc_t assoc_id, const e1ap_bearer_release_cplt_t *cplt)
 {
-  E1AP_E1AP_PDU_t pdu = {0};
-  fill_BEARER_CONTEXT_RELEASE_COMPLETE(cplt, &pdu);
-  return e1ap_encode_send(CPtype, assoc_id, &pdu, 0, __func__);
+  E1AP_E1AP_PDU_t *pdu = encode_e1_bearer_context_release_complete(cplt);
+  return e1ap_encode_send(CPtype, assoc_id, pdu, 0, __func__);
 }
 
 int e1apCUUP_send_BEARER_CONTEXT_RELEASE_REQUEST(instance_t instance)
@@ -588,49 +561,16 @@ int e1apCUUP_handle_BEARER_CONTEXT_RELEASE_COMMAND(sctp_assoc_t assoc_id, e1ap_u
   return 0;
 }
 
-void extract_BEARER_CONTEXT_RELEASE_COMPLETE(const E1AP_E1AP_PDU_t *pdu, e1ap_bearer_release_cplt_t *bearerCxt)
-{
-  const E1AP_BearerContextReleaseComplete_t *in = &pdu->choice.successfulOutcome->value.choice.BearerContextReleaseComplete;
-  E1AP_BearerContextReleaseCompleteIEs_t *ie;
-
-  LOG_D(E1AP, "Bearer context setup number of IEs %d\n", in->protocolIEs.list.count);
-
-  for (int i = 0; i < in->protocolIEs.list.count; i++) {
-    ie = in->protocolIEs.list.array[i];
-
-    switch(ie->id) {
-      case E1AP_ProtocolIE_ID_id_gNB_CU_CP_UE_E1AP_ID:
-        DevAssert(ie->criticality == E1AP_Criticality_reject);
-        DevAssert(ie->value.present == E1AP_BearerContextReleaseCompleteIEs__value_PR_GNB_CU_CP_UE_E1AP_ID);
-        bearerCxt->gNB_cu_cp_ue_id = ie->value.choice.GNB_CU_CP_UE_E1AP_ID;
-        break;
-
-      case E1AP_ProtocolIE_ID_id_gNB_CU_UP_UE_E1AP_ID:
-        DevAssert(ie->criticality == E1AP_Criticality_reject);
-        DevAssert(ie->value.present == E1AP_BearerContextReleaseCompleteIEs__value_PR_GNB_CU_UP_UE_E1AP_ID);
-        bearerCxt->gNB_cu_up_ue_id = ie->value.choice.GNB_CU_UP_UE_E1AP_ID;
-        break;
-
-      default:
-        LOG_E(E1AP, "Handle for this IE is not implemented (or) invalid IE detected\n");
-        break;
-    }
-  }
-}
-
 int e1apCUCP_handle_BEARER_CONTEXT_RELEASE_COMPLETE(sctp_assoc_t assoc_id, e1ap_upcp_inst_t *e1_inst, const E1AP_E1AP_PDU_t *pdu)
 {
-  DevAssert(pdu != NULL);
-  DevAssert(pdu->present == E1AP_E1AP_PDU_PR_successfulOutcome);
-  DevAssert(pdu->choice.successfulOutcome->procedureCode == E1AP_ProcedureCode_id_bearerContextRelease);
-  DevAssert(pdu->choice.successfulOutcome->criticality == E1AP_Criticality_reject);
-  DevAssert(pdu->choice.successfulOutcome->value.present == E1AP_SuccessfulOutcome__value_PR_BearerContextReleaseComplete);
-
   e1ap_bearer_release_cplt_t bearerCxt = {0};
-  extract_BEARER_CONTEXT_RELEASE_COMPLETE(pdu, &bearerCxt);
+  if(!decode_e1_bearer_context_release_complete(&bearerCxt, pdu)) {
+    free_e1_bearer_context_release_complete(&bearerCxt);
+    return -1;
+  }
   MessageDef *msg = itti_alloc_new_message(TASK_CUUP_E1, 0, E1AP_BEARER_CONTEXT_RELEASE_CPLT);
   e1ap_bearer_release_cplt_t *cplt = &E1AP_BEARER_CONTEXT_RELEASE_CPLT(msg);
-  *cplt = bearerCxt;
+  *cplt = cp_bearer_context_release_complete(&bearerCxt);
   itti_send_msg_to_task(TASK_RRC_GNB, 0, msg);
   return 0;
 }
