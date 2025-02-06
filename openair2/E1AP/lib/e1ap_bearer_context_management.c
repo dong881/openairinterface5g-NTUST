@@ -1294,6 +1294,93 @@ void free_e1_bearer_context_release_command(const e1ap_bearer_release_cmd_t *msg
   // do nothing
 }
 
+/**
+ * @brief Bearer Context Release Complete encoding (9.2.2.10, 3GPP TS 38.463)
+ *        gNB-CU-UP → gNB-CU-CP
+ */
+E1AP_E1AP_PDU_t *encode_e1_bearer_context_release_complete(const e1ap_bearer_release_cplt_t *cplt)
+{
+  E1AP_E1AP_PDU_t *pdu = calloc_or_fail(1, sizeof(*pdu));
+  pdu->present = E1AP_E1AP_PDU_PR_successfulOutcome;
+  // Message Type (M)
+  asn1cCalloc(pdu->choice.successfulOutcome, msg);
+  msg->procedureCode = E1AP_ProcedureCode_id_bearerContextRelease;
+  msg->criticality = E1AP_Criticality_reject;
+  msg->value.present = E1AP_SuccessfulOutcome__value_PR_BearerContextReleaseComplete;
+
+  E1AP_BearerContextReleaseComplete_t *out = &msg->value.choice.BearerContextReleaseComplete;
+  // gNB-CU-CP UE E1AP ID (M)
+  asn1cSequenceAdd(out->protocolIEs.list, E1AP_BearerContextReleaseCompleteIEs_t, ie1);
+  ie1->id = E1AP_ProtocolIE_ID_id_gNB_CU_CP_UE_E1AP_ID;
+  ie1->criticality = E1AP_Criticality_reject;
+  ie1->value.present = E1AP_BearerContextReleaseCompleteIEs__value_PR_GNB_CU_CP_UE_E1AP_ID;
+  ie1->value.choice.GNB_CU_CP_UE_E1AP_ID = cplt->gNB_cu_cp_ue_id;
+  // gNB-CU-UP UE E1AP ID (M)
+  asn1cSequenceAdd(out->protocolIEs.list, E1AP_BearerContextReleaseCompleteIEs_t, ie2);
+  ie2->id = E1AP_ProtocolIE_ID_id_gNB_CU_UP_UE_E1AP_ID;
+  ie2->criticality = E1AP_Criticality_reject;
+  ie2->value.present = E1AP_BearerContextReleaseCompleteIEs__value_PR_GNB_CU_UP_UE_E1AP_ID;
+  ie2->value.choice.GNB_CU_UP_UE_E1AP_ID = cplt->gNB_cu_up_ue_id;
+  return pdu;
+}
+
+/**
+ * @brief Bearer Context Release Complete decoding (9.2.2.10, 3GPP TS 38.463)
+ *        gNB-CU-UP → gNB-CU-CP
+ */
+bool decode_e1_bearer_context_release_complete(e1ap_bearer_release_cplt_t *out, const E1AP_E1AP_PDU_t *pdu)
+{
+  DevAssert(pdu != NULL);
+  _E1_EQ_CHECK_INT(pdu->present, E1AP_E1AP_PDU_PR_successfulOutcome);
+  E1AP_SuccessfulOutcome_t *type = pdu->choice.successfulOutcome;
+  _E1_EQ_CHECK_LONG(type->procedureCode, E1AP_ProcedureCode_id_bearerContextRelease);
+  _E1_EQ_CHECK_INT(type->value.present, E1AP_SuccessfulOutcome__value_PR_BearerContextReleaseComplete);
+  const E1AP_BearerContextReleaseComplete_t *in = &type->value.choice.BearerContextReleaseComplete;
+
+  // Check mandatory IEs
+  E1AP_BearerContextReleaseCompleteIEs_t *ie;
+  E1AP_LIB_FIND_IE(E1AP_BearerContextReleaseCompleteIEs_t, ie, in, E1AP_ProtocolIE_ID_id_gNB_CU_CP_UE_E1AP_ID, true);
+  E1AP_LIB_FIND_IE(E1AP_BearerContextReleaseCompleteIEs_t, ie, in, E1AP_ProtocolIE_ID_id_gNB_CU_UP_UE_E1AP_ID, true);
+
+  for (int i = 0; i < in->protocolIEs.list.count; i++) {
+    ie = in->protocolIEs.list.array[i];
+    AssertFatal(ie != NULL, "in->protocolIEs.list.array[i] shall not be null");
+    switch (ie->id) {
+      case E1AP_ProtocolIE_ID_id_gNB_CU_CP_UE_E1AP_ID:
+        out->gNB_cu_cp_ue_id = ie->value.choice.GNB_CU_CP_UE_E1AP_ID;
+        break;
+      case E1AP_ProtocolIE_ID_id_gNB_CU_UP_UE_E1AP_ID:
+        out->gNB_cu_up_ue_id = ie->value.choice.GNB_CU_UP_UE_E1AP_ID;
+        break;
+      default:
+        PRINT_ERROR("%s decoding failure: IE %ld is not handled or invalid\n", __func__, ie->id)
+        break;
+    }
+  }
+  return true;
+}
+
+/** @brief Bearer Context Release Complete equality check */
+bool eq_bearer_context_release_complete(const e1ap_bearer_release_cplt_t *a, const e1ap_bearer_release_cplt_t *b)
+{
+  _E1_EQ_CHECK_INT(a->gNB_cu_cp_ue_id, b->gNB_cu_cp_ue_id);
+  _E1_EQ_CHECK_INT(a->gNB_cu_up_ue_id, b->gNB_cu_up_ue_id);
+  return true;
+}
+
+/** @brief Bearer Context Release Complete deep copy */
+e1ap_bearer_release_cplt_t cp_bearer_context_release_complete(const e1ap_bearer_release_cplt_t *src)
+{
+  e1ap_bearer_release_cplt_t dst = *src;
+  return dst;
+}
+
+/** @brief Bearer Context Release Complete equality check */
+void free_e1_bearer_context_release_complete(const e1ap_bearer_release_cplt_t *msg)
+{
+  // No dynamic memory, do nothing
+}
+
 /* ============================================
  *   E1AP Bearer Context Modification Request
  * ============================================ */

@@ -52,6 +52,12 @@ bool eq_bearer_context_release_command(const e1ap_bearer_release_cmd_t *a, const
 e1ap_bearer_release_cmd_t cp_bearer_context_release_command(const e1ap_bearer_release_cmd_t *msg);
 void free_e1_bearer_context_release_command(const e1ap_bearer_release_cmd_t *msg);
 
+struct E1AP_E1AP_PDU *encode_e1_bearer_context_release_complete(const e1ap_bearer_release_cplt_t *cplt);
+bool decode_e1_bearer_context_release_complete(e1ap_bearer_release_cplt_t *out, const struct E1AP_E1AP_PDU *pdu);
+bool eq_bearer_context_release_complete(const e1ap_bearer_release_cplt_t *a, const e1ap_bearer_release_cplt_t *b);
+e1ap_bearer_release_cplt_t cp_bearer_context_release_complete(const e1ap_bearer_release_cplt_t *src);
+void free_e1_bearer_context_release_complete(const e1ap_bearer_release_cplt_t *msg);
+
 struct E1AP_E1AP_PDU *encode_E1_bearer_context_mod_request(const e1ap_bearer_mod_req_t *msg);
 bool decode_E1_bearer_context_mod_request(const struct E1AP_E1AP_PDU *pdu, e1ap_bearer_mod_req_t *out);
 void free_e1ap_context_mod_request(const e1ap_bearer_mod_req_t *msg);
