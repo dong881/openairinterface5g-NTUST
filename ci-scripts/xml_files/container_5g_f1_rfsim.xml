@@ -45,6 +45,10 @@
  040023
  020022
  040024
+ 000024
+ 040025
+ 000031
+ 030021
  100021
  222222
         </TestCaseRequestedList>
@@ -73,9 +77,9 @@
 
         <testCase id="000022">
                 <class>Deploy_Object</class>
-                <desc>Deploy OAI 5G CU+DU+UE RF sim SA</desc>
+                <desc>Deploy OAI 5G CU + DU-PCI0 + UE RF sim SA</desc>
                 <yaml_path>ci-scripts/yaml_files/5g_f1_rfsimulator</yaml_path>
-                <services>oai-cu oai-du oai-nr-ue</services>
+                <services>oai-cu oai-du-pci0 oai-nr-ue</services>
                 <eNB_instance>0</eNB_instance>
                 <eNB_serverId>0</eNB_serverId>
         </testCase>
@@ -86,11 +90,26 @@
                 <idle_sleep_time_in_sec>5</idle_sleep_time_in_sec>
         </testCase>
 
+        <testCase id="000031">
+                <class>IdleSleep</class>
+                <desc>Sleep</desc>
+                <idle_sleep_time_in_sec>2</idle_sleep_time_in_sec>
+        </testCase>
+
         <testCase id="000023">
                 <class>Attach_UE</class>
                 <desc>Attach OAI UE (Wait for IP)</desc>
                 <id>rfsim5g_ue</id>
                 <nodes>cacofonix</nodes>
+        </testCase>
+
+        <testCase id="000024">
+                <class>Deploy_Object</class>
+                <desc>Deploy OAI 5G (target) DU-PCI1 RF sim SA</desc>
+                <yaml_path>ci-scripts/yaml_files/5g_f1_rfsimulator</yaml_path>
+                <services>oai-du-pci1</services>
+                <eNB_instance>0</eNB_instance>
+                <eNB_serverId>0</eNB_serverId>
         </testCase>
 
         <testCase id="020021">
@@ -151,6 +170,15 @@
                 <ping_packetloss_threshold>80</ping_packetloss_threshold>
         </testCase>
 
+        <testCase id="020023">
+                <class>Ping</class>
+                <desc>Ping ext-dn from all NR-UEs</desc>
+                <id>rfsim5g_ue</id>
+                <nodes>cacofonix</nodes>
+                <ping_args> -c 5 192.168.72.135 -i0.5 -w25</ping_args>
+                <ping_packetloss_threshold>80</ping_packetloss_threshold>
+        </testCase>
+
         <testCase id="040002">
                 <class>Custom_Command</class>
                 <desc>Verify Reestablishment</desc>
@@ -188,6 +216,14 @@
                 <desc>Get UE sync state (UE ID 0)</desc>
                 <node>cacofonix</node>
                 <command>echo ciUE sync_state 0 | nc 192.168.71.181 8091 | grep -E UE_CONNECTED</command>
+                <command_fail>yes</command_fail>
+        </testCase>
+
+        <testCase id="040025">
+                <class>Custom_Command</class>
+                <desc>Trigger Handover</desc>
+                <node>cacofonix</node>
+                <command>echo ci trigger_f1_ho | nc 192.168.71.150 9090</command>
                 <command_fail>yes</command_fail>
         </testCase>
 
