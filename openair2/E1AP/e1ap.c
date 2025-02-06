@@ -630,10 +630,10 @@ void extract_BEARER_CONTEXT_RELEASE_COMMAND(const E1AP_E1AP_PDU_t *pdu, e1ap_bea
       case E1AP_ProtocolIE_ID_id_Cause:
         DevAssert(ie->criticality == E1AP_Criticality_ignore);
         DevAssert(ie->value.present == E1AP_BearerContextReleaseCommandIEs__value_PR_Cause);
-        bearerCxt->cause_type = ie->value.choice.Cause.present;
+        bearerCxt->cause.type = ie->value.choice.Cause.present;
         if ((ie->value.choice.Cause.present != E1AP_Cause_PR_NOTHING) &&
             (ie->value.choice.Cause.present != E1AP_Cause_PR_choice_extension))
-          bearerCxt->cause = ie->value.choice.Cause.choice.radioNetwork;
+          bearerCxt->cause.value = ie->value.choice.Cause.choice.radioNetwork;
         break;
                                                  
       default:

@@ -520,8 +520,7 @@ typedef struct e1ap_bearer_mod_req_s {
 typedef struct e1ap_bearer_release_cmd_s {
   uint32_t gNB_cu_cp_ue_id;
   uint32_t gNB_cu_up_ue_id;
-  long cause_type;
-  long cause;
+  e1ap_cause_t cause;
 } e1ap_bearer_release_cmd_t;
 
 typedef struct e1ap_bearer_release_cplt_s {
