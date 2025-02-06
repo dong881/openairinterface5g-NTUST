@@ -222,6 +222,50 @@ static void test_bearer_context_setup_response(void)
   free_e1ap_context_setup_response(&orig);
 }
 
+/** @brief Test E1AP Bearer Context Setup Failure encoding/decoding */
+static void test_bearer_context_setup_failure(void)
+{
+  e1ap_bearer_context_setup_failure_t orig = {
+      .gNB_cu_cp_ue_id = 0x1234,
+      .gNB_cu_up_ue_id = malloc_or_fail(sizeof(*orig.gNB_cu_up_ue_id)),
+      .cause.type = E1AP_Cause_PR_radioNetwork,
+      .cause.value = 11,
+  };
+  *orig.gNB_cu_up_ue_id = 0x5678;
+
+  // Encode the original message
+  E1AP_E1AP_PDU_t *enc = encode_E1_bearer_context_setup_failure(&orig);
+
+  // E1AP decode the encoded message
+  E1AP_E1AP_PDU_t *dec = e1ap_encode_decode(enc);
+
+  // Free the E1AP encoded message
+  e1ap_msg_free(enc);
+
+  // Decode the encoded message
+  e1ap_bearer_context_setup_failure_t decoded = {0};
+  bool ret = decode_E1_bearer_context_setup_failure(&decoded, dec);
+  AssertFatal(ret, "decode_E1_bearer_context_setup_failure failed");
+
+  // Free the E1AP decoded message
+  e1ap_msg_free(dec);
+
+  // Equality check original/decoded
+  AssertFatal(eq_bearer_context_setup_failure(&orig, &decoded), "eq_bearer_context_mod_failure: decoded message does not match original");
+
+  // Free the memory for the decoded message
+  free_e1_bearer_context_setup_failure(&decoded);
+
+  // Deep copy and equality check of the original message
+  e1ap_bearer_context_setup_failure_t cp = cp_bearer_context_setup_failure(&orig);
+  AssertFatal(eq_bearer_context_setup_failure(&orig, &cp), "eq_bearer_context_setup_failure(): copied message doesn't match\n");
+
+  // Cleanup
+  free_e1_bearer_context_setup_failure(&orig);
+  free_e1_bearer_context_setup_failure(&cp);
+}
+
+
 /**
  * @brief Test CU-UP Setup Request encoding/decoding
  */
@@ -622,6 +666,7 @@ int main()
   // E1 Bearer Context Setup
   test_bearer_context_setup_request();
   test_bearer_context_setup_response();
+  test_bearer_context_setup_failure();
   // E1 Interface Management
   test_e1_cuup_setup_request();
   test_e1_cuup_setup_response();
