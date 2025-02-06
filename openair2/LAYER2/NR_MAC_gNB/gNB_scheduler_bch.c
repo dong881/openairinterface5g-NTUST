@@ -125,7 +125,7 @@ void schedule_nr_mib(module_id_t module_idP, frame_t frameP, sub_frame_t slotP, 
     NR_COMMON_channels_t *cc= &gNB->common_channels[CC_id];
     const NR_MIB_t *mib = cc->mib->message.choice.mib;
     NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
-    const int slots_per_frame = nr_slots_per_frame[*scc->ssbSubcarrierSpacing];
+    const int slots_per_frame = gNB->frame_structure.numb_slots_frame;
     dl_req = &DL_req->dl_tti_request_body;
 
     // get MIB every 8 frames
@@ -170,7 +170,6 @@ void schedule_nr_mib(module_id_t module_idP, frame_t frameP, sub_frame_t slotP, 
       const BIT_STRING_t *mediumBitmap = &scc->ssb_PositionsInBurst->choice.mediumBitmap;
       const BIT_STRING_t *longBitmap = &scc->ssb_PositionsInBurst->choice.longBitmap;
 
-      const int n_slots_frame = nr_slots_per_frame[scs];
       switch (scc->ssb_PositionsInBurst->present) {
         case 1:
           // short bitmap (<3GHz) max 4 SSBs
@@ -180,7 +179,7 @@ void schedule_nr_mib(module_id_t module_idP, frame_t frameP, sub_frame_t slotP, 
               // if start symbol is in current slot, schedule current SSB, fill VRB map and call get_type0_PDCCH_CSS_config_parameters
               if ((ssb_start_symbol / 14) == rel_slot) {
                 int beam_index = get_fapi_beamforming_index(gNB, i_ssb);
-                NR_beam_alloc_t beam = beam_allocation_procedure(&gNB->beam_info, frameP, slotP, beam_index, n_slots_frame);
+                NR_beam_alloc_t beam = beam_allocation_procedure(&gNB->beam_info, frameP, slotP, beam_index, slots_per_frame);
                 AssertFatal(beam.idx >= 0, "Cannot allocate SSB %d in any available beam\n", i_ssb);
                 const int prb_offset = offset_pointa >> scs;
                 schedule_ssb(frameP, slotP, scc, dl_req, i_ssb, beam_index, ssbSubcarrierOffset, offset_pointa, mib_pdu);
@@ -212,7 +211,7 @@ void schedule_nr_mib(module_id_t module_idP, frame_t frameP, sub_frame_t slotP, 
               // if start symbol is in current slot, schedule current SSB, fill VRB map and call get_type0_PDCCH_CSS_config_parameters
               if ((ssb_start_symbol / 14) == rel_slot) {
                 int beam_index = get_fapi_beamforming_index(gNB, i_ssb);
-                NR_beam_alloc_t beam = beam_allocation_procedure(&gNB->beam_info, frameP, slotP, beam_index, n_slots_frame);
+                NR_beam_alloc_t beam = beam_allocation_procedure(&gNB->beam_info, frameP, slotP, beam_index, slots_per_frame);
                 AssertFatal(beam.idx >= 0, "Cannot allocate SSB %d in any available beam\n", i_ssb);
                 const int prb_offset = offset_pointa >> scs;
                 schedule_ssb(frameP, slotP, scc, dl_req, i_ssb, beam_index, ssbSubcarrierOffset, offset_pointa, mib_pdu);
@@ -244,7 +243,7 @@ void schedule_nr_mib(module_id_t module_idP, frame_t frameP, sub_frame_t slotP, 
               // if start symbol is in current slot, schedule current SSB, fill VRB map and call get_type0_PDCCH_CSS_config_parameters
               if ((ssb_start_symbol / 14) == rel_slot) {
                 int beam_index = get_fapi_beamforming_index(gNB, i_ssb);
-                NR_beam_alloc_t beam = beam_allocation_procedure(&gNB->beam_info, frameP, slotP, beam_index, n_slots_frame);
+                NR_beam_alloc_t beam = beam_allocation_procedure(&gNB->beam_info, frameP, slotP, beam_index, slots_per_frame);
                 AssertFatal(beam.idx >= 0, "Cannot allocate SSB %d in any available beam\n", i_ssb);
                 const int prb_offset = offset_pointa >> (scs-2); // reference 60kHz
                 schedule_ssb(frameP, slotP, scc, dl_req, i_ssb, beam_index, ssbSubcarrierOffset, offset_pointa, mib_pdu);
@@ -366,7 +365,7 @@ static uint32_t schedule_control_sib1(module_id_t module_id,
     gNB_mac->sched_ctrlCommon->search_space = calloc(1,sizeof(*gNB_mac->sched_ctrlCommon->search_space));
     gNB_mac->sched_ctrlCommon->coreset = calloc(1,sizeof(*gNB_mac->sched_ctrlCommon->coreset));
     fill_searchSpaceZero(gNB_mac->sched_ctrlCommon->search_space,
-                         nr_slots_per_frame[*scc->ssbSubcarrierSpacing],
+                         gNB_mac->frame_structure.numb_slots_frame,
                          type0_PDCCH_CSS_config);
     fill_coresetZero(gNB_mac->sched_ctrlCommon->coreset, type0_PDCCH_CSS_config);
     gNB_mac->cset0_bwp_start = type0_PDCCH_CSS_config->cset_start_rb;
@@ -698,7 +697,7 @@ void schedule_nr_sib1(module_id_t module_idP,
        (type0_PDCCH_CSS_config->num_rbs > 0) &&
        (type0_PDCCH_CSS_config->active == true)) {
 
-      const int n_slots_frame = nr_slots_per_frame[*scc->ssbSubcarrierSpacing];
+      const int n_slots_frame = gNB_mac->frame_structure.numb_slots_frame;
       int beam_index = get_fapi_beamforming_index(gNB_mac, i);
       NR_beam_alloc_t beam = beam_allocation_procedure(&gNB_mac->beam_info, frameP, slotP, beam_index, n_slots_frame);
       AssertFatal(beam.idx >= 0, "Cannot allocate SIB1 corresponding to SSB %d in any available beam\n", i);
@@ -846,7 +845,7 @@ void schedule_nr_sib19(module_id_t module_idP,
        (slotP == ((sib19_sched_info->si_WindowPosition_r17 % window_length) - 1)) &&
        (type0_PDCCH_CSS_config->num_rbs > 0)) {
 
-      const int n_slots_frame = nr_slots_per_frame[*scc->ssbSubcarrierSpacing];
+      const int n_slots_frame = gNB_mac->frame_structure.numb_slots_frame;
       int beam_index = get_fapi_beamforming_index(gNB_mac, i);
       NR_beam_alloc_t beam = beam_allocation_procedure(&gNB_mac->beam_info, frameP, slotP, beam_index, n_slots_frame);
       AssertFatal(beam.idx >= 0, "Cannot allocate SIB19 corresponding to SSB %d in any available beam\n", i);

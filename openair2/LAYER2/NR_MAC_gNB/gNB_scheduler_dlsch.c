@@ -615,6 +615,7 @@ static void pf_dl(module_id_t module_id,
     remainUEs[i] = max_num_ue;
   int curUE = 0;
   int CC_id = 0;
+  int slots_per_frame = mac->frame_structure.numb_slots_frame;
 
   /* Loop UE_info->list to check retransmission */
   UE_iterator(UE_list, UE) {
@@ -644,18 +645,14 @@ static void pf_dl(module_id_t module_id,
 
     /* retransmission */
     if (sched_pdsch->dl_harq_pid >= 0) {
-      NR_beam_alloc_t beam = beam_allocation_procedure(&mac->beam_info,
-                                                       frame,
-                                                       slot,
-                                                       UE->UE_beam_index,
-                                                       nr_slots_per_frame[current_BWP->scs]);
+      NR_beam_alloc_t beam = beam_allocation_procedure(&mac->beam_info, frame, slot, UE->UE_beam_index, slots_per_frame);
       bool sch_ret = beam.idx >= 0;
       /* Allocate retransmission */
       if (sch_ret)
         sch_ret = allocate_dl_retransmission(module_id, frame, slot, &n_rb_sched[beam.idx], UE, beam.idx, sched_pdsch->dl_harq_pid);
       if (!sch_ret) {
         LOG_D(NR_MAC, "[UE %04x][%4d.%2d] DL retransmission could not be allocated\n", UE->rnti, frame, slot);
-        reset_beam_status(&mac->beam_info, frame, slot, UE->UE_beam_index, nr_slots_per_frame[current_BWP->scs], beam.new_beam);
+        reset_beam_status(&mac->beam_info, frame, slot, UE->UE_beam_index, slots_per_frame, beam.new_beam);
         continue;
       }
       /* reduce max_num_ue once we are sure UE can be allocated, i.e., has CCE */
@@ -738,11 +735,7 @@ static void pf_dl(module_id_t module_id,
       continue;
     }
 
-    NR_beam_alloc_t beam = beam_allocation_procedure(&mac->beam_info,
-                                                     frame,
-                                                     slot,
-                                                     iterator->UE->UE_beam_index,
-                                                     nr_slots_per_frame[dl_bwp->scs]);
+    NR_beam_alloc_t beam = beam_allocation_procedure(&mac->beam_info, frame, slot, iterator->UE->UE_beam_index, slots_per_frame);
 
     if (beam.idx < 0) {
       // no available beam
@@ -750,12 +743,7 @@ static void pf_dl(module_id_t module_id,
       continue;
     }
     if (remainUEs[beam.idx] == 0 || n_rb_sched[beam.idx] < min_rbSize) {
-      reset_beam_status(&mac->beam_info,
-                        frame,
-                        slot,
-                        iterator->UE->UE_beam_index,
-                        nr_slots_per_frame[dl_bwp->scs],
-                        beam.new_beam);
+      reset_beam_status(&mac->beam_info, frame, slot, iterator->UE->UE_beam_index, slots_per_frame, beam.new_beam);
       iterator++;
       continue;
     }
@@ -822,12 +810,7 @@ static void pf_dl(module_id_t module_id,
                                  sched_ctrl->pdcch_cl_adjust);
     if (CCEIndex < 0) {
       LOG_D(NR_MAC, "[UE %04x][%4d.%2d] could not find free CCE for DL DCI\n", rnti, frame, slot);
-      reset_beam_status(&mac->beam_info,
-                        frame,
-                        slot,
-                        iterator->UE->UE_beam_index,
-                        nr_slots_per_frame[dl_bwp->scs],
-                        beam.new_beam);
+      reset_beam_status(&mac->beam_info, frame, slot, iterator->UE->UE_beam_index, slots_per_frame, beam.new_beam);
       iterator++;
       continue;
     }
@@ -841,12 +824,7 @@ static void pf_dl(module_id_t module_id,
       alloc = nr_acknack_scheduling(mac, iterator->UE, frame, slot, iterator->UE->UE_beam_index, r_pucch, 0);
       if (alloc < 0) {
         LOG_D(NR_MAC, "[UE %04x][%4d.%2d] could not find PUCCH for DL DCI\n", rnti, frame, slot);
-        reset_beam_status(&mac->beam_info,
-                          frame,
-                          slot,
-                          iterator->UE->UE_beam_index,
-                          nr_slots_per_frame[dl_bwp->scs],
-                          beam.new_beam);
+        reset_beam_status(&mac->beam_info, frame, slot, iterator->UE->UE_beam_index, slots_per_frame, beam.new_beam);
         iterator++;
         continue;
       }
@@ -1416,11 +1394,7 @@ void nr_schedule_ue_spec(module_id_t module_id,
       if (sched_ctrl->ta_apply) {
         sched_ctrl->ta_apply = false;
         sched_ctrl->ta_frame = frame;
-        LOG_D(NR_MAC,
-              "%d.%2d UE %04x TA scheduled, resetting TA frame\n",
-              frame,
-              slot,
-              UE->rnti);
+        LOG_D(NR_MAC, "%d.%2d UE %04x TA scheduled, resetting TA frame\n", frame, slot, UE->rnti);
       }
 
       T(T_GNB_MAC_DL_PDU_WITH_DATA, T_INT(module_id), T_INT(CC_id), T_INT(rnti),

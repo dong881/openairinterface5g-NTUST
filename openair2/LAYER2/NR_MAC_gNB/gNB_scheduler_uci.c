@@ -40,10 +40,13 @@ static void nr_fill_nfapi_pucch(gNB_MAC_INST *nrmac,
                                 NR_UE_info_t* UE)
 {
 
-  const int index = ul_buffer_index(pucch->frame, pucch->ul_slot, UE->current_UL_BWP.scs, nrmac->UL_tti_req_ahead_size);
+  const int index = ul_buffer_index(pucch->frame,
+                                    pucch->ul_slot,
+                                    nrmac->frame_structure.numb_slots_frame,
+                                    nrmac->UL_tti_req_ahead_size);
   nfapi_nr_ul_tti_request_t *future_ul_tti_req = &nrmac->UL_tti_req_ahead[0][index];
   if (future_ul_tti_req->SFN != pucch->frame || future_ul_tti_req->Slot != pucch->ul_slot)
-    LOG_W(MAC,
+    LOG_W(NR_MAC,
           "Current %d.%d : future UL_tti_req's frame.slot %4d.%2d does not match PUCCH %4d.%2d\n",
           frame,slot,
           future_ul_tti_req->SFN,
@@ -53,8 +56,11 @@ static void nr_fill_nfapi_pucch(gNB_MAC_INST *nrmac,
 
   // n_pdus is number of pdus, so, in the array, it is the index of the next free element
   if (future_ul_tti_req->n_pdus >= sizeofArray(future_ul_tti_req->pdus_list) ) {
-    LOG_E(NR_MAC,"future_ul_tti_req->n_pdus %d is full, slot: %d, sr flag %d dropping request\n",
-	  future_ul_tti_req->n_pdus, pucch->ul_slot, pucch->sr_flag);
+    LOG_E(NR_MAC,
+          "future_ul_tti_req->n_pdus %d is full, slot: %d, sr flag %d dropping request\n",
+	  future_ul_tti_req->n_pdus,
+	  pucch->ul_slot,
+	  pucch->sr_flag);
     return;
   }
   future_ul_tti_req->pdus_list[future_ul_tti_req->n_pdus].pdu_type = NFAPI_NR_UL_CONFIG_PUCCH_PDU_TYPE;
@@ -77,8 +83,14 @@ static void nr_fill_nfapi_pucch(gNB_MAC_INST *nrmac,
   NR_COMMON_channels_t * common_ch=nrmac->common_channels;
   NR_ServingCellConfigCommon_t *scc = common_ch->ServingCellConfigCommon;
 
-  LOG_D(NR_MAC,"%4d.%2d Calling nr_configure_pucch (pucch_Config %p,r_pucch %d) pucch to be scheduled in %4d.%2d\n",
-        frame,slot,UE->current_UL_BWP.pucch_Config,pucch->r_pucch,pucch->frame,pucch->ul_slot);
+  LOG_D(NR_MAC,
+        "%4d.%2d Calling nr_configure_pucch (pucch_Config %p,r_pucch %d) pucch to be scheduled in %4d.%2d\n",
+        frame,
+        slot,
+        UE->current_UL_BWP.pucch_Config,
+        pucch->r_pucch,
+        pucch->frame,
+        pucch->ul_slot);
 
   nr_configure_pucch(pucch_pdu,
                      scc,
@@ -213,7 +225,7 @@ void nr_csi_meas_reporting(int Mod_idP,frame_t frame, sub_frame_t slot)
   UE_iterator(nrmac->UE_info.list, UE ) {
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
-    const int n_slots_frame = nr_slots_per_frame[ul_bwp->scs];
+    const int n_slots_frame = nrmac->frame_structure.numb_slots_frame;
     if (nr_timer_is_active(&sched_ctrl->transm_interrupt) || (sched_ctrl->ul_failure && !get_softmodem_params()->phy_test)) {
       continue;
     }
@@ -270,7 +282,7 @@ void nr_csi_meas_reporting(int Mod_idP,frame_t frame, sub_frame_t slot)
       // going through the list of PUCCH resources to find the one indexed by resource_id
       NR_beam_alloc_t beam = beam_allocation_procedure(&nrmac->beam_info, sched_frame, sched_slot, UE->UE_beam_index, n_slots_frame);
       AssertFatal(beam.idx >= 0, "Cannot allocate CSI measurements on PUCCH in any available beam\n");
-      const int index = ul_buffer_index(sched_frame, sched_slot, ul_bwp->scs, nrmac->vrb_map_UL_size);
+      const int index = ul_buffer_index(sched_frame, sched_slot, n_slots_frame, nrmac->vrb_map_UL_size);
       uint16_t *vrb_map_UL = &nrmac->common_channels[0].vrb_map_UL[beam.idx][index * MAX_BWP_SIZE];
       const int m = pucch_Config->resourceToAddModList->list.count;
       for (int j = 0; j < m; j++) {
@@ -623,10 +635,10 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
   NR_UE_DL_BWP_t *dl_bwp = &UE->current_DL_BWP;
-  const int n_slots_frame = nr_slots_per_frame[ul_bwp->scs];
+  const int n_slots_frame = nrmac->frame_structure.numb_slots_frame;
   int cumul_bits = 0;
   int r_index = -1;
-  for (int csi_report_id = 0; csi_report_id < csi_MeasConfig->csi_ReportConfigToAddModList->list.count; csi_report_id++ ) {
+  for (int csi_report_id = 0; csi_report_id < csi_MeasConfig->csi_ReportConfigToAddModList->list.count; csi_report_id++) {
     nr_csi_report_t *csi_report = &UE->csi_report_template[csi_report_id];
     csi_report->nb_of_csi_ssb_report = 0;
     uint8_t cri_bitlen = 0;
@@ -1003,7 +1015,7 @@ int nr_acknack_scheduling(gNB_MAC_INST *mac,
 
   const int minfbtime = mac->radio_config.minRXTXTIME + NTN_gNB_Koffset;
   const NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
-  const int n_slots_frame = nr_slots_per_frame[ul_bwp->scs];
+  const int n_slots_frame = mac->frame_structure.numb_slots_frame;
   const frame_structure_t *fs = &mac->frame_structure;
 
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
@@ -1090,7 +1102,7 @@ int nr_acknack_scheduling(gNB_MAC_INST *mac,
               pucch_slot);
         continue;
       }
-      const int index = ul_buffer_index(pucch_frame, pucch_slot, ul_bwp->scs, mac->vrb_map_UL_size);
+      const int index = ul_buffer_index(pucch_frame, pucch_slot, n_slots_frame, mac->vrb_map_UL_size);
       uint16_t *vrb_map_UL = &mac->common_channels[CC_id].vrb_map_UL[beam.idx][index * MAX_BWP_SIZE];
       bool ret = test_pucch0_vrb_occupation(curr_pucch, vrb_map_UL, bwp_start, bwp_size);
       if(!ret) {
@@ -1137,7 +1149,7 @@ void nr_sr_reporting(gNB_MAC_INST *nrmac, frame_t SFN, sub_frame_t slot)
   UE_iterator(nrmac->UE_info.list, UE) {
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
-    const int n_slots_frame = nr_slots_per_frame[ul_bwp->scs];
+    const int n_slots_frame = nrmac->frame_structure.numb_slots_frame;
     if (sched_ctrl->ul_failure || nr_timer_is_active(&sched_ctrl->transm_interrupt))
       continue;
     NR_PUCCH_Config_t *pucch_Config = ul_bwp->pucch_Config;
@@ -1188,7 +1200,7 @@ void nr_sr_reporting(gNB_MAC_INST *nrmac, frame_t SFN, sub_frame_t slot)
       else {
         NR_beam_alloc_t beam = beam_allocation_procedure(&nrmac->beam_info, SFN, slot, UE->UE_beam_index, n_slots_frame);
         AssertFatal(beam.idx >= 0, "Cannot allocate SR in any available beam\n");
-        const int index = ul_buffer_index(SFN, slot, ul_bwp->scs, nrmac->vrb_map_UL_size);
+        const int index = ul_buffer_index(SFN, slot, n_slots_frame, nrmac->vrb_map_UL_size);
         uint16_t *vrb_map_UL = &nrmac->common_channels[CC_id].vrb_map_UL[beam.idx][index * MAX_BWP_SIZE];
         const int bwp_start = ul_bwp->BWPStart;
         const int bwp_size = ul_bwp->BWPSize;

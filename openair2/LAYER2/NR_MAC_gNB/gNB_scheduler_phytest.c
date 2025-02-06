@@ -234,7 +234,6 @@ bool nr_ul_preprocessor_phytest(module_id_t module_id, frame_t frame, sub_frame_
 
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
-  const int mu = ul_bwp->scs;
 
   /* return if all UL HARQ processes wait for feedback */
   if (sched_ctrl->retrans_ul_harq.head == -1 && sched_ctrl->available_ul_harq.head == -1) {
@@ -249,13 +248,12 @@ bool nr_ul_preprocessor_phytest(module_id_t module_id, frame_t frame, sub_frame_
   const int temp_tda = get_ul_tda(nr_mac, frame, slot);
   if (temp_tda < 0)
     return false;
-  AssertFatal(temp_tda < tdaList->list.count,
-              "time domain assignment %d >= %d\n",
-              temp_tda,
-              tdaList->list.count);
+  AssertFatal(temp_tda < tdaList->list.count, "time domain assignment %d >= %d\n", temp_tda, tdaList->list.count);
+  const int mu = ul_bwp->scs;
   int K2 = get_K2(tdaList, temp_tda, mu, scc);
-  const int sched_frame = (frame + (slot + K2) / nr_slots_per_frame[mu]) % MAX_FRAME_NUMBER;
-  const int sched_slot = (slot + K2) % nr_slots_per_frame[mu];
+  int slots_frame = nr_mac->frame_structure.numb_slots_frame;
+  const int sched_frame = (frame + (slot + K2) / slots_frame) % MAX_FRAME_NUMBER;
+  const int sched_slot = (slot + K2) % slots_frame;
   const int tda = get_ul_tda(nr_mac, sched_frame, sched_slot);
   if (tda < 0)
     return false;
@@ -294,7 +292,7 @@ bool nr_ul_preprocessor_phytest(module_id_t module_id, frame_t frame, sub_frame_
   // TODO implement beam procedures for phy-test mode
   int beam = 0;
 
-  const int buffer_index = ul_buffer_index(sched_frame, sched_slot, mu, nr_mac->vrb_map_UL_size);
+  const int buffer_index = ul_buffer_index(sched_frame, sched_slot, slots_frame, nr_mac->vrb_map_UL_size);
   uint16_t *vrb_map_UL = &nr_mac->common_channels[CC_id].vrb_map_UL[beam][buffer_index * MAX_BWP_SIZE];
   for (int i = rbStart; i < rbStart + rbSize; ++i) {
     if ((vrb_map_UL[i+BWPStart] & SL_to_bitmap(tda_info.startSymbolIndex, tda_info.nrOfSymbols)) != 0) {

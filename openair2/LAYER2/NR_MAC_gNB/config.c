@@ -519,7 +519,7 @@ void config_frame_structure(int mu,
   } else { // FDD
     fs->is_tdd = false;
     fs->numb_period_frame = 1;
-    fs->numb_slots_period = nr_slots_per_frame[mu];
+    fs->numb_slots_period = fs->numb_slots_frame;
   }
   AssertFatal(fs->numb_period_frame > 0, "Frame configuration cannot be configured!\n");
 }

@@ -2777,12 +2777,12 @@ int get_pdsch_to_harq_feedback(NR_PUCCH_Config_t *pucch_Config,
   }
 }
 
-void nr_csirs_scheduling(int Mod_idP, frame_t frame, sub_frame_t slot, int n_slots_frame, nfapi_nr_dl_tti_request_t *DL_req)
+void nr_csirs_scheduling(int Mod_idP, frame_t frame, sub_frame_t slot, nfapi_nr_dl_tti_request_t *DL_req)
 {
   int CC_id = 0;
   NR_UEs_t *UE_info = &RC.nrmac[Mod_idP]->UE_info;
   gNB_MAC_INST *gNB_mac = RC.nrmac[Mod_idP];
-
+  int n_slots_frame = gNB_mac->frame_structure.numb_slots_frame;
   NR_SCHED_ENSURE_LOCKED(&gNB_mac->sched_lock);
 
   UE_info->sched_csirs = 0;
@@ -3178,9 +3178,9 @@ void nr_mac_update_timers(module_id_t module_id,
   }
 }
 
-int ul_buffer_index(int frame, int slot, int scs, int size)
+int ul_buffer_index(int frame, int slot, int slots_per_frame, int size)
 {
-  const int abs_slot = frame * nr_slots_per_frame[scs] + slot;
+  const int abs_slot = frame * slots_per_frame + slot;
   return abs_slot % size;
 }
 
