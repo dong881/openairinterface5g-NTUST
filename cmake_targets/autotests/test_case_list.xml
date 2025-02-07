@@ -66,16 +66,26 @@
     </testCase>
 
     <testCase id="ldpctest">
-      <desc>ldpc Test cases. (Test1: block length = 3872),
-             (Test2: block length = 4224),
-             (Test3: block length = 4576),
-             (Test4: block length = 4928),
-             (Test5: block length = 5280),
-             (Test6: block length = 5632),
-             (Test7: block length = 6336),
-             (Test8: block length = 7040),
-             (Test9: block length = 7744),
-             (Test10: block length = 8448)</desc>
+      <desc>ldpc Test cases. (Test1: block length = 3872, BG1),
+             (Test2: block length = 4224, BG1),
+             (Test3: block length = 4576, BG1),
+             (Test4: block length = 4928, BG1),
+             (Test5: block length = 5280, BG1),
+             (Test6: block length = 5632, BG1),
+             (Test7: block length = 6336, BG1),
+             (Test8: block length = 7040, BG1),
+             (Test9: block length = 7744, BG1),
+             (Test10: block length = 8448, BG1),
+             (Test11: block length = 1, BG2),
+             (Test12: block length = 100, BG2),
+             (Test13: block length = 193, BG2),
+             (Test14: block length = 500, BG2),
+             (Test15: block length = 561, BG2),
+             (Test16: block length = 600, BG2),
+             (Test17: block length = 641, BG2),
+             (Test18: block length = 2000, BG2),
+             (Test19: block length = 3000, BG2),
+             (Test20: block length = 3840, BG2)</desc>
       <main_exec>ldpctest</main_exec>
       <main_exec_args>-l3872 -s10 -n100
                       -l4224 -s10 -n100
@@ -87,9 +97,17 @@
                       -l7040 -s10 -n100
                       -l7744 -s10 -n100
                       -l8448 -s10 -n100
-                      -l561 -s10 -n1
-                      -l500 -s10 -n1</main_exec_args>
-      <tags>test1 test2 test3 test4 test5 test6 test7 test8 test9 test10</tags>
+                      -l1 -s10 -n100
+                      -l100 -s10 -n100
+                      -l193 -s10 -n100
+                      -l500 -s10 -n100
+                      -l561 -s10 -n100
+                      -l600 -s10 -n100
+                      -l641 -s10 -n100
+                      -l2000 -s10 -n100
+                      -l3000 -s10 -n100
+                      -l3840 -s10 -n100</main_exec_args>
+      <tags>test1 test2 test3 test4 test5 test6 test7 test8 test9 test10 test11 test12 test13 test14 test15 test16 test17 test18 test19 test20</tags>
       <search_expr_true>BLER 0.000000</search_expr_true>
       <search_expr_false>segmentation fault|assertion|exiting|fatal|differ</search_expr_false>
       <nruns>3</nruns>
