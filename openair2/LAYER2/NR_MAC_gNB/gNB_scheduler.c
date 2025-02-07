@@ -118,51 +118,6 @@ static void clear_beam_information(NR_beam_info_t *beam_info, int frame, int slo
   }
 }
 
-/**
- * @brief Returns true for:
- *        (1) FDD
- *        (2) Mixed slot with UL symbols
- *        (3) Full UL slot
- */
-bool is_ul_slot(const slot_t slot, const frame_structure_t *fs)
-{
-  if (fs->frame_type == FDD)
-    return true;
-  const tdd_period_config_t *pc = &fs->period_cfg;
-  slot_t s = get_slot_idx_in_period(slot, fs);
-  return ((is_mixed_slot(s, fs) && pc->tdd_slot_bitmap[s].num_ul_symbols)
-          || (pc->tdd_slot_bitmap[s].slot_type == TDD_NR_UPLINK_SLOT));
-}
-
-/**
- * @brief Returns true for:
- *        (1) FDD
- *        (2) Mixed slot with DL symbols
- *        (3) Full DL slot
- */
-bool is_dl_slot(const slot_t slot, const frame_structure_t *fs)
-{
-  if (fs->frame_type == FDD)
-    return true;
-  const tdd_period_config_t *pc = &fs->period_cfg;
-  slot_t s = get_slot_idx_in_period(slot, fs);
-  return ((is_mixed_slot(s, fs) && pc->tdd_slot_bitmap[s].num_dl_symbols)
-          || (pc->tdd_slot_bitmap[s].slot_type == TDD_NR_DOWNLINK_SLOT));
-}
-
-/**
- * @brief Returns true for:
- *        (1) Mixed slot with DL and/or UL symbols
- */
-bool is_mixed_slot(const slot_t slot, const frame_structure_t *fs)
-{
-  if (fs->frame_type == FDD)
-    return false;
-  slot_t s = get_slot_idx_in_period(slot, fs);
-  const tdd_period_config_t *pc = &fs->period_cfg;
-  return pc->tdd_slot_bitmap[s].slot_type == TDD_NR_MIXED_SLOT;
-}
-
 /* the structure nfapi_nr_ul_tti_request_t is very big, let's copy only what is necessary */
 static void copy_ul_tti_req(nfapi_nr_ul_tti_request_t *to, nfapi_nr_ul_tti_request_t *from)
 {

@@ -1018,60 +1018,6 @@ void nr_rrc_config_dl_tda(struct NR_PDSCH_TimeDomainResourceAllocationList *pdsc
   }
 }
 
-const float tdd_ms_period_pattern[] = {0.5, 0.625, 1.0, 1.25, 2.0, 2.5, 5.0, 10.0};
-const float tdd_ms_period_ext[] = {3.0, 4.0};
-
-/**
- * @brief Retrieves the periodicity in milliseconds for the given TDD pattern
- *        depending on the presence of the extension
- * @param pattern Pointer to the NR_TDD_UL_DL_Pattern_t pattern structure
- * @return Periodicity value in milliseconds.
- */
-static float get_tdd_periodicity(NR_TDD_UL_DL_Pattern_t *pattern) {
-  if (!pattern->ext1) {
-    LOG_D(NR_MAC, "Setting TDD configuration period to dl_UL_TransmissionPeriodicity %ld\n", pattern->dl_UL_TransmissionPeriodicity);
-    return tdd_ms_period_pattern[pattern->dl_UL_TransmissionPeriodicity];
-  } else {
-    DevAssert(pattern->ext1->dl_UL_TransmissionPeriodicity_v1530 != NULL);
-    LOG_D(NR_MAC,
-          "Setting TDD configuration period to dl_UL_TransmissionPeriodicity_v1530 %ld\n",
-          *pattern->ext1->dl_UL_TransmissionPeriodicity_v1530);
-    return tdd_ms_period_ext[*pattern->ext1->dl_UL_TransmissionPeriodicity_v1530];
-  }
-}
-
-/**
- * @brief Determines the TDD period index based on pattern periodicities
- * @note  Not applicabile to pattern extension
- * @param tdd Pointer to the NR_TDD_UL_DL_ConfigCommon_t containing patterns
- * @return Index of the TDD period in tdd_ms_period_pattern
- */
-int get_tdd_period_idx(NR_TDD_UL_DL_ConfigCommon_t *tdd)
-{
-  int tdd_period_idx = 0;
-  float pattern1_ms = get_tdd_periodicity(&tdd->pattern1);
-  float pattern2_ms = tdd->pattern2 ? get_tdd_periodicity(tdd->pattern2) : 0.0;
-  bool found_match = false;
-  // Find matching TDD period in the predefined list of periodicities
-  for (int i = 0; i < NFAPI_MAX_NUM_PERIODS; i++) {
-    if ((pattern1_ms + pattern2_ms) == tdd_ms_period_pattern[i]) {
-      tdd_period_idx = i;
-      LOG_I(NR_MAC,
-            "TDD period index = %d, based on the sum of dl_UL_TransmissionPeriodicity "
-            "from Pattern1 (%f ms) and Pattern2 (%f ms): Total = %f ms\n",
-            tdd_period_idx,
-            pattern1_ms,
-            pattern2_ms,
-            pattern1_ms + pattern2_ms);
-      found_match = true;
-      break;
-    }
-  }
-  // Assert if no match was found
-  AssertFatal(found_match, "The sum of pattern1_ms and pattern2_ms does not match any value in tdd_ms_period_pattern");
-  return tdd_period_idx;
-}
-
 static struct NR_PUSCH_TimeDomainResourceAllocation *set_TimeDomainResourceAllocation(const int k2, uint8_t index, int ul_symb)
 {
   struct NR_PUSCH_TimeDomainResourceAllocation *puschTdrAlloc = calloc_or_fail(1, sizeof(*puschTdrAlloc));

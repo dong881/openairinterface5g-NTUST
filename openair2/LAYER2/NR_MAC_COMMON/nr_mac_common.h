@@ -65,8 +65,17 @@ int16_t fill_dmrs_mask(const NR_PDSCH_Config_t *pdsch_Config,
                        int length);
 
 bool is_nr_DL_slot(NR_TDD_UL_DL_ConfigCommon_t *tdd_UL_DL_ConfigurationCommon, slot_t slotP);
-
 bool is_nr_UL_slot(NR_TDD_UL_DL_ConfigCommon_t *tdd_UL_DL_ConfigurationCommon, slot_t slotP, frame_type_t frame_type);
+
+bool is_ul_slot(const slot_t slot, const frame_structure_t *fs);
+bool is_dl_slot(const slot_t slot, const frame_structure_t *fs);
+bool is_mixed_slot(const slot_t slot, const frame_structure_t *fs);
+int get_tdd_period_idx(NR_TDD_UL_DL_ConfigCommon_t *tdd);
+void config_frame_structure(int mu,
+                            NR_TDD_UL_DL_ConfigCommon_t *tdd_UL_DL_ConfigurationCommon,
+                            uint8_t tdd_period,
+                            uint8_t frame_type,
+                            frame_structure_t *fs);
 
 uint8_t compute_srs_resource_indicator(long *maxMIMO_Layers,
                                        NR_PUSCH_Config_t *pusch_Config,

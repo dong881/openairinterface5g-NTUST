@@ -628,7 +628,11 @@ int main(int argc, char *argv[])
 
   frame_structure_t frame_structure = {0};
   frame_type_t frame_type = TDD;
-  config_frame_structure(mu, scc, get_tdd_period_idx(scc->tdd_UL_DL_ConfigurationCommon), frame_type, &frame_structure);
+  config_frame_structure(mu,
+                         scc->tdd_UL_DL_ConfigurationCommon,
+                         get_tdd_period_idx(scc->tdd_UL_DL_ConfigurationCommon),
+                         frame_type,
+                         &frame_structure);
   AssertFatal(is_ul_slot(slot, &frame_structure), "The slot selected is not UL. Can't run ULSIM\n");
 
   // TODO do a UECAP for phy-sim

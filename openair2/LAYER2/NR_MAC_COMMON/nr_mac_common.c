@@ -76,8 +76,6 @@ static const uint16_t symbol_ssb_E[64] = {8,   12,  16,  20,  32,  36,  40,  44,
                                           288, 292, 296, 300, 312, 316, 320, 324, 344, 348, 352, 356, 368, 372, 376, 380,
                                           400, 404, 408, 412, 424, 428, 432, 436, 456, 460, 464, 468, 480, 484, 488, 492};
 
-const uint8_t nr_slots_per_frame[5] = {10, 20, 40, 80, 160};
-
 // Table 6.3.3.1-5 (38.211) NCS for preamble formats with delta_f_RA = 1.25 KHz
 static const uint16_t NCS_unrestricted_delta_f_RA_125[16] = {0, 13, 15, 18, 22, 26, 32, 38, 46, 59, 76, 93, 119, 167, 279, 419};
 static const uint16_t NCS_restricted_TypeA_delta_f_RA_125[15] =

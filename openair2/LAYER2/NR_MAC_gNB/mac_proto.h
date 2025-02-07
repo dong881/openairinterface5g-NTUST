@@ -39,11 +39,6 @@ void set_cset_offset(uint16_t);
 void get_K1_K2(int N1, int N2, int *K1, int *K2, int layers);
 int get_NTN_Koffset(const NR_ServingCellConfigCommon_t *scc);
 
-void config_frame_structure(int mu,
-                            NR_ServingCellConfigCommon_t *scc,
-                            uint8_t tdd_period,
-                            uint8_t frame_type,
-                            frame_structure_t *fs);
 int get_first_ul_slot(const frame_structure_t *fs, bool mixed);
 int get_ul_slots_per_period(const frame_structure_t *fs);
 int get_ul_slots_per_frame(const frame_structure_t *fs);
@@ -352,10 +347,6 @@ int nr_write_ce_dlsch_pdu(module_id_t module_idP,
                           unsigned char *ue_cont_res_id);
 
 int binomial(int n, int k);
-
-bool is_ul_slot(const slot_t slot, const frame_structure_t *fs);
-bool is_dl_slot(const slot_t slot, const frame_structure_t *fs);
-bool is_mixed_slot(const slot_t slot, const frame_structure_t *fs);
 
 /* \brief Function to indicate a received SDU on ULSCH.
 @param Mod_id Instance ID of gNB
