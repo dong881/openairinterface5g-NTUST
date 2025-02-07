@@ -205,6 +205,83 @@ int encode_registration_accept(const registration_accept_msg *registration_accep
   return encoded;
 }
 
+/** Equality check for NAS Registration Accept */
+
+bool eq_snssai(const nr_nas_msg_snssai_t *a, const nr_nas_msg_snssai_t *b)
+{
+  _NAS_EQ_CHECK_INT(a->sst, b->sst);
+
+  if ((a->hplmn_sst && !b->hplmn_sst) || (!a->hplmn_sst && b->hplmn_sst))
+    return false;
+  if (a->hplmn_sst && b->hplmn_sst)
+    _NAS_EQ_CHECK_INT(*a->hplmn_sst, *b->hplmn_sst);
+
+  if ((a->sd && !b->sd) || (!a->sd && b->sd))
+    return false;
+  if (a->sd && b->sd)
+    _NAS_EQ_CHECK_INT(*a->sd, *b->sd);
+
+  if ((a->hplmn_sd && !b->hplmn_sd) || (!a->hplmn_sd && b->hplmn_sd))
+    return false;
+  if (a->hplmn_sd && b->hplmn_sd)
+    _NAS_EQ_CHECK_INT(*a->hplmn_sd, *b->hplmn_sd);
+
+  return true;
+}
+
+
+bool eq_fgmm_registration_accept(const registration_accept_msg *a, const registration_accept_msg *b)
+{
+  if (!a || !b) {
+    PRINT_NAS_ERROR("Null pointer in registration_accept_msg_eq\n");
+    return false;
+  }
+
+  // 5GS registration result (mandatory)
+  _NAS_EQ_CHECK_INT(a->result, b->result);
+  _NAS_EQ_CHECK_INT(a->sms_allowed, b->sms_allowed);
+
+  // GUTI (optional)
+  if (a->guti && b->guti) {
+    _NAS_EQ_CHECK_INT(a->guti->guti.spare, b->guti->guti.spare);
+    _NAS_EQ_CHECK_INT(a->guti->guti.oddeven, b->guti->guti.oddeven);
+    _NAS_EQ_CHECK_INT(a->guti->guti.typeofidentity, b->guti->guti.typeofidentity);
+    _NAS_EQ_CHECK_INT(a->guti->guti.mccdigit2, b->guti->guti.mccdigit2);
+    _NAS_EQ_CHECK_INT(a->guti->guti.mccdigit1, b->guti->guti.mccdigit1);
+    _NAS_EQ_CHECK_INT(a->guti->guti.mncdigit3, b->guti->guti.mncdigit3);
+    _NAS_EQ_CHECK_INT(a->guti->guti.mccdigit3, b->guti->guti.mccdigit3);
+    _NAS_EQ_CHECK_INT(a->guti->guti.mncdigit2, b->guti->guti.mncdigit2);
+    _NAS_EQ_CHECK_INT(a->guti->guti.mncdigit1, b->guti->guti.mncdigit1);
+    _NAS_EQ_CHECK_INT(a->guti->guti.amfregionid, b->guti->guti.amfregionid);
+    _NAS_EQ_CHECK_INT(a->guti->guti.amfsetid, b->guti->guti.amfsetid);
+    _NAS_EQ_CHECK_INT(a->guti->guti.amfpointer, b->guti->guti.amfpointer);
+    _NAS_EQ_CHECK_INT(a->guti->guti.tmsi, b->guti->guti.tmsi);
+  } else if ((a->guti && !b->guti) || (!a->guti && b->guti)) {
+    PRINT_NAS_ERROR("NAS Equality Check failure: One of the two GUTIs is NULL\n");
+    return false;
+  }
+
+  _NAS_EQ_CHECK_INT(a->num_allowed_slices, b->num_allowed_slices);
+  _NAS_EQ_CHECK_INT(a->num_configured_slices, b->num_configured_slices);
+
+  // Configured NSSAI (optional)
+  for (int i = 0; i < a->num_configured_slices; i++) {
+    if (!eq_snssai(&a->config_nssai[i], &b->config_nssai[i])) {
+      PRINT_NAS_ERROR("NAS Equality Check failure: Configured NSSAI\n");
+      return false;
+    }
+  }
+  // Allowed NSSAI (optional)
+  for (int i = 0; i < a->num_allowed_slices; i++) {
+    if (!eq_snssai(&a->nas_allowed_nssai[i], &b->nas_allowed_nssai[i])) {
+      PRINT_NAS_ERROR("NAS Equality Check failure: Allowed NSSAI\n");
+      return false;
+    }
+  }
+
+  return true;
+}
+
 /** Memory management of NAS Registration Accept */
 
 static void free_nssai(nr_nas_msg_snssai_t *msg)
