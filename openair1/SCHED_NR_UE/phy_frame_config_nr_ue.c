@@ -44,14 +44,8 @@ int nr_ue_slot_select(const fapi_nr_config_request_t *cfg, int nr_slot)
   if (cfg->cell_config.frame_duplex_type == FDD)
     return NR_UPLINK_SLOT | NR_DOWNLINK_SLOT;
 
-  int period = cfg->tdd_table_1.tdd_period_in_slots +
-               (cfg->tdd_table_2 ? cfg->tdd_table_2->tdd_period_in_slots : 0);
-  int rel_slot = nr_slot % period;
-  const fapi_nr_tdd_table_t *tdd_table = &cfg->tdd_table_1;
-  if (cfg->tdd_table_2 && rel_slot >= tdd_table->tdd_period_in_slots) {
-    rel_slot -= tdd_table->tdd_period_in_slots;
-    tdd_table = cfg->tdd_table_2;
-  }
+  const fapi_nr_tdd_table_t *tdd_table = &cfg->tdd_table;
+  int rel_slot = nr_slot % tdd_table->tdd_period_in_slots;
 
   if (tdd_table->max_tdd_periodicity_list == NULL) // this happens before receiving TDD configuration
     return NR_DOWNLINK_SLOT;
