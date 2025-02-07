@@ -1495,11 +1495,6 @@ void *nas_nrue(void *args_p)
               NAS_CELL_SELECTION_CNF(msg_p).errCode,
               NAS_CELL_SELECTION_CNF(msg_p).cellID,
               NAS_CELL_SELECTION_CNF(msg_p).tac);
-        // as_stmsi_t s_tmsi={0, 0};
-        // as_nas_info_t nas_info;
-        // plmn_t plmnID={0, 0, 0, 0};
-        // generateRegistrationRequest(&nas_info);
-        // nr_nas_itti_nas_establish_req(0, AS_TYPE_ORIGINATING_SIGNAL, s_tmsi, plmnID, nas_info.data, nas_info.length, 0);
         break;
 
       case NAS_CELL_SELECTION_IND:
