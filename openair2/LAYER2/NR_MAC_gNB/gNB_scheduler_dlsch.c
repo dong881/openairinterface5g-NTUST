@@ -61,7 +61,7 @@ int get_dl_tda(const gNB_MAC_INST *nrmac, int slot)
   if (nrmac->UE_info.sched_csirs > 0)
     return 1;
 
-  if (fs->is_tdd) {
+  if (fs->frame_type == TDD) {
     int s = get_slot_idx_in_period(slot, fs);
     // if there is a mixed slot where we can transmit DL
     const tdd_bitmap_t *tdd_slot_bitmap = fs->period_cfg.tdd_slot_bitmap;

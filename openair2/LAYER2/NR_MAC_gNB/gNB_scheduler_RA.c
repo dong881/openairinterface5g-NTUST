@@ -972,7 +972,7 @@ static bool get_feasible_msg3_tda(const NR_ServingCellConfigCommon_t *scc,
     int abs_slot = slot + k2 + mu_delta;
     int temp_frame = (frame + (abs_slot / slots_per_frame)) & 1023;
     int temp_slot = abs_slot % slots_per_frame; // msg3 slot according to 8.3 in 38.213
-    if (fs->is_tdd && !is_ul_slot(temp_slot, fs))
+    if (fs->frame_type == TDD && !is_ul_slot(temp_slot, fs))
       continue;
 
     const tdd_bitmap_t *tdd_slot_bitmap = fs->period_cfg.tdd_slot_bitmap;

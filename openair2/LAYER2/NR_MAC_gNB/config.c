@@ -380,7 +380,7 @@ int get_first_ul_slot(const frame_structure_t *fs, bool mixed)
 {
   DevAssert(fs);
 
-  if (fs->is_tdd) {
+  if (fs->frame_type == TDD) {
     for (int i = 0; i < fs->numb_slots_period; i++) {
       if ((mixed && is_ul_slot(i, fs)) || fs->period_cfg.tdd_slot_bitmap[i].slot_type == TDD_NR_UPLINK_SLOT) {
         return i;
@@ -396,7 +396,7 @@ int get_first_ul_slot(const frame_structure_t *fs, bool mixed)
  */
 int get_dl_slots_per_period(const frame_structure_t *fs)
 {
-  return fs->is_tdd ? fs->period_cfg.num_dl_slots : fs->numb_slots_frame;
+  return fs->frame_type == TDD ? fs->period_cfg.num_dl_slots : fs->numb_slots_frame;
 }
 
 /**
@@ -404,7 +404,7 @@ int get_dl_slots_per_period(const frame_structure_t *fs)
  */
 int get_ul_slots_per_period(const frame_structure_t *fs)
 {
-  return fs->is_tdd ? fs->period_cfg.num_ul_slots : fs->numb_slots_frame;
+  return fs->frame_type == TDD ? fs->period_cfg.num_ul_slots : fs->numb_slots_frame;
 }
 
 /**
@@ -416,7 +416,7 @@ int get_full_ul_slots_per_period(const frame_structure_t *fs)
 {
   DevAssert(fs);
 
-  if (!fs->is_tdd)
+  if (fs->frame_type == FDD)
     return fs->numb_slots_frame;
 
   int count = 0;
@@ -438,7 +438,7 @@ int get_full_dl_slots_per_period(const frame_structure_t *fs)
 {
   DevAssert(fs);
 
-  if (!fs->is_tdd)
+  if (fs->frame_type == FDD)
     return fs->numb_slots_frame;
 
   int count = 0;
@@ -456,7 +456,7 @@ int get_full_dl_slots_per_period(const frame_structure_t *fs)
  */
 int get_ul_slots_per_frame(const frame_structure_t *fs)
 {
-  return fs->is_tdd ? fs->numb_period_frame * get_ul_slots_per_period(fs) : fs->numb_slots_frame;
+  return fs->frame_type == TDD ? fs->numb_period_frame * get_ul_slots_per_period(fs) : fs->numb_slots_frame;
 }
 
 /**
@@ -471,7 +471,7 @@ int get_ul_slot_offset(const frame_structure_t *fs, int idx, bool count_mixed)
   DevAssert(fs);
 
   // FDD
-  if (!fs->is_tdd)
+  if (fs->frame_type == FDD)
     return idx;
 
   // UL slots indexes in period
@@ -514,10 +514,10 @@ void config_frame_structure(int mu,
   if (frame_type == TDD) {
     fs->numb_period_frame = get_nb_periods_per_frame(tdd_period);
     fs->numb_slots_period = fs->numb_slots_frame / fs->numb_period_frame;
-    fs->is_tdd = true;
+    fs->frame_type = TDD;
     config_tdd_patterns(scc->tdd_UL_DL_ConfigurationCommon, fs);
   } else { // FDD
-    fs->is_tdd = false;
+    fs->frame_type = FDD;
     fs->numb_period_frame = 1;
     fs->numb_slots_period = fs->numb_slots_frame;
   }

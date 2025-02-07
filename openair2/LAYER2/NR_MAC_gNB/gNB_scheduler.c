@@ -126,7 +126,7 @@ static void clear_beam_information(NR_beam_info_t *beam_info, int frame, int slo
  */
 bool is_ul_slot(const slot_t slot, const frame_structure_t *fs)
 {
-  if (!fs->is_tdd)
+  if (fs->frame_type == FDD)
     return true;
   const tdd_period_config_t *pc = &fs->period_cfg;
   slot_t s = get_slot_idx_in_period(slot, fs);
@@ -142,7 +142,7 @@ bool is_ul_slot(const slot_t slot, const frame_structure_t *fs)
  */
 bool is_dl_slot(const slot_t slot, const frame_structure_t *fs)
 {
-  if (!fs->is_tdd)
+  if (fs->frame_type == FDD)
     return true;
   const tdd_period_config_t *pc = &fs->period_cfg;
   slot_t s = get_slot_idx_in_period(slot, fs);
@@ -156,7 +156,7 @@ bool is_dl_slot(const slot_t slot, const frame_structure_t *fs)
  */
 bool is_mixed_slot(const slot_t slot, const frame_structure_t *fs)
 {
-  if (!fs->is_tdd)
+  if (fs->frame_type == FDD)
     return false;
   slot_t s = get_slot_idx_in_period(slot, fs);
   const tdd_period_config_t *pc = &fs->period_cfg;

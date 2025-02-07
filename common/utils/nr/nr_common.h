@@ -142,7 +142,7 @@ typedef struct frame_structure_s {
   int8_t numb_slots_frame;
   int8_t numb_slots_period;
   int8_t numb_period_frame;
-  bool is_tdd;
+  frame_type_t frame_type;
 } frame_structure_t;
 
 typedef struct {

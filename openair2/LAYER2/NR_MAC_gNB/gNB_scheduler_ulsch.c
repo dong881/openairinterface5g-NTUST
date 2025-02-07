@@ -48,7 +48,7 @@ int get_ul_tda(gNB_MAC_INST *nrmac, int frame, int slot)
   /* there is a mixed slot only when in TDD */
   frame_structure_t *fs = &nrmac->frame_structure;
 
-  if (fs->is_tdd) {
+  if (fs->frame_type == TDD) {
     // if there is uplink symbols in mixed slot
     int s = get_slot_idx_in_period(slot, fs);
     tdd_bitmap_t *tdd_slot_bitmap = fs->period_cfg.tdd_slot_bitmap;
@@ -1535,7 +1535,7 @@ static bool nr_UE_is_to_be_scheduled(const frame_structure_t *fs,
    * Force the default transmission in a full slot as early
    * as possible in the UL portion of TDD period (last_ul_slot) */
   int num_slots_per_period = fs->numb_slots_period;
-  int last_ul_slot = fs->is_tdd ? get_first_ul_slot(fs, false) : sched_ctrl->last_ul_slot;
+  int last_ul_slot = fs->frame_type == TDD ? get_first_ul_slot(fs, false) : sched_ctrl->last_ul_slot;
   const int last_ul_sched = sched_ctrl->last_ul_frame * n + last_ul_slot;
   const int diff = (now - last_ul_sched + 1024 * n) % (1024 * n);
   /* UE is to be scheduled if

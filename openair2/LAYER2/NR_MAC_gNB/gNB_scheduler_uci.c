@@ -1037,7 +1037,7 @@ int nr_acknack_scheduling(gNB_MAC_INST *mac,
       continue;
     const int pucch_slot = (slot + pdsch_to_harq_feedback[f] + NTN_gNB_Koffset) % n_slots_frame;
     // check if the slot is UL
-    if (fs->is_tdd) {
+    if (fs->frame_type == TDD) {
       int mod_slot = pucch_slot % fs->numb_slots_period;
       if (!is_ul_slot(mod_slot, fs))
         continue;

@@ -1297,7 +1297,7 @@ static void set_SR_periodandoffset(NR_SchedulingRequestResourceConfig_t *schedul
 {
   const frame_structure_t *fs = &RC.nrmac[0]->frame_structure;
   int sr_slot = 1; // in FDD SR in slot 1
-  if (fs->is_tdd)
+  if (fs->frame_type == TDD)
     sr_slot = get_first_ul_slot(fs, true);
 
   schedulingRequestResourceConfig->periodicityAndOffset = calloc(1,sizeof(*schedulingRequestResourceConfig->periodicityAndOffset));

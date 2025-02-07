@@ -395,7 +395,7 @@ void free_tdd_configuration_dedicated_nr(NR_DL_FRAME_PARMS *frame_parms) {
 
 void do_tdd_config_sim(PHY_VARS_gNB *gNB, int mu)
 {
-  frame_structure_t fs = {.is_tdd = true};
+  frame_structure_t fs = {.frame_type = TDD};
   fs.numb_slots_frame = (1 << mu) * NR_NUMBER_OF_SUBFRAMES_PER_FRAME;
   fs.numb_period_frame = get_nb_periods_per_frame(gNB->gNB_config.tdd_table.tdd_period.value);
   fs.numb_slots_period = fs.numb_slots_frame / fs.numb_period_frame;
