@@ -1125,26 +1125,34 @@ static void nr_rrc_ue_process_masterCellGroup(NR_UE_RRC_INST_t *rrc,
 static void rrc_ue_generate_RRCSetupComplete(const NR_UE_RRC_INST_t *rrc, const uint8_t Transaction_id)
 {
   uint8_t buffer[100];
-  const char *nas_msg;
-  int   nas_msg_length;
+  as_nas_info_t initialNasMsg;
 
   if (IS_SA_MODE(get_softmodem_params())) {
-    as_nas_info_t initialNasMsg;
     nr_ue_nas_t *nas = get_ue_nas_info(rrc->ue_id);
     // Send Initial NAS message (Registration Request) before Security Mode control procedure
     generateRegistrationRequest(&initialNasMsg, nas, false);
-    nas_msg = (char *)initialNasMsg.nas_data;
-    nas_msg_length = initialNasMsg.length;
+    if (!initialNasMsg.nas_data) {
+      LOG_E(NR_RRC, "Failed to complete RRCSetup. NAS InitialUEMessage message not found.\n");
+      return;
+    }
   } else {
-    nas_msg = nr_nas_attach_req_imsi_dummy_NSA_case;
-    nas_msg_length = sizeof(nr_nas_attach_req_imsi_dummy_NSA_case);
+    initialNasMsg.length = sizeof(nr_nas_attach_req_imsi_dummy_NSA_case);
+    initialNasMsg.nas_data = malloc_or_fail(initialNasMsg.length);
+    memcpy(initialNasMsg.nas_data, nr_nas_attach_req_imsi_dummy_NSA_case, initialNasMsg.length);
   }
+  // Encode RRCSetupComplete
+  int size = do_RRCSetupComplete(buffer,
+                                 sizeof(buffer),
+                                 Transaction_id,
+                                 rrc->selected_plmn_identity,
+                                 (const uint32_t)initialNasMsg.length,
+                                 (const char*)initialNasMsg.nas_data);
+  // Free dynamically allocated data (heap allocated in both SA and NSA)
+  free(initialNasMsg.nas_data);
 
-  int size = do_RRCSetupComplete(buffer, sizeof(buffer), Transaction_id, rrc->selected_plmn_identity, nas_msg_length, nas_msg);
   LOG_I(NR_RRC, "[UE %ld][RAPROC] Logical Channel UL-DCCH (SRB1), Generating RRCSetupComplete (bytes%d)\n", rrc->ue_id, size);
   int srb_id = 1; // RRC setup complete on SRB1
   LOG_D(NR_RRC, "[RRC_UE %ld] PDCP_DATA_REQ/%d Bytes RRCSetupComplete ---> %d\n", rrc->ue_id, size, srb_id);
-
   nr_pdcp_data_req_srb(rrc->ue_id, srb_id, 0, size, buffer, deliver_pdu_srb_rlc, NULL);
 }
 
