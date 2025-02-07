@@ -599,7 +599,7 @@ typedef struct NR_UE_MAC_INST_s {
 
   NR_UL_TIME_ALIGNMENT_t ul_time_alignment;
   NR_TDD_UL_DL_ConfigCommon_t *tdd_UL_DL_ConfigurationCommon;
-  frame_type_t frame_type;
+  frame_structure_t frame_structure;
 
   /* Random Access */
   /// CRNTI

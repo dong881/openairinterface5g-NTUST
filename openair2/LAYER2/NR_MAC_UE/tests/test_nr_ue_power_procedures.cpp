@@ -92,7 +92,7 @@ TEST(test_pucch_power_state, test_accumulated_delta_pucch)
   pucch_Config.pucch_PowerControl = &power_config;
   mac.G_b_f_c = 0;
   mac.pucch_power_control_initialized = true;
-  mac.frame_type = TDD;
+  mac.frame_structure.frame_type = TDD;
 
   int scs = 1;
   int sum_delta_pucch = 3;
@@ -106,7 +106,7 @@ TEST(test_pucch_power_state, test_accumulated_delta_pucch)
   uint16_t start_prb = 0;
   int P_CMAX = nr_get_Pcmax(23,
                             mac.nr_band,
-                            mac.frame_type,
+                            mac.frame_structure.frame_type,
                             FR1,
                             current_UL_BWP.channel_bandwidth,
                             2,
@@ -201,7 +201,7 @@ TEST(pusch_power_control, pusch_power_control_msg3)
   pusch_Config.pusch_PowerControl = &pusch_PowerControl;
   pusch_PowerControl.tpc_Accumulation = (long*)1;
   mac.pusch_power_control_initialized = true;
-  mac.frame_type = TDD;
+  mac.frame_structure.frame_type = TDD;
 
   // msg3 cofiguration as in 5g_rfsimulator testcase
   int num_rb = 8;
@@ -218,7 +218,7 @@ TEST(pusch_power_control, pusch_power_control_msg3)
 
   int P_CMAX = nr_get_Pcmax(23,
                             mac.nr_band,
-                            mac.frame_type,
+                            mac.frame_structure.frame_type,
                             FR1,
                             current_UL_BWP.channel_bandwidth,
                             Qm,
@@ -294,7 +294,7 @@ TEST(pusch_power_control, pusch_power_data)
   NR_RACH_ConfigCommon_t nr_rach_ConfigCommon = {0};
   current_UL_BWP.rach_ConfigCommon = &nr_rach_ConfigCommon;
   mac.nr_band = 78;
-  mac.frame_type = TDD;
+  mac.frame_structure.frame_type = TDD;
 
   bool is_rar_tx_retx = false;
   int num_rb = 5;
@@ -319,7 +319,7 @@ TEST(pusch_power_control, pusch_power_data)
 
   int P_CMAX = nr_get_Pcmax(23,
                             mac.nr_band,
-                            mac.frame_type,
+                            mac.frame_structure.frame_type,
                             FR1,
                             current_UL_BWP.channel_bandwidth,
                             Qm,
@@ -444,11 +444,11 @@ TEST(pusch_power_control, pusch_power_control_state)
   pusch_Config.pusch_PowerControl = &pusch_PowerControl;
   long p0_NominalWithGrant = 0;
   current_UL_BWP.p0_NominalWithGrant = &p0_NominalWithGrant;
-  mac.frame_type = TDD;
+  mac.frame_structure.frame_type = TDD;
 
   int P_CMAX = nr_get_Pcmax(23,
                             mac.nr_band,
-                            mac.frame_type,
+                            mac.frame_structure.frame_type,
                             FR1,
                             current_UL_BWP.channel_bandwidth,
                             Qm,

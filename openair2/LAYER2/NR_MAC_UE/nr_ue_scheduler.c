@@ -81,9 +81,9 @@ static uint8_t nr_ue_get_sdu(NR_UE_MAC_INST_t *mac,
                              int P_MAX,
                              bool *BSRsent);
 
-void clear_ul_config_request(NR_UE_MAC_INST_t *mac, int scs)
+static void clear_ul_config_request(NR_UE_MAC_INST_t *mac)
 {
-  int slots = nr_slots_per_frame[scs];
+  int slots = mac->frame_structure.numb_slots_frame;
   for (int i = 0; i < slots ; i++) {
     fapi_nr_ul_config_request_t *ul_config = mac->ul_config_request + i;
     verifyMutex(pthread_mutex_lock(&ul_config->mutex_ul_config));
@@ -94,10 +94,8 @@ void clear_ul_config_request(NR_UE_MAC_INST_t *mac, int scs)
 
 fapi_nr_ul_config_request_pdu_t *lockGet_ul_config(NR_UE_MAC_INST_t *mac, frame_t frame_tx, int slot_tx, uint8_t pdu_type)
 {
-  NR_TDD_UL_DL_ConfigCommon_t *tdd_config = mac->tdd_UL_DL_ConfigurationCommon;
-
   // Check if requested on the right slot
-  if (!is_nr_UL_slot(tdd_config, slot_tx, mac->frame_type)) {
+  if (!is_ul_slot(slot_tx, &mac->frame_structure)) {
     LOG_E(NR_MAC, "Lock of UL config for PDU type %d called for slot %d which is not UL\n", pdu_type, slot_tx);
     return NULL;
   }
@@ -177,11 +175,10 @@ void handle_time_alignment_timer_expired(NR_UE_MAC_INST_t *mac)
   // release SRS for all Serving Cells;
   release_PUCCH_SRS(mac);
   // clear any configured downlink assignments and uplink grants;
-  int scs = mac->current_UL_BWP ? mac->current_UL_BWP->scs : get_softmodem_params()->numerology;
   if (mac->dl_config_request)
     memset(mac->dl_config_request, 0, sizeof(*mac->dl_config_request));
   if (mac->ul_config_request)
-    clear_ul_config_request(mac, scs);
+    clear_ul_config_request(mac);
   // clear any PUSCH resources for semi-persistent CSI reporting
   // TODO we don't have semi-persistent CSI reporting
   // maintain N_TA
@@ -284,9 +281,8 @@ fapi_nr_ul_config_request_pdu_t *fapiLockIterator(fapi_nr_ul_config_request_t *u
 
 fapi_nr_ul_config_request_pdu_t *lockGet_ul_iterator(NR_UE_MAC_INST_t *mac, frame_t frame_tx, int slot_tx)
 {
-  NR_TDD_UL_DL_ConfigCommon_t *tdd_config = mac->tdd_UL_DL_ConfigurationCommon;
   //Check if requested on the right slot
-  if (!is_nr_UL_slot(tdd_config, slot_tx, mac->frame_type)) {
+  if (!is_ul_slot(slot_tx, &mac->frame_structure)) {
     LOG_E(NR_MAC, "UL lock iterator called for slot %d which is not UL\n", slot_tx);
     return NULL;
   }
@@ -1271,10 +1267,9 @@ void nr_ue_aperiodic_srs_scheduling(NR_UE_MAC_INST_t *mac, long resource_trigger
   AssertFatal(slot_offset > GET_DURATION_RX_TO_TX(&mac->ntn_ta),
               "Slot offset between DCI and aperiodic SRS (%d) needs to be higher than DURATION_RX_TO_TX (%ld)\n",
               slot_offset, GET_DURATION_RX_TO_TX(&mac->ntn_ta));
-  int n_slots_frame = nr_slots_per_frame[current_UL_BWP->scs];
+  int n_slots_frame = mac->frame_structure.numb_slots_frame;
   int sched_slot = (slot + slot_offset) % n_slots_frame;
-  NR_TDD_UL_DL_ConfigCommon_t *tdd_config = mac->tdd_UL_DL_ConfigurationCommon;
-  if (!is_nr_UL_slot(tdd_config, sched_slot, mac->frame_type)) {
+  if (!is_ul_slot(sched_slot, &mac->frame_structure)) {
     LOG_E(NR_MAC, "Slot for scheduling aperiodic SRS %d is not an UL slot\n", sched_slot);
     return;
   }
@@ -1326,8 +1321,7 @@ static bool nr_ue_periodic_srs_scheduling(NR_UE_MAC_INST_t *mac, frame_t frame, 
 
     uint16_t period = srs_period[srs_resource->resourceType.choice.periodic->periodicityAndOffset_p.present];
     uint16_t offset = get_nr_srs_offset(srs_resource->resourceType.choice.periodic->periodicityAndOffset_p);
-
-    int n_slots_frame = nr_slots_per_frame[current_UL_BWP->scs];
+    int n_slots_frame = mac->frame_structure.numb_slots_frame;
 
     // Check if UE should transmit the SRS
     if((frame*n_slots_frame+slot-offset)%period == 0) {
@@ -1409,11 +1403,10 @@ void schedule_RA_after_SR_failure(NR_UE_MAC_INST_t *mac)
   // release SRS for all Serving Cells;
   release_PUCCH_SRS(mac);
   // clear any configured downlink assignments and uplink grants;
-  int scs = mac->current_UL_BWP->scs;
   if (mac->dl_config_request)
     memset(mac->dl_config_request, 0, sizeof(*mac->dl_config_request));
   if (mac->ul_config_request)
-    clear_ul_config_request(mac, scs);
+    clear_ul_config_request(mac);
   // clear any PUSCH resources for semi-persistent CSI reporting
   // TODO we don't have semi-persistent CSI reporting
 }
@@ -1620,7 +1613,7 @@ void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
           int tx_power = pdu->tx_power;
           int P_CMAX = nr_get_Pcmax(mac->p_Max,
                                     mac->nr_band,
-                                    mac->frame_type,
+                                    mac->frame_structure.frame_type,
                                     mac->frequency_range,
                                     mac->current_UL_BWP->channel_bandwidth,
                                     pdu->qam_mod_order,
@@ -1756,6 +1749,7 @@ int nr_ue_pusch_scheduler(const NR_UE_MAC_INST_t *mac,
 
   // Get the numerology to calculate the Tx frame and slot
   int mu = current_UL_BWP->scs;
+  int slots_per_frame = mac->frame_structure.numb_slots_frame;
 
   // k2 as per 3GPP TS 38.214 version 15.9.0 Release 15 ch 6.1.2.1.1
   // PUSCH time domain resource allocation is higher layer configured from uschTimeDomainAllocationList in either pusch-ConfigCommon
@@ -1786,9 +1780,8 @@ int nr_ue_pusch_scheduler(const NR_UE_MAC_INST_t *mac,
                 GET_DURATION_RX_TO_TX(&mac->ntn_ta),
                 GET_DURATION_RX_TO_TX(&mac->ntn_ta));
 
-    *slot_tx = (current_slot + k2 + delta) % nr_slots_per_frame[mu];
-    *frame_tx = (current_frame + (current_slot + k2 + delta) / nr_slots_per_frame[mu]) % MAX_FRAME_NUMBER;
-
+    *slot_tx = (current_slot + k2 + delta) % slots_per_frame;
+    *frame_tx = (current_frame + (current_slot + k2 + delta) / slots_per_frame) % MAX_FRAME_NUMBER;
   } else {
 
     AssertFatal(k2 > GET_DURATION_RX_TO_TX(&mac->ntn_ta),
@@ -1804,13 +1797,11 @@ int nr_ue_pusch_scheduler(const NR_UE_MAC_INST_t *mac,
     }
 
     // Calculate TX slot and frame
-    *slot_tx = (current_slot + k2) % nr_slots_per_frame[mu];
-    *frame_tx = (current_frame + (current_slot + k2) / nr_slots_per_frame[mu]) % MAX_FRAME_NUMBER;
-
+    *slot_tx = (current_slot + k2) % slots_per_frame;
+    *frame_tx = (current_frame + (current_slot + k2) / slots_per_frame) % MAX_FRAME_NUMBER;
   }
 
   LOG_D(NR_MAC, "[%04d.%02d] UL transmission in [%04d.%02d] (k2 %ld delta %d)\n", current_frame, current_slot, *frame_tx, *slot_tx, k2, delta);
-
   return 0;
 }
 
@@ -1911,7 +1902,7 @@ static void build_ro_list(NR_UE_MAC_INST_t *mac)
   prach_association_pattern_t *prach_assoc_pattern = &mac->prach_assoc_pattern[bwp_id];
   prach_assoc_pattern->nb_of_prach_conf_period_in_max_period = MAX_NB_PRACH_CONF_PERIOD_IN_ASSOCIATION_PATTERN_PERIOD / x;
   nb_of_frames_per_prach_conf_period = x;
-
+  int slots_per_frame = mac->frame_structure.numb_slots_frame;
   LOG_D(NR_MAC,"nb_of_prach_conf_period_in_max_period %d\n", prach_assoc_pattern->nb_of_prach_conf_period_in_max_period);
 
   // Fill in the PRACH occasions table for every slot in every frame in every PRACH configuration periods in the maximum association pattern period
@@ -1923,7 +1914,7 @@ static void build_ro_list(NR_UE_MAC_INST_t *mac)
     prach_conf_period_t *prach_conf_period_list = &prach_assoc_pattern->prach_conf_period_list[period_idx];
     prach_conf_period_list->nb_of_prach_occasion = 0;
     prach_conf_period_list->nb_of_frame = nb_of_frames_per_prach_conf_period;
-    prach_conf_period_list->nb_of_slot = nr_slots_per_frame[mu];
+    prach_conf_period_list->nb_of_slot = slots_per_frame;
 
     LOG_D(NR_MAC,"PRACH Conf Period Idx %d\n", period_idx);
 
@@ -1938,7 +1929,7 @@ static void build_ro_list(NR_UE_MAC_INST_t *mac)
 
         // For every slot in a frame
         // -------------------------
-        for (int slot = 0; slot < nr_slots_per_frame[mu]; slot++) {
+        for (int slot = 0; slot < slots_per_frame; slot++) {
           // Is it a valid slot?
           map_shift = slot >> slot_shift_for_map; // in PRACH configuration index table slots are numbered wrt 60kHz
           if ((s_map>>map_shift) & 0x01) {
@@ -2561,7 +2552,7 @@ void nr_schedule_csi_for_im(NR_UE_MAC_INST_t *mac, int frame, int slot)
   for (int id = 0; id < csi_measconfig->csi_IM_ResourceToAddModList->list.count; id++){
     imcsi = csi_measconfig->csi_IM_ResourceToAddModList->list.array[id];
     csi_period_offset(NULL,imcsi->periodicityAndOffset,&period,&offset);
-    if((frame*nr_slots_per_frame[mu]+slot-offset)%period != 0)
+    if((frame * mac->frame_structure.numb_slots_frame + slot - offset ) %period != 0)
       continue;
     fapi_nr_dl_config_csiim_pdu_rel15_t *csiim_config_pdu = &dl_config->dl_config_list[dl_config->number_pdus].csiim_config_pdu.csiim_config_rel15;
     csiim_config_pdu->bwp_size = bwp_size;
@@ -2802,7 +2793,7 @@ void nr_schedule_csirs_reception(NR_UE_MAC_INST_t *mac, int frame, int slot)
     NR_NZP_CSI_RS_Resource_t *nzpcsi = csi_measconfig->nzp_CSI_RS_ResourceToAddModList->list.array[id];
     int period, offset;
     csi_period_offset(NULL, nzpcsi->periodicityAndOffset, &period, &offset);
-    if((frame * nr_slots_per_frame[mu] + slot-offset) % period != 0)
+    if((frame * mac->frame_structure.numb_slots_frame + slot-offset) % period != 0)
       continue;
     NR_CSI_ResourceConfigId_t csi_res_id = find_CSI_resourceconfig(csi_measconfig, dl_bwp_id, nzpcsi->nzp_CSI_RS_ResourceId);
     // do not schedule reseption of this CSI-RS if not associated with current BWP
@@ -2850,10 +2841,8 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, sub_fra
   NR_RACH_ConfigCommon_t *setup = mac->current_UL_BWP->rach_ConfigCommon;
   NR_RACH_ConfigGeneric_t *rach_ConfigGeneric = &setup->rach_ConfigGeneric;
   const int bwp_id = mac->current_UL_BWP->bwp_id;
-  NR_TDD_UL_DL_ConfigCommon_t *tdd_config = mac->tdd_UL_DL_ConfigurationCommon;
 
-  if (is_nr_UL_slot(tdd_config, slotP, mac->frame_type)) {
-
+  if (is_ul_slot(slotP, &mac->frame_structure)) {
     // WIP Need to get the proper selected ssb_idx
     //     Initial beam selection functionality is not available yet
     uint8_t selected_gnb_ssb_idx = mac->mib_ssb;
@@ -2986,8 +2975,7 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, sub_fra
       } else if (ra->ra_type == RA_2_STEP) {
         NR_MsgA_PUSCH_Resource_r16_t *msgA_PUSCH_Resource =
             mac->current_UL_BWP->msgA_ConfigCommon_r16->msgA_PUSCH_Config_r16->msgA_PUSCH_ResourceGroupA_r16;
-        int mu = nr_get_prach_mu(mac->current_UL_BWP->msgA_ConfigCommon_r16, setup);
-        const int n_slots_frame = nr_slots_per_frame[mu];
+        const int n_slots_frame = mac->frame_structure.numb_slots_frame;
         slot_t msgA_pusch_slot = (slotP + msgA_PUSCH_Resource->msgA_PUSCH_TimeDomainOffset_r16) % n_slots_frame;
         frame_t msgA_pusch_frame =
             (frameP + ((slotP + msgA_PUSCH_Resource->msgA_PUSCH_TimeDomainOffset_r16) / n_slots_frame)) % 1024;

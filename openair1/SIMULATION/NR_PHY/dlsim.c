@@ -863,7 +863,7 @@ printf("%d\n", slot);
 
   nr_l2_init_ue(1);
   UE_mac = get_mac_inst(0);
-  ue_init_config_request(UE_mac, mu);
+  ue_init_config_request(UE_mac, nr_slots_per_frame[mu]);
 
   UE->if_inst = nr_ue_if_module_init(0);
   UE->if_inst->scheduled_response = nr_ue_scheduled_response;

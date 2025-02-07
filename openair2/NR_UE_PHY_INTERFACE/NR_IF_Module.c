@@ -794,7 +794,7 @@ void check_and_process_dci(nfapi_nr_dl_tti_request_t *dl_tti_request,
     int slots_per_frame = 20; //30 kHZ subcarrier spacing
     int slot_ahead = 2; // TODO: Make this dynamic
 
-    if (is_nr_UL_slot(mac->tdd_UL_DL_ConfigurationCommon, (slot + slot_ahead) % slots_per_frame, mac->frame_type)
+    if (is_ul_slot((slot + slot_ahead) % slots_per_frame, &mac->frame_structure)
         && mac->ra.ra_state != nrRA_SUCCEEDED) {
       // If we filled dl_info AFTER we got the slot indication, we want to check if we should fill tx_req:
       nr_uplink_indication_t ul_info = {.slot = (slot + slot_ahead) % slots_per_frame,
@@ -1203,7 +1203,7 @@ int nr_ue_ul_indication(nr_uplink_indication_t *ul_info)
 
   LOG_T(NR_MAC, "Not calling scheduler mac->ra.ra_state = %d\n", mac->ra.ra_state);
 
-  if (is_nr_UL_slot(mac->tdd_UL_DL_ConfigurationCommon, ul_info->slot, mac->frame_type))
+  if (is_ul_slot(ul_info->slot, &mac->frame_structure))
     nr_ue_ul_scheduler(mac, ul_info);
   ret = pthread_mutex_unlock(&mac->if_mutex);
   AssertFatal(!ret, "mutex failed %d\n", ret);

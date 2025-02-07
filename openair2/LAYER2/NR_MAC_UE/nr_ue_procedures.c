@@ -235,6 +235,7 @@ static void configure_ratematching_csi(fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsc
                                        int frame,
                                        int slot,
                                        int mu,
+                                       int slots_per_frame,
                                        NR_PDSCH_Config_t *pdsch_config)
 {
   // only for C-RNTI, MCS-C-RNTI, CS-RNTI (and only C-RNTI is supported for now)
@@ -258,7 +259,7 @@ static void configure_ratematching_csi(fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsc
       AssertFatal(zp_res->periodicityAndOffset, "periodicityAndOffset cannot be null for periodic ZP resource\n");
       int period, offset;
       csi_period_offset(NULL, zp_res->periodicityAndOffset, &period, &offset);
-      if((frame * nr_slots_per_frame[mu] + slot - offset) % period != 0)
+      if((frame * slots_per_frame + slot - offset) % period != 0)
         continue;
       AssertFatal(dlsch_pdu->numCsiRsForRateMatching < NFAPI_MAX_NUM_CSI_RATEMATCH, "csiRsForRateMatching out of bounds\n");
       fapi_nr_dl_config_csirs_pdu_rel15_t *csi_pdu = &dlsch_pdu->csiRsForRateMatching[dlsch_pdu->numCsiRsForRateMatching];
@@ -705,7 +706,8 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
   }
 
   dlsch_pdu->numCsiRsForRateMatching = 0;
-  configure_ratematching_csi(dlsch_pdu, dl_config, rnti_type, frame, slot, dlsch_pdu->SubcarrierSpacing, pdsch_config);
+  int slots_frame = mac->frame_structure.numb_slots_frame;
+  configure_ratematching_csi(dlsch_pdu, dl_config, rnti_type, frame, slot, dlsch_pdu->SubcarrierSpacing, slots_frame, pdsch_config);
 
 
   /* IDENTIFIER_DCI_FORMATS */
@@ -1034,7 +1036,8 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
 
   nr_rnti_type_t rnti_type = get_rnti_type(mac, dci_ind->rnti);
   dlsch_pdu->numCsiRsForRateMatching = 0;
-  configure_ratematching_csi(dlsch_pdu, dl_config, rnti_type, frame, slot, current_DL_BWP->scs, pdsch_Config);
+  int slots_frame = mac->frame_structure.numb_slots_frame;
+  configure_ratematching_csi(dlsch_pdu, dl_config, rnti_type, frame, slot, current_DL_BWP->scs, slots_frame, pdsch_Config);
 
   /* IDENTIFIER_DCI_FORMATS */
   /* CARRIER_IND */
@@ -1468,8 +1471,7 @@ void set_harq_status(NR_UE_MAC_INST_t *mac,
   current_harq->dai_cumul = 0;
   current_harq->delta_pucch = delta_pucch;
   // FIXME k0 != 0 currently not taken into consideration
-  int scs = mac->current_DL_BWP ? mac->current_DL_BWP->scs : get_softmodem_params()->numerology;
-  int slots_per_frame = nr_slots_per_frame[scs];
+  int slots_per_frame = mac->frame_structure.numb_slots_frame;
   current_harq->ul_frame = frame;
   current_harq->ul_slot = slot + data_toul_fb;
   if (current_harq->ul_slot >= slots_per_frame) {
@@ -1532,8 +1534,7 @@ int nr_ue_configure_pucch(NR_UE_MAC_INST_t *mac,
   long *pusch_id = NULL;
   long *id0 = NULL;
   const int scs = current_UL_BWP->scs;
-
-  int subframe_number = slot / (nr_slots_per_frame[scs]/10);
+  int subframe_number = slot / (mac->frame_structure.numb_slots_frame / 10);
   pucch_pdu->rnti = rnti;
 
   LOG_D(NR_MAC, "initial_pucch_id %d, pucch_resource %p\n", pucch->initial_pucch_id, pucch->pucch_resource);
@@ -2503,7 +2504,7 @@ bool trigger_periodic_scheduling_request(NR_UE_MAC_INST_t *mac, PUCCH_sched_t *p
     int SR_period; int SR_offset;
 
     find_period_offset_SR(sr_Config, &SR_period, &SR_offset);
-    const int n_slots_frame = nr_slots_per_frame[current_UL_BWP->scs];
+    const int n_slots_frame = mac->frame_structure.numb_slots_frame;
     int sfn_sf = frame * n_slots_frame + slot;
 
     if ((sfn_sf - SR_offset) % SR_period == 0) {
@@ -2613,7 +2614,7 @@ int nr_get_csi_measurements(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, PUCC
       if(csirep->reportConfigType.present == NR_CSI_ReportConfig__reportConfigType_PR_periodic) {
         int period, offset;
         csi_period_offset(csirep, NULL, &period, &offset);
-        const int n_slots_frame = nr_slots_per_frame[current_UL_BWP->scs];
+        const int n_slots_frame = mac->frame_structure.numb_slots_frame;
         if (((n_slots_frame*frame + slot - offset)%period) == 0 && pucch_Config) {
           int csi_res_id = -1;
           for (int i = 0; i < csirep->reportConfigType.choice.periodic->pucch_CSI_ResourceList.list.count; i++) {
@@ -3433,12 +3434,10 @@ static void set_time_alignment(NR_UE_MAC_INST_t *mac, int ta, ta_type_t type, in
   NR_UL_TIME_ALIGNMENT_t *ul_time_alignment = &mac->ul_time_alignment;
   ul_time_alignment->ta_command = ta;
   ul_time_alignment->ta_apply = type;
-
   const int ntn_ue_koffset = GET_NTN_UE_K_OFFSET(&mac->ntn_ta, mac->current_UL_BWP->scs);
-  const int n_slots_frame = nr_slots_per_frame[mac->current_UL_BWP->scs];
+  const int n_slots_frame = mac->frame_structure.numb_slots_frame;
   ul_time_alignment->frame = (frame + (slot + ntn_ue_koffset) / n_slots_frame) % MAX_FRAME_NUMBER;
   ul_time_alignment->slot = (slot + ntn_ue_koffset) % n_slots_frame;
-
   // start or restart the timeAlignmentTimer associated with the indicated TAG
   nr_timer_start(&mac->time_alignment_timer);
 }

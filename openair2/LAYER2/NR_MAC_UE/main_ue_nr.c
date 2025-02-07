@@ -139,7 +139,7 @@ NR_UE_MAC_INST_t *nr_l2_init_ue(int nb_inst)
     nr_ue_init_mac(mac);
     nr_ue_mac_default_configs(mac);
     if (IS_SA_MODE(get_softmodem_params()))
-      ue_init_config_request(mac, get_softmodem_params()->numerology);
+      ue_init_config_request(mac, nr_slots_per_frame[get_softmodem_params()->numerology]);
   }
 
   int rc = rlc_module_init(0);

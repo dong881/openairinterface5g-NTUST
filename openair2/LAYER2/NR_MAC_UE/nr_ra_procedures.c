@@ -84,7 +84,7 @@ void init_RA(NR_UE_MAC_INST_t *mac,
   // PRACH shall be as specified for QPSK modulated DFT-s-OFDM of equivalent RB allocation (38.101-1)
   prach_resources->RA_PCMAX = nr_get_Pcmax(mac->p_Max,
                                            mac->nr_band,
-                                           mac->frame_type,
+                                           mac->frame_structure.frame_type,
                                            mac->frequency_range,
                                            mac->current_UL_BWP->channel_bandwidth,
                                            2,
@@ -617,8 +617,7 @@ void nr_Msg3_transmitted(NR_UE_MAC_INST_t *mac, uint8_t CC_id, frame_t frameP, s
   RA_config_t *ra = &mac->ra;
   NR_RACH_ConfigCommon_t *nr_rach_ConfigCommon = mac->current_UL_BWP->rach_ConfigCommon;
   const double ta_Common_ms = GET_COMPLETE_TIME_ADVANCE_MS(&mac->ntn_ta);
-  const int mu = mac->current_UL_BWP->scs;
-  const int slots_per_ms = nr_slots_per_frame[mu] / 10;
+  const int slots_per_ms = mac->frame_structure.numb_slots_frame / 10;
 
   // start contention resolution timer
   const int RA_contention_resolution_timer_ms = (nr_rach_ConfigCommon->ra_ContentionResolutionTimer + 1) << 3;
@@ -914,14 +913,12 @@ int16_t nr_get_RA_window_4Step(const NR_RACH_ConfigCommon_t *rach_ConfigCommon)
 void nr_get_RA_window(NR_UE_MAC_INST_t *mac)
 {
   RA_config_t *ra = &mac->ra;
-
   NR_RACH_ConfigCommon_t *setup = mac->current_UL_BWP->rach_ConfigCommon;
   AssertFatal(&setup->rach_ConfigGeneric != NULL, "In %s: FATAL! rach_ConfigGeneric is NULL...\n", __FUNCTION__);
   const double ta_Common_ms = GET_COMPLETE_TIME_ADVANCE_MS(&mac->ntn_ta);
-  const int mu = mac->current_DL_BWP->scs;
-  const int slots_per_ms = nr_slots_per_frame[mu] / 10;
-
-  const int ra_Offset_slots = ra->RA_offset * nr_slots_per_frame[mu];
+  int slots_per_frame = mac->frame_structure.numb_slots_frame;
+  const int slots_per_ms = slots_per_frame / 10;
+  const int ra_Offset_slots = ra->RA_offset * slots_per_frame;
   const int ta_Common_slots = (int)ceil(ta_Common_ms * slots_per_ms);
 
   ra->RA_window_cnt = ra_Offset_slots + ta_Common_slots; // taking into account the 2 frames gap introduced by OAI gNB
