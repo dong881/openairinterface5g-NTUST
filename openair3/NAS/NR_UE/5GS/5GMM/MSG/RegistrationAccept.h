@@ -51,9 +51,9 @@ typedef enum {
 // 9.11.3.37 of 3GPP TS 24.501
 typedef struct {
   int sst;
-  int hplmn_sst;
-  int sd;
-  int hplmn_sd;
+  int *hplmn_sst;
+  int *sd;
+  int *hplmn_sd;
 } nr_nas_msg_snssai_t;
 
 /*
@@ -80,5 +80,7 @@ typedef struct registration_accept_msg_tag {
 size_t decode_registration_accept(registration_accept_msg *registrationaccept, const byte_array_t buffer);
 
 int encode_registration_accept(const registration_accept_msg *registrationaccept, uint8_t *buffer, uint32_t len);
+
+void free_fgmm_registration_accept(registration_accept_msg *msg);
 
 #endif /* ! defined(REGISTRATION_ACCEPT_H_) */
