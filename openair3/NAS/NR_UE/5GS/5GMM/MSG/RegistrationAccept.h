@@ -35,6 +35,7 @@
 #include "SecurityHeaderType.h"
 #include "MessageType.h"
 #include "FGSMobileIdentity.h"
+#include "ds/byte_array.h"
 
 #ifndef REGISTRATION_ACCEPT_H_
 #define REGISTRATION_ACCEPT_H_
@@ -44,6 +45,8 @@ typedef enum {
   FGS_REGISTRATION_RESULT_NON_3GPP = 2,
   FGS_REGISTRATION_RESULT_3GPP_AND_NON_3GPP = 3
 } fgs_registration_result_t;
+
+#define NAS_MAX_NUMBER_SLICES 8
 
 // 9.11.3.37 of 3GPP TS 24.501
 typedef struct {
@@ -66,13 +69,13 @@ typedef struct registration_accept_msg_tag {
   bool sms_allowed;
   // 5G-GUTI (Optional)
   FGSMobileIdentity *guti;
-  // Allowed NSSAI (O)
-  nr_nas_msg_snssai_t nas_allowed_nssai[8];
-  // Configured NSSAI (O)
-  nr_nas_msg_snssai_t config_nssai[8];
+  // Allowed NSSAI (Optional)
+  nr_nas_msg_snssai_t nas_allowed_nssai[NAS_MAX_NUMBER_SLICES];
+  // Configured NSSAI (Optional)
+  nr_nas_msg_snssai_t config_nssai[NAS_MAX_NUMBER_SLICES];
 } registration_accept_msg;
 
-int decode_registration_accept(registration_accept_msg *registrationaccept, const uint8_t *buffer, uint32_t len);
+size_t decode_registration_accept(registration_accept_msg *registrationaccept, const byte_array_t buffer);
 
 int encode_registration_accept(const registration_accept_msg *registrationaccept, uint8_t *buffer, uint32_t len);
 

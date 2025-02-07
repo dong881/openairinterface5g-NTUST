@@ -1452,7 +1452,8 @@ static void handle_registration_accept(nr_ue_nas_t *nas, const uint8_t *pdu_buff
   }
   pdu_buffer += decoded;
   // plain payload
-  if ((decoded = decode_registration_accept(&msg, pdu_buffer, end - pdu_buffer)) < 0) {
+  const byte_array_t ba = {.buf = (uint8_t *)pdu_buffer, .len = end - pdu_buffer};
+  if ((decoded = decode_registration_accept(&msg, ba)) < 0) {
     LOG_E(NAS, "Failed to decode NAS Registration Accept\n");
     return;
   }

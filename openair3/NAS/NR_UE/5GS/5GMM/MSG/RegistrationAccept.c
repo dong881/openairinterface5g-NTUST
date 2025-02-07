@@ -33,13 +33,11 @@
 #include <string.h>
 #include <stdint.h>
 #include "conversions.h"
-#include "TLVEncoder.h"
-#include "TLVDecoder.h"
 #include "RegistrationAccept.h"
-#include "assertions.h"
 #include "fgs_nas_utils.h"
 #include "common/utils/utils.h"
 #include "ds/byte_array.h"
+#include "fgmm_lib.h"
 
 #define IEI_5G_GUTI 0x77
 #define FGS_REGISTRATION_RESULT_LEN 2
@@ -128,56 +126,65 @@ static int decode_nssai_ie(nr_nas_msg_snssai_t *nssai, const uint8_t *buf)
   return decoded;
 }
 
-int decode_registration_accept(registration_accept_msg *registration_accept, const uint8_t *buffer, uint32_t len)
+size_t decode_registration_accept(registration_accept_msg *registration_accept, const byte_array_t buffer)
 {
   int dec = 0;
-  const uint8_t *end = buffer + len;
+  byte_array_t ba = buffer; // local copy of buffer
+
+  if (ba.len < REGISTRATION_ACCEPT_MIN_LEN) {
+    PRINT_NAS_ERROR("Registration Accept decoding failed: invalid buffer length\n");
+    return -1;
+  }
 
   // 5GS registration result (Mandatory)
-  byte_array_t ba = {.buf = buffer, .len = len};
   if ((dec = decode_fgs_registration_result(registration_accept, ba)) < 0)
-    return dec;
-  buffer += dec;
+    return -1;
+  UPDATE_BYTE_ARRAY(ba, dec);
 
-  if (buffer < end && *buffer == IEI_5G_GUTI) {
+  // 5G-GUTI (Optional)
+  if (ba.len > 0 && ba.buf[0] == IEI_5G_GUTI) {
     registration_accept->guti = calloc_or_fail(1, sizeof(*registration_accept->guti));
-    if ((dec = decode_5gs_mobile_identity(registration_accept->guti, IEI_5G_GUTI, buffer, end - buffer)) < 0) {
+    if ((dec = decode_5gs_mobile_identity(registration_accept->guti, IEI_5G_GUTI, ba.buf, ba.len)) < 0) {
       PRINT_NAS_ERROR("Failed to decode 5GS Mobile Identity in Registration Accept\n");
       return -1;
     }
-    buffer += dec;
+    UPDATE_BYTE_ARRAY(ba, dec);
   }
 
-  // Allowed NSSAI (O)
-  /* Optional Presence IEs */
-  while (buffer < end) {
-    const int iei = *buffer++;
+  // Decode other Optional IEs
+  while (ba.len > 0) {
+    uint8_t iei = ba.buf[0];
+    UPDATE_BYTE_ARRAY(ba, 1);
+
     switch (iei) {
 
       case 0x15: // allowed NSSAI
-        dec = decode_nssai_ie(registration_accept->nas_allowed_nssai, buffer);
-        buffer += dec;
+        dec = decode_nssai_ie(registration_accept->nas_allowed_nssai, ba.buf);
+        UPDATE_BYTE_ARRAY(ba, dec);
         break;
 
       case 0x31: // configured NSSAI
-        dec = decode_nssai_ie(registration_accept->config_nssai, buffer);
-        buffer += dec;
+        dec = decode_nssai_ie(registration_accept->config_nssai, ba.buf);
+        UPDATE_BYTE_ARRAY(ba, dec);
         break;
 
       default:
-        dec = *buffer++; // content length + 1 byte (Length IE)
-        buffer += dec;
+        dec = ba.buf[0] + 1; // content length + 1 byte (Length IE)
+        UPDATE_BYTE_ARRAY(ba, dec);
         break;
     }
   }
-  return len;
+  if(ba.len != 0) {
+    PRINT_NAS_ERROR("Failed to decode registration accept: ba.len = %ld\n", ba.len);
+    return -1;
+  }
+  return buffer.len;
 }
 
 int encode_registration_accept(const registration_accept_msg *registration_accept, uint8_t *buffer, uint32_t len)
 {
   int encoded = 0;
 
-  LOG_FUNC_IN;
   byte_array_t ba = {.buf = buffer, .len = len};
   encoded += encode_fgs_registration_result(ba, registration_accept);
 
@@ -188,6 +195,5 @@ int encode_registration_accept(const registration_accept_msg *registration_accep
     encoded += mi_enc;
   }
 
-  // todo ,Encoding optional fields
-  LOG_FUNC_RETURN(encoded);
+  return encoded;
 }
