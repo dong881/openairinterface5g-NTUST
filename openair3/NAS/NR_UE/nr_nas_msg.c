@@ -77,6 +77,8 @@ static nr_ue_nas_t nr_ue_nas[MAX_NAS_UE] = {0};
   TYPE_DEF(NAS_SECURITY_INTEGRITY_PASSED, 4)     \
   TYPE_DEF(NAS_SECURITY_BAD_INPUT, 5)
 
+const char *nr_release_cause_desc[] = {"RRC_CONNECTION_FAILURE", "RRC_RESUME_FAILURE", "OTHER"};
+
 typedef enum { FOREACH_STATE(TO_ENUM) } security_state_t;
 
 static const text_info_t security_state_info[] = {FOREACH_STATE(TO_TEXT)};
@@ -1365,6 +1367,15 @@ static void send_nas_detach_req(nr_ue_nas_t *nas, bool wait_release)
   itti_send_msg_to_task(TASK_RRC_NRUE, nas->UE_id, msg);
 }
 
+static void send_nas_5gmm_ind(instance_t instance, const Guti5GSMobileIdentity_t *guti)
+{
+  MessageDef *msg = itti_alloc_new_message(TASK_NAS_NRUE, 0, NAS_5GMM_IND);
+  nas_5gmm_ind_t *ind = &NAS_5GMM_IND(msg);
+  LOG_I(NR_RRC, "5G-GUTI: AMF pointer %u, AMF Set ID %u, 5G-TMSI %u \n", guti->amfpointer, guti->amfsetid, guti->tmsi);
+  ind->fiveG_STMSI = ((uint64_t)guti->amfsetid << 38) | ((uint64_t)guti->amfpointer << 32) | guti->tmsi;
+  itti_send_msg_to_task(TASK_RRC_NRUE, instance, msg);
+}
+
 static void request_default_pdusession(nr_ue_nas_t *nas)
 {
   MessageDef *message_p = itti_alloc_new_message(TASK_NAS_NRUE, nas->UE_id, NAS_PDU_SESSION_REQ);
@@ -1438,6 +1449,9 @@ static void handle_registration_accept(nr_ue_nas_t *nas, const uint8_t *pdu_buff
   } else {
     LOG_W(NAS, "no GUTI in registration accept\n");
   }
+
+  if(nas->guti)
+    send_nas_5gmm_ind(nas->UE_id, nas->guti);
 
   as_nas_info_t initialNasMsg = {0};
   generateRegistrationComplete(nas, &initialNasMsg, NULL);

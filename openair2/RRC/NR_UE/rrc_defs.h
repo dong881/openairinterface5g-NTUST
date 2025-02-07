@@ -239,6 +239,9 @@ typedef struct NR_UE_RRC_INST_s {
   Rrc_State_NR_t nrRrcState;
   // flag to identify 1st reconfiguration after reestablishment
   bool reconfig_after_reestab;
+  // 5G-S-TMSI
+  uint64_t fiveG_S_TMSI;
+
   //Sidelink params
   NR_SL_PreconfigurationNR_r16_t *sl_preconfig;
   // NTN params

@@ -601,6 +601,8 @@ NR_UE_RRC_INST_t* nr_rrc_init_ue(char* uecap_file, int nb_inst, int num_ant_tx)
     rrc->as_security_activated = false;
     rrc->detach_after_release = false;
     rrc->reconfig_after_reestab = false;
+    /* 5G-S-TMSI */
+    rrc->fiveG_S_TMSI = UINT64_MAX;
 
     FILE *f = NULL;
     if (uecap_file)
@@ -2095,6 +2097,12 @@ void *rrc_nrue(void *notUsed)
     nr_pdcp_data_req_srb(rrc->ue_id, srb_id, 0, length, buffer, deliver_pdu_srb_rlc, NULL);
     free(req->nasMsg.nas_data);
     free(buffer);
+    break;
+  }
+
+  case NAS_5GMM_IND: {
+    nas_5gmm_ind_t *req = &NAS_5GMM_IND(msg_p);
+    rrc->fiveG_S_TMSI = req->fiveG_STMSI;
     break;
   }
 
