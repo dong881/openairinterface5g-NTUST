@@ -241,6 +241,8 @@ typedef struct NR_UE_RRC_INST_s {
   bool reconfig_after_reestab;
   //Sidelink params
   NR_SL_PreconfigurationNR_r16_t *sl_preconfig;
+  // NTN params
+  bool is_NTN_UE;
 } NR_UE_RRC_INST_t;
 
 #endif

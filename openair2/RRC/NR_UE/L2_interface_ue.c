@@ -138,12 +138,14 @@ void process_msg_rcc_to_mac(MessageDef *msg)
       break;
     case NR_MAC_RRC_CONFIG_SIB1: {
       NR_SIB1_t *sib1 = NR_MAC_RRC_CONFIG_SIB1(msg).sib1;
-      nr_rrc_mac_config_req_sib1(ue_id, 0, sib1);
+      bool can_start_ra = NR_MAC_RRC_CONFIG_SIB1(msg).can_start_ra;
+      nr_rrc_mac_config_req_sib1(ue_id, 0, sib1, can_start_ra);
       SEQUENCE_free(&asn_DEF_NR_SIB1, NR_MAC_RRC_CONFIG_SIB1(msg).sib1, ASFM_FREE_EVERYTHING);
     } break;
-    case NR_MAC_RRC_CONFIG_OTHER_SIB:
-      nr_rrc_mac_config_other_sib(ue_id, NR_MAC_RRC_CONFIG_OTHER_SIB(msg).sib19);
-      break;
+    case NR_MAC_RRC_CONFIG_OTHER_SIB: {
+      bool can_start_ra = NR_MAC_RRC_CONFIG_OTHER_SIB(msg).can_start_ra;
+      nr_rrc_mac_config_other_sib(ue_id, NR_MAC_RRC_CONFIG_OTHER_SIB(msg).sib19, can_start_ra);
+    } break;
     default:
       LOG_E(NR_MAC, "Unexpected msg from RRC: %d\n", ITTI_MSG_ID(msg));
   }
