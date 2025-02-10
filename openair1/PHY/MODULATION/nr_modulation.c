@@ -276,7 +276,7 @@ void nr_layer_mapping(int nbCodes,
         for (int i2 = ((n_symbs >> 4) << 4); i2 < n_symbs; i2 += 2) {
           tx_layers[0][i2 >> 1] = mod_symbs[0][i2];
           tx_layers[1][i2 >> 1] = mod_symbs[0][i2 + 1];
-        }
+      }
       }
 #else
       for (i = 0; i < n_symbs; i += 32) {
@@ -738,30 +738,26 @@ c16_t nr_layer_precoder(int sz, c16_t datatx_F_precoding[][sz], const char *prec
 }
 
 c16_t nr_layer_precoder_cm(int n_layers,
-                           int n_symbols,
                            int symSz,
-                           c16_t datatx_F_precoding[n_layers][n_symbols][symSz],
+                           c16_t datatx_F_precoding[n_layers][symSz],
                            int ap,
                            nfapi_nr_pm_pdu_t *pmi_pdu,
-                           int symbol,
                            int offset)
 {
   c16_t precodatatx_F = {0};
   for (int al = 0; al < n_layers; al++) {
     nfapi_nr_pm_weights_t *w = &pmi_pdu->weights[al][ap];
     c16_t prec_weight = {.r = w->precoder_weight_Re, .i = w->precoder_weight_Im};
-    precodatatx_F = c16maddShift(datatx_F_precoding[al][symbol][offset], prec_weight, precodatatx_F, 15);
+    precodatatx_F = c16maddShift(datatx_F_precoding[al][offset], prec_weight, precodatatx_F, 15);
   }
   return precodatatx_F;
 }
 
 void nr_layer_precoder_simd(const int n_layers,
-                            const int n_symbols,
                             const int symSz,
-                            const c16_t txdataF_res_mapped[n_layers][n_symbols][symSz],
+                            const c16_t txdataF_res_mapped[n_layers][symSz],
                             const int ant,
                             const nfapi_nr_pm_pdu_t *pmi_pdu,
-                            const int symbol,
                             const int sc_offset,
                             const int re_cnt,
                             c16_t *txdataF_precoded)
@@ -811,7 +807,7 @@ void nr_layer_precoder_simd(const int n_layers,
 #ifdef DEBUG_DLSCH_PRECODING_PRINT_WITH_TRIVIAL // Get result with trivial solution, TODO: To be removed
     c16_t y_triv[4];
     for (int i = 0; i < 4; i++)
-      y_triv[i] = nr_layer_precoder_cm(n_layers, NR_SYMBOLS_PER_SLOT, symSz, txdataF_res_mapped, ant, pmi_pdu, symbol, sc + i);
+      y_triv[i] = nr_layer_precoder_cm(n_layers, symSz, txdataF_res_mapped, ant, pmi_pdu, sc + i);
     memcpy(&txdataF_precoded[sc], y_triv, sizeof(y_triv));
 #endif
 
