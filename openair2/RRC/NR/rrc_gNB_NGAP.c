@@ -815,6 +815,29 @@ void rrc_gNB_send_NGAP_PDUSESSION_SETUP_RESP(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE
   return;
 }
 
+/* \brief checks if any transaction is ongoing for any xid of this UE */
+static bool transaction_ongoing(const gNB_RRC_UE_t *UE)
+{
+  for (int xid = 0; xid < NR_RRC_TRANSACTION_IDENTIFIER_NUMBER; ++xid) {
+    if (UE->xids[xid] != RRC_ACTION_NONE)
+      return true;
+  }
+  return false;
+}
+
+/* \brief delays the ongoing transaction (in msg_p) by setting a timer to wait
+ * 10ms; upon expiry, delivers to RRC, which sends the message to itself */
+static void delay_transaction(MessageDef *msg_p, int wait_us)
+{
+  MessageDef *new = itti_alloc_new_message(TASK_RRC_GNB, 0, NGAP_PDUSESSION_SETUP_REQ);
+  ngap_pdusession_setup_req_t *n = &NGAP_PDUSESSION_SETUP_REQ(new);
+  *n = NGAP_PDUSESSION_SETUP_REQ(msg_p);
+
+  int instance = msg_p->ittiMsgHeader.originInstance;
+  long timer_id;
+  timer_setup(0, wait_us, TASK_RRC_GNB, instance, TIMER_ONE_SHOT, new, &timer_id);
+}
+
 /**
  * @brief Fill PDU Session Resource Setup Response with a list of PDU Session Resources Failed to Setup
  *        and send ITTI message to TASK_NGAP
@@ -888,15 +911,35 @@ void rrc_gNB_process_NGAP_PDUSESSION_SETUP_REQ(MessageDef *msg_p, instance_t ins
 
   UE->amf_ue_ngap_id = msg->amf_ue_ngap_id;
 
+  /* This is a hack. We observed that with some UEs, PDU session requests might
+   * come in quick succession, faster than the RRC reconfiguration for the PDU
+   * session requests can be carried out (UE is doing reconfig, and second PDU
+   * session request arrives). We don't have currently the means to "queue up"
+   * these transactions, which would probably involve some rework of the RRC.
+   * To still allow these requests to come in and succeed, we below check and delay transactions
+   * for 10ms. However, to not accidentally end up in infinite loops, the
+   * maximum number is capped on a per-UE basis as indicated in variable
+   * max_delays_pdu_session. */
+  if (!UE->ongoing_pdusession_setup_request)
+    UE->max_delays_pdu_session = 100;
+
+  if (UE->max_delays_pdu_session > 0 && (transaction_ongoing(UE) || UE->ongoing_pdusession_setup_request)) {
+    int wait_us = 10000;
+    LOG_I(RRC, "UE %d: delay PDU session setup by %d us, pending %d retries\n", UE->rrc_ue_id, wait_us, UE->max_delays_pdu_session);
+    delay_transaction(msg_p, wait_us);
+    UE->max_delays_pdu_session--;
+    return;
+  }
+
   if (!trigger_bearer_setup(rrc, UE, msg->nb_pdusessions_tosetup, msg->pdusession_setup_params, msg->ueAggMaxBitRateDownlink)) {
     // Reject PDU Session Resource setup if there's no CU-UP associated
     LOG_W(NR_RRC, "UE %d: reject PDU Session Setup in PDU Session Resource Setup Response\n", UE->rrc_ue_id);
     ngap_cause_t cause = {.type = NGAP_CAUSE_RADIO_NETWORK, .value = NGAP_CAUSE_RADIO_NETWORK_RESOURCES_NOT_AVAILABLE_FOR_THE_SLICE};
     send_ngap_pdu_session_setup_resp_fail(instance, msg, cause);
     rrc_forward_ue_nas_message(rrc, UE);
+  } else {
+    UE->ongoing_pdusession_setup_request = true;
   }
-
-  return;
 }
 
 static void fill_qos2(NGAP_QosFlowAddOrModifyRequestList_t *qos, pdusession_t *session)

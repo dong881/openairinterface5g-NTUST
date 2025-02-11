@@ -1666,6 +1666,10 @@ static void handle_rrcReconfigurationComplete(gNB_RRC_INST *rrc, gNB_RRC_UE_t *U
       LOG_E(RRC, "UE %d: Received unexpected transaction type %d for xid %d\n", UE->rrc_ue_id, UE->xids[xid], xid);
       break;
   }
+
+  if (UE->xids[xid] == RRC_PDUSESSION_ESTABLISH)
+    UE->ongoing_pdusession_setup_request = false;
+
   UE->xids[xid] = RRC_ACTION_NONE;
   for (int i = 0; i < NR_RRC_TRANSACTION_IDENTIFIER_NUMBER; ++i) {
     if (UE->xids[i] != RRC_ACTION_NONE) {
@@ -2554,9 +2558,10 @@ void *rrc_gnb_task(void *args_p) {
         break;
 
       case TIMER_HAS_EXPIRED:
-        /* only this one handled for now */
-        DevAssert(TIMER_HAS_EXPIRED(msg_p).timer_id == stats_timer_id);
-        write_rrc_stats(RC.nrrrc[0]);
+        if (TIMER_HAS_EXPIRED(msg_p).timer_id == stats_timer_id)
+          write_rrc_stats(RC.nrrrc[0]);
+        else
+          itti_send_msg_to_task(TASK_RRC_GNB, 0, TIMER_HAS_EXPIRED(msg_p).arg); /* see rrc_gNB_process_NGAP_PDUSESSION_SETUP_REQ() */
         break;
 
       case F1AP_INITIAL_UL_RRC_MESSAGE:
