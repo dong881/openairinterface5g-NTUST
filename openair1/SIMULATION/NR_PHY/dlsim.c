@@ -1277,8 +1277,7 @@ printf("%d\n", slot);
       printStatIndent3(&gNB->dlsch_interleaving_stats,  "DLSCH Interleaving time");
       printStatIndent2(&gNB->dlsch_modulation_stats,"DLSCH modulation time");
       printStatIndent2(&gNB->dlsch_scrambling_stats, "DLSCH scrambling time");
-      printStatIndent2(&gNB->dlsch_resource_mapping_stats, "DLSCH Resource Mapping time");
-      printStatIndent2(&gNB->dlsch_precoding_stats,"DLSCH Layer Precoding time");
+      printStatIndent2(&gNB->dlsch_precoding_stats,"DLSCH Mapping/Precoding time");
       if (gNB->phase_comp)
         printStatIndent2(&gNB->phase_comp_stats, "Phase Compensation");
 
