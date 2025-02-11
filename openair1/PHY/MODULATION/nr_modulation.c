@@ -289,12 +289,12 @@ void nr_layer_mapping(int nbCodes,
       uint8_t const perm0[16] = {0, 1, 2, 3, 8, 9, 10, 11, 4, 5, 6, 7, 12, 13, 14, 15};
       uint8x16_t perm = vld1q_u8(perm0);
       uint8x16_t d;
-      for (; i < n_symbs & (~3); i += 4) {
+      for (; i < (n_symbs & (~3)); i += 4) {
         d = vqtbl1q_u8(*(uint8x16_t *)(mod + i), perm);
-        *(int64_t *)tx0 = = vgetq_lane_u64((uint64x2_t)d, 0);
+        *(int64_t *)tx0 = vgetq_lane_u64((uint64x2_t)d, 0);
         *(int64_t *)tx1 = vgetq_lane_u64((uint64x2_t)d, 1);
-        tx0 += 4;
-        tx1 += 4;
+        tx0 += 2;
+        tx1 += 2;
       }
 #endif
       for (; i < n_symbs; i += 2) {
@@ -463,13 +463,16 @@ void nr_layer_mapping(int nbCodes,
 #endif
 #if defined(__aarch64__) && defined(USE_NEON)
       // SIMDe doesn't handle this properly, gcc up to 14.2 neither
-      uint32x4_t d4;
       for (; i < (n_symbs & ~3); i += 4) {
         uint32x4_t d4 = *(uint32x4_t *)(mod + i);
-        *tx0++ = vgetq_lane_u32(d4, 0);
-        *tx1++ = vgetq_lane_u32(d4, 1);
-        *tx2++ = vgetq_lane_u32(d4, 0);
-        *tx3++ = vgetq_lane_u32(d4, 1);
+        *(uint32_t *)tx0 = vgetq_lane_u32(d4, 0); 
+	tx0++;
+        *(uint32_t *)tx1 = vgetq_lane_u32(d4, 1); 
+	tx1++;
+        *(uint32_t *)tx2 = vgetq_lane_u32(d4, 0); 
+	tx2++;
+        *(uint32_t *)tx3 = vgetq_lane_u32(d4, 1); 
+	tx3++;
       }
 #endif
       for (; i < n_symbs; i += 4) {
@@ -736,7 +739,7 @@ void nr_layer_precoder_simd(const int n_layers,
       prec_weight.r = pmi_pdu->weights[nl][ant].precoder_weight_Re;
       prec_weight.i = pmi_pdu->weights[nl][ant].precoder_weight_Im;
 
-      const simde__m256i x = simde_mm256_loadu_si256(&txdataF_res_mapped[nl][symbol][sc]);
+      const simde__m256i x = simde_mm256_loadu_si256(&txdataF_res_mapped[nl][sc]);
 
       // Rearrange precoding matrix weight to match complex multiplication and broadcast it to match SIMD size
       const simde__m256i w_c = simde_mm256_set1_epi32(c16toI32(c16conj(prec_weight))); // broadcast conjugate of w
@@ -776,7 +779,7 @@ void nr_layer_precoder_simd(const int n_layers,
       prec_weight.r = pmi_pdu->weights[nl][ant].precoder_weight_Re;
       prec_weight.i = pmi_pdu->weights[nl][ant].precoder_weight_Im;
 
-      const simde__m128i x = simde_mm_loadu_si128(&txdataF_res_mapped[nl][symbol][sc]);
+      const simde__m128i x = simde_mm_loadu_si128(&txdataF_res_mapped[nl][sc]);
 
       // Rearrange precoding matrix weight to match complex multiplication and broadcast it to match SIMD size
       const simde__m128i w_c = simde_mm_set1_epi32(c16toI32(c16conj(prec_weight))); // broadcast conjugate of w
