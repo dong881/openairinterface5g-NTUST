@@ -37,3 +37,8 @@ add_boolean_option(OAI_USRP OFF "Activate OAI's USRP driver" OFF)
 if(OAI_USRP)
   add_subdirectory(USRP)
 endif()
+
+add_boolean_option(OAI_SHM_RADIO ON "Activate OAI's shared memory radio driver" OFF)
+if(OAI_SHM_RADIO)
+  add_subdirectory(shm_radio)
+endif()
