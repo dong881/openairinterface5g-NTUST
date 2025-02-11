@@ -206,6 +206,8 @@ rrc_gNB_ue_context_t *rrc_gNB_create_ue_context(sctp_assoc_t assoc_id,
               ue->rrc_ue_id);
   bool success = cu_add_f1_ue_data(ue->rrc_ue_id, &ue_data);
   DevAssert(success);
+  ue->max_delays_pdu_session = 20; /* see rrc_gNB_process_NGAP_PDUSESSION_SETUP_REQ() */
+  ue->ongoing_pdusession_setup_request = false;
 
   RB_INSERT(rrc_nr_ue_tree_s, &rrc_instance_pP->rrc_ue_head, ue_context_p);
   LOG_UE_EVENT(ue,
