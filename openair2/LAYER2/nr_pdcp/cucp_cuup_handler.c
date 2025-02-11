@@ -148,7 +148,7 @@ void e1_bearer_context_setup(const e1ap_bearer_setup_req_t *req)
   /* mirror the CU-CP UE ID for CU-UP */
   uint32_t cu_up_ue_id = req->gNB_cu_cp_ue_id;
   f1_ue_data_t ued = {.secondary_ue = req->gNB_cu_cp_ue_id};
-  if (need_ue_id_mgmt) {
+  if (need_ue_id_mgmt && !cu_exists_f1_ue_data(cu_up_ue_id)) {
     bool success = cu_add_f1_ue_data(cu_up_ue_id, &ued);
     DevAssert(success);
     LOG_I(E1AP, "adding UE with CU-CP UE ID %d and CU-UP UE ID %d\n", req->gNB_cu_cp_ue_id, cu_up_ue_id);
