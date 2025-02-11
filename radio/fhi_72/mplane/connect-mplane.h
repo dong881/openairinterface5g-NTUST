@@ -26,4 +26,6 @@
 
 bool connect_mplane(ru_session_t *ru_session);
 
+void disconnect_mplane(void *rus_disconnect);
+
 #endif /* CONNECT_MPLANE_H */

@@ -79,6 +79,8 @@ static void recv_notif_v2(struct lyd_node_inner *op, ru_notif_t *answer)
     } else { // "DISABLED" or "BUSY"
       answer->tx_carrier_state = false;
     }
+  } else if (strcmp(notif, "netconf-config-change") == 0) {
+    answer->config_change = true;
   }
 }
 

@@ -186,6 +186,18 @@ bool manage_ru(ru_session_t *ru_session, const openair0_config_t *oai, const siz
     AssertError(success, return false, "[MPLANE] Unable to commit the RU configuration.\n");
   }
 
+  const char *usage_state = get_ru_xml_node(operational_ds, "usage-state");
+  MP_LOG_I("Usage state = \"%s\" for RU \"%s\".\n", usage_state, ru_session->ru_ip_add);
+  if (strcmp(usage_state, "busy") == 0) { // carriers are already activated
+    ru_session->ru_notif.rx_carrier_state = true;
+    ru_session->ru_notif.tx_carrier_state = true;
+    ru_session->ru_notif.config_change = true;
+  } else {
+    ru_session->ru_notif.rx_carrier_state = false;
+    ru_session->ru_notif.tx_carrier_state = false;
+    ru_session->ru_notif.config_change = false;
+  }
+
   free(operational_ds);
   free(watchdog_answer);
 

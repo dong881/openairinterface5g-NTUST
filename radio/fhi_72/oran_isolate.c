@@ -49,6 +49,7 @@ typedef struct {
   rru_config_msg_type_t last_msg;
   int capabilities_sent;
   void *oran_priv;
+  void *mplane_priv;
 } oran_eth_state_t;
 
 notifiedFIFO_t oran_sync_fifo;
@@ -81,6 +82,10 @@ int trx_oran_stop(openair0_device *device)
   printf("ORAN: %s\n", __FUNCTION__);
   oran_eth_state_t *s = device->priv;
   xran_stop(s->oran_priv);
+#ifdef OAI_MPLANE
+  printf("[MPLANE] Stopping M-plane.\n");
+  disconnect_mplane(s->mplane_priv);
+#endif
   return (0);
 }
 
@@ -304,6 +309,41 @@ __attribute__((__visibility__("default"))) int transport_init(openair0_device *d
     }
     ru_configured[i] = manage_ru(ru_session, openair0_cfg, ru_session_list.num_rus);
   }
+
+  bool all_ok = true;
+  bool ru_ready[ru_session_list.num_rus];
+  for (size_t i = 0; i < ru_session_list.num_rus; i++) {
+    if (!ru_configured[i]) {
+      MP_LOG_I("RU with IP %s couldn't be configured.\n", ru_session_list.ru_session[i].ru_ip_add);
+      all_ok = false;
+    }
+    ru_ready[i] = false;
+  }
+
+  if (!all_ok) {
+    disconnect_mplane((void *)&ru_session_list);
+    AssertFatal(false, "[MPLANE] Stopping M-plane.\n");
+  }
+
+  while (true) {
+    sleep(1);
+    bool all_rus_ready = true;
+    for (int i = 0; i < ru_session_list.num_rus; i++) {
+      ru_session_t *ru_session = &ru_session_list.ru_session[i];
+      if (!ru_ready[i] && ru_session->ru_notif.config_change && ru_session->ru_notif.rx_carrier_state && ru_session->ru_notif.tx_carrier_state) {
+        MP_LOG_I("RU \"%s\" is now ready.\n", ru_session->ru_ip_add);
+        ru_ready[i] = true;
+      } else {
+        all_rus_ready = false;
+        break;
+      }
+    }
+    if (all_rus_ready) {
+      break;
+    }
+  }
+
+  eth->mplane_priv = (void *)&ru_session_list;
 #else
   success = get_xran_config(openair0_cfg, &fh_init, fh_config);
   AssertFatal(success, "cannot get configuration for xran\n");

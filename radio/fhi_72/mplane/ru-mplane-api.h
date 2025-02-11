@@ -35,6 +35,7 @@ typedef struct {
   bool ptp_state;
   bool rx_carrier_state;
   bool tx_carrier_state;
+  bool config_change;
   // to be extended with any notification callback
 
 } ru_notif_t;

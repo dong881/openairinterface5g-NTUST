@@ -55,3 +55,19 @@ bool connect_mplane(ru_session_t *ru_session)
 
   return true;
 }
+
+void disconnect_mplane(void *rus_disconnect)
+{
+  ru_session_list_t *ru_session_list = (ru_session_list_t *)rus_disconnect;
+
+  for (size_t i = 0; i <ru_session_list->num_rus; i++) {
+    ru_session_t *ru_session = &ru_session_list->ru_session[i];
+    if (ru_session->session == NULL)
+      continue;
+    MP_LOG_I("Disconnecting from RU \"%s\".\n", ru_session->ru_ip_add);
+    nc_session_free(ru_session->session, NULL);
+    ru_session->session = NULL;
+  }
+
+  nc_client_destroy();
+}
