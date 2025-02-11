@@ -871,6 +871,21 @@ void rrc_gNB_process_NGAP_PDUSESSION_SETUP_REQ(MessageDef *msg_p, instance_t ins
     return;
   }
 
+  // Reject PDU session if at least one exists already with that ID.
+  // At least one because marking one as existing, and setting up another, that
+  // might be more work than is worth it. See 8.2.1.4 in 38.413
+  for (int i = 0; i < msg->nb_pdusessions_tosetup; ++i) {
+    const pdusession_t *p = &msg->pdusession_setup_params[i];
+    rrc_pdu_session_param_t *exist = find_pduSession(UE, p->pdusession_id, false /* don't create */);
+    if (exist) {
+      LOG_E(NR_RRC, "UE %d: already has existing PDU session %d rejecting PDU Session Resource Setup Request\n", UE->rrc_ue_id, p->pdusession_id);
+      ngap_cause_t cause = {.type = NGAP_CAUSE_RADIO_NETWORK, .value = NGAP_CAUSE_RADIO_NETWORK_MULTIPLE_PDU_SESSION_ID_INSTANCES};
+      send_ngap_pdu_session_setup_resp_fail(instance, msg, cause);
+      rrc_forward_ue_nas_message(rrc, UE);
+      return;
+    }
+  }
+
   UE->amf_ue_ngap_id = msg->amf_ue_ngap_id;
 
   if (!trigger_bearer_setup(rrc, UE, msg->nb_pdusessions_tosetup, msg->pdusession_setup_params, msg->ueAggMaxBitRateDownlink)) {
