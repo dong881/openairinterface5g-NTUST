@@ -163,7 +163,7 @@ static void nr_generate_dci(PHY_VARS_gNB *gNB,
 	   scrambled_output[6], scrambled_output[7], scrambled_output[8], scrambled_output[9], scrambled_output[10],scrambled_output[11] );
 #endif
     /// QPSK modulation
-    c16_t mod_dci[NR_MAX_DCI_SIZE >> 2] __attribute__((aligned(16)));
+    c16_t mod_dci[NR_MAX_DCI_SIZE / 2] __attribute__((aligned(16)));
     nr_modulation(scrambled_output, encoded_length, DMRS_MOD_ORDER, (int16_t *)mod_dci); // Qm = 2 as DMRS is QPSK modulated
 #ifdef DEBUG_DCI
     
