@@ -406,6 +406,9 @@ def ExecuteActionWithParam(action):
 
 	elif action == 'Custom_Command':
 		node = test.findtext('node')
+		if force_local:
+			# Change all execution targets to localhost
+			node = 'localhost'
 		command = test.findtext('command')
 		command_fail = test.findtext('command_fail') in ['True', 'true', 'Yes', 'yes']
 		success = cls_oaicitest.Custom_Command(HTML, node, command, command_fail)
