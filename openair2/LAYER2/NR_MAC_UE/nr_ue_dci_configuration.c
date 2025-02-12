@@ -515,7 +515,7 @@ void ue_dci_configuration(NR_UE_MAC_INST_t *mac, fapi_nr_dl_config_request_t *dl
   NR_BWP_Id_t dl_bwp_id = current_DL_BWP ? current_DL_BWP->bwp_id : 0;
   NR_BWP_PDCCH_t *pdcch_config = &mac->config_BWP_PDCCH[dl_bwp_id];
   int scs = current_DL_BWP ? current_DL_BWP->scs : get_softmodem_params()->numerology;
-  const int slots_per_frame = nr_slots_per_frame[scs];
+  const int slots_per_frame = get_slots_per_frame_from_scs(scs);
   if (mac->get_sib1) {
     int ssb_sc_offset_norm;
     if (mac->ssb_subcarrier_offset < 24 && mac->frequency_range == FR1)

@@ -24,7 +24,12 @@
 #include "common/utils/nr/nr_common.h"
 #include "nfapi/open-nFAPI/nfapi/public_inc/nfapi_nr_interface_scf.h"
 
-const uint8_t nr_slots_per_frame[5] = {10, 20, 40, 80, 160};
+int get_slots_per_frame_from_scs(int scs)
+{
+  const int nr_slots_per_frame[5] = {10, 20, 40, 80, 160};
+  return nr_slots_per_frame[scs];
+}
+
 const float tdd_ms_period_pattern[] = {0.5, 0.625, 1.0, 1.25, 2.0, 2.5, 5.0, 10.0};
 const float tdd_ms_period_ext[] = {3.0, 4.0};
 
@@ -188,7 +193,7 @@ void config_frame_structure(int mu,
                             uint8_t frame_type,
                             frame_structure_t *fs)
 {
-  fs->numb_slots_frame = nr_slots_per_frame[mu];
+  fs->numb_slots_frame = get_slots_per_frame_from_scs(mu);
   fs->frame_type = frame_type;
   if (frame_type == TDD) {
     fs->numb_period_frame = get_nb_periods_per_frame(tdd_period);
@@ -196,7 +201,7 @@ void config_frame_structure(int mu,
     config_tdd_patterns(tdd_UL_DL_ConfigurationCommon, fs);
   } else { // FDD
     fs->numb_period_frame = 1;
-    fs->numb_slots_period = nr_slots_per_frame[mu];
+    fs->numb_slots_period = fs->numb_slots_frame;
   }
   AssertFatal(fs->numb_period_frame > 0, "Frame configuration cannot be configured!\n");
 }

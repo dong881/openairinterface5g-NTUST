@@ -4129,6 +4129,7 @@ void get_type0_PDCCH_CSS_config_parameters(NR_Type0_PDCCH_CSS_config_t *type0_PD
   //  38.213 table 10.1-1
 
   /// MUX PATTERN 1
+  int slots_per_frame = get_slots_per_frame_from_scs(scs_ssb);
   if(type0_PDCCH_CSS_config->type0_pdcch_ss_mux_pattern == 1 && frequency_range == FR1){
     big_o = table_38213_13_11_c1[index_4lsb];
     big_m = table_38213_13_11_c3[index_4lsb];
@@ -4145,7 +4146,7 @@ void get_type0_PDCCH_CSS_config_parameters(NR_Type0_PDCCH_CSS_config_t *type0_PD
     //  38.213 chapter 13: over two consecutive slots
     type0_PDCCH_CSS_config->search_space_duration = 2;
     // two frames
-    type0_PDCCH_CSS_config->search_space_frame_period = nr_slots_per_frame[scs_ssb]<<1;
+    type0_PDCCH_CSS_config->search_space_frame_period = slots_per_frame << 1;
   }
 
   if(type0_PDCCH_CSS_config->type0_pdcch_ss_mux_pattern == 1 && frequency_range == FR2){
@@ -4166,7 +4167,7 @@ void get_type0_PDCCH_CSS_config_parameters(NR_Type0_PDCCH_CSS_config_t *type0_PD
     //  38.213 chapter 13: over two consecutive slots
     type0_PDCCH_CSS_config->search_space_duration = 2;
     // two frames
-    type0_PDCCH_CSS_config->search_space_frame_period = nr_slots_per_frame[scs_ssb]<<1;
+    type0_PDCCH_CSS_config->search_space_frame_period = slots_per_frame << 1;
   }
 
   /// MUX PATTERN 2
@@ -4233,7 +4234,7 @@ void get_type0_PDCCH_CSS_config_parameters(NR_Type0_PDCCH_CSS_config_t *type0_PD
     //  38.213 chapter 13: over one slot
     type0_PDCCH_CSS_config->search_space_duration = 1;
     // SSB periodicity in slots
-    type0_PDCCH_CSS_config->search_space_frame_period = ssb_period*nr_slots_per_frame[scs_ssb];
+    type0_PDCCH_CSS_config->search_space_frame_period = ssb_period * slots_per_frame;
   }
 
   /// MUX PATTERN 3
@@ -4263,7 +4264,7 @@ void get_type0_PDCCH_CSS_config_parameters(NR_Type0_PDCCH_CSS_config_t *type0_PD
     //  38.213 chapter 13: over one slot
     type0_PDCCH_CSS_config->search_space_duration = 1;
     // SSB periodicity in slots
-    type0_PDCCH_CSS_config->search_space_frame_period = ssb_period*nr_slots_per_frame[scs_ssb];
+    type0_PDCCH_CSS_config->search_space_frame_period = ssb_period * slots_per_frame;
   }
 
   AssertFatal(type0_PDCCH_CSS_config->sfn_c >= 0, "");
@@ -4323,9 +4324,7 @@ void fill_coresetZero(NR_ControlResourceSet_t *coreset0, NR_Type0_PDCCH_CSS_conf
   coreset0->pdcch_DMRS_ScramblingID = NULL;
 }
 
-void fill_searchSpaceZero(NR_SearchSpace_t *ss0,
-                          int slots_per_frame,
-                          NR_Type0_PDCCH_CSS_config_t *type0_PDCCH_CSS_config)
+void fill_searchSpaceZero(NR_SearchSpace_t *ss0, int slots_per_frame, NR_Type0_PDCCH_CSS_config_t *type0_PDCCH_CSS_config)
 {
   AssertFatal(ss0, "SearchSpace0 should have been allocated outside of this function\n");
   if(ss0->controlResourceSetId == NULL)

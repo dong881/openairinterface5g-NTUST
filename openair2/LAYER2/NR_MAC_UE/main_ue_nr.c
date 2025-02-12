@@ -94,7 +94,7 @@ void nr_ue_mac_default_configs(NR_UE_MAC_INST_t *mac)
 
   // sf80 default for retxBSR_Timer sf10 for periodicBSR_Timer
   int mu = mac->current_UL_BWP ? mac->current_UL_BWP->scs : get_softmodem_params()->numerology;
-  int subframes_per_slot = nr_slots_per_frame[mu] / 10;
+  int subframes_per_slot = get_slots_per_frame_from_scs(mu) / 10;
   nr_timer_setup(&mac->scheduling_info.retxBSR_Timer, 80 * subframes_per_slot, 1); // 1 slot update rate
   nr_timer_setup(&mac->scheduling_info.periodicBSR_Timer, 10 * subframes_per_slot, 1); // 1 slot update rate
 
@@ -139,7 +139,7 @@ NR_UE_MAC_INST_t *nr_l2_init_ue(int nb_inst)
     nr_ue_init_mac(mac);
     nr_ue_mac_default_configs(mac);
     if (IS_SA_MODE(get_softmodem_params()))
-      ue_init_config_request(mac, nr_slots_per_frame[get_softmodem_params()->numerology]);
+      ue_init_config_request(mac, get_slots_per_frame_from_scs(get_softmodem_params()->numerology));
   }
 
   int rc = rlc_module_init(0);

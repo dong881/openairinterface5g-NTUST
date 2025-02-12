@@ -769,7 +769,7 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, NR_ServingCellConfigCommon_t *scc, c
               scc->ssb_PositionsInBurst->present);
 
   const int NTN_gNB_Koffset = get_NTN_Koffset(scc);
-  const int n = nr_slots_per_frame[*scc->ssbSubcarrierSpacing];
+  const int n = get_slots_per_frame_from_scs(*scc->ssbSubcarrierSpacing);
   const int size = n << (int)ceil(log2((NTN_gNB_Koffset + 13) / n + 1)); // 13 is upper limit for max_fb_time
   nrmac->vrb_map_UL_size = size;
 

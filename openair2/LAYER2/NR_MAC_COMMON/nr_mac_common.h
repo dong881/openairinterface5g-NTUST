@@ -63,7 +63,7 @@ int16_t fill_dmrs_mask(const NR_PDSCH_Config_t *pdsch_Config,
                        int startSymbol,
                        mappingType_t mappingtype,
                        int length);
-
+int get_slots_per_frame_from_scs(int scs);
 bool is_ul_slot(const slot_t slot, const frame_structure_t *fs);
 bool is_dl_slot(const slot_t slot, const frame_structure_t *fs);
 bool is_mixed_slot(const slot_t slot, const frame_structure_t *fs);
