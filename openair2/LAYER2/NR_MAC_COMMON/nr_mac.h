@@ -517,7 +517,9 @@ typedef struct {
   uint8_t cri_ssbri_bitlen;
   uint8_t rsrp_bitlen;
   uint8_t diff_rsrp_bitlen;
-} L1_RSRP_bitlen_t;
+  uint8_t sinr_bitlen;
+  uint8_t diff_sinr_bitlen;
+} L1_Meas_bitlen_t;
 
 typedef struct{
   uint8_t ri_restriction;
@@ -535,13 +537,14 @@ typedef struct{
 typedef struct nr_csi_report {
   NR_CSI_ReportConfigId_t reportConfigId;
   NR_CSI_ReportConfig__reportQuantity_PR reportQuantity_type;
+  NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR reportQuantity_type_r16;
   long periodicity;
   uint16_t offset;
   long **SSB_Index_list;
   long **CSI_Index_list;
 //  uint8_t nb_of_nzp_csi_report;
   uint8_t nb_of_csi_ssb_report;
-  L1_RSRP_bitlen_t CSI_report_bitlen;
+  L1_Meas_bitlen_t CSI_report_bitlen;
   CSI_Meas_bitlen_t csi_meas_bitlen;
   int codebook_mode;
   int N1;
