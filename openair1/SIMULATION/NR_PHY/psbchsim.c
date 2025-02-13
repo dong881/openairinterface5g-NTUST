@@ -37,7 +37,6 @@
 #include "openair2/LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "openair1/SIMULATION/TOOLS/sim.h"
 #include "common/utils/nr/nr_common.h"
-#include "openair2/RRC/NR/nr_rrc_extern.h"
 #include "openair2/RRC/LTE/rrc_vars.h"
 #include "PHY/NR_UE_TRANSPORT/nr_transport_proto_ue.h"
 #include "PHY/INIT/nr_phy_init.h"

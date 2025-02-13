@@ -76,7 +76,6 @@
 #include "nr_pdcp/nr_pdcp_entity.h"
 #include "nr_pdcp/nr_pdcp_oai_api.h"
 #include "nr_rrc_defs.h"
-#include "nr_rrc_extern.h"
 #include "oai_asn1.h"
 #include "openair2/F1AP/f1ap_common.h"
 #include "openair2/F1AP/f1ap_ids.h"
@@ -270,8 +269,7 @@ void openair_rrc_gNB_configuration(gNB_RRC_INST *rrc, gNB_RrcConfigurationReq *c
   rrc->configuration = *configuration;
    /// System Information INIT
   init_NR_SI(rrc);
-  return;
-} // END openair_rrc_gNB_configuration
+}
 
 static void rrc_gNB_process_AdditionRequestInformation(const module_id_t gnb_mod_idP, x2ap_ENDC_sgnb_addition_req_t *m)
 {
@@ -421,12 +419,13 @@ static void rrc_gNB_generate_RRCSetup(instance_t instance,
   freeSRBlist(SRBs);
   f1_ue_data_t ue_data = cu_get_f1_ue_data(ue_p->rrc_ue_id);
   RETURN_IF_INVALID_ASSOC_ID(ue_data.du_assoc_id);
+  int srbid = 0;
   f1ap_dl_rrc_message_t dl_rrc = {
     .gNB_CU_ue_id = ue_p->rrc_ue_id,
     .gNB_DU_ue_id = ue_data.secondary_ue,
     .rrc_container = buf,
     .rrc_container_length = size,
-    .srb_id = CCCH
+    .srb_id = srbid
   };
   rrc->mac_rrc.dl_rrc_message_transfer(ue_data.du_assoc_id, &dl_rrc);
 }
@@ -451,12 +450,13 @@ static void rrc_gNB_generate_RRCReject(module_id_t module_id, rrc_gNB_ue_context
 
   f1_ue_data_t ue_data = cu_get_f1_ue_data(ue_p->rrc_ue_id);
   RETURN_IF_INVALID_ASSOC_ID(ue_data.du_assoc_id);
+  int srbid = 0;
   f1ap_dl_rrc_message_t dl_rrc = {
     .gNB_CU_ue_id = ue_p->rrc_ue_id,
     .gNB_DU_ue_id = ue_data.secondary_ue,
     .rrc_container = buf,
     .rrc_container_length = size,
-    .srb_id = CCCH,
+    .srb_id = srbid,
     .execute_duplication  = 1,
     .RAT_frequency_priority_information.en_dc = 0
   };
@@ -2026,19 +2026,20 @@ static void rrc_CU_process_ue_context_release_request(MessageDef *msg_p, sctp_as
   gNB_RRC_INST *rrc = RC.nrrrc[instance];
   rrc_gNB_ue_context_t *ue_context_p = rrc_gNB_get_ue_context(rrc, req->gNB_CU_ue_id);
   // TODO what happens if no AMF connected? should also handle, set an_release true
+  int srbid = 1;
   if (!ue_context_p) {
     LOG_W(RRC, "could not find UE context for CU UE ID %u: auto-generate release command\n", req->gNB_CU_ue_id);
-    uint8_t buffer[RRC_BUF_SIZE] = {0};
-    int size = do_NR_RRCRelease(buffer, RRC_BUF_SIZE, rrc_gNB_get_next_transaction_identifier(0));
+    uint8_t buffer[NR_RRC_BUF_SIZE] = {0};
+    int size = do_NR_RRCRelease(buffer, NR_RRC_BUF_SIZE, rrc_gNB_get_next_transaction_identifier(0));
     f1ap_ue_context_release_cmd_t ue_context_release_cmd = {
         .gNB_CU_ue_id = req->gNB_CU_ue_id,
         .gNB_DU_ue_id = req->gNB_DU_ue_id,
         .cause = F1AP_CAUSE_RADIO_NETWORK,
         .cause_value = 10, // 10 = F1AP_CauseRadioNetwork_normal_release
-        .srb_id = DCCH,
+        .srb_id = srbid,
     };
     deliver_ue_ctxt_release_data_t data = {.rrc = rrc, .release_cmd = &ue_context_release_cmd};
-    nr_pdcp_data_req_srb(req->gNB_CU_ue_id, DCCH, rrc_gNB_mui++, size, buffer, rrc_deliver_ue_ctxt_release_cmd, &data);
+    nr_pdcp_data_req_srb(req->gNB_CU_ue_id, srbid, rrc_gNB_mui++, size, buffer, rrc_deliver_ue_ctxt_release_cmd, &data);
     return;
   }
 

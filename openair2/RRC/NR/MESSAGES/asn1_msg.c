@@ -49,7 +49,6 @@
 
 #include "openair3/SECU/key_nas_deriver.h"
 
-#include "RRC/NR/nr_rrc_extern.h"
 #include "NR_DL-CCCH-Message.h"
 #include "NR_UL-CCCH-Message.h"
 #include "NR_DL-DCCH-Message.h"

@@ -44,7 +44,6 @@
 #include "PHY/defs_gNB.h"
 #include "PHY/defs_nr_common.h"
 #include "RRC/NR/nr_rrc_config.h"
-#include "RRC/NR/nr_rrc_extern.h"
 #include "RRC_nr_paramsvalues.h"
 #include "T.h"
 #include "asn_SEQUENCE_OF.h"

@@ -35,7 +35,6 @@
 #include "LAYER2/RLC/rlc.h"
 #include "COMMON/mac_rrc_primitives.h"
 #include "LAYER2/MAC/mac.h"
-#include "openair2/RRC/NR/nr_rrc_extern.h"
 
 UE_PF_PO_t UE_PF_PO[NFAPI_CC_MAX][MAX_MOBILES_PER_ENB];
 pthread_mutex_t ue_pf_po_mutex;
