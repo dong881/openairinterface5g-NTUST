@@ -538,6 +538,8 @@ typedef struct RSRP_report {
   uint8_t nr_reports;
   uint8_t resource_id[MAX_NR_OF_REPORTED_RS];
   int RSRP[MAX_NR_OF_REPORTED_RS];
+  // SINR index according to tables 10.1.16.1-1, 10.1.16.1-2
+  int SINR_index[MAX_NR_OF_REPORTED_RS];
 } RSRP_report_t;
 
 struct CSI_Report {

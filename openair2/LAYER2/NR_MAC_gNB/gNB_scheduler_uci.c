@@ -429,6 +429,78 @@ static uint8_t pickandreverse_bits(uint8_t *payload, uint16_t bitlen, uint8_t st
   return rev_bits;
 }
 
+static void evaluate_sinr_report(gNB_MAC_INST *nrmac,
+                                 NR_UE_info_t *UE,
+                                 NR_UE_sched_ctrl_t *sched_ctrl,
+                                 uint8_t csi_report_id,
+                                 uint8_t *payload,
+                                 int *cumul_bits,
+                                 NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR reportQuantity_type_r16)
+{
+  /*! As per the spec 38.212 and table:  6.3.1.1.2-12 in a single UCI sequence we can have multiple CSI_report
+   * the number of CSI_report will depend on number of CSI resource sets that are configured in CSI-ResourceConfig RRC IE
+   * From spec 38.331 from the IE CSI-ResourceConfig for SSB RSRP reporting we can configure only one resource set
+   * From spec 38.214 section 5.2.1.2 For periodic and semi-persistent CSI Resource Settings, the number of CSI-RS Resource Sets
+   * configured is limited to S=1
+   */
+
+  /** from 38.214 sec 5.2.1.4.2
+  - if the UE is configured with the higher layer parameter groupBasedBeamReporting set to 'disabled', the UE is
+    not required to update measurements for more than 64 CSI-RS and/or SSB resources, and the UE shall report in
+    a single report nrofReportedRS (higher layer configured) different CRI or SSBRI for each report setting
+
+  - if the UE is configured with the higher layer parameter groupBasedBeamReporting set to 'enabled', the UE is not
+    required to update measurements for more than 64 CSI-RS and/or SSB resources, and the UE shall report in a
+    single reporting instance two different CRI or SSBRI for each report setting, where CSI-RS and/or SSB
+    resources can be received simultaneously by the UE either with a single spatial domain receive filter, or with
+    multiple simultaneous spatial domain receive filter
+  */
+
+  nr_csi_report_t *csi_report = &UE->csi_report_template[csi_report_id];
+  RSRP_report_t *sinr_report;
+  long **index_list;
+  switch (reportQuantity_type_r16) {
+    case NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_ssb_Index_SINR_r16:
+      sinr_report = &sched_ctrl->CSI_report.ssb_rsrp_report;
+      index_list = csi_report->SSB_Index_list;
+      break;
+    case NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_cri_SINR_r16:
+      sinr_report = &sched_ctrl->CSI_report.csirs_rsrp_report;
+      index_list = csi_report->CSI_Index_list;
+      break;
+    default:
+      AssertFatal(false, "Invalid RSRP report type\n");
+  }
+
+  sinr_report->nr_reports = csi_report->CSI_report_bitlen.nb_ssbri_cri;
+  uint16_t curr_payload;
+  for (int i = 0; i < sinr_report->nr_reports; i++) {
+    int bitlen = csi_report->CSI_report_bitlen.cri_ssbri_bitlen;
+    curr_payload = pickandreverse_bits(payload, bitlen, *cumul_bits);
+    sinr_report->resource_id[i] = *(index_list[bitlen > 0 ? ((curr_payload) & ~(~1U << (bitlen - 1))) : bitlen]);
+    LOG_D(MAC, "SSB/CSI-RS index = %d\n", sinr_report->resource_id[i]);
+    *cumul_bits += bitlen;
+  }
+
+  curr_payload = pickandreverse_bits(payload, 7, *cumul_bits);
+  sinr_report->SINR_index[0] = curr_payload & 0x7f;
+  *cumul_bits += 7;
+
+  csi_report->nb_of_csi_ssb_report++;
+  if (sinr_report->SINR_index[0] < 0 || sinr_report->SINR_index[0] > 127) {
+    LOG_E(NR_MAC, "UE %04x: reported SINR index %d invalid\n", UE->rnti, sinr_report->SINR_index[0]);
+    return;
+  }
+
+  for (int i = 1; i < sinr_report->nr_reports; i++) {
+    curr_payload = pickandreverse_bits(payload, 4, *cumul_bits);
+    sinr_report->SINR_index[i] = curr_payload & 0x0f;
+    *cumul_bits += 4;
+  }
+
+  LOG_D(MAC, "Reported SSB-SINR index = %d\n", sinr_report->SINR_index[0]);
+}
+
 static void evaluate_rsrp_report(gNB_MAC_INST *nrmac,
                                  NR_UE_info_t *UE,
                                  NR_UE_sched_ctrl_t *sched_ctrl,
@@ -627,6 +699,8 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
   uint8_t *payload = uci_pdu->csi_part1.csi_part1_payload;
   uint16_t bitlen = uci_pdu->csi_part1.csi_part1_bit_len;
   NR_CSI_ReportConfig__reportQuantity_PR reportQuantity_type = NR_CSI_ReportConfig__reportQuantity_PR_NOTHING;
+  NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR reportQuantity_type_r16 =
+      NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_NOTHING;
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
   NR_UE_DL_BWP_t *dl_bwp = &UE->current_DL_BWP;
@@ -650,72 +724,78 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
     // verify if report with current id has been scheduled for this frame and slot
     if ((n_slots_frame*frame + slot - offset)%period == 0) {
       reportQuantity_type = csi_report->reportQuantity_type;
-      // phy-test has hardcoded allocation, so no use to handle CSI reports except RSRP
-      if (get_softmodem_params()->phy_test
-          && reportQuantity_type != NR_CSI_ReportConfig__reportQuantity_PR_ssb_Index_RSRP
-          && reportQuantity_type != NR_CSI_ReportConfig__reportQuantity_PR_cri_RSRP)
-        continue;
-      LOG_D(MAC,"SFN/SF:%d/%d reportQuantity type = %d\n",frame,slot,reportQuantity_type);
-      switch(reportQuantity_type) {
-        case NR_CSI_ReportConfig__reportQuantity_PR_cri_RSRP:
-          evaluate_rsrp_report(nrmac, UE, sched_ctrl, csi_report_id, payload, &cumul_bits, reportQuantity_type);
-          break;
-        case NR_CSI_ReportConfig__reportQuantity_PR_ssb_Index_RSRP:
-          evaluate_rsrp_report(nrmac, UE, sched_ctrl, csi_report_id, payload, &cumul_bits, reportQuantity_type);
-          beam_selection_procedures(nrmac, UE);
-          break;
-        case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_CQI:
-          sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.print_report = true;
-          cri_bitlen = csi_report->csi_meas_bitlen.cri_bitlen;
-          if(cri_bitlen)
-            evaluate_cri_report(payload,cri_bitlen,cumul_bits,sched_ctrl);
-          cumul_bits += cri_bitlen;
-          ri_bitlen = csi_report->csi_meas_bitlen.ri_bitlen;
-          if(ri_bitlen)
-            r_index = evaluate_ri_report(payload,ri_bitlen,csi_report->csi_meas_bitlen.ri_restriction,cumul_bits,sched_ctrl);
-          cumul_bits += ri_bitlen;
-          if (r_index != -1)
-            skip_zero_padding(&cumul_bits,csi_report,r_index,bitlen);
-          evaluate_cqi_report(payload,csi_report,cumul_bits,r_index,UE,cqi_table);
-          break;
-        case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_PMI_CQI:
-          sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.print_report = true;
-          cri_bitlen = csi_report->csi_meas_bitlen.cri_bitlen;
-          if(cri_bitlen)
-            evaluate_cri_report(payload,cri_bitlen,cumul_bits,sched_ctrl);
-          cumul_bits += cri_bitlen;
-          ri_bitlen = csi_report->csi_meas_bitlen.ri_bitlen;
-          if(ri_bitlen)
-            r_index = evaluate_ri_report(payload,ri_bitlen,csi_report->csi_meas_bitlen.ri_restriction,cumul_bits,sched_ctrl);
-          cumul_bits += ri_bitlen;
-          if (r_index != -1)
-            skip_zero_padding(&cumul_bits,csi_report,r_index,bitlen);
-          pmi_bitlen = evaluate_pmi_report(payload,csi_report,cumul_bits,r_index,sched_ctrl);
-          sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.csi_report_id = csi_report_id;
-          cumul_bits += pmi_bitlen;
-          evaluate_cqi_report(payload,csi_report,cumul_bits,r_index,UE,cqi_table);
-          break;
-        case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_LI_PMI_CQI:
-          sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.print_report = true;
-          cri_bitlen = csi_report->csi_meas_bitlen.cri_bitlen;
-          if(cri_bitlen)
-            evaluate_cri_report(payload,cri_bitlen,cumul_bits,sched_ctrl);
-          cumul_bits += cri_bitlen;
-          ri_bitlen = csi_report->csi_meas_bitlen.ri_bitlen;
-          if(ri_bitlen)
-            r_index = evaluate_ri_report(payload,ri_bitlen,csi_report->csi_meas_bitlen.ri_restriction,cumul_bits,sched_ctrl);
-          cumul_bits += ri_bitlen;
-          li_bitlen = evaluate_li_report(payload,csi_report,cumul_bits,r_index,sched_ctrl);
-          cumul_bits += li_bitlen;
-          if (r_index != -1)
-            skip_zero_padding(&cumul_bits,csi_report,r_index,bitlen);
-          pmi_bitlen = evaluate_pmi_report(payload,csi_report,cumul_bits,r_index,sched_ctrl);
-          sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.csi_report_id = csi_report_id;
-          cumul_bits += pmi_bitlen;
-          evaluate_cqi_report(payload,csi_report,cumul_bits,r_index,UE,cqi_table);
-          break;
-        default:
-          AssertFatal(1==0, "Invalid or not supported CSI measurement report\n");
+      reportQuantity_type_r16 = csi_report->reportQuantity_type_r16;
+      LOG_D(MAC, "SFN/SF:%d/%d reportQuantity type = %d, type_r16 = %d\n", frame, slot, reportQuantity_type, reportQuantity_type_r16);
+      if (reportQuantity_type_r16 == NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_cri_SINR_r16
+          || reportQuantity_type_r16 == NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_ssb_Index_SINR_r16) {
+        evaluate_sinr_report(nrmac, UE, sched_ctrl, csi_report_id, payload, &cumul_bits, reportQuantity_type_r16);
+      } else {
+        // phy-test has hardcoded allocation, so no use to handle CSI reports except RSRP
+        if (get_softmodem_params()->phy_test
+            && reportQuantity_type != NR_CSI_ReportConfig__reportQuantity_PR_ssb_Index_RSRP
+            && reportQuantity_type != NR_CSI_ReportConfig__reportQuantity_PR_cri_RSRP)
+          continue;
+        switch (reportQuantity_type) {
+          case NR_CSI_ReportConfig__reportQuantity_PR_cri_RSRP:
+            evaluate_rsrp_report(nrmac, UE, sched_ctrl, csi_report_id, payload, &cumul_bits, reportQuantity_type);
+            break;
+          case NR_CSI_ReportConfig__reportQuantity_PR_ssb_Index_RSRP:
+            evaluate_rsrp_report(nrmac, UE, sched_ctrl, csi_report_id, payload, &cumul_bits, reportQuantity_type);
+            beam_selection_procedures(nrmac, UE);
+            break;
+          case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_CQI:
+            sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.print_report = true;
+            cri_bitlen = csi_report->csi_meas_bitlen.cri_bitlen;
+            if (cri_bitlen)
+              evaluate_cri_report(payload, cri_bitlen, cumul_bits, sched_ctrl);
+            cumul_bits += cri_bitlen;
+            ri_bitlen = csi_report->csi_meas_bitlen.ri_bitlen;
+            if (ri_bitlen)
+              r_index = evaluate_ri_report(payload, ri_bitlen, csi_report->csi_meas_bitlen.ri_restriction, cumul_bits, sched_ctrl);
+            cumul_bits += ri_bitlen;
+            if (r_index != -1)
+              skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
+            evaluate_cqi_report(payload, csi_report, cumul_bits, r_index, UE, cqi_table);
+            break;
+          case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_PMI_CQI:
+            sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.print_report = true;
+            cri_bitlen = csi_report->csi_meas_bitlen.cri_bitlen;
+            if (cri_bitlen)
+              evaluate_cri_report(payload, cri_bitlen, cumul_bits, sched_ctrl);
+            cumul_bits += cri_bitlen;
+            ri_bitlen = csi_report->csi_meas_bitlen.ri_bitlen;
+            if (ri_bitlen)
+              r_index = evaluate_ri_report(payload, ri_bitlen, csi_report->csi_meas_bitlen.ri_restriction, cumul_bits, sched_ctrl);
+            cumul_bits += ri_bitlen;
+            if (r_index != -1)
+              skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
+            pmi_bitlen = evaluate_pmi_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
+            sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.csi_report_id = csi_report_id;
+            cumul_bits += pmi_bitlen;
+            evaluate_cqi_report(payload, csi_report, cumul_bits, r_index, UE, cqi_table);
+            break;
+          case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_LI_PMI_CQI:
+            sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.print_report = true;
+            cri_bitlen = csi_report->csi_meas_bitlen.cri_bitlen;
+            if (cri_bitlen)
+              evaluate_cri_report(payload, cri_bitlen, cumul_bits, sched_ctrl);
+            cumul_bits += cri_bitlen;
+            ri_bitlen = csi_report->csi_meas_bitlen.ri_bitlen;
+            if (ri_bitlen)
+              r_index = evaluate_ri_report(payload, ri_bitlen, csi_report->csi_meas_bitlen.ri_restriction, cumul_bits, sched_ctrl);
+            cumul_bits += ri_bitlen;
+            li_bitlen = evaluate_li_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
+            cumul_bits += li_bitlen;
+            if (r_index != -1)
+              skip_zero_padding(&cumul_bits, csi_report, r_index, bitlen);
+            pmi_bitlen = evaluate_pmi_report(payload, csi_report, cumul_bits, r_index, sched_ctrl);
+            sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.csi_report_id = csi_report_id;
+            cumul_bits += pmi_bitlen;
+            evaluate_cqi_report(payload, csi_report, cumul_bits, r_index, UE, cqi_table);
+            break;
+          default:
+            AssertFatal(1 == 0, "Invalid or not supported CSI measurement report\n");
+        }
       }
     }
   }
