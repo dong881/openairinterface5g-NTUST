@@ -86,7 +86,6 @@
 #include "mac_rrc_ul.h"
 
 /* MAC */
-#include "LAYER2/NR_MAC_COMMON/nr_mac_extern.h"
 #include "LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "NR_TAG.h"
 

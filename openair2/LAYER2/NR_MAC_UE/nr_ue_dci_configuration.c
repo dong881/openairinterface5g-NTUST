@@ -33,7 +33,6 @@
 #include "mac_proto.h"
 #include "mac_defs.h"
 #include "assertions.h"
-#include "LAYER2/NR_MAC_UE/mac_extern.h"
 #include "mac_defs.h"
 #include "common/utils/nr/nr_common.h"
 #include "executables/softmodem-common.h"

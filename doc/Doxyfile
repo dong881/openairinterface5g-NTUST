@@ -1619,7 +1619,6 @@ INPUT                  = \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/NETWORK_DRIVER/MESH/ioctl.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/NETWORK_DRIVER/MESH/constant.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/NETWORK_DRIVER/MESH/rrc_nas_primitives.h \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/NR_MAC_COMMON/nr_mac_extern.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/NR_MAC_COMMON/nr_compute_tbs_common.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/NR_MAC_COMMON/nr_mac_common.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/NR_MAC_COMMON/nr_mac_common.h \

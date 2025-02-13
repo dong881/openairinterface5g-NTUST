@@ -34,10 +34,8 @@
 #include "RRC/NR_UE/L2_interface_ue.h"
 
 /* MAC */
-#include "LAYER2/NR_MAC_COMMON/nr_mac_extern.h"
 #include "NR_MAC_COMMON/nr_mac.h"
 #include "LAYER2/NR_MAC_UE/mac_proto.h"
-
 #include <executables/softmodem-common.h>
 #include "openair2/LAYER2/RLC/rlc.h"
 #include "openair2/LAYER2/NR_MAC_UE/mac_defs.h"

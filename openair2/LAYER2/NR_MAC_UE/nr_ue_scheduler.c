@@ -48,8 +48,6 @@
 #include "utils.h"
 
 #include <executables/softmodem-common.h>
-
-#include "LAYER2/NR_MAC_COMMON/nr_mac_extern.h"
 #include "LAYER2/RLC/rlc.h"
 #include "RRC/NR_UE/L2_interface_ue.h"
 

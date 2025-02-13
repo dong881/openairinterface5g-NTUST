@@ -32,7 +32,6 @@
 
 #include "assertions.h"
 
-#include "NR_MAC_COMMON/nr_mac_extern.h"
 #include "NR_MAC_gNB/mac_proto.h"
 
 #include "common/utils/LOG/log.h"
