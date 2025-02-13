@@ -129,6 +129,8 @@ typedef struct {
   short rsrp_dBm;
   long arfcn;
   rlm_t radiolink_monitoring; // -1 no monitoring, 0 out_of_sync, 1 in_sync
+  // SINR value times 10 as reporting granularity is 0.5
+  float sinr_dB;
 } fapi_nr_ssb_pdu_t;
 
 typedef struct {

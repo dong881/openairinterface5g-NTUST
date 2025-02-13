@@ -172,11 +172,11 @@ void nr_ue_measurements(PHY_VARS_NR_UE *ue,
 
 // This function calculates:
 // - SS reference signal received digital power in dB/RE
-int nr_ue_calculate_ssb_rsrp(const NR_DL_FRAME_PARMS *fp,
-                             const UE_nr_rxtx_proc_t *proc,
-                             const c16_t rxdataF[][fp->samples_per_slot_wCP],
-                             int symbol_offset,
-                             int ssb_start_subcarrier)
+uint32_t nr_ue_calculate_ssb_rsrp(const NR_DL_FRAME_PARMS *fp,
+                                  const UE_nr_rxtx_proc_t *proc,
+                                  const c16_t rxdataF[][fp->samples_per_slot_wCP],
+                                  int symbol_offset,
+                                  int ssb_start_subcarrier)
 {
   int k_start = 56;
   int k_end   = 183;
@@ -209,9 +209,7 @@ int nr_ue_calculate_ssb_rsrp(const NR_DL_FRAME_PARMS *fp,
 
   LOG_D(PHY, "In %s: RSRP/nb_re: %d nb_re :%d\n", __FUNCTION__, rsrp, nb_re);
 
-  int rsrp_db_per_re = 10 * log10(rsrp);
-
-  return rsrp_db_per_re;
+  return rsrp;
 }
 
 // This function implements:
@@ -234,7 +232,8 @@ void nr_ue_ssb_rsrp_measurements(PHY_VARS_NR_UE *ue,
   if (fp->half_frame_bit)
     symbol_offset += (fp->slots_per_frame >> 1) * fp->symbols_per_slot;
 
-  int rsrp_db_per_re = nr_ue_calculate_ssb_rsrp(fp, proc, rxdataF, symbol_offset, fp->ssb_start_subcarrier);
+  uint32_t rsrp_avg = nr_ue_calculate_ssb_rsrp(fp, proc, rxdataF, symbol_offset, fp->ssb_start_subcarrier);
+  float rsrp_db_per_re = 10 * log10(rsrp_avg);
 
   openair0_config_t *cfg0 = &openair0_cfg[0];
 
@@ -242,12 +241,18 @@ void nr_ue_ssb_rsrp_measurements(PHY_VARS_NR_UE *ue,
                                              - ((int)cfg0->rx_gain[0] - (int)cfg0->rx_gain_offset[0])
                                              - dB_fixed(fp->ofdm_symbol_size);
 
+  // to obtain non-integer dB value with a resoluion of 0.5dB
+  uint32_t signal_pwr = rsrp_avg > ue->measurements.n0_power_avg ? rsrp_avg - ue->measurements.n0_power_avg : 0;
+  int SNRtimes10 = dB_fixed_x10(signal_pwr) - dB_fixed_x10(ue->measurements.n0_power_avg);
+  ue->measurements.ssb_sinr_dB[ssb_index] = SNRtimes10 / 10.0;
+
   LOG_D(PHY,
-        "[UE %d] ssb %d SS-RSRP: %d dBm/RE (%d dB/RE)\n",
+        "[UE %d] ssb %d SS-RSRP: %d dBm/RE (%f dB/RE), SS-SINR: %f dB\n",
         ue->Mod_id,
         ssb_index,
         ue->measurements.ssb_rsrp_dBm[ssb_index],
-        rsrp_db_per_re);
+        rsrp_db_per_re,
+        ue->measurements.ssb_sinr_dB[ssb_index]);
 }
 
 // This function computes the received noise power
