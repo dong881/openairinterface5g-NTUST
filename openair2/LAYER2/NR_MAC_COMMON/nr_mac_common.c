@@ -45,6 +45,12 @@ const uint32_t NR_SHORT_BSR_TABLE[NR_SHORT_BSR_TABLE_SIZE] = {
 20516, 28581, 39818, 55474, 77284, 107669, 150000, 300000
 };
 
+uint32_t get_short_bsr_value(int idx)
+{
+  AssertFatal(idx < NR_SHORT_BSR_TABLE_SIZE, "Short BSR table index %d exceeding its size\n", idx);
+  return NR_SHORT_BSR_TABLE[idx];
+}
+
 //38.321 Table 6.1.3.1-2
 const uint32_t NR_LONG_BSR_TABLE[NR_LONG_BSR_TABLE_SIZE] ={
        0,       10,       11,       12,       13,       14,       15,       16,       17,       18,       19,       20,       22,       23,        25,         26,
@@ -64,6 +70,12 @@ const uint32_t NR_LONG_BSR_TABLE[NR_LONG_BSR_TABLE_SIZE] ={
 13128233, 13980403, 14887889, 15854280, 16883401, 17979324, 19146385, 20389201, 21712690, 23122088, 24622972, 26221280, 27923336, 29735875,  31666069,   33721553,
 35910462, 38241455, 40723756, 43367187, 46182206, 49179951, 52372284, 55771835, 59392055, 63247269, 67352729, 71724679, 76380419, 81338368, 162676736, 4294967295
 };
+
+uint32_t get_long_bsr_value(int idx)
+{
+  AssertFatal(idx < NR_LONG_BSR_TABLE_SIZE, "Short BSR table index %d exceeding its size\n", idx);
+  return NR_LONG_BSR_TABLE[idx];
+}
 
 // start symbols for SSB types A,B,C,D,E
 static const uint16_t symbol_ssb_AC[8] = {2, 8, 16, 22, 30, 36, 44, 50};

@@ -55,7 +55,8 @@ typedef enum {
 uint32_t get_Y(const NR_SearchSpace_t *ss, int slot, rnti_t rnti);
 
 uint8_t get_BG(uint32_t A, uint16_t R);
-
+uint32_t get_short_bsr_value(int idx);
+uint32_t get_long_bsr_value(int idx);
 int16_t fill_dmrs_mask(const NR_PDSCH_Config_t *pdsch_Config,
                        int dci_format,
                        int dmrs_TypeA_Position,

@@ -32,16 +32,5 @@
 #ifndef __NR_MAC_EXTERN_H__
 #define __NR_MAC_EXTERN_H__
 
-#include "common/ran_context.h"
-#include "nr_mac.h"
-
-/*#include "PHY/defs_common.h"*/
-
-/* Scheduler */
-extern RAN_CONTEXT_t RC;
-extern uint8_t nfapi_mode;
-
-extern const uint32_t NR_SHORT_BSR_TABLE[NR_SHORT_BSR_TABLE_SIZE];
-extern const uint32_t NR_LONG_BSR_TABLE[NR_LONG_BSR_TABLE_SIZE];
 
 #endif //DEF_H

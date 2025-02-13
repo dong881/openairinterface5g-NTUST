@@ -1701,28 +1701,38 @@ void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
   }
 }
 
-static uint8_t nr_locate_BsrIndexByBufferSize(const uint32_t *table, int size, int value)
+static uint8_t nr_locate_BsrIndexByBufferSize(int size, int value)
 {
   if (value == 0) {
     return 0;   //elseif (value > 150000) return 63;
   }
 
+  uint32_t (*get_bsr_value)(int);
+  if (size == NR_SHORT_BSR_TABLE_SIZE)
+    get_bsr_value = &get_short_bsr_value;
+  else
+    get_bsr_value = &get_long_bsr_value;
+
   int jl = 0; // lower bound
   int ju = size - 1; // upper bound
-  bool ascend = table[ju] >= table[jl] ? 1 : 0; // determine the order of the the table:  1 if ascending order of table, 0 otherwise
+  // determine the order of the the table:  1 if ascending order of table, 0 otherwise
+  bool ascend = (*get_bsr_value)(ju) >= (*get_bsr_value)(jl) ? 1 : 0;
   while (ju - jl > 1) { //If we are not yet done,
     int jm = (ju + jl) / 2; // compute a midpoint,
-    if ((value >= table[jm]) == ascend) {
+    if ((value >= (*get_bsr_value)(jm)) == ascend) {
       jl = jm;    // replace the lower limit
     } else {
       ju = jm;    //replace the upper limit
     }
 
-    LOG_T(NR_MAC, "[UE] searching BSR index %d for (BSR TABLE %d < value %d)\n",
-          jm, table[jm], value);
+    LOG_T(NR_MAC,
+          "[UE] searching BSR index %d for (BSR TABLE %d < value %d)\n",
+          jm,
+          (*get_bsr_value)(jm),
+          value);
   }
 
-  if (value == table[jl]) {
+  if (value == (*get_bsr_value)(jl)) {
     return jl;
   } else {
     return jl + 1;    //equally  ju
@@ -3151,7 +3161,7 @@ static void nr_ue_get_sdu_mac_ce_post(NR_UE_MAC_INST_t *mac,
     mac_ce_p->bsr.type_bsr = b_short;
     mac_ce_p->bsr.bsr.s.LcgID = lcg_id_bsr_max;
     mac_ce_p->bsr.bsr.s.Buffer_size =
-        nr_locate_BsrIndexByBufferSize(NR_SHORT_BSR_TABLE, NR_SHORT_BSR_TABLE_SIZE, LCG_bytes[lcg_id_bsr_max]);
+        nr_locate_BsrIndexByBufferSize(NR_SHORT_BSR_TABLE_SIZE, LCG_bytes[lcg_id_bsr_max]);
     LOG_D(NR_MAC,
           "[UE %d] sfn %d.%d BSR Trigger=0x%x report SHORT BSR with level %d for LCGID %d\n",
           mac->ue_id,
@@ -3166,7 +3176,7 @@ static void nr_ue_get_sdu_mac_ce_post(NR_UE_MAC_INST_t *mac,
     mac_ce_p->bsr.type_bsr = b_long;
     uint8_t *tmp = mac_ce_p->bsr.bsr.lcg_bsr;
     for (int lcg_id = 0; lcg_id < 8; lcg_id++) {
-      tmp[lcg_id] = nr_locate_BsrIndexByBufferSize(NR_LONG_BSR_TABLE, NR_LONG_BSR_TABLE_SIZE, LCG_bytes[lcg_id]);
+      tmp[lcg_id] = nr_locate_BsrIndexByBufferSize(NR_LONG_BSR_TABLE_SIZE, LCG_bytes[lcg_id]);
     }
     LOG_D(NR_MAC,
           "[UE %d] sfn %d.%d BSR Trig=0x%x report LONG BSR (level LCGID %d %d %d %d %d %d %d %d)\n",
@@ -3186,7 +3196,7 @@ static void nr_ue_get_sdu_mac_ce_post(NR_UE_MAC_INST_t *mac,
     mac_ce_p->bsr.type_bsr = b_short_trunc;
     mac_ce_p->bsr.bsr.s.LcgID = lcg_id_bsr_max;
     mac_ce_p->bsr.bsr.s.Buffer_size =
-        nr_locate_BsrIndexByBufferSize(NR_SHORT_BSR_TABLE, NR_SHORT_BSR_TABLE_SIZE, LCG_bytes[lcg_id_bsr_max]);
+        nr_locate_BsrIndexByBufferSize(NR_SHORT_BSR_TABLE_SIZE, LCG_bytes[lcg_id_bsr_max]);
   } else if (padding_len >= sizeof(NR_BSR_LONG) + sizeof(NR_MAC_SUBHEADER_SHORT)) {
     mac_ce_p->bsr.type_bsr = b_long_trunc;
     //  Fixme: this should be sorted by (TS 38.321, 5.4.5)
@@ -3195,7 +3205,7 @@ static void nr_ue_get_sdu_mac_ce_post(NR_UE_MAC_INST_t *mac,
     // available for transmission) in each of these LCG(s), and in case of equal priority, in increasing order of LCGID
     uint8_t *tmp = mac_ce_p->bsr.bsr.lcg_bsr;
     for (int lcg_id = 0; lcg_id < 8; lcg_id++) {
-      tmp[lcg_id] = nr_locate_BsrIndexByBufferSize(NR_LONG_BSR_TABLE, NR_LONG_BSR_TABLE_SIZE, LCG_bytes[lcg_id]);
+      tmp[lcg_id] = nr_locate_BsrIndexByBufferSize(NR_LONG_BSR_TABLE_SIZE, LCG_bytes[lcg_id]);
     }
   } else
     LOG_D(NR_MAC, "Can't add any BSR, not enough padding\n");
