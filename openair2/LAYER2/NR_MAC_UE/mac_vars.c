@@ -122,6 +122,12 @@ const uint8_t table_7_3_1_1_2_12[14][3] = {
   {2,7,2}
 };
 
+uint8_t get_table_7_3_1_1_2_12_value(int ap, int idx)
+{
+  AssertFatal(ap < 14 && idx < 3, "Invalid inputs for table_7_3_1_1_2_12\n");
+  return table_7_3_1_1_2_12[ap][idx];
+}
+
 const uint8_t table_7_3_1_1_2_13[10][4] = {
   {1,0,1,1},
   {2,0,1,1},
@@ -135,11 +141,23 @@ const uint8_t table_7_3_1_1_2_13[10][4] = {
   {2,2,6,2}
 };
 
+uint8_t get_table_7_3_1_1_2_13_value(int ap, int idx)
+{
+  AssertFatal(ap < 10 && idx < 4, "Invalid inputs for table_7_3_1_1_2_13\n");
+  return table_7_3_1_1_2_13[ap][idx];
+}
+
 const uint8_t table_7_3_1_1_2_14[3][5] = {
   {2,0,1,2,1},
   {2,0,1,4,2},
   {2,2,3,6,2}
 };
+
+uint8_t get_table_7_3_1_1_2_14_value(int ap, int idx)
+{
+  AssertFatal(ap < 3 && idx < 5, "Invalid inputs for table_7_3_1_1_2_14\n");
+  return table_7_3_1_1_2_14[ap][idx];
+}
 
 const uint8_t table_7_3_1_1_2_15[4][6] = {
   {2,0,1,2,3,1},
@@ -147,6 +165,12 @@ const uint8_t table_7_3_1_1_2_15[4][6] = {
   {2,2,3,6,7,2},
   {2,0,2,4,6,2}
 };
+
+uint8_t get_table_7_3_1_1_2_15_value(int ap, int idx)
+{
+  AssertFatal(ap < 4 && idx < 6, "Invalid inputs for table_7_3_1_1_2_15\n");
+  return table_7_3_1_1_2_15[ap][idx];
+}
 
 const uint8_t table_7_3_1_1_2_16[12][2] = {
   {1,0},
@@ -163,6 +187,12 @@ const uint8_t table_7_3_1_1_2_16[12][2] = {
   {3,5}
 };
 
+uint8_t get_table_7_3_1_1_2_16_value(int ap, int idx)
+{
+  AssertFatal(ap < 12 && idx < 2, "Invalid inputs for table_7_3_1_1_2_16\n");
+  return table_7_3_1_1_2_16[ap][idx];
+}
+
 const uint8_t table_7_3_1_1_2_17[7][3] = {
   {1,0,1},
   {2,0,1},
@@ -173,16 +203,34 @@ const uint8_t table_7_3_1_1_2_17[7][3] = {
   {2,0,2}
 };
 
+uint8_t get_table_7_3_1_1_2_17_value(int ap, int idx)
+{
+  AssertFatal(ap < 7 && idx < 3, "Invalid inputs for table_7_3_1_1_2_17\n");
+  return table_7_3_1_1_2_17[ap][idx];
+}
+
 const uint8_t table_7_3_1_1_2_18[3][4] = {
   {2,0,1,2},
   {3,0,1,2},
   {3,3,4,5}
 };
 
+uint8_t get_table_7_3_1_1_2_18_value(int ap, int idx)
+{
+  AssertFatal(ap < 3 && idx < 4, "Invalid inputs for table_7_3_1_1_2_18\n");
+  return table_7_3_1_1_2_18[ap][idx];
+}
+
 const uint8_t table_7_3_1_1_2_19[2][5] = {
   {2,0,1,2,3},
   {3,0,1,2,3}
 };
+
+uint8_t get_table_7_3_1_1_2_19_value(int ap, int idx)
+{
+  AssertFatal(ap < 2 && idx < 5, "Invalid inputs for table_7_3_1_1_2_19\n");
+  return table_7_3_1_1_2_19[ap][idx];
+}
 
 const uint8_t table_7_3_1_1_2_20[28][3] = {
   {1,0,1},
@@ -215,6 +263,12 @@ const uint8_t table_7_3_1_1_2_20[28][3] = {
   {1,7,2}
 };
 
+uint8_t get_table_7_3_1_1_2_20_value(int ap, int idx)
+{
+  AssertFatal(ap < 28 && idx < 3, "Invalid inputs for table_7_3_1_1_2_20\n");
+  return table_7_3_1_1_2_20[ap][idx];
+}
+
 const uint8_t table_7_3_1_1_2_21[19][4] = {
   {1,0,1,1},
   {2,0,1,1},
@@ -237,6 +291,12 @@ const uint8_t table_7_3_1_1_2_21[19][4] = {
   {2,8,9,2}
 };
 
+uint8_t get_table_7_3_1_1_2_21_value(int ap, int idx)
+{
+  AssertFatal(ap < 19 && idx < 4, "Invalid inputs for table_7_3_1_1_2_21\n");
+  return table_7_3_1_1_2_21[ap][idx];
+}
+
 const uint8_t table_7_3_1_1_2_22[6][5] = {
   {2,0,1,2,1},
   {3,0,1,2,1},
@@ -246,6 +306,12 @@ const uint8_t table_7_3_1_1_2_22[6][5] = {
   {3,4,5,10,2}
 };
 
+uint8_t get_table_7_3_1_1_2_22_value(int ap, int idx)
+{
+  AssertFatal(ap < 6 && idx < 5, "Invalid inputs for table_7_3_1_1_2_22\n");
+  return table_7_3_1_1_2_22[ap][idx];
+}
+
 const uint8_t table_7_3_1_1_2_23[5][6] = {
   {2,0,1,2,3,1},
   {3,0,1,2,3,1},
@@ -253,6 +319,12 @@ const uint8_t table_7_3_1_1_2_23[5][6] = {
   {3,2,3,8,9,2},
   {3,4,5,10,11,2}
 };
+
+uint8_t get_table_7_3_1_1_2_23_value(int ap, int idx)
+{
+  AssertFatal(ap < 5 && idx < 6, "Invalid inputs for table_7_3_1_1_2_23\n");
+  return table_7_3_1_1_2_23[ap][idx];
+}
 
 const uint8_t table_7_3_2_3_3_1[12][5] = {
   {1,1,0,0,0},

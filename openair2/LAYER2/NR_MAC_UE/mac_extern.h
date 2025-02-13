@@ -32,17 +32,5 @@
 
 #include "mac_defs.h"
 
-extern const uint8_t table_7_3_1_1_2_12[14][3];
-extern const uint8_t table_7_3_1_1_2_13[10][4];
-extern const uint8_t table_7_3_1_1_2_14[3][5];
-extern const uint8_t table_7_3_1_1_2_15[4][6];
-extern const uint8_t table_7_3_1_1_2_16[12][2];
-extern const uint8_t table_7_3_1_1_2_17[7][3];
-extern const uint8_t table_7_3_1_1_2_18[3][4];
-extern const uint8_t table_7_3_1_1_2_19[2][5];
-extern const uint8_t table_7_3_1_1_2_20[28][3];
-extern const uint8_t table_7_3_1_1_2_21[19][4];
-extern const uint8_t table_7_3_1_1_2_22[6][5];
-extern const uint8_t table_7_3_1_1_2_23[5][6];
 
 

@@ -378,66 +378,59 @@ void ul_ports_config(NR_UE_MAC_INST_t *mac, int *n_front_load_symb, nfapi_nr_ue_
     }
   }
 
-  if ((transformPrecoder == NR_PUSCH_Config__transformPrecoder_disabled) && (dmrs_type == NULL)
+  if ((transformPrecoder == NR_PUSCH_Config__transformPrecoder_disabled)
+      && (dmrs_type == NULL)
       && (max_length != NULL)) { // tables 7.3.1.1.2-12/13/14/15
-
     if (rank == 1){
       pusch_config_pdu->num_dmrs_cdm_grps_no_data = (dci->antenna_ports.val > 1)?2:1; //TBC
       pusch_config_pdu->dmrs_ports = 1<<((dci->antenna_ports.val > 1)?(dci->antenna_ports.val > 5 ?(dci->antenna_ports.val-6):(dci->antenna_ports.val-2)):dci->antenna_ports.val);
       *n_front_load_symb = (dci->antenna_ports.val > 6)?2:1;
     }
-
     if (rank == 2){
       pusch_config_pdu->num_dmrs_cdm_grps_no_data = (dci->antenna_ports.val > 0)?2:1; //TBC
       pusch_config_pdu->dmrs_ports = 0; //FIXME
-      //pusch_config_pdu->dmrs_ports[0] = table_7_3_1_1_2_13[dci->antenna_ports.val][1];
-      //pusch_config_pdu->dmrs_ports[1] = table_7_3_1_1_2_13[dci->antenna_ports.val][2];
+      //pusch_config_pdu->dmrs_ports[0] = get_table_7_3_1_1_2_13_value(dci->antenna_ports.val, 1);
+      //pusch_config_pdu->dmrs_ports[1] = get_table_7_3_1_1_2_13_value(dci->antenna_ports.val, 2);
       //n_front_load_symb = (dci->antenna_ports.val > 3)?2:1; // FIXME
     }
-
     if (rank == 3){
       pusch_config_pdu->num_dmrs_cdm_grps_no_data = 2; //TBC
       pusch_config_pdu->dmrs_ports = 0; //FIXME
-      //pusch_config_pdu->dmrs_ports[0] = table_7_3_1_1_2_14[dci->antenna_ports.val][1];
-      //pusch_config_pdu->dmrs_ports[1] = table_7_3_1_1_2_14[dci->antenna_ports.val][2];
-      //pusch_config_pdu->dmrs_ports[2] = table_7_3_1_1_2_14[dci->antenna_ports.val][3];
+      //pusch_config_pdu->dmrs_ports[0] = get_table_7_3_1_1_2_14_value(dci->antenna_ports.val, 1);
+      //pusch_config_pdu->dmrs_ports[1] = get_table_7_3_1_1_2_14_value(dci->antenna_ports.val, 2);
+      //pusch_config_pdu->dmrs_ports[2] = get_table_7_3_1_1_2_14_value(dci->antenna_ports.val, 3);
       //n_front_load_symb = (dci->antenna_ports.val > 1)?2:1; //FIXME
     }
-
     if (rank == 4){
       pusch_config_pdu->num_dmrs_cdm_grps_no_data = 2; //TBC
       pusch_config_pdu->dmrs_ports = 0; //FIXME
-      //pusch_config_pdu->dmrs_ports[0] = table_7_3_1_1_2_15[dci->antenna_ports.val][1];
-      //pusch_config_pdu->dmrs_ports[1] = table_7_3_1_1_2_15[dci->antenna_ports.val][2];
-      //pusch_config_pdu->dmrs_ports[2] = table_7_3_1_1_2_15[dci->antenna_ports.val][3];
-      //pusch_config_pdu->dmrs_ports[3] = table_7_3_1_1_2_15[dci->antenna_ports.val][4];
+      //pusch_config_pdu->dmrs_ports[0] = get_table_7_3_1_1_2_15_value(dci->antenna_ports.val, 1);
+      //pusch_config_pdu->dmrs_ports[1] = get_table_7_3_1_1_2_15_value(dci->antenna_ports.val, 2);
+      //pusch_config_pdu->dmrs_ports[2] = get_table_7_3_1_1_2_15_value(dci->antenna_ports.val, 3);
+      //pusch_config_pdu->dmrs_ports[3] = get_table_7_3_1_1_2_15_value(dci->antenna_ports.val, 4);
       //n_front_load_symb = (dci->antenna_ports.val > 1)?2:1; //FIXME
     }
   }
-
-  if ((transformPrecoder == NR_PUSCH_Config__transformPrecoder_disabled) && (dmrs_type != NULL)
+  if ((transformPrecoder == NR_PUSCH_Config__transformPrecoder_disabled)
+      && (dmrs_type != NULL)
       && (max_length == NULL)) { // tables 7.3.1.1.2-16/17/18/19
-
     if (rank == 1){
       pusch_config_pdu->num_dmrs_cdm_grps_no_data = (dci->antenna_ports.val > 1)?((dci->antenna_ports.val > 5)?3:2):1; //TBC
       pusch_config_pdu->dmrs_ports = (dci->antenna_ports.val > 1)?(dci->antenna_ports.val > 5 ?(dci->antenna_ports.val-6):(dci->antenna_ports.val-2)):dci->antenna_ports.val; //TBC
     }
-
     if (rank == 2){
       pusch_config_pdu->num_dmrs_cdm_grps_no_data = (dci->antenna_ports.val > 0)?((dci->antenna_ports.val > 2)?3:2):1; //TBC
       pusch_config_pdu->dmrs_ports = 0; //FIXME
-      //pusch_config_pdu->dmrs_ports[0] = table_7_3_1_1_2_17[dci->antenna_ports.val][1];
-      //pusch_config_pdu->dmrs_ports[1] = table_7_3_1_1_2_17[dci->antenna_ports.val][2];
+      //pusch_config_pdu->dmrs_ports[0] = get_table_7_3_1_1_2_17_value(dci->antenna_ports.val, 1);
+      //pusch_config_pdu->dmrs_ports[1] = get_table_7_3_1_1_2_18_value(dci->antenna_ports.val, 2);
     }
-
     if (rank == 3){
       pusch_config_pdu->num_dmrs_cdm_grps_no_data = (dci->antenna_ports.val > 0)?3:2; //TBC
       pusch_config_pdu->dmrs_ports = 0; //FIXME
-      //pusch_config_pdu->dmrs_ports[0] = table_7_3_1_1_2_18[dci->antenna_ports.val][1];
-      //pusch_config_pdu->dmrs_ports[1] = table_7_3_1_1_2_18[dci->antenna_ports.val][2];
-      //pusch_config_pdu->dmrs_ports[2] = table_7_3_1_1_2_18[dci->antenna_ports.val][3];
+      //pusch_config_pdu->dmrs_ports[0] = get_table_7_3_1_1_2_18_value(dci->antenna_ports.val, 1);
+      //pusch_config_pdu->dmrs_ports[1] = get_table_7_3_1_1_2_18_value(dci->antenna_ports.val, 2);
+      //pusch_config_pdu->dmrs_ports[2] = get_table_7_3_1_1_2_18_value(dci->antenna_ports.val, 3);
     }
-
     if (rank == 4){
       pusch_config_pdu->num_dmrs_cdm_grps_no_data = dci->antenna_ports.val + 2; //TBC
       pusch_config_pdu->dmrs_ports = 0; //FIXME
@@ -447,41 +440,37 @@ void ul_ports_config(NR_UE_MAC_INST_t *mac, int *n_front_load_symb, nfapi_nr_ue_
       //pusch_config_pdu->dmrs_ports[3] = 3;
     }
   }
-
-  if ((transformPrecoder == NR_PUSCH_Config__transformPrecoder_disabled) && (dmrs_type != NULL)
+  if ((transformPrecoder == NR_PUSCH_Config__transformPrecoder_disabled)
+      && (dmrs_type != NULL)
       && (max_length != NULL)) { // tables 7.3.1.1.2-20/21/22/23
-
     if (rank == 1){
-      pusch_config_pdu->num_dmrs_cdm_grps_no_data = table_7_3_1_1_2_20[dci->antenna_ports.val][0]; //TBC
-      pusch_config_pdu->dmrs_ports = table_7_3_1_1_2_20[dci->antenna_ports.val][1]; //TBC
-      //n_front_load_symb = table_7_3_1_1_2_20[dci->antenna_ports.val][2]; //FIXME
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = get_table_7_3_1_1_2_20_value(dci->antenna_ports.val, 0); //TBC
+      pusch_config_pdu->dmrs_ports = get_table_7_3_1_1_2_20_value(dci->antenna_ports.val, 1); //TBC
+      //n_front_load_symb = get_table_7_3_1_1_2_20_value(dci->antenna_ports.val, 2); //FIXME
     }
-
     if (rank == 2){
-      pusch_config_pdu->num_dmrs_cdm_grps_no_data = table_7_3_1_1_2_21[dci->antenna_ports.val][0]; //TBC
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = get_table_7_3_1_1_2_21_value(dci->antenna_ports.val, 0); //TBC
       pusch_config_pdu->dmrs_ports = 0; //FIXME
-      //pusch_config_pdu->dmrs_ports[0] = table_7_3_1_1_2_21[dci->antenna_ports.val][1];
-      //pusch_config_pdu->dmrs_ports[1] = table_7_3_1_1_2_21[dci->antenna_ports.val][2];
-      //n_front_load_symb = table_7_3_1_1_2_21[dci->antenna_ports.val][3]; //FIXME
+      //pusch_config_pdu->dmrs_ports[0] = get_table_7_3_1_1_2_21_value(dci->antenna_ports.val, 1);
+      //pusch_config_pdu->dmrs_ports[1] = get_table_7_3_1_1_2_21_value(dci->antenna_ports.val, 2);
+      //n_front_load_symb = get_table_7_3_1_1_2_21_value(dci->antenna_ports.val, 3); //FIXME
     }
-
     if (rank == 3){
-      pusch_config_pdu->num_dmrs_cdm_grps_no_data = table_7_3_1_1_2_22[dci->antenna_ports.val][0]; //TBC
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = get_table_7_3_1_1_2_22_value(dci->antenna_ports.val, 0); //TBC
       pusch_config_pdu->dmrs_ports = 0; //FIXME
-      //pusch_config_pdu->dmrs_ports[0] = table_7_3_1_1_2_22[dci->antenna_ports.val][1];
-      //pusch_config_pdu->dmrs_ports[1] = table_7_3_1_1_2_22[dci->antenna_ports.val][2];
-      //pusch_config_pdu->dmrs_ports[2] = table_7_3_1_1_2_22[dci->antenna_ports.val][3];
-      //n_front_load_symb = table_7_3_1_1_2_22[dci->antenna_ports.val][4]; //FIXME
+      //pusch_config_pdu->dmrs_ports[0] = get_table_7_3_1_1_2_22_value(dci->antenna_ports.val, 1);
+      //pusch_config_pdu->dmrs_ports[1] = get_table_7_3_1_1_2_22_value(dci->antenna_ports.val, 2);
+      //pusch_config_pdu->dmrs_ports[2] = get_table_7_3_1_1_2_22_value(dci->antenna_ports.val, 3);
+      //n_front_load_symb = get_table_7_3_1_1_2_22_value(dci->antenna_ports.val, 4); //FIXME
     }
-
     if (rank == 4){
-      pusch_config_pdu->num_dmrs_cdm_grps_no_data = table_7_3_1_1_2_23[dci->antenna_ports.val][0]; //TBC
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = get_table_7_3_1_1_2_23_value(dci->antenna_ports.val, 0); //TBC
       pusch_config_pdu->dmrs_ports = 0; //FIXME
-      //pusch_config_pdu->dmrs_ports[0] = table_7_3_1_1_2_23[dci->antenna_ports.val][1];
-      //pusch_config_pdu->dmrs_ports[1] = table_7_3_1_1_2_23[dci->antenna_ports.val][2];
-      //pusch_config_pdu->dmrs_ports[2] = table_7_3_1_1_2_23[dci->antenna_ports.val][3];
-      //pusch_config_pdu->dmrs_ports[3] = table_7_3_1_1_2_23[dci->antenna_ports.val][4];
-      //n_front_load_symb = table_7_3_1_1_2_23[dci->antenna_ports.val][5]; //FIXME
+      //pusch_config_pdu->dmrs_ports[0] = get_table_7_3_1_1_2_23_value(dci->antenna_ports.val, 1);
+      //pusch_config_pdu->dmrs_ports[1] = get_table_7_3_1_1_2_23_value(dci->antenna_ports.val, 2);
+      //pusch_config_pdu->dmrs_ports[2] = get_table_7_3_1_1_2_23_value(dci->antenna_ports.val, 3);
+      //pusch_config_pdu->dmrs_ports[3] = get_table_7_3_1_1_2_23_value(dci->antenna_ports.val, 4);
+      //n_front_load_symb = get_table_7_3_1_1_2_23_value(dci->antenna_ports.val, 5); //FIXME
     }
   }
   LOG_D(NR_MAC,"num_dmrs_cdm_grps_no_data %d, dmrs_ports %d\n",pusch_config_pdu->num_dmrs_cdm_grps_no_data,pusch_config_pdu->dmrs_ports);
