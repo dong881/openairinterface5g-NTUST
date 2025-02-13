@@ -204,11 +204,10 @@ bool nr_timer_is_active(const NR_timer_t *timer);
 uint32_t nr_timer_elapsed_time(const NR_timer_t *timer);
 
 int set_default_nta_offset(frequency_range_t freq_range, uint32_t samples_per_subframe);
-extern const nr_bandentry_t nr_bandtable[];
 
 extern simde__m128i byte2bit16_lut[256];
 void init_byte2bit16(void);
-void  init_byte2m128i(void);
+void init_byte2m128i(void);
 
 static inline simde__m128i byte2bit16(uint8_t b)
 {
