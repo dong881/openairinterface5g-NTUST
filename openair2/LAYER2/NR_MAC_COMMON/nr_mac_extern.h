@@ -44,9 +44,4 @@ extern uint8_t nfapi_mode;
 extern const uint32_t NR_SHORT_BSR_TABLE[NR_SHORT_BSR_TABLE_SIZE];
 extern const uint32_t NR_LONG_BSR_TABLE[NR_LONG_BSR_TABLE_SIZE];
 
-extern const char table_38211_6_3_1_5_1[6][2][1];
-extern const char table_38211_6_3_1_5_2[28][4][1];
-extern const char table_38211_6_3_1_5_3[28][4][1];
-extern const char table_38211_6_3_1_5_4[3][2][2];
-extern const char table_38211_6_3_1_5_5[22][4][2];
 #endif //DEF_H
