@@ -262,7 +262,7 @@ float nr_get_Pcmax(int p_Max,
                    int start_prb);
 
 float nr_get_Pcmin(int bandwidth_index);
-
+void set_antenna_port_parameters(fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch_pdu, int n_cw, long *max_length, long *dmrs, int ant);
 int get_sum_delta_pucch(NR_UE_MAC_INST_t *mac, int slot, frame_t frame);
 
 /* Random Access */
