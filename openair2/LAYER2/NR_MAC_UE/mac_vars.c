@@ -490,3 +490,74 @@ void set_antenna_port_parameters(fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch_pdu,
     }
   }
 }
+
+void set_precoding_information_parameters(nfapi_nr_ue_pusch_pdu_t *pusch_config_pdu,
+                                          int n_antenna_port,
+                                          long transformPrecoder,
+                                          int precoding_information,
+                                          NR_PUSCH_Config_t *pusch_Config)
+{
+  // 1 antenna port and the higher layer parameter txConfig = codebook 0 bits
+  if (n_antenna_port == 4) { // 4 antenna port and the higher layer parameter txConfig = codebook
+    // Table 7.3.1.1.2-2: transformPrecoder=disabled and maxRank = 2 or 3 or 4
+    if ((transformPrecoder == NR_PUSCH_Config__transformPrecoder_disabled)
+        && ((*pusch_Config->maxRank == 2) || (*pusch_Config->maxRank == 3) || (*pusch_Config->maxRank == 4))) {
+      if (*pusch_Config->codebookSubset == NR_PUSCH_Config__codebookSubset_fullyAndPartialAndNonCoherent) {
+        pusch_config_pdu->nrOfLayers = table_7_3_1_1_2_2_3_4_5[precoding_information][0];
+        pusch_config_pdu->Tpmi = table_7_3_1_1_2_2_3_4_5[precoding_information][1];
+      }
+      if (*pusch_Config->codebookSubset == NR_PUSCH_Config__codebookSubset_partialAndNonCoherent){
+        pusch_config_pdu->nrOfLayers = table_7_3_1_1_2_2_3_4_5[precoding_information][2];
+        pusch_config_pdu->Tpmi = table_7_3_1_1_2_2_3_4_5[precoding_information][3];
+      }
+      if (*pusch_Config->codebookSubset == NR_PUSCH_Config__codebookSubset_nonCoherent){
+        pusch_config_pdu->nrOfLayers = table_7_3_1_1_2_2_3_4_5[precoding_information][4];
+        pusch_config_pdu->Tpmi = table_7_3_1_1_2_2_3_4_5[precoding_information][5];
+      }
+    }
+    // Table 7.3.1.1.2-3: transformPrecoder= enabled, or transformPrecoder=disabled and maxRank = 1
+    if (((transformPrecoder == NR_PUSCH_Config__transformPrecoder_enabled)
+        || (transformPrecoder == NR_PUSCH_Config__transformPrecoder_disabled))
+        && (*pusch_Config->maxRank == 1)) {
+      if (*pusch_Config->codebookSubset == NR_PUSCH_Config__codebookSubset_fullyAndPartialAndNonCoherent) {
+        pusch_config_pdu->nrOfLayers = table_7_3_1_1_2_2_3_4_5[precoding_information][6];
+        pusch_config_pdu->Tpmi = table_7_3_1_1_2_2_3_4_5[precoding_information][7];
+      }
+      if (*pusch_Config->codebookSubset == NR_PUSCH_Config__codebookSubset_partialAndNonCoherent){
+        pusch_config_pdu->nrOfLayers = table_7_3_1_1_2_2_3_4_5[precoding_information][8];
+        pusch_config_pdu->Tpmi = table_7_3_1_1_2_2_3_4_5[precoding_information][9];
+      }
+      if (*pusch_Config->codebookSubset == NR_PUSCH_Config__codebookSubset_nonCoherent){
+        pusch_config_pdu->nrOfLayers = table_7_3_1_1_2_2_3_4_5[precoding_information][10];
+        pusch_config_pdu->Tpmi = table_7_3_1_1_2_2_3_4_5[precoding_information][11];
+      }
+    }
+  }
+  if (n_antenna_port == 2) {
+    // 2 antenna port and the higher layer parameter txConfig = codebook
+    // Table 7.3.1.1.2-4: transformPrecoder=disabled and maxRank = 2
+    if ((transformPrecoder == NR_PUSCH_Config__transformPrecoder_disabled) && (*pusch_Config->maxRank == 2)) {
+      if (*pusch_Config->codebookSubset == NR_PUSCH_Config__codebookSubset_fullyAndPartialAndNonCoherent) {
+        pusch_config_pdu->nrOfLayers = table_7_3_1_1_2_2_3_4_5[precoding_information][12];
+        pusch_config_pdu->Tpmi = table_7_3_1_1_2_2_3_4_5[precoding_information][13];
+      }
+      if (*pusch_Config->codebookSubset == NR_PUSCH_Config__codebookSubset_nonCoherent){
+        pusch_config_pdu->nrOfLayers = table_7_3_1_1_2_2_3_4_5[precoding_information][14];
+        pusch_config_pdu->Tpmi = table_7_3_1_1_2_2_3_4_5[precoding_information][15];
+      }
+    }
+    // Table 7.3.1.1.2-5: transformPrecoder= enabled, or transformPrecoder= disabled and maxRank = 1
+    if (((transformPrecoder == NR_PUSCH_Config__transformPrecoder_enabled)
+        || (transformPrecoder == NR_PUSCH_Config__transformPrecoder_disabled))
+        && (*pusch_Config->maxRank == 1)) {
+      if (*pusch_Config->codebookSubset == NR_PUSCH_Config__codebookSubset_fullyAndPartialAndNonCoherent) {
+        pusch_config_pdu->nrOfLayers = table_7_3_1_1_2_2_3_4_5[precoding_information][16];
+        pusch_config_pdu->Tpmi = table_7_3_1_1_2_2_3_4_5[precoding_information][17];
+      }
+      if (*pusch_Config->codebookSubset == NR_PUSCH_Config__codebookSubset_nonCoherent){
+        pusch_config_pdu->nrOfLayers = table_7_3_1_1_2_2_3_4_5[precoding_information][18];
+        pusch_config_pdu->Tpmi = table_7_3_1_1_2_2_3_4_5[precoding_information][19];
+      }
+    }
+  }
+}

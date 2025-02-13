@@ -32,8 +32,6 @@
 
 #include "mac_defs.h"
 
-// DCI
-extern const uint8_t table_7_3_1_1_2_2_3_4_5[64][20];
 extern const uint8_t table_7_3_1_1_2_12[14][3];
 extern const uint8_t table_7_3_1_1_2_13[10][4];
 extern const uint8_t table_7_3_1_1_2_14[3][5];

@@ -192,7 +192,11 @@ void config_dci_pdu(NR_UE_MAC_INST_t *mac,
                     const NR_SearchSpace_t *ss);
 
 void ue_dci_configuration(NR_UE_MAC_INST_t *mac, fapi_nr_dl_config_request_t *dl_config, const frame_t frame, const int slot);
-
+void set_precoding_information_parameters(nfapi_nr_ue_pusch_pdu_t *pusch_config_pdu,
+                                          int n_antenna_port,
+                                          long transformPrecoder,
+                                          int precoding_information,
+                                          NR_PUSCH_Config_t *pusch_Config);
 void set_harq_status(NR_UE_MAC_INST_t *mac,
                      uint8_t pucch_id,
                      uint8_t harq_id,
