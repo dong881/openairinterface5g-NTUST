@@ -38,7 +38,6 @@
 #include "NR_IF_Module.h"
 #include "NR_MAC_UE/mac_proto.h"
 #include "assertions.h"
-#include "NR_MAC_UE/mac_extern.h"
 #include "SCHED_NR_UE/fapi_nr_ue_l1.h"
 #include "executables/softmodem-common.h"
 #include "openair2/RRC/NR_UE/L2_interface_ue.h"
