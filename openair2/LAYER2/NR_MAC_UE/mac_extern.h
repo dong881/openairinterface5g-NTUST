@@ -45,14 +45,4 @@ extern const uint8_t table_7_3_1_1_2_21[19][4];
 extern const uint8_t table_7_3_1_1_2_22[6][5];
 extern const uint8_t table_7_3_1_1_2_23[5][6];
 
-extern void mac_rlc_data_ind(const module_id_t module_idP,
-                             const rnti_t rntiP,
-                             const eNB_index_t eNB_index,
-                             const frame_t frameP,
-                             const eNB_flag_t enb_flagP,
-                             const MBMS_flag_t MBMS_flagP,
-                             const logical_chan_id_t channel_idP,
-                             char *buffer_pP,
-                             const tb_size_t tb_sizeP,
-                             num_tb_t num_tbP,
-                             crc_t *crcs_pP);
+
