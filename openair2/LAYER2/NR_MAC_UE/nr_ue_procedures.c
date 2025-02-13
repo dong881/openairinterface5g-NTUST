@@ -3915,7 +3915,7 @@ static void nr_ue_process_rar(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *d
       n_subPDUs++;
       LOG_I(NR_MAC, "[UE %d][RAPROC][RA-RNTI %04x] Got RAPID RAR subPDU\n", mac->ue_id, rnti);
     } else {
-      ra->RA_backoff_indicator = table_7_2_1[((NR_RA_HEADER_BI *)rarh)->BI];
+      ra->RA_backoff_indicator = get_backoff_indicator(((NR_RA_HEADER_BI *)rarh)->BI);
       ra->RA_BI_found = 1;
       LOG_I(NR_MAC, "[UE %d][RAPROC][RA-RNTI %04x] Got BI RAR subPDU %d ms\n", mac->ue_id, ra->RA_backoff_indicator, rnti);
       if ( ((NR_RA_HEADER_BI *)rarh)->E == 1) {

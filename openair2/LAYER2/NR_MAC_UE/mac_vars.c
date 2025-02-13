@@ -413,7 +413,7 @@ const uint8_t table_7_3_2_3_3_4_twoCodeword[6][14] = {
 };
 
 // table 7.2-1 TS 38.321
-const uint16_t table_7_2_1[16] = {
+const uint32_t table_7_2_1[16] = {
   5,    // row index 0
   10,   // row index 1
   20,   // row index 2
@@ -429,6 +429,12 @@ const uint16_t table_7_2_1[16] = {
   960,  // row index 12
   1920, // row index 13
 };
+
+uint32_t get_backoff_indicator(int idx)
+{
+  AssertFatal(idx < 16, "Backoff indicator index %d exeeding table size\n", idx);
+  return table_7_2_1[idx];
+}
 
 static inline uint16_t packBits(const uint8_t *toPack, const int nb)
 {
