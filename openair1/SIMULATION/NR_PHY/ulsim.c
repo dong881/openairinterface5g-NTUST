@@ -1021,7 +1021,7 @@ int main(int argc, char *argv[])
       while (round < max_rounds && crc_status) {
 
         round_trials[round]++;
-        rv_index = nr_rv_round_map[round % 4];
+        rv_index = nr_get_rv(round % 4);
 
         /// gNB UL PDUs
 

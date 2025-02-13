@@ -1191,7 +1191,7 @@ static void fill_msg3_pusch_pdu(nfapi_nr_pusch_pdu_t *pusch_pdu,
   pusch_pdu->start_symbol_index = start_symbol_index;
   pusch_pdu->nr_of_symbols = nr_of_symbols;
   //Optional Data only included if indicated in pduBitmap
-  pusch_pdu->pusch_data.rv_index = nr_rv_round_map[ra->msg3_round % 4];
+  pusch_pdu->pusch_data.rv_index = nr_get_rv(ra->msg3_round % 4);
   pusch_pdu->pusch_data.harq_process_id = 0;
   pusch_pdu->pusch_data.new_data_indicator = (ra->msg3_round == 0) ? 1 : 0;;
   pusch_pdu->pusch_data.num_cb = 0;
@@ -1871,7 +1871,7 @@ static void prepare_dl_pdus(gNB_MAC_INST *nr_mac,
   pdsch_pdu_rel15->qamModOrder[0] = Qm;
   pdsch_pdu_rel15->mcsIndex[0] = mcsIndex;
   pdsch_pdu_rel15->mcsTable[0] = mcsTableIdx;
-  pdsch_pdu_rel15->rvIndex[0] = nr_rv_round_map[round % 4];
+  pdsch_pdu_rel15->rvIndex[0] = nr_get_rv(round % 4);
   pdsch_pdu_rel15->dataScramblingId = *scc->physCellId;
   pdsch_pdu_rel15->nrOfLayers = 1;
   pdsch_pdu_rel15->transmissionScheme = 0;

@@ -2501,7 +2501,7 @@ void nr_schedule_ulsch(module_id_t module_id, frame_t frame, sub_frame_t slot, n
           sched_pusch->tb_size,
           harq_id,
           cur_harq->round,
-          nr_rv_round_map[cur_harq->round%4],
+          nr_get_rv(cur_harq->round % 4),
           cur_harq->ndi,
           sched_ctrl->estimated_ul_buffer,
           sched_ctrl->sched_ul_bytes,
@@ -2615,8 +2615,10 @@ void nr_schedule_ulsch(module_id_t module_id, frame_t frame, sub_frame_t slot, n
     pusch_pdu->nr_of_symbols = sched_pusch->tda_info.nrOfSymbols;
 
     /* PUSCH PDU */
-    AssertFatal(cur_harq->round < nr_mac->ul_bler.harq_round_max, "Indexing nr_rv_round_map[%d] is out of bounds\n", cur_harq->round%4);
-    pusch_pdu->pusch_data.rv_index = nr_rv_round_map[cur_harq->round%4];
+    AssertFatal(cur_harq->round < nr_mac->ul_bler.harq_round_max,
+                "RV index %d is out of bounds\n",
+                cur_harq->round % 4);
+    pusch_pdu->pusch_data.rv_index = nr_get_rv(cur_harq->round % 4);
     pusch_pdu->pusch_data.harq_process_id = harq_id;
     pusch_pdu->pusch_data.new_data_indicator = (cur_harq->round == 0) ? 1 : 0;  // not NDI but indicator for new transmission
     pusch_pdu->pusch_data.tb_size = sched_pusch->tb_size;
