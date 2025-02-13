@@ -2643,6 +2643,111 @@ int nr_get_csi_measurements(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, PUCC
   return num_csi;
 }
 
+// Referred - Table 10.1.16.1-1 in 38.133 V16.7.0.
+static uint8_t get_sinr_index(float sinr)
+{
+  int index = sinr * 2 + 47;
+  if (sinr >= 40)
+    index = 127;
+  if (sinr < -23)
+    index = 0;
+
+  return index;
+}
+
+// Reffered Table 10.1.16.1-2 in 38.133 V16.7.0. Differential value is reported.
+static uint8_t get_sinr_diff_index(float best_sinr, float current_sinr)
+{
+  int diff = best_sinr - current_sinr;
+  if (diff >= 15)
+    return 15;
+  else if (diff <= 0)
+    return 0;
+  else
+    return diff;
+}
+
+static csi_payload_t get_ssb_sinr_payload(NR_UE_MAC_INST_t *mac,
+                                          struct NR_CSI_ReportConfig *csi_reportconfig,
+                                          NR_CSI_ResourceConfigId_t csi_ResourceConfigId,
+                                          NR_CSI_MeasConfig_t *csi_MeasConfig)
+{
+  int nb_ssb = 0; // nb of ssb in the resource
+  int nb_meas = 0; // nb of ssb to report measurements on
+  int bits = 0;
+  uint32_t temp_payload = 0;
+
+  for (int csi_resourceidx = 0; csi_resourceidx < csi_MeasConfig->csi_ResourceConfigToAddModList->list.count; csi_resourceidx++) {
+    struct NR_CSI_ResourceConfig *csi_resourceconfig = csi_MeasConfig->csi_ResourceConfigToAddModList->list.array[csi_resourceidx];
+    if (csi_resourceconfig->csi_ResourceConfigId == csi_ResourceConfigId) {
+      if (csi_reportconfig->groupBasedBeamReporting.present == NR_CSI_ReportConfig__groupBasedBeamReporting_PR_disabled) {
+        if (csi_reportconfig->groupBasedBeamReporting.choice.disabled->nrofReportedRS != NULL)
+          nb_meas = *(csi_reportconfig->groupBasedBeamReporting.choice.disabled->nrofReportedRS) + 1;
+        else
+          nb_meas = 1;
+      } else
+        nb_meas = 2;
+
+      struct NR_CSI_SSB_ResourceSet__csi_SSB_ResourceList SSB_resource;
+      for (int csi_ssb_idx = 0; csi_ssb_idx < csi_MeasConfig->csi_SSB_ResourceSetToAddModList->list.count; csi_ssb_idx++) {
+        if (csi_MeasConfig->csi_SSB_ResourceSetToAddModList->list.array[csi_ssb_idx]->csi_SSB_ResourceSetId
+            == *(csi_resourceconfig->csi_RS_ResourceSetList.choice.nzp_CSI_RS_SSB->csi_SSB_ResourceSetList->list.array[0])) {
+          SSB_resource = csi_MeasConfig->csi_SSB_ResourceSetToAddModList->list.array[csi_ssb_idx]->csi_SSB_ResourceList;
+          /// only one SSB resource set from spec 38.331 IE CSI-ResourceConfig
+          nb_ssb = SSB_resource.list.count;
+          break;
+        }
+      }
+
+      AssertFatal(nb_ssb > 0, "No SSB found in the resource set\n");
+      AssertFatal(nb_meas == 1, "PHY currently reports only the strongest SSB to MAC. Can't report more than 1 RSRP\n");
+      int ssbri_bits = ceil(log2(nb_ssb));
+
+      int ssb_index[nb_meas]; // the array contains index and RSRP of each SSB to be reported (nb_meas highest RSRPs)
+      float ssb_sinr[nb_meas];
+
+      // TODO replace the following 2 lines with a function to order the nb_meas highest SSB RSRPs
+      for (int i = 0; i < nb_ssb; i++) {
+        ssb_index[i] = -1;//Invalid index
+        if (*SSB_resource.list.array[i] == mac->mib_ssb) {
+          ssb_index[0] = i;
+          break;
+        }
+      }
+      AssertFatal(ssb_index[0] >= 0, "Couldn't find corresponding SSB in csi_SSB_ResourceList\n");
+      ssb_sinr[0] = mac->ssb_measurements.ssb_sinr_dB;
+
+      uint8_t ssbi;
+
+      // TS38.212 v16.5.0: Table 6.3.1.1.2-8A
+      if (ssbri_bits > 0) {
+        ssbi = ssb_index[0];
+        temp_payload = reverse_bits(ssbi, ssbri_bits);
+        bits += ssbri_bits;
+      }
+
+      uint8_t sinr_idx = get_sinr_index(ssb_sinr[0]);
+      temp_payload |= (reverse_bits(sinr_idx, 7) << bits);
+      bits += 7; // 7 bits for highest SINR
+
+      // from the second SSB, differential report
+      for (int i = 1; i < nb_meas; i++) {
+        ssbi = ssb_index[i];
+        temp_payload = reverse_bits(ssbi, ssbri_bits);
+        bits += ssbri_bits;
+
+        sinr_idx = get_sinr_diff_index(ssb_sinr[0], ssb_sinr[i]);
+        temp_payload |= (reverse_bits(sinr_idx, 4) << bits);
+        bits += 4; // 7 bits for highest SINR
+      }
+      break; // resource found
+    }
+  }
+  AssertFatal(bits <= 32, "Not supporting CSI report with more than 32 bits\n");
+  csi_payload_t csi = {.part1_payload = temp_payload, .p1_bits = bits, csi.p2_bits = 0};
+  return csi;
+}
+
 csi_payload_t nr_get_csi_payload(NR_UE_MAC_INST_t *mac,
                                  int csi_report_id,
                                  CSI_mapping_t mapping_type,
@@ -2652,26 +2757,39 @@ csi_payload_t nr_get_csi_payload(NR_UE_MAC_INST_t *mac,
   csi_payload_t csi = {0};
   struct NR_CSI_ReportConfig *csi_reportconfig = csi_MeasConfig->csi_ReportConfigToAddModList->list.array[csi_report_id];
   NR_CSI_ResourceConfigId_t csi_ResourceConfigId = csi_reportconfig->resourcesForChannelMeasurement;
-  switch(csi_reportconfig->reportQuantity.present) {
-    case NR_CSI_ReportConfig__reportQuantity_PR_none:
-      break;
-    case NR_CSI_ReportConfig__reportQuantity_PR_ssb_Index_RSRP:
-      csi = get_ssb_rsrp_payload(mac, csi_reportconfig, csi_ResourceConfigId, csi_MeasConfig);
-      break;
-    case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_PMI_CQI:
-      csi = get_csirs_RI_PMI_CQI_payload(mac, csi_reportconfig, csi_ResourceConfigId, csi_MeasConfig, mapping_type);
-      break;
-    case NR_CSI_ReportConfig__reportQuantity_PR_cri_RSRP:
-      csi = get_csirs_RSRP_payload(mac, csi_reportconfig, csi_ResourceConfigId, csi_MeasConfig);
-      break;
-    case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_i1:
-    case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_i1_CQI:
-    case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_CQI:
-    case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_LI_PMI_CQI:
-      LOG_E(NR_MAC,"Measurement report %d based on CSI-RS is not available\n", csi_reportconfig->reportQuantity.present);
-      break;
-    default:
-      AssertFatal(1==0,"Invalid CSI report quantity type %d\n",csi_reportconfig->reportQuantity.present);
+  if (csi_reportconfig->ext2 && csi_reportconfig->ext2->reportQuantity_r16) {
+    switch (csi_reportconfig->ext2->reportQuantity_r16->present) {
+      case NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_ssb_Index_SINR_r16:
+        csi = get_ssb_sinr_payload(mac, csi_reportconfig, csi_ResourceConfigId, csi_MeasConfig);
+        break;
+      case NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_cri_SINR_r16:
+        LOG_E(NR_MAC, "CSI Reporting of CSI-RS based SINR not yet available\n");
+        break;
+      default:
+        AssertFatal(1 == 0, "Invalid CSI report quantity r16 type %d\n", csi_reportconfig->ext2->reportQuantity_r16->present);
+    }
+  } else {
+    switch (csi_reportconfig->reportQuantity.present) {
+      case NR_CSI_ReportConfig__reportQuantity_PR_none:
+        break;
+      case NR_CSI_ReportConfig__reportQuantity_PR_ssb_Index_RSRP:
+        csi = get_ssb_rsrp_payload(mac, csi_reportconfig, csi_ResourceConfigId, csi_MeasConfig);
+        break;
+      case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_PMI_CQI:
+        csi = get_csirs_RI_PMI_CQI_payload(mac, csi_reportconfig, csi_ResourceConfigId, csi_MeasConfig, mapping_type);
+        break;
+      case NR_CSI_ReportConfig__reportQuantity_PR_cri_RSRP:
+        csi = get_csirs_RSRP_payload(mac, csi_reportconfig, csi_ResourceConfigId, csi_MeasConfig);
+        break;
+      case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_i1:
+      case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_i1_CQI:
+      case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_CQI:
+      case NR_CSI_ReportConfig__reportQuantity_PR_cri_RI_LI_PMI_CQI:
+        LOG_E(NR_MAC, "Measurement report %d based on CSI-RS is not available\n", csi_reportconfig->reportQuantity.present);
+        break;
+      default:
+        AssertFatal(1 == 0, "Invalid CSI report quantity type %d\n", csi_reportconfig->reportQuantity.present);
+    }
   }
   return csi;
 }
