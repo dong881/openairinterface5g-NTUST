@@ -179,6 +179,7 @@ typedef struct nr_mac_config_t {
   int32_t *bw_list;
   int num_agg_level_candidates[NUM_PDCCH_AGG_LEVELS];
   nr_redcap_config_t *redcap;
+  bool do_SINR;
 } nr_mac_config_t;
 
 typedef struct NR_preamble_ue {

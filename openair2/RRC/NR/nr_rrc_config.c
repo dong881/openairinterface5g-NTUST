@@ -1934,7 +1934,8 @@ static void config_rsrp_meas_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
                                     int rep_id,
                                     int uid,
                                     int curr_bwp,
-                                    int num_antenna_ports)
+                                    int num_antenna_ports,
+                                    bool do_sinr)
 {
   int resource_id = -1;
   for (int csi_list = 0; csi_list < csi_MeasConfig->csi_ResourceConfigToAddModList->list.count; csi_list++) {
@@ -1968,6 +1969,14 @@ static void config_rsrp_meas_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
   } else {
     csirep->reportQuantity.present = NR_CSI_ReportConfig__reportQuantity_PR_ssb_Index_RSRP;
     csirep->reportQuantity.choice.ssb_Index_RSRP = (NULL_t)0;
+    if (do_sinr) {
+      csirep->reportQuantity.present = NR_CSI_ReportConfig__reportQuantity_PR_none;
+      csirep->reportQuantity.choice.none = (NULL_t)0;
+      csirep->ext2 = calloc(1, sizeof(*csirep->ext2));
+      csirep->ext2->reportQuantity_r16 = calloc(1, sizeof(*csirep->ext2->reportQuantity_r16));
+      csirep->ext2->reportQuantity_r16->present = NR_CSI_ReportConfig__ext2__reportQuantity_r16_PR_ssb_Index_SINR_r16;
+      csirep->ext2->reportQuantity_r16->choice.ssb_Index_SINR_r16 = (NULL_t)0;
+    }
   }
   csirep->groupBasedBeamReporting.present = NR_CSI_ReportConfig__groupBasedBeamReporting_PR_disabled;
   csirep->groupBasedBeamReporting.choice.disabled = calloc(1, sizeof(*csirep->groupBasedBeamReporting.choice.disabled));
@@ -3298,7 +3307,15 @@ static NR_SpCellConfig_t *get_initial_SpCellConfig(int uid,
     NR_PUCCH_CSI_Resource_t *pucchrsrp = calloc(1, sizeof(*pucchrsrp));
     pucchrsrp->uplinkBandwidthPartId = bwp_id;
     pucchrsrp->pucch_Resource = pucch_Resource;
-    config_rsrp_meas_report(csi_MeasConfig, scc, pucchrsrp, configuration->do_CSIRS, bwp_id + 10, uid, curr_bwp, pdsch_AntennaPorts);
+    config_rsrp_meas_report(csi_MeasConfig,
+                            scc,
+                            pucchrsrp,
+                            configuration->do_CSIRS,
+                            bwp_id + 10,
+                            uid,
+                            curr_bwp,
+                            pdsch_AntennaPorts,
+                            configuration->do_SINR);
   }
 
   fill_harq_IEs(SpCellConfig->spCellConfigDedicated, configuration->num_dlharq, configuration->num_ulharq);
@@ -3811,7 +3828,8 @@ NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigC
                             bwp->bwp_Id + 10,
                             uid,
                             curr_bwp,
-                            dl_antenna_ports);
+                            dl_antenna_ports,
+                            configuration->do_SINR);
   }
   secondaryCellGroup->spCellConfig->spCellConfigDedicated->sCellDeactivationTimer = NULL;
   secondaryCellGroup->spCellConfig->spCellConfigDedicated->crossCarrierSchedulingConfig = NULL;
