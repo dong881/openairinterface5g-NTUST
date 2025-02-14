@@ -19,8 +19,11 @@ The following options can be specified to trigger the information added in the h
 - `thread_id`: add the thread ID
 - `function`: add the function name
 - `line_num`: adds the (source code) line number
-- `time`: add the time since process started
-- `wall_clock`: add the system-wide clock time that measures real (i.e., wall-clock) time (`time` and `wall_clock` are mutually exclusive)
+- `time`: add the time since the system started in format `ss.ssssss` (seconds and microseconds sourced from `CLOCK_MONOTONIC`)
+- `wall_clock`: add the system-wide clock time that measures real (i.e., wall-clock) time in format `ss.ssssss` (seconds and microseconds since 1970-01-01 00:00:00 Coordinated Universal Time (UTC))
+- `utc_time`: add the UTC (Coordinated Universal Time) time in format `YYYY-MM-DD hh:mm:ss.ssssss UTC`. Note that this time is independent of the current time zone (it shows GMT). Also, printing this time has additional overhead compared to other time methods (due to time conversion and formatting).
+
+Note: `time`, `utc_time` and `wall_clock` are mutually exclusive and cannot be used together.
 
 ### Component specific parameters
 | name | type | default | description |
