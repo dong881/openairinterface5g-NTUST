@@ -485,7 +485,7 @@ function main() {
     # add some default libraries that should always be built
     # for eNB, gNB, UEs, simulators
     if [[ $gNB == 1 || $eNB == 1 || $UE == 1 || $nrUE == 1 || $SIMUS_PHY == 1 || $RU == 1 ]]; then
-      TARGET_LIST="$TARGET_LIST params_libconfig coding rfsimulator dfts params_yaml"
+      TARGET_LIST="$TARGET_LIST params_libconfig coding rfsimulator dfts params_yaml vrtsim"
     fi
 
     mkdir -p $DIR/$BUILD_DIR/build

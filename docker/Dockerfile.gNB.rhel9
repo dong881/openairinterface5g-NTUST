@@ -72,6 +72,7 @@ COPY --from=gnb-build \
     /oai-ran/cmake_targets/ran_build/build/libtelnetsrv.so \
     /oai-ran/cmake_targets/ran_build/build/libtelnetsrv_ci.so \
     /oai-ran/cmake_targets/ran_build/build/libparams_yaml.so \
+    /oai-ran/cmake_targets/ran_build/build/libvrtsim.so \
     /usr/local/lib/
 
 COPY --from=gnb-base \

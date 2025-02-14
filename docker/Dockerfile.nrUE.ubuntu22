@@ -110,6 +110,7 @@ COPY --from=nr-ue-build \
     /oai-ran/cmake_targets/ran_build/build/libtelnetsrv_ciUE.so \
     /oai-ran/cmake_targets/ran_build/build/libtelnetsrv_5Gue.so \
     /oai-ran/cmake_targets/ran_build/build/libparams_yaml.so \
+    /oai-ran/cmake_targets/ran_build/build/libvrtsim.so \
     /usr/local/lib/
 
 # Now we are copying from builder-image the UHD files.
