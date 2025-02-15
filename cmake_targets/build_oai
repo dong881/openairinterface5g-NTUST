@@ -504,12 +504,6 @@ function main() {
 	echo_info "Built Doxygen based documentation. The documentation file is located here: $DIR/$BUILD_DIR/build/doc/html/index.html"
     fi
 
-    # TODO: once we got the CMakeLists.txt file done for the ORAN files, remove the following lines
-    if [[ $TARGET_LIST =~ "oran_fhlib_5g" ]]; then
-      rm -f liboai_transpro.so
-      ln -s liboran_fhlib_5g.so liboai_transpro.so
-    fi
-
     if [ "$UE" = 1 ] ; then
 
       echo_info "Compiling UE specific part"
