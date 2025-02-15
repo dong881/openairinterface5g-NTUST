@@ -30,15 +30,19 @@ endif()
 add_compile_options(-Wno-packed-not-aligned)
 
 set_target_properties(oran_fhlib_5g PROPERTIES COMPILE_FLAGS "-fvisibility=hidden -march=native")
-target_link_libraries(oran_fhlib_5g PRIVATE xran::xran)
-target_link_libraries(oran_fhlib_5g PRIVATE ${dpdk_LINK_LIBRARIES})
+target_link_libraries(oran_fhlib_5g PRIVATE xran::xran ${dpdk_LINK_LIBRARIES} ${T_LIB} pthread dl rt m numa)
 target_include_directories(oran_fhlib_5g PRIVATE ${dpdk_INCLUDE_DIRS})
-target_link_libraries(oran_fhlib_5g PRIVATE pthread dl rt m numa)
-target_link_libraries(oran_fhlib_5g PRIVATE ${T_LIB})
 
 add_boolean_option(OAI_FHI72_USE_POLLING OFF "Enable polling in FHI72 driver" ON)
+
+message(STATUS "Building FHI72 CUS library")
 
 set_target_properties(oran_fhlib_5g PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 add_custom_command(TARGET oran_fhlib_5g POST_BUILD
                    COMMAND ${CMAKE_COMMAND} -E create_symlink liboran_fhlib_5g.so liboai_transpro.so
                    WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+
+add_boolean_option(OAI_FHI72_MPLANE OFF "Activate OAI's FHI 7.2 M-plane support" OFF)
+if(OAI_FHI72_MPLANE)
+  add_subdirectory(mplane)
+endif()

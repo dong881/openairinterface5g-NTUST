@@ -39,6 +39,10 @@
 // line and the use of VERSIONX further below. It is relative to phy/fhi_lib/lib/api
 #include "../../app/src/common.h"
 
+#ifdef OAI_MPLANE
+#include "mplane/init-mplane.h"
+#endif
+
 typedef struct {
   eth_state_t e;
   rru_config_msg_type_t last_msg;
@@ -279,7 +283,32 @@ __attribute__((__visibility__("default"))) int transport_init(openair0_device *d
                                                               openair0_config_t *openair0_cfg,
                                                               eth_params_t *eth_params)
 {
-  oran_eth_state_t *eth;
+  oran_eth_state_t *eth = calloc_or_fail(1, sizeof(*eth));
+
+  struct xran_fh_init fh_init = {0};
+  struct xran_fh_config fh_config[XRAN_PORTS_NUM] = {0};
+
+  bool success = false;
+#ifdef OAI_MPLANE
+  ru_session_list_t ru_session_list = {0};
+  success = init_mplane(&ru_session_list);
+  AssertFatal(success, "[MPLANE] Cannot initialize M-plane.\n");
+#else
+  success = get_xran_config(openair0_cfg, &fh_init, fh_config);
+  AssertFatal(success, "cannot get configuration for xran\n");
+#endif
+
+  LOG_I(HW, "Initializing O-RAN 7.2 FH interface through xran library (compiled against headers of %s)\n", VERSIONX);
+  eth->oran_priv = oai_oran_initialize(&fh_init, fh_config);
+  AssertFatal(eth->oran_priv != NULL, "can not initialize fronthaul");
+  // create message queues for ORAN sync
+
+  initNotifiedFIFO(&oran_sync_fifo);
+
+  eth->e.flags = ETH_RAW_IF4p5_MODE;
+  eth->e.compression = NO_COMPRESS;
+  eth->e.if_name = eth_params->local_if_name;
+  eth->last_msg = (rru_config_msg_type_t)-1;
 
   device->Mod_id = 0;
   device->transp_type = ETHERNET_TP;
@@ -290,43 +319,13 @@ __attribute__((__visibility__("default"))) int transport_init(openair0_device *d
   device->trx_stop_func = trx_oran_stop;
   device->trx_set_freq_func = trx_oran_set_freq;
   device->trx_set_gains_func = trx_oran_set_gains;
-
   device->trx_write_func = trx_oran_write_raw;
   device->trx_read_func = trx_oran_read_raw;
-
   device->trx_ctlsend_func = trx_oran_ctlsend;
   device->trx_ctlrecv_func = trx_oran_ctlrecv;
-
   device->get_internal_parameter = get_internal_parameter;
-
-  eth = (oran_eth_state_t *)calloc(1, sizeof(oran_eth_state_t));
-  if (eth == NULL) {
-    AssertFatal(0 == 1, "out of memory\n");
-  }
-
-  eth->e.flags = ETH_RAW_IF4p5_MODE;
-  eth->e.compression = NO_COMPRESS;
-  eth->e.if_name = eth_params->local_if_name;
-  eth->oran_priv = NULL; // define_oran_pointer();
   device->priv = eth;
   device->openair0_cfg = &openair0_cfg[0];
 
-  eth->last_msg = (rru_config_msg_type_t)-1;
-
-  LOG_I(HW, "Initializing O-RAN 7.2 FH interface through xran library (compiled against headers of %s)\n", VERSIONX);
-
-  initNotifiedFIFO(&oran_sync_fifo);
-
-  struct xran_fh_init fh_init = {0};
-  struct xran_fh_config fh_config[XRAN_PORTS_NUM] = {0};
-#ifndef OAI_MPLANE_SUPPORT
-  bool success = get_xran_config(openair0_cfg, &fh_init, fh_config);
-  AssertFatal(success, "cannot get configuration for xran\n");
-#else
-  /* TODO: M-plane integration */
-#endif
-  eth->oran_priv = oai_oran_initialize(&fh_init, fh_config);
-  AssertFatal(eth->oran_priv != NULL, "can not initialize fronthaul");
-  // create message queues for ORAN sync
   return 0;
 }
