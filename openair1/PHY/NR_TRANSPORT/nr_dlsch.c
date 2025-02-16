@@ -463,8 +463,8 @@ static inline int do_onelayer(NR_DL_FRAME_PARMS *frame_parms,
           case 3: {
             c16_t dmrs[sz / 2];
             neg_dmrs(dmrs_start, dmrs, sz / 2);
-            txl += dmrs_case2b(txF + start_sc, dmrs_start, amp_dmrs, upper_limit);
-            txl += dmrs_case2b(txF, dmrs_start + upper_limit / 2, amp_dmrs, remaining_re);
+            txl += dmrs_case2b(txF + start_sc, dmrs, amp_dmrs, upper_limit);
+            txl += dmrs_case2b(txF, dmrs + upper_limit / 2, amp_dmrs, remaining_re);
           } break;
         }
       } else if (rel15->numDmrsCdmGrpsNoData == 1) {
