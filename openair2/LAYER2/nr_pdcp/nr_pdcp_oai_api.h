@@ -35,7 +35,6 @@ struct NR_DRB_ToAddMod;
 struct NR_SRB_ToAddMod;
 
 void nr_pdcp_layer_init(void);
-uint64_t nr_pdcp_module_init(uint64_t _pdcp_optmask, int id);
 
 void du_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
                      const srb_flag_t srb_flagP,

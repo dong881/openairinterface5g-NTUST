@@ -469,6 +469,10 @@ typedef ul_info_transfer_cnf_t dl_info_transfer_cnf_t;
  */
 typedef ul_info_transfer_ind_t dl_info_transfer_ind_t;
 
+typedef struct nas_nos1_msg_s {
+  int dummy; // This dummy element is to avoid CLANG warning: empty struct has size 0 in C, size 1 in C++
+} nas_nos1_msg_t;
+
 typedef struct nas_pdu_session_req_s {
   int pdusession_id;
   int pdusession_type;

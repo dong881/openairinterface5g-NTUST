@@ -38,7 +38,7 @@
 int nas_sock_fd[MAX_MOBILES_PER_ENB * 2]; // Allocated for both LTE UE and NR UE.
 int nas_sock_mbms_fd;
 
-static int tun_alloc(const char *dev)
+int tun_alloc(const char *dev)
 {
   struct ifreq ifr;
   int fd, err;
@@ -157,13 +157,14 @@ static bool setInterfaceParameter(int sock_fd, const char *ifn, int af, const ch
   return success;
 }
 
-/*
- * \brief bring interface up (up != 0) or down (up == 0)
- */
+
 typedef enum { INTERFACE_DOWN, INTERFACE_UP } if_action_t;
+/*
+* \brief bring interface up (up != 0) or down (up == 0)
+*/
 static bool change_interface_state(int sock_fd, const char *ifn, if_action_t if_action)
 {
-  const char* action = if_action == INTERFACE_DOWN ? "DOWN" : "UP";
+  const char *action = if_action == INTERFACE_DOWN ? "DOWN" : "UP";
 
   struct ifreq ifr = {0};
   strncpy(ifr.ifr_name, ifn, sizeof(ifr.ifr_name));
@@ -188,6 +189,7 @@ fail_interface_state:
   LOG_E(OIP, "Bringing interface %s for %s: ioctl call failed: %d, %s\n", action, ifn, errno, strerror(errno));
   return false;
 }
+
 
 bool tun_config(const char* ifname, const char *ipv4, const char *ipv6)
 {
@@ -261,4 +263,20 @@ void setup_ue_ipv4_route(const char* ifname, int instance_id, const char *ipv4)
 int tun_generate_ifname(char *ifname, const char *ifprefix, int instance_id)
 {
   return snprintf(ifname, IFNAMSIZ, "%s%d", ifprefix, instance_id + 1);
+}
+
+int tun_generate_ue_ifname(char *ifname, int instance_id, int pdu_session_id)
+{
+  char pdu_session_string[10];
+  snprintf(pdu_session_string, sizeof(pdu_session_string), "p%d", pdu_session_id);
+  return snprintf(ifname, IFNAMSIZ, "%s%d%s", "oaitun_ue", instance_id + 1, pdu_session_id == -1 ? "" : pdu_session_string);
+}
+
+void tun_destroy(const char *dev, int fd) {
+  if (change_interface_state(fd, dev, INTERFACE_DOWN) == 0) {
+    LOG_I(UTIL, "Interface %s is now down.\n", dev);
+  } else {
+    LOG_E(UTIL, "Could not bring interface %s down.\n", dev);
+  }
+  close(fd);
 }

@@ -301,25 +301,10 @@ void init_openair0()
 
 static void init_pdcp(int ue_id)
 {
-  uint32_t pdcp_initmask = (!IS_SOFTMODEM_NOS1) ? LINK_ENB_PDCP_TO_GTPV1U_BIT : LINK_ENB_PDCP_TO_GTPV1U_BIT;
-
-  /*if (IS_SOFTMODEM_RFSIM || (nfapi_getmode()==NFAPI_UE_STUB_PNF)) {
-    pdcp_initmask = pdcp_initmask | UE_NAS_USE_TUN_BIT;
-  }*/
-
-  // previous code was:
-  //   if (IS_SOFTMODEM_NOKRNMOD)
-  //     pdcp_initmask = pdcp_initmask | UE_NAS_USE_TUN_BIT;
-  // The kernel module (KRNMOD) has been removed from the project, so the 'if'
-  // was removed but the flag 'pdcp_initmask' was kept, as "no kernel module"
-  // was always set. further refactoring could take it out
-  pdcp_initmask = pdcp_initmask | UE_NAS_USE_TUN_BIT;
-
   if (get_softmodem_params()->nsa && nr_rlc_module_init(0) != 0) {
     LOG_I(RLC, "Problem at RLC initiation \n");
   }
   nr_pdcp_layer_init();
-  nr_pdcp_module_init(pdcp_initmask, ue_id);
 }
 
 // Stupid function addition because UE itti messages queues definition is common with eNB
@@ -449,6 +434,11 @@ int main(int argc, char **argv)
     }
   }
 
+  if (create_tasks_nrue(1) < 0) {
+    printf("cannot create ITTI tasks\n");
+    exit(-1); // need a softer mode
+  }
+
   int mode_offset = get_softmodem_params()->nsa ? NUMBER_OF_UE_MAX : 1;
   uint16_t node_number = get_softmodem_params()->node_number;
   ue_id_g = (node_number == 0) ? 0 : node_number - 2;
@@ -556,11 +546,6 @@ int main(int argc, char **argv)
 
   // wait for end of program
   printf("TYPE <CTRL-C> TO TERMINATE\n");
-
-  if (create_tasks_nrue(1) < 0) {
-    printf("cannot create ITTI tasks\n");
-    exit(-1); // need a softer mode
-  }
 
   // Sleep a while before checking all parameters have been used
   // Some are used directly in external threads, asynchronously

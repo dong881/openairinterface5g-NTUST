@@ -34,6 +34,7 @@
  * \param[in] instance_id unique instance number
  */
 int tun_generate_ifname(char *ifname, const char *ifprefix, int instance_id);
+int tun_generate_ue_ifname(char *ifname, int instance_id, int pdu_session_id);
 
 /*!
  * \brief This function initializes the TUN interface
@@ -72,5 +73,19 @@ bool tun_config(const char* ifname, const char *ipv4, const char *ipv6);
  * \param[in] ipv4 IPv4 address of the UE
  */
 void setup_ue_ipv4_route(const char* ifname, int instance_id, const char *ipv4);
+
+/*!
+ * \brief This function allocates a TUN interface
+ * \param[in] dev name of the interface
+ * \return file descriptor of the allocated interface
+ */
+int tun_alloc(const char *dev);
+
+/*!
+ * \brief This function destroys the TUN interface
+ * \param[in] dev name of the interface
+ * \param[in] fd file descriptor of the allocated interface
+ */
+void tun_destroy(const char *dev, int fd);
 
 #endif /*TUN_IF_H_*/
