@@ -141,6 +141,10 @@ Here are some useful command line options for the NR UE:
 | `--initial-fo`           | Sets the known initial frequency offset. Useful especially with large Doppler frequency, e.g. LEO satellite.  |
 | `--freq-sync-P`          | Sets the coefficient for the Proportional part of the PI-controller for the continuous frequency offset compensation. Default value 0.01. |
 | `--freq-sync-I`          | Sets the coefficient for the Integrating part of the PI-controller for the continuous frequency offset compensation. Default value 0.001. |
+| `--ntn-initial-time-drift` | Sets the initial NTN DL time drift (feeder link and service link), given in µs/s.                           |
+| `--autonomous-ta`        | Enables the autonomous TA update, based on DL drift (useful if main contribution to DL drift is movement, e.g. LEO satellite). |
+| `--time-sync-P`          | Sets the coefficient for the Proportional part of the PI-controller for the time synchronization. Default value 0.5. |
+| `--time-sync-I`          | Sets the coefficient for the Integrating part of the PI-controller for the time synchronization. Default value 0.0. |
 | `--usrp-args`            | Equivalent to the `sdr_addrs` field in the gNB config file. Used to identify the USRP and set some basic parameters (like the clock source).  |
 | `--clock-source`         | Sets the clock source (internal or external).                                                                 |
 | `--time-source`          | Sets the time source (internal or external).                                                                  |
@@ -353,10 +357,16 @@ For LEO satellite scenarios, the parameter `--ntn-initial-time-drift` must be pr
 This parameter provides the drift rate of the complete DL timing (incl. feeder link and service link) in µs/s.
 Also, to perform an autonomous TA update based on the DL drift, the boolean parameter `--autonomous-ta` should be added in case of a LEO satellite scenario.
 
+For LEO satellite scenario we assume the LO to be very accurate and the main FO contribution comes from Doppler shift.
+Therefore, we use the command line parameter `--cont-fo-comp 2` to continuously compensate the DL Doppler and pre-compensate the UL Doppler.
+The initial Doppler frequency offset must be provided via command line with the parameter `--initial-fo`.
+
+For other information on optional NR UE command line options, please refer [here](#optional-nr-ue-command-line-options).
+
 So an example NR UE command for FDD, 5MHz BW, 15 kHz SCS, transparent LEO satellite 5G NR NTN is this:
 ```
 cd cmake_targets
-sudo ./ran_build/build/nr-uesoftmodem -O ../targets/PROJECTS/GENERIC-NR-5GC/CONF/ue.conf --band 254 -C 2488400000 --CO -873500000 -r 25 --numerology 0 --ssb 60 --rfsim --rfsimulator.prop_delay 20 --rfsimulator.options chanmod --time-sync-I 0.1 --ntn-initial-time-drift -46 --autonomous-ta
+sudo ./ran_build/build/nr-uesoftmodem -O ../targets/PROJECTS/GENERIC-NR-5GC/CONF/ue.conf --band 254 -C 2488400000 --CO -873500000 -r 25 --numerology 0 --ssb 60 --rfsim --rfsimulator.prop_delay 20 --rfsimulator.options chanmod --time-sync-I 0.1 --ntn-initial-time-drift -46 --autonomous-ta --initial-fo 57340 --cont-fo-comp 2
 ```
 
 # Specific OAI modes
