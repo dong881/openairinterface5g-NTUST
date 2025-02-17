@@ -43,6 +43,7 @@
 
 // #define DEBUG_DLSCH
 // #define DEBUG_DLSCH_MAPPING
+#include <simde/x86/avx512.h>
 #define USE128BIT
 
 static void nr_pdsch_codeword_scrambling(uint8_t *in, uint32_t size, uint8_t q, uint32_t Nid, uint32_t n_RNTI, uint32_t *out)
@@ -106,14 +107,14 @@ static inline int dmrs_case2a(c16_t *txF, c16_t *mod_dmrs, const int amp_dmrs, i
   int i = 0;
   int end = sz / 2;
 #if defined(__AVX512BW__)
-  __m512i zeros512 = _mm512_setzero_si512(), amp_dmrs512 = _mm512_set1_epi16(amp_dmrs);
-  __m512i perml = _mm512_set_epi32(23, 7, 22, 6, 21, 5, 20, 4, 19, 3, 18, 2, 17, 1, 16, 0);
-  __m512i permh = _mm512_set_epi32(31, 15, 30, 14, 29, 13, 28, 12, 27, 11, 26, 10, 25, 9, 24, 8);
+  simde__m512i zeros512 = simde_mm512_setzero_si512(), amp_dmrs512 = simde_mm512_set1_epi16(amp_dmrs);
+  simde__m512i perml = simde_mm512_set_epi32(23, 7, 22, 6, 21, 5, 20, 4, 19, 3, 18, 2, 17, 1, 16, 0);
+  simde__m512i permh = simde_mm512_set_epi32(31, 15, 30, 14, 29, 13, 28, 12, 27, 11, 26, 10, 25, 9, 24, 8);
   for (; i < (end & ~15); i += 16) {
-    __m512i d0 = _mm512_mulhrs_epi16(_mm512_loadu_si512((__m512i *)(mod_dmrs + i)), amp_dmrs512);
-    _mm512_storeu_si512((__m512i *)out, _mm512_permutex2var_epi32(d0, perml, zeros512));
+    simde__m512i d0 = simde_mm512_mulhrs_epi16(_mm512_loadu_si512((simde__m512i *)(mod_dmrs + i)), amp_dmrs512);
+    simde_mm512_storeu_si512((simde__m512i *)out, simde_mm512_permutex2var_epi32(d0, perml, zeros512));
     out += 16;
-    _mm512_storeu_si512((__m512i *)out, _mm512_permutex2var_epi32(d0, permh, zeros512));
+    simde_mm512_storeu_si512((simde__m512i *)out, simde_mm512_permutex2var_epi32(d0, permh, zeros512));
     out += 16;
   }
 #endif
@@ -157,14 +158,14 @@ static inline int dmrs_case2b(c16_t *txF, c16_t *mod_dmrs, const int amp_dmrs, i
   int i = 0;
   int end = sz / 2;
 #if defined(__AVX512BW__)
-  __m512i zeros512 = _mm512_setzero_si512(), amp_dmrs512 = _mm512_set1_epi16(amp_dmrs);
-  __m512i perml = _mm512_set_epi32(23, 7, 22, 6, 21, 5, 20, 4, 19, 3, 18, 2, 17, 1, 16, 0);
-  __m512i permh = _mm512_set_epi32(31, 15, 30, 14, 29, 13, 28, 12, 27, 11, 26, 10, 25, 9, 24, 8);
+  simde__m512i zeros512 = simde_mm512_setzero_si512(), amp_dmrs512 = simde_mm512_set1_epi16(amp_dmrs);
+  simde__m512i perml = simde_mm512_set_epi32(23, 7, 22, 6, 21, 5, 20, 4, 19, 3, 18, 2, 17, 1, 16, 0);
+  simde__m512i permh = simde_mm512_set_epi32(31, 15, 30, 14, 29, 13, 28, 12, 27, 11, 26, 10, 25, 9, 24, 8);
   for (; i < (end & ~15); i += 16) {
-    __m512i d0 = _mm512_mulhrs_epi16(_mm512_loadu_si512((__m512i *)(mod_dmrs + i)), amp_dmrs512);
-    _mm512_storeu_si512((__m512i *)out, _mm512_permutex2var_epi32(zeros512, perml, d0));
+    simde__m512i d0 = simde_mm512_mulhrs_epi16(_mm512_loadu_si512((simde__m512i *)(mod_dmrs + i)), amp_dmrs512);
+    simde_mm512_storeu_si512((simde__m512i *)out, simde_mm512_permutex2var_epi32(zeros512, perml, d0));
     out += 16;
-    _mm512_storeu_si512((__m512i *)out, _mm512_permutex2var_epi32(zeros512, permh, d0));
+    simde_mm512_storeu_si512((simde__m512i *)out, simde_mm512_permutex2var_epi32(zeros512, permh, d0));
     out += 16;
   }
 #endif
@@ -209,16 +210,16 @@ static inline int dmrs_case1a(c16_t *txF, c16_t *txl, c16_t *mod_dmrs, const int
   int i = 0;
   int end = sz / 2;
 #if defined(__AVX512BW__)
-  __m512i amp_dmrs512 = _mm512_set1_epi16(amp_dmrs), amp512 = _mm512_set1_epi16(amp);
-  __m512i perml = _mm512_set_epi32(23, 7, 22, 6, 21, 5, 20, 4, 19, 3, 18, 2, 17, 1, 16, 0);
-  __m512i permh = _mm512_set_epi32(31, 15, 30, 14, 29, 13, 28, 12, 27, 11, 26, 10, 25, 9, 24, 8);
+  simde__m512i amp_dmrs512 = simde_mm512_set1_epi16(amp_dmrs), amp512 = simde_mm512_set1_epi16(amp);
+  simde__m512i perml = simde_mm512_set_epi32(23, 7, 22, 6, 21, 5, 20, 4, 19, 3, 18, 2, 17, 1, 16, 0);
+  simde__m512i permh = simde_mm512_set_epi32(31, 15, 30, 14, 29, 13, 28, 12, 27, 11, 26, 10, 25, 9, 24, 8);
   for (; i < (end & ~15); i += 16) {
-    __m512i d0 = _mm512_mulhrs_epi16(_mm512_loadu_si512((__m512i *)(mod_dmrs + i)), amp_dmrs512);
-    __m512i d1 = _mm512_mulhrs_epi16(_mm512_loadu_si512((__m512i *)txl), amp512);
+    simde__m512i d0 = simde_mm512_mulhrs_epi16(_mm512_loadu_si512((simde__m512i *)(mod_dmrs + i)), amp_dmrs512);
+    simde__m512i d1 = simde_mm512_mulhrs_epi16(_mm512_loadu_si512((simde__m512i *)txl), amp512);
     txl += 16;
-    _mm512_storeu_si512((__m512i *)out, _mm512_permutex2var_epi32(d0, perml, d1));
+    simde_mm512_storeu_si512((simde__m512i *)out, simde_mm512_permutex2var_epi32(d0, perml, d1));
     out += 16;
-    _mm512_storeu_si512((__m512i *)out, _mm512_permutex2var_epi32(d0, permh, d1));
+    simde_mm512_storeu_si512((simde__m512i *)out, simde_mm512_permutex2var_epi32(d0, permh, d1));
     out += 16;
   }
 #endif
@@ -266,16 +267,16 @@ static inline int dmrs_case1b(c16_t *txF, c16_t *txl, c16_t *mod_dmrs, const int
   int i = 0;
   int end = sz / 2;
 #if defined(__AVX512BW__)
-  __m512i amp_dmrs512 = _mm512_set1_epi16(amp_dmrs), amp512 = _mm512_set1_epi16(amp);
-  __m512i perml = _mm512_set_epi32(23, 7, 22, 6, 21, 5, 20, 4, 19, 3, 18, 2, 17, 1, 16, 0);
-  __m512i permh = _mm512_set_epi32(31, 15, 30, 14, 29, 13, 28, 12, 27, 11, 26, 10, 25, 9, 24, 8);
+  simde__m512i amp_dmrs512 = simde_mm512_set1_epi16(amp_dmrs), amp512 = simde_mm512_set1_epi16(amp);
+  simde__m512i perml = simde_mm512_set_epi32(23, 7, 22, 6, 21, 5, 20, 4, 19, 3, 18, 2, 17, 1, 16, 0);
+  simde__m512i permh = simde_mm512_set_epi32(31, 15, 30, 14, 29, 13, 28, 12, 27, 11, 26, 10, 25, 9, 24, 8);
   for (; i < (end & ~15); i += 16) {
-    __m512i d0 = _mm512_mulhrs_epi16(_mm512_loadu_si512((__m512i *)(mod_dmrs + i)), amp_dmrs512);
-    __m512i d1 = _mm512_mulhrs_epi16(_mm512_loadu_si512((__m512i *)txl), amp512);
+    simde__m512i d0 = simde_mm512_mulhrs_epi16(_mm512_loadu_si512((simde__m512i *)(mod_dmrs + i)), amp_dmrs512);
+    simde__m512i d1 = simde_mm512_mulhrs_epi16(_mm512_loadu_si512((simde__m512i *)txl), amp512);
     txl += 16;
-    _mm512_storeu_si512((__m512i *)out, _mm512_permutex2var_epi32(d1, perml, d0));
+    simde_mm512_storeu_si512((simde__m512i *)out, simde_mm512_permutex2var_epi32(d1, perml, d0));
     out += 16;
-    _mm512_storeu_si512((__m512i *)out, _mm512_permutex2var_epi32(d1, permh, d0));
+    simde_mm512_storeu_si512((simde__m512i *)out, simde_mm512_permutex2var_epi32(d1, permh, d0));
     out += 16;
   }
 #endif
@@ -364,10 +365,10 @@ static inline int no_ptrs_dmrs_case(c16_t *txF, c16_t *txl, const int amp, const
   // Loop Over SCs:
   int i = 0;
 #if defined(__AVX512BW__)
-  __m512i amp512 = _mm512_set1_epi16(amp);
+  simde__m512i amp512 = simde_mm512_set1_epi16(amp);
   for (; i < (sz & ~15); i += 16) {
-    const __m512i txL = _mm512_loadu_si512((__m512i *)(txl + i));
-    _mm512_storeu_si512((__m512i *)(txF + i), _mm512_mulhrs_epi16(amp512, txL));
+    const simde__m512i txL = simde_mm512_loadu_si512((simde__m512i *)(txl + i));
+    simde_mm512_storeu_si512((simde__m512i *)(txF + i), simde_mm512_mulhrs_epi16(amp512, txL));
   }
 #endif
 #if defined(__AVX2__)

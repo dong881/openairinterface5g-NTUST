@@ -22,6 +22,9 @@
 #include "nr_modulation.h"
 #include "PHY/NR_REFSIG/nr_mod_table.h"
 #include "executables/softmodem-common.h"
+#include <simde/x86/avx512.h>
+// Lacking declaration in present simde external package, will be detected as compilation error when they will add it
+#define simde_mm512_extracti64x2_epi64(a...) _mm512_extracti64x2_epi64(a)
 
 // #define DEBUG_DLSCH_PRECODING_PRINT_WITH_TRIVIAL // TODO: For debug, to be removed if want to merge to develop
 // #define DEBUG_LAYER_MAPPING
@@ -263,13 +266,13 @@ void nr_layer_mapping(int nbCodes,
       c16_t *tx0 = tx_layers[0];
       c16_t *tx1 = tx_layers[1];
 #if defined(__AVX512BW__)
-      __m512i perm2a = _mm512_set_epi32(30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2, 0);
-      __m512i perm2b = _mm512_set_epi32(31, 29, 27, 25, 23, 21, 19, 17, 15, 13, 11, 9, 7, 5, 3, 1);
+      simde__m512i perm2a = simde_mm512_set_epi32(30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6, 4, 2, 0);
+      simde__m512i perm2b = simde_mm512_set_epi32(31, 29, 27, 25, 23, 21, 19, 17, 15, 13, 11, 9, 7, 5, 3, 1);
       for (; i < (n_symbs & ~31); i += 32) {
-        __m512i a = *(__m512i *)(mod + i);
-        __m512i b = *(__m512i *)(mod + i + 16);
-        *(__m512i *)tx0 = _mm512_permutex2var_epi32(a, perm2a, b);
-        *(__m512i *)tx1 = _mm512_permutex2var_epi32(a, perm2b, b);
+        simde__m512i a = *(simde__m512i *)(mod + i);
+        simde__m512i b = *(simde__m512i *)(mod + i + 16);
+        *(simde__m512i *)tx0 = simde_mm512_permutex2var_epi32(a, perm2a, b);
+        *(simde__m512i *)tx1 = simde_mm512_permutex2var_epi32(a, perm2b, b);
         tx0 += 16;
         tx1 += 16;
       }
@@ -308,55 +311,69 @@ void nr_layer_mapping(int nbCodes,
       c16_t *tx1 = tx_layers[1];
       c16_t *tx2 = tx_layers[2];
 #if defined(__AVX512BW__)
-      __m512i perm3_0 =
-          _mm512_set_epi32(13 + 16, 10 + 16, 7 + 16, 4 + 16, 1 + 16, 14 + 16, 11 + 16, 8 + 16, 5 + 16, 2 + 16, 15, 12, 9, 6, 3, 0);
-      __m512i perm3_0b = _mm512_set_epi32(13 + 16, 10 + 16, 7 + 16, 4 + 16, 1 + 16, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
-      __m512i perm3_1 = _mm512_set_epi32(14 + 16,
-                                         11 + 16,
-                                         8 + 16,
-                                         5 + 16,
-                                         2 + 16,
-                                         15 + 16,
-                                         12 + 16,
-                                         9 + 16,
-                                         6 + 16,
-                                         3 + 16,
-                                         0 + 16,
-                                         13,
-                                         10,
-                                         7,
-                                         4,
-                                         1);
-      __m512i perm3_1b = _mm512_set_epi32(14 + 16, 11 + 16, 8 + 16, 5 + 16, 2 + 16, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
-      __m512i perm3_2 = _mm512_set_epi32(15 + 16,
-                                         12 + 16,
-                                         9 + 16,
-                                         6 + 16,
-                                         3 + 16,
-                                         0 + 16,
-                                         13 + 16,
-                                         10 + 16,
-                                         7 + 16,
-                                         4 + 16,
-                                         1 + 16,
-                                         14,
-                                         11,
-                                         8,
-                                         5,
-                                         2);
-      __m512i perm3_2b = _mm512_set_epi32(15 + 16, 12 + 16, 9 + 16, 6 + 16, 3 + 16, 0 + 16, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+      simde__m512i perm3_0 = simde_mm512_set_epi32(13 + 16,
+                                                   10 + 16,
+                                                   7 + 16,
+                                                   4 + 16,
+                                                   1 + 16,
+                                                   14 + 16,
+                                                   11 + 16,
+                                                   8 + 16,
+                                                   5 + 16,
+                                                   2 + 16,
+                                                   15,
+                                                   12,
+                                                   9,
+                                                   6,
+                                                   3,
+                                                   0);
+      simde__m512i perm3_0b = simde_mm512_set_epi32(13 + 16, 10 + 16, 7 + 16, 4 + 16, 1 + 16, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+      simde__m512i perm3_1 = simde_mm512_set_epi32(14 + 16,
+                                                   11 + 16,
+                                                   8 + 16,
+                                                   5 + 16,
+                                                   2 + 16,
+                                                   15 + 16,
+                                                   12 + 16,
+                                                   9 + 16,
+                                                   6 + 16,
+                                                   3 + 16,
+                                                   0 + 16,
+                                                   13,
+                                                   10,
+                                                   7,
+                                                   4,
+                                                   1);
+      simde__m512i perm3_1b = simde_mm512_set_epi32(14 + 16, 11 + 16, 8 + 16, 5 + 16, 2 + 16, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+      simde__m512i perm3_2 = simde_mm512_set_epi32(15 + 16,
+                                                   12 + 16,
+                                                   9 + 16,
+                                                   6 + 16,
+                                                   3 + 16,
+                                                   0 + 16,
+                                                   13 + 16,
+                                                   10 + 16,
+                                                   7 + 16,
+                                                   4 + 16,
+                                                   1 + 16,
+                                                   14,
+                                                   11,
+                                                   8,
+                                                   5,
+                                                   2);
+      simde__m512i perm3_2b = simde_mm512_set_epi32(15 + 16, 12 + 16, 9 + 16, 6 + 16, 3 + 16, 0 + 16, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
       for (; i < (n_symbs & ~63); i += 48) {
-        __m512i i0 = *(__m512i *)(mod + i);
-        __m512i i1 = *(__m512i *)(mod + i + 16);
-        __m512i i2 = *(__m512i *)(mod + i + 32);
-        __m512i d0 = _mm512_permutex2var_epi32(i0, perm3_0, i1);
-        *(__m512i *)tx0 = _mm512_permutex2var_epi32(d0, perm3_0b, i2); // 11000000
+        simde__m512i i0 = *(simde__m512i *)(mod + i);
+        simde__m512i i1 = *(simde__m512i *)(mod + i + 16);
+        simde__m512i i2 = *(simde__m512i *)(mod + i + 32);
+        simde__m512i d0 = simde_mm512_permutex2var_epi32(i0, perm3_0, i1);
+        *(simde__m512i *)tx0 = simde_mm512_permutex2var_epi32(d0, perm3_0b, i2); // 11000000
         tx0 += 16;
-        d0 = _mm512_permutex2var_epi32(i0, perm3_1, i1);
-        *(__m512i *)tx1 = _mm512_permutex2var_epi32(d0, perm3_1b, i2); // 11000000
+        d0 = simde_mm512_permutex2var_epi32(i0, perm3_1, i1);
+        *(simde__m512i *)tx1 = simde_mm512_permutex2var_epi32(d0, perm3_1b, i2); // 11000000
         tx1 += 16;
-        d0 = _mm512_permutex2var_epi32(i0, perm3_2, i1);
-        *(__m512i *)tx2 = _mm512_permutex2var_epi32(d0, perm3_2b, i2); // 11000000
+        d0 = simde_mm512_permutex2var_epi32(i0, perm3_2, i1);
+        *(simde__m512i *)tx2 = simde_mm512_permutex2var_epi32(d0, perm3_2b, i2); // 11000000
         tx2 += 16;
       }
 #endif
@@ -432,16 +449,16 @@ void nr_layer_mapping(int nbCodes,
       c16_t *tx2 = tx_layers[2];
       c16_t *tx3 = tx_layers[3];
 #if defined(__AVX512BW__)
-      __m512i perm4 = _mm512_set_epi32(15, 11, 7, 3, 14, 10, 6, 2, 13, 9, 5, 1, 12, 8, 4, 0);
+      simde__m512i perm4 = simde_mm512_set_epi32(15, 11, 7, 3, 14, 10, 6, 2, 13, 9, 5, 1, 12, 8, 4, 0);
       for (; i < (n_symbs & ~15); i += 16) {
-        __m512i e = _mm512_permutexvar_epi32(perm4, *(__m512i *)(mod + i));
-        *(simde__m128i *)tx0 = _mm512_extracti64x2_epi64(e, 0);
+        simde__m512i e = simde_mm512_permutexvar_epi32(perm4, *(simde__m512i *)(mod + i));
+        *(simde__m128i *)tx0 = simde_mm512_extracti64x2_epi64(e, 0);
         tx0 += 4;
-        *(simde__m128i *)tx1 = _mm512_extracti64x2_epi64(e, 1);
+        *(simde__m128i *)tx1 = simde_mm512_extracti64x2_epi64(e, 1);
         tx1 += 4;
-        *(simde__m128i *)tx2 = _mm512_extracti64x2_epi64(e, 2);
+        *(simde__m128i *)tx2 = simde_mm512_extracti64x2_epi64(e, 2);
         tx2 += 4;
-        *(simde__m128i *)tx3 = _mm512_extracti64x2_epi64(e, 3);
+        *(simde__m128i *)tx3 = simde_mm512_extracti64x2_epi64(e, 3);
         tx3 += 4;
       }
 #endif
