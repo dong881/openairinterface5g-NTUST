@@ -84,19 +84,29 @@ static E1AP_SecurityInformation_t e1_encode_security_info(const security_informa
   return ie;
 }
 
-/**
- * @brief Decode E1AP_SecurityInformation_t
- */
+/** @brief Decode Security Information IE (3GPP TS 38.463, 9.3.1.10) */
 static bool e1_decode_security_info(security_information_t *out, const E1AP_SecurityInformation_t *in)
 {
+  // Security Algorithm (M) (9.3.1.31)
+  // Ciphering Algorithm (M)
   out->cipheringAlgorithm = in->securityAlgorithm.cipheringAlgorithm;
+  // Integrity Protection Algorithm (O)
+  out->integrityProtectionAlgorithm =
+      in->securityAlgorithm.integrityProtectionAlgorithm == NULL ? 0 : *in->securityAlgorithm.integrityProtectionAlgorithm;
+
+  // User Plane Security Keys (M) (9.3.1.32)
+  // Encryption Key (M)
+  _E1_EQ_CHECK_INT((int)in->uPSecuritykey.encryptionKey.size, E1AP_SECURITY_KEY_SIZE);
   memcpy(out->encryptionKey, in->uPSecuritykey.encryptionKey.buf, in->uPSecuritykey.encryptionKey.size);
-  if (in->securityAlgorithm.integrityProtectionAlgorithm)
-    out->integrityProtectionAlgorithm = *in->securityAlgorithm.integrityProtectionAlgorithm;
+  // Integrity Protection Key (O)
   if (in->uPSecuritykey.integrityProtectionKey) {
     E1AP_IntegrityProtectionKey_t *ipKey = in->uPSecuritykey.integrityProtectionKey;
-    memcpy(out->integrityProtectionKey, ipKey->buf, ipKey->size);
+    _E1_EQ_CHECK_INT((int)ipKey->size, E1AP_SECURITY_KEY_SIZE);
+    memcpy(out->integrityProtectionKey, ipKey->buf, E1AP_SECURITY_KEY_SIZE);
+  } else {
+    memset(out->integrityProtectionKey, 0, E1AP_SECURITY_KEY_SIZE);
   }
+
   return true;
 }
 
