@@ -162,11 +162,9 @@ static inline int dmrs_case2b(c16_t *txF, c16_t *mod_dmrs, const int amp_dmrs, i
   __m512i permh = _mm512_set_epi32(31, 15, 30, 14, 29, 13, 28, 12, 27, 11, 26, 10, 25, 9, 24, 8);
   for (; i < (end & ~15); i += 16) {
     __m512i d0 = _mm512_mulhrs_epi16(_mm512_loadu_si512((__m512i *)(mod_dmrs + i)), amp_dmrs512);
-    __m512i d2 = _mm512_unpacklo_epi32(zeros512, d0); // 0 d0_0 0 d0_1 0 d0_4 0 d0_5 0 d0_8 0 d0_9 0 d0_12 0 d0_13
-    __m512i d3 = _mm512_unpackhi_epi32(zeros512, d0); // 0 d0_2 0 d0_3 0 d0_6 0 d0_7 0 d0_10 0 d0_11 d0_14 0 d0_15
-    _mm512_storeu_si512((__m512i *)out, _mm512_permutex2var_epi32(d2, perml, d3)); //
+    _mm512_storeu_si512((__m512i *)out, _mm512_permutex2var_epi32(zeros512, perml, d0));
     out += 16;
-    _mm512_storeu_si512((__m512i *)out, _mm512_permutex2var_epi32(d2, permh, d3));
+    _mm512_storeu_si512((__m512i *)out, _mm512_permutex2var_epi32(zeros512, permh, d0));
     out += 16;
   }
 #endif
