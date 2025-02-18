@@ -359,7 +359,7 @@ class Containerize():
 		svr = self.eNB_serverId[self.eNB_instance]
 		lIpAddr, lSourcePath = self.GetCredentials(svr)
 		logging.debug('Building on server: ' + lIpAddr)
-		cmd = cls_cmd.RemoteCmd(lIpAddr)
+		cmd = cls_cmd.getConnection(lIpAddr)
 	
 		# Checking the hostname to get adapted on cli and dockerfileprefixes
 		cmd.run('hostnamectl')
