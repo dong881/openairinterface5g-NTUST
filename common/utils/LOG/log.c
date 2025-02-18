@@ -52,6 +52,13 @@
 
 // main log variables
 
+/** @defgroup _max_length Maximum Length of LOG
+ *  @ingroup _macro
+ *  @brief the macros that describe the maximum length of LOG
+ * @{*/
+
+#define MAX_LOG_TOTAL 16384 /*!< \brief the maximum length of a log */
+
 // Fixme: a better place to be shure it is called 
 void read_cpu_hardware (void) __attribute__ ((constructor));
 #if !defined(__arm__) && !defined(__aarch64__) 
@@ -877,31 +884,32 @@ static void log_output_memory(log_component_t *c, const char *file, const char *
    * correctly. It was not a big problem because in practice MAX_LOG_TOTAL is
    * big enough so that the buffer is never full.
    */
-  char log_buffer[MAX_LOG_TOTAL];
+  static_assert(4 * MAX_LOG_TOTAL <= 65536, "log buffer limited to 64kB, please reduce MAX_LOG_TOTAL\n");
+  char log_buffer[4 * MAX_LOG_TOTAL];
 
   // make sure that for log trace the extra info is only printed once, reset when the level changes
   if (level < OAILOG_TRACE) {
-    int n = log_header(c, log_buffer+len, MAX_LOG_TOTAL, file, func, line, level);
+    int n = log_header(c, log_buffer+len, sizeof(log_buffer), file, func, line, level);
     if (n > 0) {
       len += n;
-      if (len > MAX_LOG_TOTAL) {
-        len = MAX_LOG_TOTAL;
+      if (len > sizeof(log_buffer)) {
+        len = sizeof(log_buffer);
       }
     }
   }
-  int n = vsnprintf(log_buffer+len, MAX_LOG_TOTAL-len, format, args);
+  int n = vsnprintf(log_buffer+len, sizeof(log_buffer)-len, format, args);
   if (n > 0) {
     len += n;
-    if (len > MAX_LOG_TOTAL) {
-      len = MAX_LOG_TOTAL;
+    if (len > sizeof(log_buffer)) {
+      len = sizeof(log_buffer);
     }
   }
   if (!((g_log->flag) & FLAG_NOCOLOR)) {
-    int n = snprintf(log_buffer+len, MAX_LOG_TOTAL-len, "%s", log_level_highlight_end[level]);
+    int n = snprintf(log_buffer+len, sizeof(log_buffer)-len, "%s", log_level_highlight_end[level]);
     if (n > 0) {
       len += n;
-      if (len > MAX_LOG_TOTAL) {
-        len = MAX_LOG_TOTAL;
+      if (len > sizeof(log_buffer)) {
+        len = sizeof(log_buffer);
       }
     }
   }
@@ -941,7 +949,7 @@ static void log_output_memory(log_component_t *c, const char *file, const char *
         }
       }
   }else{
-    AssertFatal(len >= 0 && len <= MAX_LOG_TOTAL, "Bad len %d\n", len);
+    AssertFatal(len >= 0 && len <= sizeof(log_buffer), "Bad len %d\n", len);
     if (write(fileno(c->stream), log_buffer, len)) {};
   }
 }
