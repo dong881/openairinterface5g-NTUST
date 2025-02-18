@@ -226,7 +226,7 @@ void nr_ue_decode_mib(NR_UE_MAC_INST_t *mac, int cc_id)
   if (get_softmodem_params()->phy_test)
     mac->state = UE_CONNECTED;
   else if (mac->state == UE_NOT_SYNC) {
-    if (IS_SA_MODE(get_softmodem_params()))
+    if (IS_SA_MODE(get_softmodem_params()) && mac->get_sib1)
       mac->state = UE_RECEIVING_SIB;
     else
       mac->state = UE_PERFORMING_RA;
