@@ -546,7 +546,10 @@ check_install_additional_tools (){
         libforms-bin \
         libforms-dev \
         libxft-dev \
-        xmlstarlet"
+        xmlstarlet \
+        libpcre3-dev \
+        libssh-dev \
+        libxml2-dev"
   elif [[ "$OS_DISTRO" == "rhel" ]] || [[ "$OS_DISTRO" == "centos" ]] || [[ "$OS_DISTRO" == "rocky" ]] ||  [[ "$OS_DISTRO" == "fedora" ]]; then
     PACKAGE_LIST="\
       doxygen \
@@ -556,7 +559,10 @@ check_install_additional_tools (){
       libXft-devel \
       xforms \
       xforms-devel \
-      xmlstarlet"
+      xmlstarlet \
+      pcre-devel \
+      libssh-devel \
+      libxml2-devel"
   fi
     $SUDO $INSTALLER install -y $PACKAGE_LIST $optional_packages
 }
