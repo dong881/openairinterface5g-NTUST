@@ -143,6 +143,14 @@ int decode_gprs_timer_ie(gprs_timer_t *timer, const byte_array_t *buffer)
   return decoded;
 }
 
+/** @brief Equality check for GPRS Timer */
+bool eq_gprs_timer(const gprs_timer_t *a, const gprs_timer_t *b)
+{
+ _NAS_EQ_CHECK_INT(a->value, b->value);
+ _NAS_EQ_CHECK_INT(a->unit, b->unit);
+  return true;
+}
+
 /* Decode EAP Message (todo) */
 int decode_eap_msg_ie(const byte_array_t *buffer)
 {
