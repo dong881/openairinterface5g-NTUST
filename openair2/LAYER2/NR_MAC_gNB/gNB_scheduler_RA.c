@@ -2248,7 +2248,13 @@ static void nr_generate_Msg4_MsgB(module_id_t module_idP,
       nr_clear_ra_proc(ra);
     } else {
       ra->ra_state = nrRA_WAIT_Msg4_MsgB_ACK;
-      LOG_I(NR_MAC,"UE %04x Generate msg4: feedback at %4d.%2d, payload %d bytes, next state WAIT_Msg4_ACK\n", ra->rnti, pucch->frame, pucch->ul_slot, harq->tb_size);
+      LOG_I(NR_MAC,
+            "UE %04x Generate %s: feedback at %4d.%2d, payload %d bytes, next state nrRA_WAIT_Msg4_MsgB_ACK\n",
+            ra->rnti,
+            ra_type_str,
+            pucch->frame,
+            pucch->ul_slot,
+            harq->tb_size);
     }
   }
 }
@@ -2294,7 +2300,7 @@ static void nr_check_Msg4_MsgB_Ack(module_id_t module_id, int CC_id, frame_t fra
         remove_nr_list(&sched_ctrl->retrans_dl_harq, current_harq_pid);
       }
     } else {
-      LOG_I(NR_MAC, "(UE %04x) Received Nack in %s, preparing retransmission!\n", ra->rnti, nrra_text[ra->ra_state]);
+      LOG_I(NR_MAC, "(UE %04x) Received Nack in %s, preparing retransmission!\n", ra->rnti, ra_type_str);
       ra->ra_state = ra->ra_type == RA_4_STEP ? nrRA_Msg4 : nrRA_MsgB;
     }
   }

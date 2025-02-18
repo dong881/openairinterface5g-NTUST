@@ -126,7 +126,7 @@ typedef enum {
 } RA_gNB_state_t;
 
 static const char *const nrra_text[] =
-    {"IDLE", "Msg2", "WAIT_MsgA_PUSCH", "WAIT_Msg3", "Msg3_retransmission", "Msg3_dcch_dtch", "Msg4", "MsgB", "WAIT_Msg4_ACK"};
+    {"IDLE", "Msg2", "WAIT_MsgA_PUSCH", "WAIT_Msg3", "Msg3_retransmission", "Msg4", "MsgB", "WAIT_Msg4_MsgB_ACK"};
 
 typedef struct {
   int idx;
