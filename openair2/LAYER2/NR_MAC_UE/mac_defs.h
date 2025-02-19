@@ -349,7 +349,6 @@ typedef struct {
   // initial Random Access Preamble power
   int preambleRxTargetPower;
   int msg3_deltaPreamble;
-  bool msg3_C_RNTI;
   int preambleReceivedTargetPower_config;
   /// Random-access Contention Resolution Timer
   NR_timer_t contention_resolution_timer;
@@ -637,6 +636,7 @@ typedef struct NR_UE_MAC_INST_s {
   int f_b_f_c;
   bool pusch_power_control_initialized;
   int delta_msg2;
+  bool msg3_C_RNTI;
   pthread_mutex_t if_mutex;
   ue_mac_stats_t stats;
 } NR_UE_MAC_INST_t;

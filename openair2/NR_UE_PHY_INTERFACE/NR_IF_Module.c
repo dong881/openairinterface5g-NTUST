@@ -1121,7 +1121,7 @@ static nr_dci_format_t handle_dci(NR_UE_MAC_INST_t *mac,
   // if notification of a reception of a PDCCH transmission of the SpCell is received from lower layers
   // if the C-RNTI MAC CE was included in Msg3
   // consider this Contention Resolution successful
-  if (mac->ra.msg3_C_RNTI && mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION)
+  if (mac->msg3_C_RNTI && mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION)
     nr_ra_succeeded(mac, gNB_index, frame, slot);
 
   // suspend RAR response window timer

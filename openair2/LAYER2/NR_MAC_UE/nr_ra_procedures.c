@@ -879,7 +879,6 @@ bool init_RA(NR_UE_MAC_INST_t *mac, int frame)
   // Random acces procedure initialization
   mac->state = UE_PERFORMING_RA;
   ra->RA_active = true;
-  ra->msg3_C_RNTI = false;
   NR_PRACH_RESOURCES_t *prach_resources = &ra->prach_resources;
   fapi_nr_config_request_t *cfg = &mac->phy_config.config_req;
   // flush MSG3 buffer
@@ -1142,7 +1141,7 @@ void nr_get_Msg3_MsgA_PUSCH_payload(NR_UE_MAC_INST_t *mac, uint8_t *buf, int TBS
   }
 
   uint8_t *pdu = buf;
-  if (ra->msg3_C_RNTI)
+  if (mac->msg3_C_RNTI)
     pdu = fill_msg3_crnti_pdu(ra, pdu, mac->crnti);
   else
     pdu = fill_msg3_pdu_from_rlc(mac, pdu, TBS_max);
@@ -1189,7 +1188,7 @@ void nr_ra_succeeded(NR_UE_MAC_INST_t *mac, const uint8_t gNB_index, const frame
   }
 
   ra->RA_active = false;
-  ra->msg3_C_RNTI = false;
+  mac->msg3_C_RNTI = false;
   ra->ra_state = nrRA_SUCCEEDED;
   mac->state = UE_CONNECTED;
   free_and_zero(ra->Msg3_buffer);
@@ -1257,7 +1256,7 @@ void trigger_MAC_UE_RA(NR_UE_MAC_INST_t *mac, dci_pdu_rel15_t *pdcch_order)
   mac->state = UE_PERFORMING_RA;
   reset_ra(mac, false);
   RA_config_t *ra = &mac->ra;
-  ra->msg3_C_RNTI = true;
+  mac->msg3_C_RNTI = true;
   if (pdcch_order) {
     ra->pdcch_order.active = true;
     ra->pdcch_order.preamble_index = pdcch_order->ra_preamble_index;

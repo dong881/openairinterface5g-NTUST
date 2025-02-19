@@ -3952,7 +3952,7 @@ static void handle_rar_reception(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t
     if (!ra->cfra) {
       ra->t_crnti = rar->TCRNTI_2 + (rar->TCRNTI_1 << 8);
       rnti = ra->t_crnti;
-      if (!ra->msg3_C_RNTI)
+      if (!mac->msg3_C_RNTI)
         nr_mac_rrc_msg3_ind(mac->ue_id, rnti, dlinfo->gNB_index);
     }
     fapi_nr_ul_config_request_pdu_t *pdu = lockGet_ul_config(mac, frame_tx, slot_tx, FAPI_NR_UL_CONFIG_TYPE_PUSCH);
