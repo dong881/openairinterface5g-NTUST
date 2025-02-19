@@ -122,12 +122,6 @@ const uint8_t table_7_3_1_1_2_12[14][3] = {
   {2,7,2}
 };
 
-uint8_t get_table_7_3_1_1_2_12_value(int ap, int idx)
-{
-  AssertFatal(ap < 14 && idx < 3, "Invalid inputs for table_7_3_1_1_2_12\n");
-  return table_7_3_1_1_2_12[ap][idx];
-}
-
 const uint8_t table_7_3_1_1_2_13[10][4] = {
   {1,0,1,1},
   {2,0,1,1},
@@ -141,23 +135,11 @@ const uint8_t table_7_3_1_1_2_13[10][4] = {
   {2,2,6,2}
 };
 
-uint8_t get_table_7_3_1_1_2_13_value(int ap, int idx)
-{
-  AssertFatal(ap < 10 && idx < 4, "Invalid inputs for table_7_3_1_1_2_13\n");
-  return table_7_3_1_1_2_13[ap][idx];
-}
-
 const uint8_t table_7_3_1_1_2_14[3][5] = {
   {2,0,1,2,1},
   {2,0,1,4,2},
   {2,2,3,6,2}
 };
-
-uint8_t get_table_7_3_1_1_2_14_value(int ap, int idx)
-{
-  AssertFatal(ap < 3 && idx < 5, "Invalid inputs for table_7_3_1_1_2_14\n");
-  return table_7_3_1_1_2_14[ap][idx];
-}
 
 const uint8_t table_7_3_1_1_2_15[4][6] = {
   {2,0,1,2,3,1},
@@ -165,12 +147,6 @@ const uint8_t table_7_3_1_1_2_15[4][6] = {
   {2,2,3,6,7,2},
   {2,0,2,4,6,2}
 };
-
-uint8_t get_table_7_3_1_1_2_15_value(int ap, int idx)
-{
-  AssertFatal(ap < 4 && idx < 6, "Invalid inputs for table_7_3_1_1_2_15\n");
-  return table_7_3_1_1_2_15[ap][idx];
-}
 
 const uint8_t table_7_3_1_1_2_16[12][2] = {
   {1,0},
@@ -187,12 +163,6 @@ const uint8_t table_7_3_1_1_2_16[12][2] = {
   {3,5}
 };
 
-uint8_t get_table_7_3_1_1_2_16_value(int ap, int idx)
-{
-  AssertFatal(ap < 12 && idx < 2, "Invalid inputs for table_7_3_1_1_2_16\n");
-  return table_7_3_1_1_2_16[ap][idx];
-}
-
 const uint8_t table_7_3_1_1_2_17[7][3] = {
   {1,0,1},
   {2,0,1},
@@ -202,35 +172,16 @@ const uint8_t table_7_3_1_1_2_17[7][3] = {
   {3,4,5},
   {2,0,2}
 };
-
-uint8_t get_table_7_3_1_1_2_17_value(int ap, int idx)
-{
-  AssertFatal(ap < 7 && idx < 3, "Invalid inputs for table_7_3_1_1_2_17\n");
-  return table_7_3_1_1_2_17[ap][idx];
-}
-
 const uint8_t table_7_3_1_1_2_18[3][4] = {
   {2,0,1,2},
   {3,0,1,2},
   {3,3,4,5}
 };
 
-uint8_t get_table_7_3_1_1_2_18_value(int ap, int idx)
-{
-  AssertFatal(ap < 3 && idx < 4, "Invalid inputs for table_7_3_1_1_2_18\n");
-  return table_7_3_1_1_2_18[ap][idx];
-}
-
 const uint8_t table_7_3_1_1_2_19[2][5] = {
   {2,0,1,2,3},
   {3,0,1,2,3}
 };
-
-uint8_t get_table_7_3_1_1_2_19_value(int ap, int idx)
-{
-  AssertFatal(ap < 2 && idx < 5, "Invalid inputs for table_7_3_1_1_2_19\n");
-  return table_7_3_1_1_2_19[ap][idx];
-}
 
 const uint8_t table_7_3_1_1_2_20[28][3] = {
   {1,0,1},
@@ -263,12 +214,6 @@ const uint8_t table_7_3_1_1_2_20[28][3] = {
   {1,7,2}
 };
 
-uint8_t get_table_7_3_1_1_2_20_value(int ap, int idx)
-{
-  AssertFatal(ap < 28 && idx < 3, "Invalid inputs for table_7_3_1_1_2_20\n");
-  return table_7_3_1_1_2_20[ap][idx];
-}
-
 const uint8_t table_7_3_1_1_2_21[19][4] = {
   {1,0,1,1},
   {2,0,1,1},
@@ -291,12 +236,6 @@ const uint8_t table_7_3_1_1_2_21[19][4] = {
   {2,8,9,2}
 };
 
-uint8_t get_table_7_3_1_1_2_21_value(int ap, int idx)
-{
-  AssertFatal(ap < 19 && idx < 4, "Invalid inputs for table_7_3_1_1_2_21\n");
-  return table_7_3_1_1_2_21[ap][idx];
-}
-
 const uint8_t table_7_3_1_1_2_22[6][5] = {
   {2,0,1,2,1},
   {3,0,1,2,1},
@@ -306,12 +245,6 @@ const uint8_t table_7_3_1_1_2_22[6][5] = {
   {3,4,5,10,2}
 };
 
-uint8_t get_table_7_3_1_1_2_22_value(int ap, int idx)
-{
-  AssertFatal(ap < 6 && idx < 5, "Invalid inputs for table_7_3_1_1_2_22\n");
-  return table_7_3_1_1_2_22[ap][idx];
-}
-
 const uint8_t table_7_3_1_1_2_23[5][6] = {
   {2,0,1,2,3,1},
   {3,0,1,2,3,1},
@@ -319,12 +252,6 @@ const uint8_t table_7_3_1_1_2_23[5][6] = {
   {3,2,3,8,9,2},
   {3,4,5,10,11,2}
 };
-
-uint8_t get_table_7_3_1_1_2_23_value(int ap, int idx)
-{
-  AssertFatal(ap < 5 && idx < 6, "Invalid inputs for table_7_3_1_1_2_23\n");
-  return table_7_3_1_1_2_23[ap][idx];
-}
 
 const uint8_t table_7_3_2_3_3_1[12][5] = {
   {1,1,0,0,0},
@@ -561,6 +488,146 @@ void set_antenna_port_parameters(fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch_pdu,
       }
     }
   }
+}
+
+void ul_ports_config(NR_UE_MAC_INST_t *mac,
+                     int *n_front_load_symb,
+                     nfapi_nr_ue_pusch_pdu_t *pusch_config_pdu,
+                     dci_pdu_rel15_t *dci,
+                     nr_dci_format_t dci_format)
+{
+  uint8_t rank = pusch_config_pdu->nrOfLayers;
+  NR_PUSCH_Config_t *pusch_Config = mac->current_UL_BWP->pusch_Config;
+  AssertFatal(pusch_Config != NULL, "pusch_Config shouldn't be null\n");
+
+  long transformPrecoder = pusch_config_pdu->transform_precoding;
+  LOG_D(NR_MAC,
+        "transformPrecoder %s\n",
+        transformPrecoder == NR_PUSCH_Config__transformPrecoder_disabled ? "disabled" : "enabled");
+
+  long *max_length = NULL;
+  long *dmrs_type = NULL;
+  if (pusch_Config->dmrs_UplinkForPUSCH_MappingTypeA) {
+    max_length = pusch_Config->dmrs_UplinkForPUSCH_MappingTypeA->choice.setup->maxLength;
+    dmrs_type = pusch_Config->dmrs_UplinkForPUSCH_MappingTypeA->choice.setup->dmrs_Type;
+  } else {
+    max_length = pusch_Config->dmrs_UplinkForPUSCH_MappingTypeB->choice.setup->maxLength;
+    dmrs_type = pusch_Config->dmrs_UplinkForPUSCH_MappingTypeB->choice.setup->dmrs_Type;
+  }
+
+  int val = dci->antenna_ports.val;
+  LOG_D(NR_MAC,
+        "MappingType%s max_length %s, dmrs_type %s, antenna_ports %d\n",
+        pusch_Config->dmrs_UplinkForPUSCH_MappingTypeA ? "A" : "B",
+        max_length ? "len2" : "len1",
+        dmrs_type ? "type2" : "type1",
+        val);
+
+  if ((transformPrecoder == NR_PUSCH_Config__transformPrecoder_enabled)
+       && (dmrs_type == NULL)
+       && (max_length == NULL)) { // tables 7.3.1.1.2-6
+    pusch_config_pdu->num_dmrs_cdm_grps_no_data = 2;
+    pusch_config_pdu->dmrs_ports = 1 << val;
+  }
+  if ((transformPrecoder == NR_PUSCH_Config__transformPrecoder_enabled)
+      && (dmrs_type == NULL)
+      && (max_length != NULL)) { // tables 7.3.1.1.2-7
+    pusch_config_pdu->num_dmrs_cdm_grps_no_data = 2; //TBC
+    pusch_config_pdu->dmrs_ports = 1 << ((val > 3) ? (val - 4) : (val));
+    *n_front_load_symb = (val > 3) ? 2 : 1;
+  }
+  if ((transformPrecoder == NR_PUSCH_Config__transformPrecoder_disabled)
+      && (dmrs_type == NULL)
+      && (max_length == NULL)) { // tables 7.3.1.1.2-8/9/10/11
+    if (rank == 1) {
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = (val > 1) ? 2 : 1;
+      pusch_config_pdu->dmrs_ports = 1 << ((val > 1) ? (val - 2) : (val));
+    }
+    if (rank == 2) {
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = (val > 0) ? 2 : 1;
+      pusch_config_pdu->dmrs_ports = (val > 1) ? ((val > 2) ? 0x5 : 0xc) : 0x3;
+    }
+    if (rank == 3) {
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = 2;
+      pusch_config_pdu->dmrs_ports = 0x7;  // ports 0-2
+    }
+    if (rank == 4) {
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = 2;
+      pusch_config_pdu->dmrs_ports = 0xf;  // ports 0-3
+    }
+  }
+  if ((transformPrecoder == NR_PUSCH_Config__transformPrecoder_disabled)
+      && (dmrs_type == NULL)
+      && (max_length != NULL)) { // tables 7.3.1.1.2-12/13/14/15
+    if (rank == 1) {
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = table_7_3_1_1_2_12[val][0];
+      pusch_config_pdu->dmrs_ports = 1 << table_7_3_1_1_2_12[val][1];
+      *n_front_load_symb = table_7_3_1_1_2_12[val][2];
+    }
+    if (rank == 2) {
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = table_7_3_1_1_2_13[val][0];
+      pusch_config_pdu->dmrs_ports = packBits(&table_7_3_1_1_2_13[val][1], 2);
+      *n_front_load_symb = table_7_3_1_1_2_13[val][3];
+    }
+    if (rank == 3) {
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = table_7_3_1_1_2_14[val][0];
+      pusch_config_pdu->dmrs_ports = packBits(&table_7_3_1_1_2_14[val][1], 3);
+      *n_front_load_symb = table_7_3_1_1_2_14[val][4];
+    }
+    if (rank == 4) {
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = table_7_3_1_1_2_15[val][0];
+      pusch_config_pdu->dmrs_ports = packBits(&table_7_3_1_1_2_15[val][1], 4);
+      *n_front_load_symb = table_7_3_1_1_2_15[val][5];
+    }
+  }
+  if ((transformPrecoder == NR_PUSCH_Config__transformPrecoder_disabled)
+      && (dmrs_type != NULL)
+      && (max_length == NULL)) { // tables 7.3.1.1.2-16/17/18/19
+    if (rank == 1) {
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = table_7_3_1_1_2_16[val][0];
+      pusch_config_pdu->dmrs_ports = 1 << table_7_3_1_1_2_16[val][1];
+    }
+    if (rank == 2) {
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = table_7_3_1_1_2_17[val][0];
+      pusch_config_pdu->dmrs_ports = packBits(&table_7_3_1_1_2_17[val][1], 2);
+    }
+    if (rank == 3) {
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = table_7_3_1_1_2_18[val][0];
+      pusch_config_pdu->dmrs_ports = packBits(&table_7_3_1_1_2_18[val][1], 3);
+    }
+    if (rank == 4) {
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = table_7_3_1_1_2_19[val][0];
+      pusch_config_pdu->dmrs_ports = packBits(&table_7_3_1_1_2_19[val][1], 4);
+    }
+  }
+  if ((transformPrecoder == NR_PUSCH_Config__transformPrecoder_disabled)
+      && (dmrs_type != NULL)
+      && (max_length != NULL)) { // tables 7.3.1.1.2-20/21/22/23
+    if (rank == 1) {
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = table_7_3_1_1_2_20[val][0];
+      pusch_config_pdu->dmrs_ports = 1 << table_7_3_1_1_2_20[val][1];
+      *n_front_load_symb = table_7_3_1_1_2_20[val][2];
+    }
+    if (rank == 2) {
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = table_7_3_1_1_2_21[val][0];
+      pusch_config_pdu->dmrs_ports = packBits(&table_7_3_1_1_2_21[val][1], 2);
+      *n_front_load_symb = table_7_3_1_1_2_21[val][3];
+    }
+    if (rank == 3) {
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = table_7_3_1_1_2_22[val][0];
+      pusch_config_pdu->dmrs_ports = packBits(&table_7_3_1_1_2_22[val][1], 3);
+      *n_front_load_symb = table_7_3_1_1_2_22[val][4];
+    }
+    if (rank == 4) {
+      pusch_config_pdu->num_dmrs_cdm_grps_no_data = table_7_3_1_1_2_23[val][0];
+      pusch_config_pdu->dmrs_ports = packBits(&table_7_3_1_1_2_23[val][1], 4);
+      *n_front_load_symb = table_7_3_1_1_2_23[val][5];
+    }
+  }
+  LOG_D(NR_MAC,
+        "num_dmrs_cdm_grps_no_data %d, dmrs_ports %d\n",
+        pusch_config_pdu->num_dmrs_cdm_grps_no_data,
+        pusch_config_pdu->dmrs_ports);
 }
 
 void set_precoding_information_parameters(nfapi_nr_ue_pusch_pdu_t *pusch_config_pdu,

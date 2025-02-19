@@ -268,18 +268,11 @@ float nr_get_Pcmax(int p_Max,
 float nr_get_Pcmin(int bandwidth_index);
 void set_antenna_port_parameters(fapi_nr_dl_config_dlsch_pdu_rel15_t *dlsch_pdu, int n_cw, long *max_length, long *dmrs, int ant);
 int get_sum_delta_pucch(NR_UE_MAC_INST_t *mac, int slot, frame_t frame);
-uint8_t get_table_7_3_1_1_2_12_value(int ap, int idx);
-uint8_t get_table_7_3_1_1_2_13_value(int ap, int idx);
-uint8_t get_table_7_3_1_1_2_14_value(int ap, int idx);
-uint8_t get_table_7_3_1_1_2_15_value(int ap, int idx);
-uint8_t get_table_7_3_1_1_2_16_value(int ap, int idx);
-uint8_t get_table_7_3_1_1_2_17_value(int ap, int idx);
-uint8_t get_table_7_3_1_1_2_18_value(int ap, int idx);
-uint8_t get_table_7_3_1_1_2_19_value(int ap, int idx);
-uint8_t get_table_7_3_1_1_2_20_value(int ap, int idx);
-uint8_t get_table_7_3_1_1_2_21_value(int ap, int idx);
-uint8_t get_table_7_3_1_1_2_22_value(int ap, int idx);
-uint8_t get_table_7_3_1_1_2_23_value(int ap, int idx);
+void ul_ports_config(NR_UE_MAC_INST_t *mac,
+                     int *n_front_load_symb,
+                     nfapi_nr_ue_pusch_pdu_t *pusch_config_pdu,
+                     dci_pdu_rel15_t *dci,
+                     nr_dci_format_t dci_format);
 
 /* Random Access */
 /* \brief This function schedules the PRACH according to prach_ConfigurationIndex and TS 38.211 tables 6.3.3.2.x
