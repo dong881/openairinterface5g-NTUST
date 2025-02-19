@@ -1003,6 +1003,11 @@ static int rfsimulator_read(openair0_device *device, openair0_timestamp *ptimest
     } while (have_to_wait);
   }
 
+
+  struct timespec start_time;
+  int ret = clock_gettime(CLOCK_REALTIME, &start_time);
+  AssertFatal(ret == 0, "clock_gettime() failed: errno %d, %s\n", errno, strerror(errno));
+
   // Clear the output buffer
   for (int a=0; a<nbAnt; a++)
     memset(samplesVoid[a],0,sampleToByte(nsamps,1));
@@ -1090,6 +1095,17 @@ static int rfsimulator_read(openair0_device *device, openair0_timestamp *ptimest
         out[i].i += lroundf(temp_array[a][i].i + noise_power * gaussZiggurat(0.0, 1.0));
       }
     }
+  }
+
+  struct timespec end_time;
+  ret = clock_gettime(CLOCK_REALTIME, &end_time);
+  AssertFatal(ret == 0, "clock_gettime() failed: errno %d, %s\n", errno, strerror(errno));
+  double diff_ns = (end_time.tv_sec - start_time.tv_sec) * 1000000000 + (end_time.tv_nsec - start_time.tv_nsec);
+  static double average = 0.0;
+  average = (average * 0.98) + ( nsamps / (diff_ns / 1e9) * 0.02);
+  static int calls = 0;
+  if (calls++ % 10000 == 0) {
+    LOG_D(HW, "Rfsimulator: velocity %.2f Msps, realtime requirements %.2f Msps\n", average / 1e6, t->sample_rate / 1e6);
   }
 
   *ptimestamp = t->nextRxTstamp; // return the time of the first sample
