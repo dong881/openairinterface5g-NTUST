@@ -1350,10 +1350,12 @@ static bool e1_decode_pdu_session_to_mod_item(pdu_session_to_mod_t *out, const E
       }
     }
     // QoS Flows Information To Be Setup (O)
-    E1AP_QoS_Flow_QoS_Parameter_List_t *qos2SetupList = drb2Mod->flow_Mapping_Information;
-    drb->numQosFlow2Setup = qos2SetupList->list.count;
-    for (int k = 0; k < qos2SetupList->list.count; k++) {
-      CHECK_E1AP_DEC(e1_decode_qos_flow_to_setup(drb->qosFlows + k, qos2SetupList->list.array[k]));
+    if (drb2Mod->flow_Mapping_Information) {
+      E1AP_QoS_Flow_QoS_Parameter_List_t *qos2SetupList = drb2Mod->flow_Mapping_Information;
+      drb->numQosFlow2Setup = qos2SetupList->list.count;
+      for (int k = 0; k < qos2SetupList->list.count; k++) {
+        CHECK_E1AP_DEC(e1_decode_qos_flow_to_setup(drb->qosFlows + k, qos2SetupList->list.array[k]));
+      }
     }
   }
   return true;
