@@ -575,8 +575,8 @@ c32_t nr_pbch_dmrs_correlation(const NR_DL_FRAME_PARMS *fp,
 
   DEBUG_PBCH("PBCH DMRS Correlation : gNB_id %d , OFDM size %d, Ncp=%d, k=%u symbol %d\n",
              proc->gNB_id,
-             ue->frame_parms.ofdm_symbol_size,
-             ue->frame_parms.Ncp,
+             fp->ofdm_symbol_size,
+             fp->Ncp,
              k,
              symbol);
 
@@ -590,8 +590,8 @@ c32_t nr_pbch_dmrs_correlation(const NR_DL_FRAME_PARMS *fp,
     c16_t *pil = pilot;
     const c16_t *rxF = &rxdataF[aarx][symbol_offset + k];
 
-    DEBUG_PBCH("pbch ch est pilot RB_DL %d\n", ue->frame_parms.N_RB_DL);
-    DEBUG_PBCH("k %u, first_carrier %d\n", k, ue->frame_parms.first_carrier_offset);
+    DEBUG_PBCH("pbch ch est pilot RB_DL %d\n", fp->N_RB_DL);
+    DEBUG_PBCH("k %u, first_carrier %d\n", k, fp->first_carrier_offset);
 
     // Treat first 2 pilots specially (left edge)
     computed_val = c32x16maddShift(*pil, rxF[re_offset], computed_val, 15);
@@ -769,7 +769,7 @@ int nr_pbch_channel_estimation(const NR_DL_FRAME_PARMS *fp,
     multaddRealVectorComplexScalar(fr, ch, dl_ch, 16);
     pil++;
     re_offset = (re_offset + 4) % fp->ofdm_symbol_size;
-    dl_ch += 24;
+    dl_ch += 12;
 
     for (int pilot_cnt = 3; pilot_cnt < (3 * num_rbs); pilot_cnt += 3) {
       //	if (pilot_cnt == 30)
@@ -779,7 +779,7 @@ int nr_pbch_channel_estimation(const NR_DL_FRAME_PARMS *fp,
       if (dmrss == 1 && pilot_cnt == 12) {
         pilot_cnt=48;
         re_offset = (re_offset + 144) % fp->ofdm_symbol_size;
-        dl_ch += 288;
+        dl_ch += 144;
       }
       ch = c16mulShift(*pil, rxF[re_offset], 15);
       DEBUG_PBCH("pilot %u: rxF= (%d,%d), ch= (%d,%d), pil=(%d,%d)\n",
