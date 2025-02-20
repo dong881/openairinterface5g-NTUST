@@ -811,7 +811,9 @@ static void setup_ra_response_window(RA_config_t *ra,
     if (!response_window)
       respwind_value = nr_get_RA_window_4Step(configGeneric->ra_ResponseWindow);
     // The network configures a value lower than or equal to 10ms
-    AssertFatal(respwind_value != 0 && respwind_value <= slots_per_frame, "Invalid RAR response window value\n");
+    AssertFatal(respwind_value != 0, "Invalid RAR response window value\n");
+    if (respwind_value > slots_per_frame)
+      LOG_E(NR_MAC, "RA-ResponseWindow need to be configured to a value lower than or equal to 10 ms\n");
   }
 
   int ta_Common_slots = 0;

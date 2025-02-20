@@ -1375,6 +1375,8 @@ static bool msg2_in_response_window(int rach_frame,
                                     int current_slot)
 {
   int window_slots = get_response_window(rrc_ra_ResponseWindow);
+  if (window_slots > n_slots_frame)
+    LOG_E(NR_MAC, "RA-ResponseWindow need to be configured to a value lower than or equal to 10 ms\n");
   int abs_rach = n_slots_frame * rach_frame + rach_slot;
   int abs_now = n_slots_frame * current_frame + current_slot;
   int diff = (n_slots_frame * 1024 + abs_now - abs_rach) % (n_slots_frame * 1024);
