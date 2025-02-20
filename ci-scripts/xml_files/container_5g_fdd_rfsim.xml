@@ -43,7 +43,7 @@
                 <class>Pull_Local_Registry</class>
                 <desc>Pull Images from Local Registry</desc>
                 <svr_id>0</svr_id>
-                <images>oai-gnb-asan oai-nr-ue-asan</images>
+                <images>oai-gnb oai-nr-ue</images>
         </testCase>
         <testCase id="800813">
                 <class>Create_Workspace</class>
@@ -134,7 +134,7 @@
                 <always_exec>true</always_exec>
                 <desc>Clean Test Images on Test Server</desc>
                 <svr_id>0</svr_id>
-                <images>oai-gnb-asan oai-nr-ue-asan</images>
+                <images>oai-gnb oai-nr-ue</images>
         </testCase>
 
 </testCaseList>
