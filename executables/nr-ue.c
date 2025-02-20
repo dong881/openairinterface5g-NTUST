@@ -870,6 +870,7 @@ void *UE_thread(void *arg)
   initNotifiedFIFO_nothreadSafe(&freeBlocks);
 
   int timing_advance = UE->timing_advance;
+  int N_TA_offset = UE->N_TA_offset;
   NR_UE_MAC_INST_t *mac = get_mac_inst(UE->Mod_id);
 
   bool syncRunning = false;
@@ -1094,13 +1095,19 @@ void *UE_thread(void *arg)
 
     // use previous timing_advance value to compute writeTimestamp
     const openair0_timestamp writeTimestamp = rx_timestamp + fp->get_samples_slot_timestamp(slot_nr, fp, duration_rx_to_tx)
-                                              - firstSymSamp - UE->N_TA_offset - timing_advance;
+                                              - firstSymSamp - N_TA_offset - timing_advance;
 
     // but use current UE->timing_advance value to compute writeBlockSize
     int writeBlockSize = fp->get_samples_per_slot((slot_nr + duration_rx_to_tx) % nb_slot_frame, fp) - iq_shift_to_apply;
-    if (UE->timing_advance != timing_advance) {
-      writeBlockSize -= UE->timing_advance - timing_advance;
-      timing_advance = UE->timing_advance;
+    int new_timing_advance = UE->timing_advance;
+    if (new_timing_advance != timing_advance) {
+      writeBlockSize -= new_timing_advance- timing_advance;
+      timing_advance = new_timing_advance;
+    }
+    int new_N_TA_offset = UE->N_TA_offset;
+    if (new_N_TA_offset != N_TA_offset) {
+      writeBlockSize -= new_N_TA_offset - N_TA_offset;
+      N_TA_offset = new_N_TA_offset;
     }
 
     if (curMsg.proc.nr_slot_tx == 0)
