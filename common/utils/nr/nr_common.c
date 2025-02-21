@@ -1298,6 +1298,47 @@ uint8_t get_long_prach_dur(unsigned int format, unsigned int mu)
   return (prach_dur_subframes * num_slots_subframe);
 }
 
+// Table 38.211 6.3.3.2-1
+uint8_t get_PRACH_k_bar(unsigned int delta_f_RA_PRACH, unsigned int delta_f_PUSCH)
+{
+  uint8_t k_bar = 0;
+  if (delta_f_RA_PRACH > 3) { // Rel 15 max PRACH SCS is 120 kHz, 4 and 5 are 1.25 and 5 kHz
+    // long formats
+    DevAssert(delta_f_PUSCH < 3);
+    DevAssert(delta_f_RA_PRACH < 6);
+    const uint8_t k_bar_table[3][2] = {{7, 12},
+                                       {1, 10},
+                                       {133, 7}};
+
+    k_bar = k_bar_table[delta_f_PUSCH][delta_f_RA_PRACH - 4];
+  } else {
+    if (delta_f_RA_PRACH == 3 && delta_f_PUSCH == 4) // \delta f_RA == 120 kHz AND \delta f == 480 kHz
+      k_bar = 1;
+    else if (delta_f_RA_PRACH == 3 && delta_f_PUSCH == 5) // \delta f_RA == 120 kHz AND \delta f == 960 kHz
+      k_bar = 23;
+    else
+      k_bar = 2;
+  }
+  return k_bar;
+}
+
+// K according to 38.211 5.3.2
+unsigned int get_prach_K(int prach_sequence_length, int prach_fmt_id, int pusch_mu, int prach_mu)
+{
+  unsigned int K = 1;
+  if (prach_sequence_length == 0) {
+    if (prach_fmt_id == 3)
+      K = (15 << pusch_mu) / 5;
+    else
+      K = (15 << pusch_mu) / 1.25;
+  } else if (prach_sequence_length == 1) {
+    K = (15 << pusch_mu) / (15 << prach_mu);
+  } else {
+    AssertFatal(0, "Invalid PRACH sequence length %d\n", prach_sequence_length);
+  }
+  return K;
+}
+
 int get_delay_idx(int delay, int max_delay_comp)
 {
   int delay_idx = max_delay_comp + delay;

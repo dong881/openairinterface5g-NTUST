@@ -66,7 +66,7 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
   c16_t prachF_tmp[(4688 + 4 * 24576) * 4] __attribute__((aligned(32))) = {0};
 
   int Ncp = 0;
-  int prach_start, prach_sequence_length, prach_len, dftlen, mu, kbar, K, n_ra_prb, k, prachStartSymbol, sample_offset_slot;
+  int prach_start, prach_sequence_length, prach_len, dftlen, mu, n_ra_prb, k, prachStartSymbol, sample_offset_slot;
 
   fd_occasion             = 0;
   prach_len               = 0;
@@ -83,9 +83,7 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
   n_ra_prb                = nrUE_config->prach_config.num_prach_fd_occasions_list[fd_occasion].k1,//prach_pdu->freq_msg1;
   NCS                     = prach_pdu->num_cs;
   prach_fmt_id            = prach_pdu->prach_format;
-  preamble_index          = prach_pdu->ra_PreambleIndex;
-  kbar                    = 1;
-  K                       = 24;
+  preamble_index = prach_pdu->ra_PreambleIndex;
   k                       = 12*n_ra_prb - 6*fp->N_RB_UL;
   prachStartSymbol        = prach_pdu->prach_start_symbol;
 
@@ -214,15 +212,10 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
   //  nsymb = (frame_parms->Ncp==0) ? 14:12;
   //  subframe_offset = (unsigned int)frame_parms->ofdm_symbol_size*slot*nsymb;
 
-  if (prach_sequence_length == 0 && prach_fmt_id == 3) {
-    K = 4;
-    kbar = 10;
-  } else if (prach_sequence_length == 1) {
-    K = 1;
-    kbar = 2;
-  }
+  const unsigned int K = get_prach_K(prach_sequence_length, prach_fmt_id, fp->numerology_index, mu);
+  const uint8_t kbar = get_PRACH_k_bar(mu, fp->numerology_index);
 
-  if (k<0)
+  if (k < 0)
     k += fp->ofdm_symbol_size;
 
   k *= K;
@@ -265,7 +258,7 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
       break;
 
     default:
-      AssertFatal(1==0, "Illegal PRACH format %d for sequence length 839\n", prach_fmt_id);
+      AssertFatal(1 == 0, "Illegal PRACH format %d for sequence length 839\n", prach_fmt_id);
       break;
     }
   } else {

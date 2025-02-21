@@ -165,6 +165,7 @@ void rx_nr_prach_ru(RU_t *ru,
   int16_t *prach[ru->nb_rx];
   int prach_sequence_length = ru->config.prach_config.prach_sequence_length.value;
   int msg1_frequencystart = ru->config.prach_config.num_prach_fd_occasions_list[numRA].k1.value;
+  const uint8_t prach_mu = ru->config.prach_config.prach_sub_c_spacing.value;
 
   int sample_offset_slot;
   if (prachStartSymbol == 0) {
@@ -391,18 +392,9 @@ void rx_nr_prach_ru(RU_t *ru,
     LOG_D(PHY, "rx_prach: Doing PRACH FFT for nb_rx:%d Ncp:%d dftlen:%d\n", ru->nb_rx, Ncp, dftlen);
   }
 
-  // Note: Assumes PUSCH SCS @ 30 kHz, take values for formats 0-2 and adjust for others below
-  int kbar = 1;
-  int K    = 24;
-  if (prach_sequence_length == 0 && prachFormat == 3) { 
-    K=4;
-    kbar=10;
-  }
-  else if (prach_sequence_length == 1) {
-    // Note: Assumes that PRACH SCS is same as PUSCH SCS
-    K=1;
-    kbar=2;
-  }
+  const unsigned int K = get_prach_K(prach_sequence_length, prachFormat, fp->numerology_index, prach_mu);
+  const uint8_t kbar = get_PRACH_k_bar(prach_mu, fp->numerology_index);
+
   int n_ra_prb            = msg1_frequencystart;
   int k                   = (12*n_ra_prb) - 6*fp->N_RB_UL;
 
