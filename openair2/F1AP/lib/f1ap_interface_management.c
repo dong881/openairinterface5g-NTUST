@@ -404,6 +404,31 @@ static int read_slice_info(const F1AP_ServedPLMNs_Item_t *plmn, nssai_t *nssai, 
   return ssl->list.count;
 }
 
+static F1AP_ProtocolExtensionContainer_10696P34_t *write_slice_info(int num_ssi, const nssai_t *nssai)
+{
+  if (num_ssi == 0)
+    return NULL;
+
+  F1AP_ProtocolExtensionContainer_10696P34_t *p = calloc_or_fail(1, sizeof(*p));
+  asn1cSequenceAdd(p->list, F1AP_ServedPLMNs_ItemExtIEs_t, served_plmns_itemExtIEs);
+  served_plmns_itemExtIEs->criticality = F1AP_Criticality_ignore;
+  served_plmns_itemExtIEs->id = F1AP_ProtocolIE_ID_id_TAISliceSupportList;
+  served_plmns_itemExtIEs->extensionValue.present = F1AP_ServedPLMNs_ItemExtIEs__extensionValue_PR_SliceSupportList;
+  F1AP_SliceSupportList_t *slice_support_list = &served_plmns_itemExtIEs->extensionValue.choice.SliceSupportList;
+
+  for (int s = 0; s < num_ssi; s++) {
+    asn1cSequenceAdd(slice_support_list->list, F1AP_SliceSupportItem_t, slice);
+    const nssai_t *n = &nssai[s];
+    INT8_TO_OCTET_STRING(n->sst, &slice->sNSSAI.sST);
+    if (n->sd != 0xffffff) {
+      asn1cCalloc(slice->sNSSAI.sD, tmp);
+      INT24_TO_OCTET_STRING(n->sd, tmp);
+    }
+  }
+
+  return p;
+}
+
 /**
  * @brief F1AP Setup Request memory management
  */
@@ -468,6 +493,8 @@ static F1AP_Served_Cell_Information_t encode_served_cell_info(const f1ap_served_
   asn1cSequenceAdd(scell_info.servedPLMNs.list, F1AP_ServedPLMNs_Item_t, servedPLMN_item);
   // PLMN Identity (M)
   MCC_MNC_TO_PLMNID(c->plmn.mcc, c->plmn.mnc, c->plmn.mnc_digit_length, &servedPLMN_item->pLMN_Identity);
+  // NSSAIs (O)
+  servedPLMN_item->iE_Extensions = (struct F1AP_ProtocolExtensionContainer *)write_slice_info(c->num_ssi, c->nssai);
   // NR-Mode-Info (M)
   F1AP_NR_Mode_Info_t *nR_Mode_Info = &scell_info.nR_Mode_Info;
   if (c->mode == F1AP_MODE_FDD) { // FDD Info

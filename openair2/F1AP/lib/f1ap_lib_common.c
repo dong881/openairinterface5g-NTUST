@@ -57,6 +57,11 @@ bool eq_f1ap_cell_info(const f1ap_served_cell_info_t *a, const f1ap_served_cell_
     return false;
   if (a->tac)
     _F1_EQ_CHECK_INT(*a->tac, *b->tac);
+  _F1_EQ_CHECK_INT(a->num_ssi, b->num_ssi);
+  for (int i = 0; i < a->num_ssi; ++i) {
+    _F1_EQ_CHECK_INT(a->nssai[i].sst, b->nssai[i].sst);
+    _F1_EQ_CHECK_INT(a->nssai[i].sd, b->nssai[i].sd);
+  }
   _F1_EQ_CHECK_INT(a->mode, b->mode);
   if (a->mode == F1AP_MODE_TDD) {
     /* TDD */
