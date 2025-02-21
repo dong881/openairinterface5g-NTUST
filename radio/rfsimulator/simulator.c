@@ -1004,7 +1004,7 @@ static int rfsimulator_read(openair0_device *device, openair0_timestamp *ptimest
               t->nextRxTstamp + nsamps);
         flushInput(t, 3, nsamps);
       }
-      if (t->hanging_workaround && loops++ > 10 && t->role == SIMU_ROLE_SERVER) {
+      if (t->hanging_workaround && loops++ > 10 && t->role == SIMU_ROLE_SERVER && nb_ue > 1) {
         // Just start producing samples. The clients will catch up.
         have_to_wait = false;
         LOG_W(HW,
