@@ -1121,8 +1121,71 @@ void nr_ue_dl_scheduler(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_info
 
 static bool check_pucchres_for_pending_SR(NR_PUCCH_Config_t *pucch_Config, int target_sr_id)
 {
+  LOG_I(NR_MAC, "Checking PUCCH resources for SR ID %d\n", target_sr_id);
+  LOG_I(NR_MAC, "pucch_Config->schedulingRequestResourceToAddModList->list.count = %d\n", pucch_Config->schedulingRequestResourceToAddModList->list.count);
   for (int id = 0; id < pucch_Config->schedulingRequestResourceToAddModList->list.count; id++) {
     NR_SchedulingRequestResourceConfig_t *sr_Config = pucch_Config->schedulingRequestResourceToAddModList->list.array[id];
+    LOG_I(NR_MAC, "SchedulingRequestResourceConfig ID: %ld\n", sr_Config->schedulingRequestResourceId);
+    LOG_I(NR_MAC, "SchedulingRequest ID: %ld\n", sr_Config->schedulingRequestID);
+    if (sr_Config->periodicityAndOffset) {
+      LOG_I(NR_MAC, "PeriodicityAndOffset present: %d\n", sr_Config->periodicityAndOffset->present);
+      switch (sr_Config->periodicityAndOffset->present) {
+        case NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sym2:
+          LOG_I(NR_MAC, "PeriodicityAndOffset choice: sym2\n");
+          break;
+        case NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sym6or7:
+          LOG_I(NR_MAC, "PeriodicityAndOffset choice: sym6or7\n");
+          break;
+        case NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl1:
+          LOG_I(NR_MAC, "PeriodicityAndOffset choice: sl1\n");
+          break;
+        case NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl2:
+          LOG_I(NR_MAC, "PeriodicityAndOffset choice: sl2, value: %ld\n", sr_Config->periodicityAndOffset->choice.sl2);
+          break;
+        case NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl4:
+          LOG_I(NR_MAC, "PeriodicityAndOffset choice: sl4, value: %ld\n", sr_Config->periodicityAndOffset->choice.sl4);
+          break;
+        case NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl5:
+          LOG_I(NR_MAC, "PeriodicityAndOffset choice: sl5, value: %ld\n", sr_Config->periodicityAndOffset->choice.sl5);
+          break;
+        case NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl8:
+          LOG_I(NR_MAC, "PeriodicityAndOffset choice: sl8, value: %ld\n", sr_Config->periodicityAndOffset->choice.sl8);
+          break;
+        case NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl10:
+          LOG_I(NR_MAC, "PeriodicityAndOffset choice: sl10, value: %ld\n", sr_Config->periodicityAndOffset->choice.sl10);
+          break;
+        case NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl16:
+          LOG_I(NR_MAC, "PeriodicityAndOffset choice: sl16, value: %ld\n", sr_Config->periodicityAndOffset->choice.sl16);
+          break;
+        case NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl20:
+          LOG_I(NR_MAC, "PeriodicityAndOffset choice: sl20, value: %ld\n", sr_Config->periodicityAndOffset->choice.sl20);
+          break;
+        case NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl40:
+          LOG_I(NR_MAC, "PeriodicityAndOffset choice: sl40, value: %ld\n", sr_Config->periodicityAndOffset->choice.sl40);
+          break;
+        case NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl80:
+          LOG_I(NR_MAC, "PeriodicityAndOffset choice: sl80, value: %ld\n", sr_Config->periodicityAndOffset->choice.sl80);
+          break;
+        case NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl160:
+          LOG_I(NR_MAC, "PeriodicityAndOffset choice: sl160, value: %ld\n", sr_Config->periodicityAndOffset->choice.sl160);
+          break;
+        case NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl320:
+          LOG_I(NR_MAC, "PeriodicityAndOffset choice: sl320, value: %ld\n", sr_Config->periodicityAndOffset->choice.sl320);
+          break;
+        case NR_SchedulingRequestResourceConfig__periodicityAndOffset_PR_sl640:
+          LOG_I(NR_MAC, "PeriodicityAndOffset choice: sl640, value: %ld\n", sr_Config->periodicityAndOffset->choice.sl640);
+          break;
+        default:
+          LOG_I(NR_MAC, "PeriodicityAndOffset choice: unknown\n");
+          break;
+      }
+    }
+    if (sr_Config->resource) {
+      LOG_I(NR_MAC, "PUCCH Resource ID: %ld\n", *sr_Config->resource);
+    } else {
+      LOG_I(NR_MAC, "PUCCH Resource ID: not present\n");
+    }
+    
     if (sr_Config->schedulingRequestID == target_sr_id)  {
       if (sr_Config->resource) {
         return true;
@@ -1134,6 +1197,7 @@ static bool check_pucchres_for_pending_SR(NR_PUCCH_Config_t *pucch_Config, int t
 
 static void nr_update_sr(NR_UE_MAC_INST_t *mac)
 {
+  LOG_I(NR_MAC, "Updating SR\n");
   NR_UE_SCHEDULING_INFO *sched_info = &mac->scheduling_info;
 
   // if no pending data available for transmission
@@ -1177,17 +1241,19 @@ static void nr_update_sr(NR_UE_MAC_INST_t *mac)
   if (lc_info->sr_id < 0 || lc_info->sr_id >= NR_MAX_SR_ID)
     LOG_E(NR_MAC, "No SR corresponding to this LCID\n"); // TODO not sure what to do here
   else {
+    LOG_I(NR_MAC, "SR ID %d\n", lc_info->sr_id);
     nr_sr_info_t *sr = &sched_info->sr_info[lc_info->sr_id];
     if (!sr->pending) {
       NR_UE_UL_BWP_t *current_UL_BWP = mac->current_UL_BWP;
       NR_PUCCH_Config_t *pucch_Config = current_UL_BWP ? current_UL_BWP->pucch_Config : NULL;
       if (check_pucchres_for_pending_SR(pucch_Config, lc_info->sr_id)) {
         // trigger SR
-        LOG_D(NR_MAC, "Triggering SR for ID %d\n", lc_info->sr_id);
+        LOG_I(NR_MAC, "Triggering SR for ID %d\n", lc_info->sr_id);
         sr->pending = true;
         sr->counter = 0;
       }
       else {
+        LOG_I(NR_MAC, "No PUCCH resource for SR ID %d\n", lc_info->sr_id);
         // initiate a Random Access procedure on the SpCell and cancel the pending SR
         // if the MAC entity has no valid PUCCH resource configured for the pending SR
         sr->pending = false;
@@ -1197,6 +1263,7 @@ static void nr_update_sr(NR_UE_MAC_INST_t *mac)
       }
     }
   }
+  LOG_I(NR_MAC, "SR updated\n");
 }
 
 static void nr_update_bsr(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t slotP, uint8_t gNB_index)

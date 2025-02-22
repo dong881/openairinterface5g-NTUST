@@ -1099,7 +1099,7 @@ bool nr_pdcp_data_req_srb(ue_id_t ue_id,
                           deliver_pdu deliver_pdu_cb,
                           void *data)
 {
-  LOG_D(PDCP, "%s() called, size %d\n", __func__, sdu_buffer_size);
+  LOG_I(PDCP, "%s() called, size %d\n", __func__, sdu_buffer_size);
   nr_pdcp_ue_t *ue;
   nr_pdcp_entity_t *rb;
 
