@@ -335,8 +335,6 @@ static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_inf
   SI_info->sib1_validity = SIB_VALID;
   if (rrc->nrRrcState == RRC_STATE_IDLE_NR) {
     rrc->ra_trigger = RRC_CONNECTION_SETUP;
-    // preparing RRC setup request payload in advance
-    nr_rrc_ue_prepare_RRCSetupRequest(rrc);
   }
 
   NR_SIB1_v1700_IEs_t *sib1_v1700 = NULL;
@@ -856,15 +854,6 @@ static void nr_rrc_ue_decode_NR_BCCH_BCH_Message(NR_UE_RRC_INST_t *rrc,
     nr_timer_stop(&timers->T311);
     rrc->ra_trigger = RRC_CONNECTION_REESTABLISHMENT;
 
-    // preparing MSG3 for re-establishment in advance
-    uint8_t buffer[1024];
-    int buf_size = do_RRCReestablishmentRequest(buffer,
-                                                rrc->reestablishment_cause,
-                                                rrc->phyCellID,
-                                                rrc->rnti); // old rnti
-
-    nr_rlc_srb_recv_sdu(rrc->ue_id, 0, buffer, buf_size);
-
     // apply the default MAC Cell Group configuration
     // (done at MAC by calling nr_ue_mac_default_configs)
 
@@ -890,6 +879,31 @@ static void nr_rrc_ue_decode_NR_BCCH_BCH_Message(NR_UE_RRC_INST_t *rrc,
     ASN_STRUCT_FREE(asn_DEF_NR_BCCH_BCH_Message, bcch_message);
   }
   return;
+}
+
+static void nr_rrc_ue_prepare_RRCReestablishmentRequest(NR_UE_RRC_INST_t *rrc)
+{
+  uint8_t buffer[1024];
+  int buf_size = do_RRCReestablishmentRequest(buffer, rrc->reestablishment_cause, rrc->phyCellID, rrc->rnti); // old rnti
+  nr_rlc_srb_recv_sdu(rrc->ue_id, 0, buffer, buf_size);
+}
+
+static void nr_rrc_prepare_msg3_payload(NR_UE_RRC_INST_t *rrc)
+{
+  if (!IS_SA_MODE(get_softmodem_params()))
+    return;
+  switch (rrc->ra_trigger) {
+    case RRC_CONNECTION_SETUP:
+      // preparing RRC setup request payload in advance
+      nr_rrc_ue_prepare_RRCSetupRequest(rrc);
+      break;
+    case RRC_CONNECTION_REESTABLISHMENT:
+      // preparing MSG3 for re-establishment in advance
+      nr_rrc_ue_prepare_RRCReestablishmentRequest(rrc);
+      break;
+    default:
+      AssertFatal(false, "RA trigger not implemented\n");
+  }
 }
 
 static void nr_rrc_handle_msg3_indication(NR_UE_RRC_INST_t *rrc, rnti_t rnti)
@@ -2045,7 +2059,10 @@ void *rrc_nrue(void *notUsed)
     break;
 
   case NR_RRC_MAC_MSG3_IND:
-    nr_rrc_handle_msg3_indication(rrc, NR_RRC_MAC_MSG3_IND(msg_p).rnti);
+    if (NR_RRC_MAC_MSG3_IND(msg_p).prepare_payload)
+      nr_rrc_prepare_msg3_payload(rrc);
+    else
+      nr_rrc_handle_msg3_indication(rrc, NR_RRC_MAC_MSG3_IND(msg_p).rnti);
     break;
 
   case NR_RRC_MAC_RA_IND:

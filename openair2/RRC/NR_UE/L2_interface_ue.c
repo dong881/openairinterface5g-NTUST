@@ -159,11 +159,11 @@ void nr_mac_rrc_inactivity_timer_ind(const module_id_t mod_id)
   itti_send_msg_to_task(TASK_RRC_NRUE, GNB_MODULE_ID_TO_INSTANCE(mod_id), message_p);
 }
 
-void nr_mac_rrc_msg3_ind(const module_id_t mod_id, const int rnti, int gnb_id)
+void nr_mac_rrc_msg3_ind(const module_id_t mod_id, const int rnti, bool prepare_payload)
 {
   MessageDef *message_p = itti_alloc_new_message(TASK_MAC_UE, 0, NR_RRC_MAC_MSG3_IND);
   NR_RRC_MAC_MSG3_IND (message_p).rnti = rnti;
-  NR_RRC_MAC_MSG3_IND (message_p).gnb_id = gnb_id;
+  NR_RRC_MAC_MSG3_IND (message_p).prepare_payload = prepare_payload;
   itti_send_msg_to_task(TASK_RRC_NRUE, GNB_MODULE_ID_TO_INSTANCE(mod_id), message_p);
 }
 

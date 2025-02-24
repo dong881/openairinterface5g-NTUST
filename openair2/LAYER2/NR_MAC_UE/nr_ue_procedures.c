@@ -3863,7 +3863,7 @@ int nr_write_ce_ulsch_pdu(uint8_t *mac_ce,
   return mac_ce - pdu;
 }
 
-static void handle_rar_reception(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dlinfo, NR_MAC_RAR *rar, frame_t frame, int slot)
+static void handle_rar_reception(NR_UE_MAC_INST_t *mac, NR_MAC_RAR *rar, frame_t frame, int slot)
 {
   RAR_grant_t rar_grant;
   RA_config_t *ra = &mac->ra;
@@ -3953,7 +3953,7 @@ static void handle_rar_reception(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t
       ra->t_crnti = rar->TCRNTI_2 + (rar->TCRNTI_1 << 8);
       rnti = ra->t_crnti;
       if (!mac->msg3_C_RNTI)
-        nr_mac_rrc_msg3_ind(mac->ue_id, rnti, dlinfo->gNB_index);
+        nr_mac_rrc_msg3_ind(mac->ue_id, rnti, false);
     }
     fapi_nr_ul_config_request_pdu_t *pdu = lockGet_ul_config(mac, frame_tx, slot_tx, FAPI_NR_UL_CONFIG_TYPE_PUSCH);
     if (!pdu)
@@ -4057,7 +4057,7 @@ static void nr_ue_process_rar(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *d
       nr_timer_stop(&ra->response_window_timer);
       LOG_A(NR_MAC, "[UE %d][RAPROC][%d.%d] Found RAR with the intended RAPID %d\n", mac->ue_id, frame, slot, rarh->RAPID);
       rar = (NR_MAC_RAR *) (dlsch_buffer + n_subheaders + (n_subPDUs - 1) * sizeof(NR_MAC_RAR));
-      handle_rar_reception(mac, dl_info, rar, frame, slot);
+      handle_rar_reception(mac, rar, frame, slot);
       if (ra->cfra)
         nr_ra_succeeded(mac, dl_info->gNB_index, frame, slot);
       if (get_softmodem_params()->emulate_l1) {

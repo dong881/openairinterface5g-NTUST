@@ -32,6 +32,9 @@ softmodem_params_t *get_softmodem_params(void)
 void nr_mac_rrc_ra_ind(const module_id_t mod_id, bool success)
 {
 }
+void nr_mac_rrc_msg3_ind(const module_id_t mod_id, const int rnti, bool prepare_payload)
+{
+}
 tbs_size_t mac_rlc_data_req(const module_id_t module_idP,
                             const rnti_t rntiP,
                             const eNB_index_t eNB_index,

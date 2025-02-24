@@ -78,6 +78,7 @@ typedef struct NRRrcMacRaInd_s {
 typedef struct NRRrcMacMsg3Ind_s {
   uint16_t rnti;
   int gnb_id;
+  bool prepare_payload;
 } NRRrcMacMsg3Ind;
 
 typedef struct NRRrcMacInacInd_s {

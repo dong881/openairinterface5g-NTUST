@@ -1003,6 +1003,10 @@ bool init_RA(NR_UE_MAC_INST_t *mac, int frame)
     }
   }
 
+  // need to ask RRC to send the MSG3 data to transmit if needed (CBRA originating from upper layers)
+  if (!mac->msg3_C_RNTI && ra->cfra == false)
+    nr_mac_rrc_msg3_ind(mac->ue_id, 0, true);
+
   NR_RACH_ConfigGenericTwoStepRA_r16_t *twostep_generic = twostep_conf ? &twostep_conf->rach_ConfigGenericTwoStepRA_r16 : NULL;
   if (ra->ra_type == RA_2_STEP && twostep_generic && twostep_generic->msgA_PreamblePowerRampingStep_r16)
     prach_resources->preamble_power_ramping_step = *twostep_generic->msgA_PreamblePowerRampingStep_r16 << 1;
@@ -1215,6 +1219,7 @@ void nr_ra_contention_resolution_failed(NR_UE_MAC_INST_t *mac)
   ra->t_crnti = 0;
   // flush MSG3 buffer
   free_and_zero(ra->Msg3_buffer);
+  nr_mac_rrc_msg3_ind(mac->ue_id, 0, true);
   NR_PRACH_RESOURCES_t *prach_resources = &ra->prach_resources;
   prach_resources->preamble_tx_counter++;
   if (prach_resources->preamble_tx_counter == ra->preambleTransMax + 1) {
