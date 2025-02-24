@@ -1392,6 +1392,37 @@ f1ap_setup_req_t *RC_read_F1Setup(uint64_t id,
   return req;
 }
 
+static nr_redcap_config_t *get_redcap_config(int gnb_idx)
+{
+  paramdef_t RedCap_Params[] = GNB_REDCAP_PARAMS_DESC;
+  char aprefix[MAX_OPTNAME_SIZE * 2 + 8];
+  sprintf(aprefix, "%s.[%d].%s", GNB_CONFIG_STRING_GNB_LIST, gnb_idx, GNB_CONFIG_STRING_REDCAP);
+  int ret = config_get(config_get_if(), RedCap_Params, sizeofArray(RedCap_Params), aprefix);
+
+  if (ret <= 0) {
+    printf("problem reading section \"%s\"\n", aprefix);
+    return NULL;
+  }
+  // Check for default/non-existing values in configuration file
+  if (*RedCap_Params[GNB_REDCAP_CELL_BARRED_REDCAP1_RX_R17_IDX].i8ptr == -1
+      || *RedCap_Params[GNB_REDCAP_CELL_BARRED_REDCAP2_RX_R17_IDX].i8ptr == -1) {
+    LOG_I(NR_MAC, "No RedCap configuration found\n");
+    return NULL;
+  }
+
+  nr_redcap_config_t *rc = calloc_or_fail(1, sizeof(*rc));
+  rc->cellBarredRedCap1Rx_r17 = *RedCap_Params[GNB_REDCAP_CELL_BARRED_REDCAP1_RX_R17_IDX].i8ptr;
+  rc->cellBarredRedCap2Rx_r17 = *RedCap_Params[GNB_REDCAP_CELL_BARRED_REDCAP2_RX_R17_IDX].i8ptr;
+  rc->intraFreqReselectionRedCap_r17 = *RedCap_Params[GNB_REDCAP_INTRA_FREQ_RESELECTION_REDCAP_R17_IDX].u8ptr;
+
+  LOG_I(GNB_APP,
+        "cellBarredRedCap1Rx_r17 %d cellBarredRedCap2Rx_r17 %d intraFreqReselectionRedCap_r17 %d\n",
+        rc->cellBarredRedCap1Rx_r17,
+        rc->cellBarredRedCap2Rx_r17,
+        rc->intraFreqReselectionRedCap_r17);
+  return rc;
+}
+
 void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
 {
   int j = 0;
@@ -1477,6 +1508,8 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
         config.num_ulharq);
   int tot_ant = config.pdsch_AntennaPorts.N1 * config.pdsch_AntennaPorts.N2 * config.pdsch_AntennaPorts.XP;
   AssertFatal(config.maxMIMO_layers != 0 && config.maxMIMO_layers <= tot_ant, "Invalid maxMIMO_layers %d\n", config.maxMIMO_layers);
+
+  config.redcap = get_redcap_config(0);
 
   paramdef_t Timers_Params[] = GNB_TIMERS_PARAMS_DESC;
   char aprefix[MAX_OPTNAME_SIZE * 2 + 8];

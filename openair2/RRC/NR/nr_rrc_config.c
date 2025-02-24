@@ -2366,7 +2366,7 @@ NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
                                       const f1ap_plmn_t *plmn,
                                       uint64_t cellID,
                                       int tac,
-                                      const nr_mac_timers_t *timer_config)
+                                      const nr_mac_config_t *mac_config)
 {
   AssertFatal(cellID < (1l << 36), "cellID must fit within 36 bits, but is %lu\n", cellID);
 
@@ -2469,32 +2469,6 @@ NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
     struct NR_SIB1_v1700_IEs *sib1_v1700 = sib1->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension;
     sib1_v1700->cellBarredNTN_r17 = CALLOC(1, sizeof(long));
     *sib1_v1700->cellBarredNTN_r17 = NR_SIB1_v1700_IEs__cellBarredNTN_r17_notBarred;
-  }
-
-  // sib19 scheduling info
-  // ensure ntn-config is initialized
-  if (scc->ext2 && scc->ext2->ntn_Config_r17) {
-    if (sib1->nonCriticalExtension == NULL)
-      sib1->nonCriticalExtension = CALLOC(1, sizeof(struct NR_SIB1_v1610_IEs));
-    if (sib1->nonCriticalExtension->nonCriticalExtension == NULL)
-      sib1->nonCriticalExtension->nonCriticalExtension = CALLOC(1, sizeof(struct NR_SIB1_v1630_IEs));
-    if (sib1->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension == NULL)
-      sib1->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension = CALLOC(1, sizeof(struct NR_SIB1_v1700_IEs));
-
-    struct NR_SI_SchedulingInfo_v1700 *sib_v17_scheduling_info = CALLOC(1, sizeof(struct NR_SI_SchedulingInfo_v1700));
-
-    struct NR_SchedulingInfo2_r17 *si_schedulinginfo2_r17 = CALLOC(1, sizeof(struct NR_SchedulingInfo2_r17));
-    si_schedulinginfo2_r17->si_BroadcastStatus_r17 = NR_SchedulingInfo2_r17__si_BroadcastStatus_r17_broadcasting;
-    si_schedulinginfo2_r17->si_WindowPosition_r17 = 2;
-    si_schedulinginfo2_r17->si_Periodicity_r17 = NR_SchedulingInfo2_r17__si_Periodicity_r17_rf8;
-
-    struct NR_SIB_TypeInfo_v1700 *sib_type_info = CALLOC(1, sizeof(struct NR_SIB_TypeInfo_v1700));
-    sib_type_info->sibType_r17.present = NR_SIB_TypeInfo_v1700__sibType_r17_PR_type1_r17;
-    sib_type_info->sibType_r17.choice.type1_r17 = NR_SIB_TypeInfo_v1700__sibType_r17__type1_r17_sibType19;
-
-    asn1cSeqAdd(&si_schedulinginfo2_r17->sib_MappingInfo_r17.list, sib_type_info);
-    asn1cSeqAdd(&sib_v17_scheduling_info->schedulingInfoList2_r17.list, si_schedulinginfo2_r17);
-    sib1->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension->si_SchedulingInfo_v1700 = sib_v17_scheduling_info;
   }
 
   // servingCellConfigCommon
@@ -2672,6 +2646,7 @@ NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
   // ue-TimersAndConstants
   sib1->ue_TimersAndConstants = CALLOC(1,sizeof(struct NR_UE_TimersAndConstants));
   AssertFatal(sib1->ue_TimersAndConstants != NULL, "out of memory\n");
+  const nr_mac_timers_t *timer_config = &mac_config->timer_config;
   sib1->ue_TimersAndConstants->t300 = get_NR_UE_TimersAndConstants_t300(timer_config);
   sib1->ue_TimersAndConstants->t301 = get_NR_UE_TimersAndConstants_t301(timer_config);
   sib1->ue_TimersAndConstants->t310 = get_NR_UE_TimersAndConstants_t310(timer_config);
@@ -2698,7 +2673,47 @@ NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
   // TODO: add lateNonCriticalExtension
 
   // nonCriticalExtension
-  // TODO: add nonCriticalExtension
+  if (mac_config->redcap || (scc->ext2 && scc->ext2->ntn_Config_r17)) {
+    sib1->nonCriticalExtension = calloc_or_fail(1, sizeof(*sib1->nonCriticalExtension));
+    NR_SIB1_v1610_IEs_t *sib1_1610 = sib1->nonCriticalExtension;
+    sib1_1610->nonCriticalExtension = calloc_or_fail(1, sizeof(*sib1_1610->nonCriticalExtension));
+    NR_SIB1_v1630_IEs_t *sib1_1630 = sib1_1610->nonCriticalExtension;
+    sib1_1630->nonCriticalExtension = calloc_or_fail(1, sizeof(*sib1_1630->nonCriticalExtension));
+    NR_SIB1_v1700_IEs_t *sib1_1700 = sib1_1630->nonCriticalExtension;
+
+    if (mac_config->redcap) {
+      sib1_1700->redCap_ConfigCommon_r17 = calloc_or_fail(1, sizeof(*sib1_1700->redCap_ConfigCommon_r17));
+      sib1_1700->redCap_ConfigCommon_r17->cellBarredRedCap_r17 =
+          calloc_or_fail(1, sizeof(*sib1_1700->redCap_ConfigCommon_r17->cellBarredRedCap_r17));
+
+      const nr_redcap_config_t *redcap_config = mac_config->redcap;
+      struct NR_RedCap_ConfigCommonSIB_r17__cellBarredRedCap_r17 *CellBarredRedCap_r17 =
+          sib1_1700->redCap_ConfigCommon_r17->cellBarredRedCap_r17;
+      CellBarredRedCap_r17->cellBarredRedCap1Rx_r17 = redcap_config->cellBarredRedCap1Rx_r17;
+      CellBarredRedCap_r17->cellBarredRedCap2Rx_r17 = redcap_config->cellBarredRedCap2Rx_r17;
+      sib1_1700->intraFreqReselectionRedCap_r17 = calloc_or_fail(1, sizeof(*sib1_1700->intraFreqReselectionRedCap_r17));
+      *sib1_1700->intraFreqReselectionRedCap_r17 = redcap_config->intraFreqReselectionRedCap_r17;
+    }
+
+    // sib19 scheduling info
+    // ensure ntn-config is initialized
+    if (scc->ext2 && scc->ext2->ntn_Config_r17) {
+      struct NR_SI_SchedulingInfo_v1700 *sib_v17_scheduling_info = CALLOC(1, sizeof(struct NR_SI_SchedulingInfo_v1700));
+
+      struct NR_SchedulingInfo2_r17 *si_schedulinginfo2_r17 = CALLOC(1, sizeof(struct NR_SchedulingInfo2_r17));
+      si_schedulinginfo2_r17->si_BroadcastStatus_r17 = NR_SchedulingInfo2_r17__si_BroadcastStatus_r17_broadcasting;
+      si_schedulinginfo2_r17->si_WindowPosition_r17 = 2;
+      si_schedulinginfo2_r17->si_Periodicity_r17 = NR_SchedulingInfo2_r17__si_Periodicity_r17_rf8;
+
+      struct NR_SIB_TypeInfo_v1700 *sib_type_info = CALLOC(1, sizeof(struct NR_SIB_TypeInfo_v1700));
+      sib_type_info->sibType_r17.present = NR_SIB_TypeInfo_v1700__sibType_r17_PR_type1_r17;
+      sib_type_info->sibType_r17.choice.type1_r17 = NR_SIB_TypeInfo_v1700__sibType_r17__type1_r17_sibType19;
+
+      asn1cSeqAdd(&si_schedulinginfo2_r17->sib_MappingInfo_r17.list, sib_type_info);
+      asn1cSeqAdd(&sib_v17_scheduling_info->schedulingInfoList2_r17.list, si_schedulinginfo2_r17);
+      sib1_1700->si_SchedulingInfo_v1700 = sib_v17_scheduling_info;
+    }
+  }
 
   if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
     xer_fprint(stdout, &asn_DEF_NR_BCCH_DL_SCH_Message, sib1_message);

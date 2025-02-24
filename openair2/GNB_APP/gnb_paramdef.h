@@ -485,6 +485,29 @@ typedef enum {
 #define GNB_TIMERS_N311_IDX                    8
 #define GNB_TIMERS_T319_IDX                    9
 
+/*-------------------------------------------------------------------------------------------------------------------------------------*/
+/*                                            RedCap configuration parameters                                                          */
+/*-------------------------------------------------------------------------------------------------------------------------------------*/
+
+#define GNB_CONFIG_HLP_STRING_CELL_BARRED_REDCAP1_RX_R17         "Value barred means that the cell is barred for a RedCap UE supporting 1 Rx branch\n"
+#define GNB_CONFIG_HLP_STRING_CELL_BARRED_REDCAP2_RX_R17         "Value barred means that the cell is barred for a RedCap UE supporting 2 Rx branches\n"
+#define GNB_CONFIG_HLP_STRING_INTRA_FREQ_RESELECTION_REDCAP_R17  "Controls cell selection/reselection to intra-frequency cells for RedCap UEs when this cell is barred\n"
+
+#define GNB_CONFIG_STRING_REDCAP                            "RedCap"
+#define GNB_CONFIG_STRING_CELL_BARRED_REDCAP1_RX_R17        "cellBarredRedCap1Rx_r17"
+#define GNB_CONFIG_STRING_CELL_BARRED_REDCAP2_RX_R17        "cellBarredRedCap2Rx_r17"
+#define GNB_CONFIG_STRING_INTRA_FREQ_RESELECTION_REDCAP_R17 "intraFreqReselectionRedCap_r17"
+
+#define GNB_REDCAP_PARAMS_DESC { \
+{GNB_CONFIG_STRING_CELL_BARRED_REDCAP1_RX_R17,        GNB_CONFIG_HLP_STRING_CELL_BARRED_REDCAP1_RX_R17,             0,        .i8ptr=NULL,     .defintval=-1,      TYPE_INT8,      0},\
+{GNB_CONFIG_STRING_CELL_BARRED_REDCAP2_RX_R17,        GNB_CONFIG_HLP_STRING_CELL_BARRED_REDCAP2_RX_R17,             0,        .i8ptr=NULL,     .defintval=-1,      TYPE_INT8,      0},\
+{GNB_CONFIG_STRING_INTRA_FREQ_RESELECTION_REDCAP_R17, GNB_CONFIG_HLP_STRING_INTRA_FREQ_RESELECTION_REDCAP_R17,      0,        .u8ptr=NULL,     .defuintval=0,      TYPE_UINT8,     0},\
+}
+
+#define GNB_REDCAP_CELL_BARRED_REDCAP1_RX_R17_IDX            0
+#define GNB_REDCAP_CELL_BARRED_REDCAP2_RX_R17_IDX            1
+#define GNB_REDCAP_INTRA_FREQ_RESELECTION_REDCAP_R17_IDX     2
+
 /*---------------------------------------------------------------------------------------------------------------------------------------*/
 /*---------------------------------------------------------------------------------------------------------------------------------------*/
 /* SCTP configuration parameters section name */

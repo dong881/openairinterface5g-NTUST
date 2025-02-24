@@ -151,6 +151,12 @@ typedef struct nr_mac_timers {
   int t319;
 } nr_mac_timers_t;
 
+typedef struct nr_redcap_config {
+  int8_t cellBarredRedCap1Rx_r17;
+  int8_t cellBarredRedCap2Rx_r17;
+  uint8_t intraFreqReselectionRedCap_r17;
+} nr_redcap_config_t;
+
 typedef struct nr_mac_config_t {
   int sib1_tda;
   nr_pdsch_AntennaPorts_t pdsch_AntennaPorts;
@@ -172,6 +178,7 @@ typedef struct nr_mac_config_t {
   int nb_bfw[2];
   int32_t *bw_list;
   int num_agg_level_candidates[NUM_PDCCH_AGG_LEVELS];
+  nr_redcap_config_t *redcap;
 } nr_mac_config_t;
 
 typedef struct NR_preamble_ue {
