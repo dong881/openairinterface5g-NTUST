@@ -90,7 +90,11 @@ channelmod = {
 };
 ```
 
-where `rfsimu_channel_ue0` will be activated on server side (i.e. eNB/gNB) for uplink and `rfsimu_channel_enB0` will be activated on client side (i.e. UE) for downlink.
+where `rfsimu_channel_ue0` will be activated on server side for uplink and `rfsimu_channel_enB0` will be activated on client side for downlink.
+
+Use `rfsimu_channel_ue1`, `rfsimu_channel_ue2`, etc. if you want to use different channel models for each client. The client connection order determines its channel model.
+
+The server could be either the UE or the gNB, the channel name suffix does not depend on the application but on the rfsimulators role (server/client).
 
 ## Edit the configuration file
 

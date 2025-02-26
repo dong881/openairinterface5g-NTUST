@@ -260,11 +260,17 @@ static int allocCirBuf(rfsimulator_state_t *bridge, int sock)
       tableNor(rand);
       init_done=true;
     }
-    char *modelname = (bridge->role == SIMU_ROLE_SERVER) ? "rfsimu_channel_ue0" : "rfsimu_channel_enB0";
+    char modelname[30];
+    snprintf(modelname, sizeofArray(modelname), "rfsimu_channel_%s%d", (bridge->role == SIMU_ROLE_SERVER) ? "ue" : "enB", nb_ue);
     ptr->channel_model = find_channel_desc_fromname(modelname); // path_loss in dB
     if (!ptr->channel_model) {
-      LOG_E(HW, "Channel model %s not found, check config file\n", modelname);
-      return -1;
+      // Use legacy method to find channel model - this will use the same channel model for all clients
+      char *legacy_model_name = (bridge->role == SIMU_ROLE_SERVER) ? "rfsimu_channel_ue0" : "rfsimu_channel_enB0";
+      ptr->channel_model = find_channel_desc_fromname(legacy_model_name);
+      if (!ptr->channel_model) {
+        LOG_E(HW, "Channel model %s/%s not found, check config file\n", modelname, legacy_model_name);
+        return -1;
+      }
     }
 
     set_channeldesc_owner(ptr->channel_model, RFSIMU_MODULEID);
