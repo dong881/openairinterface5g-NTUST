@@ -1233,7 +1233,9 @@ static void nr_update_sr(NR_UE_MAC_INST_t *mac, bool BSRsent)
 
   NR_UE_UL_BWP_t *current_UL_BWP = mac->current_UL_BWP;
   NR_PUCCH_Config_t *pucch_Config = current_UL_BWP ? current_UL_BWP->pucch_Config : NULL;
-  if (!pucch_Config || !pucch_Config->schedulingRequestResourceToAddModList)
+  if (!pucch_Config
+      || !pucch_Config->schedulingRequestResourceToAddModList
+      || pucch_Config->schedulingRequestResourceToAddModList->list.count == 0)
     return; // cannot schedule SR if there is no schedulingRequestResource configured
 
   if (lc_info->sr_id < 0 || lc_info->sr_id >= NR_MAX_SR_ID)

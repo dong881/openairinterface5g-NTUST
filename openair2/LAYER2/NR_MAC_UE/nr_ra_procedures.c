@@ -1173,24 +1173,16 @@ void nr_ra_succeeded(NR_UE_MAC_INST_t *mac, const uint8_t gNB_index, const frame
 
   if (ra->cfra) {
     LOG_I(MAC, "[UE %d][%d.%d][RAPROC] RA procedure succeeded. CFRA: RAR successfully received.\n", mac->ue_id, frame, slot);
-  } else if (ra->ra_type == RA_2_STEP) {
-    LOG_A(MAC,
-          "[UE %d][%d.%d][RAPROC] 2-Step RA procedure succeeded. CBRA: Contention Resolution is successful.\n",
-          mac->ue_id,
-          frame,
-          slot);
-    mac->crnti = ra->t_crnti;
-    ra->t_crnti = 0;
-    LOG_D(MAC, "[UE %d][%d.%d] CBRA: cleared response window timer...\n", mac->ue_id, frame, slot);
   } else {
     LOG_A(MAC,
-          "[UE %d][%d.%d][RAPROC] 4-Step RA procedure succeeded. CBRA: Contention Resolution is successful.\n",
+          "[UE %d][%d.%d][RAPROC] %d-Step RA procedure succeeded. CBRA: Contention Resolution is successful.\n",
           mac->ue_id,
           frame,
-          slot);
+          slot,
+          ra->ra_type == RA_2_STEP ? 2 : 4);
     mac->crnti = ra->t_crnti;
     ra->t_crnti = 0;
-    LOG_D(MAC, "[UE %d][%d.%d] CBRA: cleared contention resolution timer...\n", mac->ue_id, frame, slot);
+    nr_timer_stop(&ra->contention_resolution_timer);
   }
 
   ra->RA_active = false;
