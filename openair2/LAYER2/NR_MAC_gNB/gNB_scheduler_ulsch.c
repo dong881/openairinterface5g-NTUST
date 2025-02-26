@@ -199,6 +199,7 @@ uint8_t decode_ul_mac_sub_pdu_header(uint8_t *pduP, uint8_t *lcid, uint16_t *len
         *length = pduP[1];
       }
       break;
+    case UL_SCH_LCID_CCCH_48_BITS_REDCAP:
     case UL_SCH_LCID_CCCH_48_BITS:
       *length = 6;
       break;
@@ -329,6 +330,7 @@ static int nr_process_mac_pdu(instance_t module_idP,
 
     switch (lcid) {
       case UL_SCH_LCID_CCCH_64_BITS:
+      case UL_SCH_LCID_CCCH_48_BITS_REDCAP:
       case UL_SCH_LCID_CCCH_48_BITS:
         if (lcid == UL_SCH_LCID_CCCH_64_BITS) {
           // Check if it is a valid CCCH1 message, we get all 00's messages very often
@@ -346,6 +348,10 @@ static int nr_process_mac_pdu(instance_t module_idP,
         }
 
         LOG_I(MAC, "[RAPROC] Received SDU for CCCH length %d for UE %04x\n", mac_len, UE->rnti);
+
+        if (lcid == UL_SCH_LCID_CCCH_48_BITS_REDCAP) {
+          LOG_I(MAC, "UE with RNTI %04x is RedCap\n", UE->rnti);
+        }
 
         if (prepare_initial_ul_rrc_message(RC.nrmac[module_idP], UE)) {
           mac_rlc_data_ind(module_idP,
