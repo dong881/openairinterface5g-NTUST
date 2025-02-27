@@ -1432,6 +1432,193 @@ static bool msg2_in_response_window(int rach_frame,
   return in_window;
 }
 
+static void prepare_dl_pdus(gNB_MAC_INST *nr_mac,
+                            NR_RA_t *ra,
+                            NR_UE_DL_BWP_t *dl_bwp,
+                            nfapi_nr_dl_tti_request_body_t *dl_req,
+                            NR_sched_pucch_t *pucch,
+                            NR_pdsch_dmrs_t dmrs_info,
+                            NR_tda_info_t tda,
+                            nr_rnti_type_t rnti_type,
+                            int aggregation_level,
+                            int CCEIndex,
+                            int tb_size,
+                            int ndi,
+                            int tpc,
+                            int delta_PRI,
+                            int current_harq_pid,
+                            int time_domain_assignment,
+                            int CC_id,
+                            int rnti,
+                            int round,
+                            int mcsIndex,
+                            int tb_scaling,
+                            int pduindex,
+                            long BWPStart,
+                            long BWPSize,
+                            int rbStart,
+                            int rbSize)
+{
+  // look up the PDCCH PDU for this CC, BWP, and CORESET. If it does not exist, create it. This is especially
+  // important if we have multiple RAs, and the DLSCH has to reuse them, so we need to mark them
+  NR_ControlResourceSet_t *coreset = ra->coreset;
+  const int coresetid = coreset->controlResourceSetId;
+  nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_pdu_rel15 = nr_mac->pdcch_pdu_idx[CC_id][coresetid];
+  if (!pdcch_pdu_rel15) {
+    nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdcch_pdu = &dl_req->dl_tti_pdu_list[dl_req->nPDUs];
+    memset(dl_tti_pdcch_pdu, 0, sizeof(nfapi_nr_dl_tti_request_pdu_t));
+    dl_tti_pdcch_pdu->PDUType = NFAPI_NR_DL_TTI_PDCCH_PDU_TYPE;
+    dl_tti_pdcch_pdu->PDUSize = (uint8_t)(2 + sizeof(nfapi_nr_dl_tti_pdcch_pdu));
+    dl_req->nPDUs += 1;
+    pdcch_pdu_rel15 = &dl_tti_pdcch_pdu->pdcch_pdu.pdcch_pdu_rel15;
+    nr_configure_pdcch(pdcch_pdu_rel15, coreset, &ra->sched_pdcch, false);
+    nr_mac->pdcch_pdu_idx[CC_id][coresetid] = pdcch_pdu_rel15;
+  }
+
+  nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdsch_pdu = &dl_req->dl_tti_pdu_list[dl_req->nPDUs];
+  memset((void *)dl_tti_pdsch_pdu, 0, sizeof(nfapi_nr_dl_tti_request_pdu_t));
+  dl_tti_pdsch_pdu->PDUType = NFAPI_NR_DL_TTI_PDSCH_PDU_TYPE;
+  dl_tti_pdsch_pdu->PDUSize = (uint8_t)(2 + sizeof(nfapi_nr_dl_tti_pdsch_pdu));
+  dl_req->nPDUs += 1;
+  nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch_pdu_rel15 = &dl_tti_pdsch_pdu->pdsch_pdu.pdsch_pdu_rel15;
+
+  NR_COMMON_channels_t *cc = &nr_mac->common_channels[CC_id];
+  NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
+
+  int mcsTableIdx = dl_bwp->mcsTableIdx;
+
+  pdsch_pdu_rel15->pduBitmap = 0;
+  pdsch_pdu_rel15->rnti = rnti;
+  pdsch_pdu_rel15->pduIndex = pduindex;
+  pdsch_pdu_rel15->BWPSize  = BWPSize;
+  pdsch_pdu_rel15->BWPStart = BWPStart;
+  pdsch_pdu_rel15->SubcarrierSpacing = dl_bwp->scs;
+  pdsch_pdu_rel15->CyclicPrefix = 0;
+  pdsch_pdu_rel15->NrOfCodewords = 1;
+  int R = nr_get_code_rate_dl(mcsIndex, mcsTableIdx);
+  pdsch_pdu_rel15->targetCodeRate[0] = R;
+  int Qm = nr_get_Qm_dl(mcsIndex, mcsTableIdx);
+  pdsch_pdu_rel15->qamModOrder[0] = Qm;
+  pdsch_pdu_rel15->TBSize[0] = tb_size;
+  pdsch_pdu_rel15->mcsIndex[0] = mcsIndex;
+  pdsch_pdu_rel15->mcsTable[0] = mcsTableIdx;
+  pdsch_pdu_rel15->rvIndex[0] = nr_rv_round_map[round % 4];
+  pdsch_pdu_rel15->dataScramblingId = *scc->physCellId;
+  pdsch_pdu_rel15->nrOfLayers = 1;
+  pdsch_pdu_rel15->transmissionScheme = 0;
+  pdsch_pdu_rel15->refPoint = 0;
+  pdsch_pdu_rel15->dmrsConfigType = dmrs_info.dmrsConfigType;
+  pdsch_pdu_rel15->dlDmrsScramblingId = *scc->physCellId;
+  pdsch_pdu_rel15->SCID = 0;
+  pdsch_pdu_rel15->numDmrsCdmGrpsNoData = dmrs_info.numDmrsCdmGrpsNoData;
+  pdsch_pdu_rel15->dmrsPorts = 1;
+  pdsch_pdu_rel15->resourceAlloc = 1;
+  pdsch_pdu_rel15->rbStart = rbStart;
+  pdsch_pdu_rel15->rbSize = rbSize;
+  pdsch_pdu_rel15->VRBtoPRBMapping = 0;
+  pdsch_pdu_rel15->StartSymbolIndex = tda.startSymbolIndex;
+  pdsch_pdu_rel15->NrOfSymbols = tda.nrOfSymbols;
+  pdsch_pdu_rel15->dlDmrsSymbPos = dmrs_info.dl_dmrs_symb_pos;
+  pdsch_pdu_rel15->maintenance_parms_v3.tbSizeLbrmBytes = nr_compute_tbslbrm(mcsTableIdx, ra->sc_info.dl_bw_tbslbrm, 1);
+  pdsch_pdu_rel15->maintenance_parms_v3.ldpcBaseGraph = get_BG(tb_size << 3, R);
+
+  pdsch_pdu_rel15->precodingAndBeamforming.num_prgs = 1;
+  pdsch_pdu_rel15->precodingAndBeamforming.prg_size = 275;
+  pdsch_pdu_rel15->precodingAndBeamforming.dig_bf_interfaces = 1;
+  pdsch_pdu_rel15->precodingAndBeamforming.prgs_list[0].pm_idx = 0;
+  pdsch_pdu_rel15->precodingAndBeamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = ra->beam_id;
+
+  /* Fill PDCCH DL DCI PDU */
+  nfapi_nr_dl_dci_pdu_t *dci_pdu = &pdcch_pdu_rel15->dci_pdu[pdcch_pdu_rel15->numDlDci];
+  pdcch_pdu_rel15->numDlDci++;
+  dci_pdu->RNTI = rnti;
+  dci_pdu->ScramblingId = *scc->physCellId;
+  dci_pdu->ScramblingRNTI = 0;
+  dci_pdu->AggregationLevel = aggregation_level;
+  dci_pdu->CceIndex = CCEIndex;
+  dci_pdu->beta_PDCCH_1_0 = 0;
+  dci_pdu->powerControlOffsetSS = 1;
+
+  dci_pdu->precodingAndBeamforming.num_prgs = 0;
+  dci_pdu->precodingAndBeamforming.prg_size = 0;
+  dci_pdu->precodingAndBeamforming.dig_bf_interfaces = 1;
+  dci_pdu->precodingAndBeamforming.prgs_list[0].pm_idx = 0;
+  dci_pdu->precodingAndBeamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = ra->beam_id;
+
+  dci_pdu_rel15_t dci_payload;
+  dci_payload.frequency_domain_assignment.val = PRBalloc_to_locationandbandwidth0(pdsch_pdu_rel15->rbSize,
+                                                                                  pdsch_pdu_rel15->rbStart,
+                                                                                  BWPSize);
+
+  dci_payload.time_domain_assignment.val = time_domain_assignment;
+  dci_payload.vrb_to_prb_mapping.val = 0;
+  dci_payload.mcs = pdsch_pdu_rel15->mcsIndex[0];
+  dci_payload.tb_scaling = tb_scaling;
+  if (rnti_type == TYPE_TC_RNTI_) {
+    dci_payload.format_indicator = 1;
+    dci_payload.rv = pdsch_pdu_rel15->rvIndex[0];
+    dci_payload.harq_pid.val = current_harq_pid;
+    dci_payload.ndi = ndi;
+    dci_payload.dai[0].val = pucch ? (pucch->dai_c-1) & 3 : 0;
+    dci_payload.tpc = tpc; // TPC for PUCCH: table 7.2.1-1 in 38.213
+    dci_payload.pucch_resource_indicator = delta_PRI; // This is delta_PRI from 9.2.1 in 38.213
+    dci_payload.pdsch_to_harq_feedback_timing_indicator.val = pucch ? pucch->timing_indicator : 0;
+  }
+
+  LOG_D(NR_MAC,
+        "DCI 1_0 payload: freq_alloc %d (%d,%d,%d), time_alloc %d, vrb to prb %d, mcs %d tb_scaling %d pucchres %d harqtiming %d\n",
+        dci_payload.frequency_domain_assignment.val,
+        pdsch_pdu_rel15->rbStart,
+        pdsch_pdu_rel15->rbSize,
+        pdsch_pdu_rel15->BWPSize,
+        dci_payload.time_domain_assignment.val,
+        dci_payload.vrb_to_prb_mapping.val,
+        dci_payload.mcs,
+        dci_payload.tb_scaling,
+        dci_payload.pucch_resource_indicator,
+        dci_payload.pdsch_to_harq_feedback_timing_indicator.val);
+
+  LOG_D(NR_MAC,
+        "DCI params: rnti 0x%x, rnti_type %d, dci_format %d coreset params: FreqDomainResource %llx, start_symbol %d  "
+        "n_symb %d, BWPsize %d\n",
+        pdcch_pdu_rel15->dci_pdu[0].RNTI,
+        rnti_type,
+        NR_DL_DCI_FORMAT_1_0,
+        (unsigned long long)pdcch_pdu_rel15->FreqDomainResource,
+        pdcch_pdu_rel15->StartSymbolIndex,
+        pdcch_pdu_rel15->DurationSymbols,
+        pdsch_pdu_rel15->BWPSize);
+
+  fill_dci_pdu_rel15(&ra->sc_info,
+                     dl_bwp,
+                     &ra->UL_BWP,
+                     &pdcch_pdu_rel15->dci_pdu[pdcch_pdu_rel15->numDlDci - 1],
+                     &dci_payload,
+                     NR_DL_DCI_FORMAT_1_0,
+                     rnti_type,
+                     dl_bwp->bwp_id,
+                     ra->ra_ss,
+                     coreset,
+                     0, // parameter not needed for DCI 1_0
+                     nr_mac->cset0_bwp_size);
+
+  LOG_D(NR_MAC, "BWPSize: %i\n", pdcch_pdu_rel15->BWPSize);
+  LOG_D(NR_MAC, "BWPStart: %i\n", pdcch_pdu_rel15->BWPStart);
+  LOG_D(NR_MAC, "SubcarrierSpacing: %i\n", pdcch_pdu_rel15->SubcarrierSpacing);
+  LOG_D(NR_MAC, "CyclicPrefix: %i\n", pdcch_pdu_rel15->CyclicPrefix);
+  LOG_D(NR_MAC, "StartSymbolIndex: %i\n", pdcch_pdu_rel15->StartSymbolIndex);
+  LOG_D(NR_MAC, "DurationSymbols: %i\n", pdcch_pdu_rel15->DurationSymbols);
+  for (int n = 0; n < 6; n++)
+    LOG_D(NR_MAC, "FreqDomainResource[%i]: %x\n", n, pdcch_pdu_rel15->FreqDomainResource[n]);
+  LOG_D(NR_MAC, "CceRegMappingType: %i\n", pdcch_pdu_rel15->CceRegMappingType);
+  LOG_D(NR_MAC, "RegBundleSize: %i\n", pdcch_pdu_rel15->RegBundleSize);
+  LOG_D(NR_MAC, "InterleaverSize: %i\n", pdcch_pdu_rel15->InterleaverSize);
+  LOG_D(NR_MAC, "CoreSetType: %i\n", pdcch_pdu_rel15->CoreSetType);
+  LOG_D(NR_MAC, "ShiftIndex: %i\n", pdcch_pdu_rel15->ShiftIndex);
+  LOG_D(NR_MAC, "precoderGranularity: %i\n", pdcch_pdu_rel15->precoderGranularity);
+  LOG_D(NR_MAC, "numDlDci: %i\n", pdcch_pdu_rel15->numDlDci);
+}
+
 static void nr_generate_Msg2(module_id_t module_idP,
                              int CC_id,
                              frame_t frameP,
@@ -1790,193 +1977,6 @@ static void nr_generate_Msg2(module_id_t module_idP,
   }
 
   ra->ra_state = nrRA_WAIT_Msg3;
-}
-
-static void prepare_dl_pdus(gNB_MAC_INST *nr_mac,
-                            NR_RA_t *ra,
-                            NR_UE_DL_BWP_t *dl_bwp,
-                            nfapi_nr_dl_tti_request_body_t *dl_req,
-                            NR_sched_pucch_t *pucch,
-                            NR_pdsch_dmrs_t dmrs_info,
-                            NR_tda_info_t tda,
-                            nr_rnti_type_t rnti_type,
-                            int aggregation_level,
-                            int CCEIndex,
-                            int tb_size,
-                            int ndi,
-                            int tpc,
-                            int delta_PRI,
-                            int current_harq_pid,
-                            int time_domain_assignment,
-                            int CC_id,
-                            int rnti,
-                            int round,
-                            int mcsIndex,
-                            int tb_scaling,
-                            int pduindex,
-                            long BWPStart,
-                            long BWPSize,
-                            int rbStart,
-                            int rbSize)
-{
-  // look up the PDCCH PDU for this CC, BWP, and CORESET. If it does not exist, create it. This is especially
-  // important if we have multiple RAs, and the DLSCH has to reuse them, so we need to mark them
-  NR_ControlResourceSet_t *coreset = ra->coreset;
-  const int coresetid = coreset->controlResourceSetId;
-  nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_pdu_rel15 = nr_mac->pdcch_pdu_idx[CC_id][coresetid];
-  if (!pdcch_pdu_rel15) {
-    nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdcch_pdu = &dl_req->dl_tti_pdu_list[dl_req->nPDUs];
-    memset(dl_tti_pdcch_pdu, 0, sizeof(nfapi_nr_dl_tti_request_pdu_t));
-    dl_tti_pdcch_pdu->PDUType = NFAPI_NR_DL_TTI_PDCCH_PDU_TYPE;
-    dl_tti_pdcch_pdu->PDUSize = (uint8_t)(2 + sizeof(nfapi_nr_dl_tti_pdcch_pdu));
-    dl_req->nPDUs += 1;
-    pdcch_pdu_rel15 = &dl_tti_pdcch_pdu->pdcch_pdu.pdcch_pdu_rel15;
-    nr_configure_pdcch(pdcch_pdu_rel15, coreset, &ra->sched_pdcch, false);
-    nr_mac->pdcch_pdu_idx[CC_id][coresetid] = pdcch_pdu_rel15;
-  }
-
-  nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdsch_pdu = &dl_req->dl_tti_pdu_list[dl_req->nPDUs];
-  memset((void *)dl_tti_pdsch_pdu, 0, sizeof(nfapi_nr_dl_tti_request_pdu_t));
-  dl_tti_pdsch_pdu->PDUType = NFAPI_NR_DL_TTI_PDSCH_PDU_TYPE;
-  dl_tti_pdsch_pdu->PDUSize = (uint8_t)(2 + sizeof(nfapi_nr_dl_tti_pdsch_pdu));
-  dl_req->nPDUs += 1;
-  nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch_pdu_rel15 = &dl_tti_pdsch_pdu->pdsch_pdu.pdsch_pdu_rel15;
-
-  NR_COMMON_channels_t *cc = &nr_mac->common_channels[CC_id];
-  NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
-
-  int mcsTableIdx = dl_bwp->mcsTableIdx;
-
-  pdsch_pdu_rel15->pduBitmap = 0;
-  pdsch_pdu_rel15->rnti = rnti;
-  pdsch_pdu_rel15->pduIndex = pduindex;
-  pdsch_pdu_rel15->BWPSize  = BWPSize;
-  pdsch_pdu_rel15->BWPStart = BWPStart;
-  pdsch_pdu_rel15->SubcarrierSpacing = dl_bwp->scs;
-  pdsch_pdu_rel15->CyclicPrefix = 0;
-  pdsch_pdu_rel15->NrOfCodewords = 1;
-  int R = nr_get_code_rate_dl(mcsIndex, mcsTableIdx);
-  pdsch_pdu_rel15->targetCodeRate[0] = R;
-  int Qm = nr_get_Qm_dl(mcsIndex, mcsTableIdx);
-  pdsch_pdu_rel15->qamModOrder[0] = Qm;
-  pdsch_pdu_rel15->TBSize[0] = tb_size;
-  pdsch_pdu_rel15->mcsIndex[0] = mcsIndex;
-  pdsch_pdu_rel15->mcsTable[0] = mcsTableIdx;
-  pdsch_pdu_rel15->rvIndex[0] = nr_get_rv(round % 4);
-  pdsch_pdu_rel15->dataScramblingId = *scc->physCellId;
-  pdsch_pdu_rel15->nrOfLayers = 1;
-  pdsch_pdu_rel15->transmissionScheme = 0;
-  pdsch_pdu_rel15->refPoint = 0;
-  pdsch_pdu_rel15->dmrsConfigType = dmrs_info.dmrsConfigType;
-  pdsch_pdu_rel15->dlDmrsScramblingId = *scc->physCellId;
-  pdsch_pdu_rel15->SCID = 0;
-  pdsch_pdu_rel15->numDmrsCdmGrpsNoData = dmrs_info.numDmrsCdmGrpsNoData;
-  pdsch_pdu_rel15->dmrsPorts = 1;
-  pdsch_pdu_rel15->resourceAlloc = 1;
-  pdsch_pdu_rel15->rbStart = rbStart;
-  pdsch_pdu_rel15->rbSize = rbSize;
-  pdsch_pdu_rel15->VRBtoPRBMapping = 0;
-  pdsch_pdu_rel15->StartSymbolIndex = tda.startSymbolIndex;
-  pdsch_pdu_rel15->NrOfSymbols = tda.nrOfSymbols;
-  pdsch_pdu_rel15->dlDmrsSymbPos = dmrs_info.dl_dmrs_symb_pos;
-  pdsch_pdu_rel15->maintenance_parms_v3.tbSizeLbrmBytes = nr_compute_tbslbrm(mcsTableIdx, ra->sc_info.dl_bw_tbslbrm, 1);
-  pdsch_pdu_rel15->maintenance_parms_v3.ldpcBaseGraph = get_BG(tb_size << 3, R);
-
-  pdsch_pdu_rel15->precodingAndBeamforming.num_prgs = 1;
-  pdsch_pdu_rel15->precodingAndBeamforming.prg_size = 275;
-  pdsch_pdu_rel15->precodingAndBeamforming.dig_bf_interfaces = 1;
-  pdsch_pdu_rel15->precodingAndBeamforming.prgs_list[0].pm_idx = 0;
-  pdsch_pdu_rel15->precodingAndBeamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = ra->beam_id;
-
-  /* Fill PDCCH DL DCI PDU */
-  nfapi_nr_dl_dci_pdu_t *dci_pdu = &pdcch_pdu_rel15->dci_pdu[pdcch_pdu_rel15->numDlDci];
-  pdcch_pdu_rel15->numDlDci++;
-  dci_pdu->RNTI = rnti;
-  dci_pdu->ScramblingId = *scc->physCellId;
-  dci_pdu->ScramblingRNTI = 0;
-  dci_pdu->AggregationLevel = aggregation_level;
-  dci_pdu->CceIndex = CCEIndex;
-  dci_pdu->beta_PDCCH_1_0 = 0;
-  dci_pdu->powerControlOffsetSS = 1;
-
-  dci_pdu->precodingAndBeamforming.num_prgs = 0;
-  dci_pdu->precodingAndBeamforming.prg_size = 0;
-  dci_pdu->precodingAndBeamforming.dig_bf_interfaces = 1;
-  dci_pdu->precodingAndBeamforming.prgs_list[0].pm_idx = 0;
-  dci_pdu->precodingAndBeamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = ra->beam_id;
-
-  dci_pdu_rel15_t dci_payload;
-  dci_payload.frequency_domain_assignment.val = PRBalloc_to_locationandbandwidth0(pdsch_pdu_rel15->rbSize,
-                                                                                  pdsch_pdu_rel15->rbStart,
-                                                                                  BWPSize);
-
-  dci_payload.time_domain_assignment.val = time_domain_assignment;
-  dci_payload.vrb_to_prb_mapping.val = 0;
-  dci_payload.mcs = pdsch_pdu_rel15->mcsIndex[0];
-  dci_payload.tb_scaling = tb_scaling;
-  if (rnti_type == TYPE_TC_RNTI_) {
-    dci_payload.format_indicator = 1;
-    dci_payload.rv = pdsch_pdu_rel15->rvIndex[0];
-    dci_payload.harq_pid.val = current_harq_pid;
-    dci_payload.ndi = ndi;
-    dci_payload.dai[0].val = pucch ? (pucch->dai_c-1) & 3 : 0;
-    dci_payload.tpc = tpc; // TPC for PUCCH: table 7.2.1-1 in 38.213
-    dci_payload.pucch_resource_indicator = delta_PRI; // This is delta_PRI from 9.2.1 in 38.213
-    dci_payload.pdsch_to_harq_feedback_timing_indicator.val = pucch ? pucch->timing_indicator : 0;
-  }
-
-  LOG_D(NR_MAC,
-        "DCI 1_0 payload: freq_alloc %d (%d,%d,%d), time_alloc %d, vrb to prb %d, mcs %d tb_scaling %d pucchres %d harqtiming %d\n",
-        dci_payload.frequency_domain_assignment.val,
-        pdsch_pdu_rel15->rbStart,
-        pdsch_pdu_rel15->rbSize,
-        pdsch_pdu_rel15->BWPSize,
-        dci_payload.time_domain_assignment.val,
-        dci_payload.vrb_to_prb_mapping.val,
-        dci_payload.mcs,
-        dci_payload.tb_scaling,
-        dci_payload.pucch_resource_indicator,
-        dci_payload.pdsch_to_harq_feedback_timing_indicator.val);
-
-  LOG_D(NR_MAC,
-        "DCI params: rnti 0x%x, rnti_type %d, dci_format %d coreset params: FreqDomainResource %llx, start_symbol %d  "
-        "n_symb %d, BWPsize %d\n",
-        pdcch_pdu_rel15->dci_pdu[0].RNTI,
-        rnti_type,
-        NR_DL_DCI_FORMAT_1_0,
-        (unsigned long long)pdcch_pdu_rel15->FreqDomainResource,
-        pdcch_pdu_rel15->StartSymbolIndex,
-        pdcch_pdu_rel15->DurationSymbols,
-        pdsch_pdu_rel15->BWPSize);
-
-  fill_dci_pdu_rel15(&ra->sc_info,
-                     dl_bwp,
-                     &ra->UL_BWP,
-                     &pdcch_pdu_rel15->dci_pdu[pdcch_pdu_rel15->numDlDci - 1],
-                     &dci_payload,
-                     NR_DL_DCI_FORMAT_1_0,
-                     rnti_type,
-                     dl_bwp->bwp_id,
-                     ra->ra_ss,
-                     coreset,
-                     0, // parameter not needed for DCI 1_0
-                     nr_mac->cset0_bwp_size);
-
-  LOG_D(NR_MAC, "BWPSize: %i\n", pdcch_pdu_rel15->BWPSize);
-  LOG_D(NR_MAC, "BWPStart: %i\n", pdcch_pdu_rel15->BWPStart);
-  LOG_D(NR_MAC, "SubcarrierSpacing: %i\n", pdcch_pdu_rel15->SubcarrierSpacing);
-  LOG_D(NR_MAC, "CyclicPrefix: %i\n", pdcch_pdu_rel15->CyclicPrefix);
-  LOG_D(NR_MAC, "StartSymbolIndex: %i\n", pdcch_pdu_rel15->StartSymbolIndex);
-  LOG_D(NR_MAC, "DurationSymbols: %i\n", pdcch_pdu_rel15->DurationSymbols);
-  for (int n = 0; n < 6; n++)
-    LOG_D(NR_MAC, "FreqDomainResource[%i]: %x\n", n, pdcch_pdu_rel15->FreqDomainResource[n]);
-  LOG_D(NR_MAC, "CceRegMappingType: %i\n", pdcch_pdu_rel15->CceRegMappingType);
-  LOG_D(NR_MAC, "RegBundleSize: %i\n", pdcch_pdu_rel15->RegBundleSize);
-  LOG_D(NR_MAC, "InterleaverSize: %i\n", pdcch_pdu_rel15->InterleaverSize);
-  LOG_D(NR_MAC, "CoreSetType: %i\n", pdcch_pdu_rel15->CoreSetType);
-  LOG_D(NR_MAC, "ShiftIndex: %i\n", pdcch_pdu_rel15->ShiftIndex);
-  LOG_D(NR_MAC, "precoderGranularity: %i\n", pdcch_pdu_rel15->precoderGranularity);
-  LOG_D(NR_MAC, "numDlDci: %i\n", pdcch_pdu_rel15->numDlDci);
 }
 
 static void nr_generate_Msg4_MsgB(module_id_t module_idP,
