@@ -70,7 +70,6 @@
 #define CONFIG_STRING_MACRLC_DL_HARQ_ROUND_MAX             "dl_harq_round_max"
 #define CONFIG_STRING_MACRLC_UL_HARQ_ROUND_MAX             "ul_harq_round_max"
 #define CONFIG_STRING_MACRLC_MIN_GRANT_PRB                 "min_grant_prb"
-#define CONFIG_STRING_MACRLC_MIN_GRANT_MCS                 "min_grant_mcs"
 #define CONFIG_STRING_MACRLC_IDENTITY_PM                   "identity_precoding_matrix"
 #define CONFIG_STRING_MACRLC_ANALOG_BEAMFORMING            "set_analog_beamforming"
 #define CONFIG_STRING_MACRLC_BEAM_DURATION                 "beam_duration"
@@ -88,7 +87,6 @@
 #define HLP_MACRLC_DL_HARQ_MAX "Maximum number of DL HARQ rounds"
 #define HLP_MACRLC_UL_HARQ_MAX "Maximum number of UL HARQ rounds"
 #define HLP_MACRLC_MIN_GRANT_PRB "Minimal Periodic ULSCH Grant PRBs"
-#define HLP_MACRLC_MIN_GRANT_MCS "Minimal Periodic ULSCH Grant MCS"
 #define HLP_MACRLC_IDENTITY_PM "Flag to use only identity matrix in DL precoding"
 #define HLP_MACRLC_AB "Flag to enable analog beamforming"
 #define HLP_MACRLC_BEAM_DURATION "number of consecutive slots for a given set of beams"
@@ -132,7 +130,6 @@
   {CONFIG_STRING_MACRLC_DL_HARQ_ROUND_MAX,           HLP_MACRLC_DL_HARQ_MAX,   0, .u8ptr=NULL,  .defintval=4,               TYPE_UINT8,   0}, \
   {CONFIG_STRING_MACRLC_UL_HARQ_ROUND_MAX,           HLP_MACRLC_UL_HARQ_MAX,   0, .u8ptr=NULL,  .defintval=4,               TYPE_UINT8,   0}, \
   {CONFIG_STRING_MACRLC_MIN_GRANT_PRB,               HLP_MACRLC_MIN_GRANT_PRB, 0, .u8ptr=NULL,  .defintval=5,               TYPE_UINT8,   0}, \
-  {CONFIG_STRING_MACRLC_MIN_GRANT_MCS,               HLP_MACRLC_MIN_GRANT_MCS, 0, .u8ptr=NULL,  .defintval=9,               TYPE_UINT8,   0}, \
   {CONFIG_STRING_MACRLC_IDENTITY_PM,                 HLP_MACRLC_IDENTITY_PM,   PARAMFLAG_BOOL, .u8ptr=NULL, .defintval=0,   TYPE_UINT8,   0}, \
   {CONFIG_STRING_MACRLC_LOCAL_N_ADDRESS_F1U,         NULL,                     0, .strptr=NULL, .defstrval=NULL,            TYPE_STRING,  0}, \
   {CONFIG_STRING_MACRLC_TRANSPORT_S_SHM_PREFIX,      NULL,                     0, .strptr=NULL, .defstrval="nvipc",         TYPE_STRING,  0}, \
@@ -177,16 +174,15 @@
 #define MACRLC_DL_HARQ_ROUND_MAX_IDX                           27
 #define MACRLC_UL_HARQ_ROUND_MAX_IDX                           28
 #define MACRLC_MIN_GRANT_PRB_IDX                               29
-#define MACRLC_MIN_GRANT_MCS_IDX                               30
-#define MACRLC_IDENTITY_PM_IDX                                 31
-#define MACRLC_LOCAL_N_ADDRESS_F1U_IDX                         32
-#define MACRLC_TRANSPORT_S_SHM_PREFIX                          33
-#define MACRLC_TRANSPORT_S_POLL_CORE                           34
-#define MACRLC_ANALOG_BEAMFORMING_IDX                          35
-#define MACRLC_ANALOG_BEAM_DURATION_IDX                        36
-#define MACRLC_ANALOG_BEAMS_PERIOD_IDX                         37
-#define MACRLC_PUSCH_RSSI_THRES_IDX                            38
-#define MACRLC_PUCCH_RSSI_THRES_IDX                            39
+#define MACRLC_IDENTITY_PM_IDX                                 30
+#define MACRLC_LOCAL_N_ADDRESS_F1U_IDX                         31
+#define MACRLC_TRANSPORT_S_SHM_PREFIX                          32
+#define MACRLC_TRANSPORT_S_POLL_CORE                           33
+#define MACRLC_ANALOG_BEAMFORMING_IDX                          34
+#define MACRLC_ANALOG_BEAM_DURATION_IDX                        35
+#define MACRLC_ANALOG_BEAMS_PERIOD_IDX                         36
+#define MACRLC_PUSCH_RSSI_THRES_IDX                            37
+#define MACRLC_PUCCH_RSSI_THRES_IDX                            38
 
 #define MACRLCPARAMS_CHECK { \
   { .s5 = { NULL } }, \
@@ -218,7 +214,6 @@
   { .s5 = { NULL } }, \
   { .s2 = { config_check_intrange, {1, 8} } }, /* DL max HARQ rounds */ \
   { .s2 = { config_check_intrange, {1, 8} } }, /* UL max HARQ rounds */ \
-  { .s5 = { NULL } }, \
   { .s5 = { NULL } }, \
   { .s2 = { NULL } }, \
   { .s5 = { NULL } }, \
