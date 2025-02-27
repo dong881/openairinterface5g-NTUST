@@ -1749,33 +1749,6 @@ static void nr_generate_Msg2(module_id_t module_idP,
 
   LOG_D(NR_MAC, "Msg2 startSymbolIndex.nrOfSymbols %d.%d\n", tda_info.startSymbolIndex, tda_info.nrOfSymbols);
 
-  // look up the PDCCH PDU for this CC, BWP, and CORESET. If it does not exist, create it. This is especially
-  // important if we have multiple RAs, and the DLSCH has to reuse them, so we need to mark them
-  nfapi_nr_dl_tti_pdcch_pdu_rel15_t *pdcch_pdu_rel15 = nr_mac->pdcch_pdu_idx[CC_id][coresetid];
-  if (!pdcch_pdu_rel15) {
-    nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdcch_pdu = &dl_req->dl_tti_pdu_list[dl_req->nPDUs];
-    memset(dl_tti_pdcch_pdu, 0, sizeof(nfapi_nr_dl_tti_request_pdu_t));
-    dl_tti_pdcch_pdu->PDUType = NFAPI_NR_DL_TTI_PDCCH_PDU_TYPE;
-    dl_tti_pdcch_pdu->PDUSize = (uint8_t)(2 + sizeof(nfapi_nr_dl_tti_pdcch_pdu));
-    dl_req->nPDUs += 1;
-    pdcch_pdu_rel15 = &dl_tti_pdcch_pdu->pdcch_pdu.pdcch_pdu_rel15;
-    nr_configure_pdcch(pdcch_pdu_rel15, coreset, &ra->sched_pdcch, false);
-    nr_mac->pdcch_pdu_idx[CC_id][coresetid] = pdcch_pdu_rel15;
-  }
-
-  nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdsch_pdu = &dl_req->dl_tti_pdu_list[dl_req->nPDUs];
-  memset((void *)dl_tti_pdsch_pdu, 0, sizeof(nfapi_nr_dl_tti_request_pdu_t));
-  dl_tti_pdsch_pdu->PDUType = NFAPI_NR_DL_TTI_PDSCH_PDU_TYPE;
-  dl_tti_pdsch_pdu->PDUSize = (uint8_t)(2 + sizeof(nfapi_nr_dl_tti_pdsch_pdu));
-  dl_req->nPDUs += 1;
-  nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch_pdu_rel15 = &dl_tti_pdsch_pdu->pdsch_pdu.pdsch_pdu_rel15;
-
-  pdsch_pdu_rel15->precodingAndBeamforming.num_prgs = 0;
-  pdsch_pdu_rel15->precodingAndBeamforming.prg_size = 0;
-  pdsch_pdu_rel15->precodingAndBeamforming.dig_bf_interfaces = 0;
-  pdsch_pdu_rel15->precodingAndBeamforming.prgs_list[0].pm_idx = 0;
-  pdsch_pdu_rel15->precodingAndBeamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = ra->beam_id;
-
   // Distance calculation according to SCF222.10.02 RACH.indication (table 3-74) and 38.213 4.2/38.211 4.3.1
   // T_c according to 38.211 4.1
   float T_c_ns = 0.509;
@@ -1784,14 +1757,13 @@ static void nr_generate_Msg2(module_id_t module_idP,
   float speed_of_light_in_meters_per_second = 299792458.0f;
   float distance_in_meters = speed_of_light_in_meters_per_second * rtt_ns / 1000 / 1000 / 1000 / 2;
   LOG_A(NR_MAC,
-        "UE %04x: %d.%d Generating RA-Msg2 DCI, RA RNTI 0x%x, state %d, CoreSetType %d, preamble_index(RAPID) %d, "
+        "UE %04x: %d.%d Generating RA-Msg2 DCI, RA RNTI 0x%x, state %d, preamble_index(RAPID) %d, "
         "timing_offset = %d (estimated distance %.1f [m])\n",
         ra->rnti,
         frameP,
         slotP,
         ra->RA_rnti,
         ra->ra_state,
-        pdcch_pdu_rel15->CoreSetType,
         ra->preamble_index,
         ra->timing_offset,
         distance_in_meters);
@@ -1803,32 +1775,6 @@ static void nr_generate_Msg2(module_id_t module_idP,
 
   NR_pdsch_dmrs_t dmrs_parms = get_dl_dmrs_params(scc, dl_bwp, &tda_info, 1);
 
-  pdsch_pdu_rel15->pduBitmap = 0;
-  pdsch_pdu_rel15->rnti = ra->RA_rnti;
-  pdsch_pdu_rel15->pduIndex = pduindex;
-  pdsch_pdu_rel15->BWPSize = BWPSize;
-  pdsch_pdu_rel15->BWPStart = BWPStart;
-  pdsch_pdu_rel15->SubcarrierSpacing = dl_bwp->scs;
-  pdsch_pdu_rel15->CyclicPrefix = 0;
-  pdsch_pdu_rel15->NrOfCodewords = 1;
-  pdsch_pdu_rel15->mcsTable[0] = mcsTableIdx;
-  pdsch_pdu_rel15->rvIndex[0] = 0;
-  pdsch_pdu_rel15->dataScramblingId = *scc->physCellId;
-  pdsch_pdu_rel15->nrOfLayers = 1;
-  pdsch_pdu_rel15->transmissionScheme = 0;
-  pdsch_pdu_rel15->refPoint = 0;
-  pdsch_pdu_rel15->dmrsConfigType = dmrs_parms.dmrsConfigType;
-  pdsch_pdu_rel15->dlDmrsScramblingId = *scc->physCellId;
-  pdsch_pdu_rel15->SCID = 0;
-  pdsch_pdu_rel15->numDmrsCdmGrpsNoData = dmrs_parms.numDmrsCdmGrpsNoData;
-  pdsch_pdu_rel15->dmrsPorts = 1;
-  pdsch_pdu_rel15->resourceAlloc = 1;
-  pdsch_pdu_rel15->rbStart = rbStart;
-  pdsch_pdu_rel15->rbSize = rbSize;
-  pdsch_pdu_rel15->VRBtoPRBMapping = 0;
-  pdsch_pdu_rel15->StartSymbolIndex = tda_info.startSymbolIndex;
-  pdsch_pdu_rel15->NrOfSymbols = tda_info.nrOfSymbols;
-  pdsch_pdu_rel15->dlDmrsSymbPos = dmrs_parms.dl_dmrs_symb_pos;
 
   uint8_t tb_scaling = 0;
   int R, Qm;
@@ -1847,77 +1793,34 @@ static void nr_generate_Msg2(module_id_t module_idP,
                          tb_scaling, // tb scaling
                          1)
           >> 3; // layers
-
-    pdsch_pdu_rel15->targetCodeRate[0] = R;
-    pdsch_pdu_rel15->qamModOrder[0] = Qm;
-    pdsch_pdu_rel15->mcsIndex[0] = mcsIndex;
-    pdsch_pdu_rel15->TBSize[0] = TBS;
   }
 
-  pdsch_pdu_rel15->maintenance_parms_v3.tbSizeLbrmBytes = nr_compute_tbslbrm(mcsTableIdx, sc_info->dl_bw_tbslbrm, 1);
-  pdsch_pdu_rel15->maintenance_parms_v3.ldpcBaseGraph = get_BG(TBS << 3, R);
-
-  // Fill PDCCH DL DCI PDU
-  nfapi_nr_dl_dci_pdu_t *dci_pdu = &pdcch_pdu_rel15->dci_pdu[pdcch_pdu_rel15->numDlDci];
-  pdcch_pdu_rel15->numDlDci++;
-  dci_pdu->RNTI = ra->RA_rnti;
-  dci_pdu->ScramblingId = *scc->physCellId;
-  dci_pdu->ScramblingRNTI = 0;
-  dci_pdu->AggregationLevel = aggregation_level;
-  dci_pdu->CceIndex = CCEIndex;
-  dci_pdu->beta_PDCCH_1_0 = 0;
-  dci_pdu->powerControlOffsetSS = 1;
-
-  dci_pdu->precodingAndBeamforming.num_prgs = 0;
-  dci_pdu->precodingAndBeamforming.prg_size = 0;
-  dci_pdu->precodingAndBeamforming.dig_bf_interfaces = 1;
-  dci_pdu->precodingAndBeamforming.prgs_list[0].pm_idx = 0;
-  dci_pdu->precodingAndBeamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = ra->beam_id;
-
-  dci_pdu_rel15_t dci_payload;
-  dci_payload.frequency_domain_assignment.val =
-      PRBalloc_to_locationandbandwidth0(pdsch_pdu_rel15->rbSize, pdsch_pdu_rel15->rbStart, BWPSize);
-
-  LOG_D(NR_MAC, "Msg2 rbSize.rbStart.BWPsize %d.%d.%ld\n", pdsch_pdu_rel15->rbSize, pdsch_pdu_rel15->rbStart, BWPSize);
-
-  dci_payload.time_domain_assignment.val = time_domain_assignment;
-  dci_payload.vrb_to_prb_mapping.val = 0;
-  dci_payload.mcs = pdsch_pdu_rel15->mcsIndex[0];
-  dci_payload.tb_scaling = tb_scaling;
-
-  LOG_D(NR_MAC,
-        "DCI type 1 payload: freq_alloc %d (%d,%d,%ld), time_alloc %d, vrb to prb %d, mcs %d tb_scaling %d \n",
-        dci_payload.frequency_domain_assignment.val,
-        pdsch_pdu_rel15->rbStart,
-        pdsch_pdu_rel15->rbSize,
-        BWPSize,
-        dci_payload.time_domain_assignment.val,
-        dci_payload.vrb_to_prb_mapping.val,
-        dci_payload.mcs,
-        dci_payload.tb_scaling);
-
-  LOG_D(NR_MAC,
-        "DCI params: rnti 0x%x, rnti_type %d, dci_format %d coreset params: FreqDomainResource %llx, start_symbol %d  "
-        "n_symb %d\n",
-        pdcch_pdu_rel15->dci_pdu[0].RNTI,
-        TYPE_RA_RNTI_,
-        NR_DL_DCI_FORMAT_1_0,
-        *(unsigned long long *)pdcch_pdu_rel15->FreqDomainResource,
-        pdcch_pdu_rel15->StartSymbolIndex,
-        pdcch_pdu_rel15->DurationSymbols);
-
-  fill_dci_pdu_rel15(sc_info,
-                     dl_bwp,
-                     &ra->UL_BWP,
-                     &pdcch_pdu_rel15->dci_pdu[pdcch_pdu_rel15->numDlDci - 1],
-                     &dci_payload,
-                     NR_DL_DCI_FORMAT_1_0,
-                     TYPE_RA_RNTI_,
-                     dl_bwp->bwp_id,
-                     ss,
-                     coreset,
-                     0, // parameter not needed for DCI 1_0
-                     nr_mac->cset0_bwp_size);
+  prepare_dl_pdus(nr_mac,
+                  ra,
+                  dl_bwp,
+                  dl_req,
+                  NULL,
+                  dmrs_parms,
+                  tda_info,
+                  TYPE_RA_RNTI_,
+                  aggregation_level,
+                  CCEIndex,
+                  TBS,
+                  0,
+                  0,
+                  0,
+                  0,
+                  time_domain_assignment,
+                  CC_id,
+                  ra->RA_rnti,
+                  0,
+                  mcsIndex,
+                  tb_scaling,
+                  pduindex,
+                  BWPStart,
+                  BWPSize,
+                  rbStart,
+                  rbSize);
 
   // DL TX request
   nfapi_nr_pdu_t *tx_req = &TX_req->pdu_list[TX_req->Number_of_PDUs];
@@ -1955,8 +1858,8 @@ static void nr_generate_Msg2(module_id_t module_idP,
 
   tx_req->PDU_index = pduindex;
   tx_req->num_TLV = 1;
-  tx_req->TLVs[0].length = pdsch_pdu_rel15->TBSize[0];
-  tx_req->PDU_length = compute_PDU_length(tx_req->num_TLV, pdsch_pdu_rel15->TBSize[0]);
+  tx_req->TLVs[0].length = TBS;
+  tx_req->PDU_length = compute_PDU_length(tx_req->num_TLV, TBS);
   TX_req->SFN = frameP;
   TX_req->Number_of_PDUs++;
   TX_req->Slot = slotP;
