@@ -1833,10 +1833,10 @@ static void prepare_dl_pdus(gNB_MAC_INST *nr_mac,
   }
 
   nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdsch_pdu = &dl_req->dl_tti_pdu_list[dl_req->nPDUs];
-  memset((void *)dl_tti_pdsch_pdu,0,sizeof(nfapi_nr_dl_tti_request_pdu_t));
+  memset((void *)dl_tti_pdsch_pdu, 0, sizeof(nfapi_nr_dl_tti_request_pdu_t));
   dl_tti_pdsch_pdu->PDUType = NFAPI_NR_DL_TTI_PDSCH_PDU_TYPE;
-  dl_tti_pdsch_pdu->PDUSize = (uint8_t)(2+sizeof(nfapi_nr_dl_tti_pdsch_pdu));
-  dl_req->nPDUs+=1;
+  dl_tti_pdsch_pdu->PDUSize = (uint8_t)(2 + sizeof(nfapi_nr_dl_tti_pdsch_pdu));
+  dl_req->nPDUs += 1;
   nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch_pdu_rel15 = &dl_tti_pdsch_pdu->pdsch_pdu.pdsch_pdu_rel15;
 
   NR_COMMON_channels_t *cc = &nr_mac->common_channels[CC_id];
@@ -1869,6 +1869,7 @@ static void prepare_dl_pdus(gNB_MAC_INST *nr_mac,
   pdsch_pdu_rel15->targetCodeRate[0] = R;
   int Qm = nr_get_Qm_dl(mcsIndex, mcsTableIdx);
   pdsch_pdu_rel15->qamModOrder[0] = Qm;
+  pdsch_pdu_rel15->TBSize[0] = tb_size;
   pdsch_pdu_rel15->mcsIndex[0] = mcsIndex;
   pdsch_pdu_rel15->mcsTable[0] = mcsTableIdx;
   pdsch_pdu_rel15->rvIndex[0] = nr_get_rv(round % 4);
@@ -1888,16 +1889,12 @@ static void prepare_dl_pdus(gNB_MAC_INST *nr_mac,
   pdsch_pdu_rel15->StartSymbolIndex = tda.startSymbolIndex;
   pdsch_pdu_rel15->NrOfSymbols = tda.nrOfSymbols;
   pdsch_pdu_rel15->dlDmrsSymbPos = dmrs_info.dl_dmrs_symb_pos;
-
-  int x_Overhead = 0;
-  nr_get_tbs_dl(&dl_tti_pdsch_pdu->pdsch_pdu, x_Overhead, pdsch_pdu_rel15->numDmrsCdmGrpsNoData, tb_scaling);
-
   pdsch_pdu_rel15->maintenance_parms_v3.tbSizeLbrmBytes = nr_compute_tbslbrm(mcsTableIdx, ra->sc_info.dl_bw_tbslbrm, 1);
-  pdsch_pdu_rel15->maintenance_parms_v3.ldpcBaseGraph = get_BG(tb_size<<3,R);
+  pdsch_pdu_rel15->maintenance_parms_v3.ldpcBaseGraph = get_BG(tb_size << 3, R);
 
-  pdsch_pdu_rel15->precodingAndBeamforming.num_prgs=1;
-  pdsch_pdu_rel15->precodingAndBeamforming.prg_size=275;
-  pdsch_pdu_rel15->precodingAndBeamforming.dig_bf_interfaces=1;
+  pdsch_pdu_rel15->precodingAndBeamforming.num_prgs = 1;
+  pdsch_pdu_rel15->precodingAndBeamforming.prg_size = 275;
+  pdsch_pdu_rel15->precodingAndBeamforming.dig_bf_interfaces = 1;
   pdsch_pdu_rel15->precodingAndBeamforming.prgs_list[0].pm_idx = 0;
   pdsch_pdu_rel15->precodingAndBeamforming.prgs_list[0].dig_bf_interface_list[0].beam_idx = ra->beam_id;
 

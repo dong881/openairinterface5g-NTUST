@@ -2084,59 +2084,6 @@ static const uint16_t table_7_3_1_1_2_32[3][15] = {
     {0, 1, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 };
 
-void nr_get_tbs_dl(nfapi_nr_dl_tti_pdsch_pdu *pdsch_pdu,
-		   int x_overhead,
-                   uint8_t numdmrscdmgroupnodata,
-                   uint8_t tb_scaling) {
-
-  LOG_D(MAC, "TBS calculation\n");
-
-  nfapi_nr_dl_tti_pdsch_pdu_rel15_t *pdsch_rel15 = &pdsch_pdu->pdsch_pdu_rel15;
-  uint16_t N_PRB_oh = x_overhead;
-  uint8_t N_PRB_DMRS;
-  if (pdsch_rel15->dmrsConfigType == NFAPI_NR_DMRS_TYPE1) {
-    // if no data in dmrs cdm group is 1 only even REs have no data
-    // if no data in dmrs cdm group is 2 both odd and even REs have no data
-    N_PRB_DMRS = numdmrscdmgroupnodata*6;
-  }
-  else {
-    N_PRB_DMRS = numdmrscdmgroupnodata*4;
-  }
-  uint8_t N_sh_symb = pdsch_rel15->NrOfSymbols;
-  uint8_t Imcs = pdsch_rel15->mcsIndex[0];
-  uint16_t dmrs_length = get_num_dmrs(pdsch_rel15->dlDmrsSymbPos);
-  uint16_t N_RE_prime = NR_NB_SC_PER_RB*N_sh_symb - N_PRB_DMRS*dmrs_length - N_PRB_oh;
-  LOG_D(MAC, "N_RE_prime %d for %d symbols %d DMRS per PRB and %d overhead\n", N_RE_prime, N_sh_symb, N_PRB_DMRS, N_PRB_oh);
-
-  uint32_t TBS=0;
-
-  /*uint8_t mcs_table = config.pdsch_config.mcs_table.value;
-  uint8_t ss_type = params_rel15.search_space_type;
-  uint8_t dci_format = params_rel15.dci_format;
-  get_table_idx(mcs_table, dci_format, rnti_type, ss_type);*/
-  uint8_t table_idx = 0;
-  uint16_t R = nr_get_code_rate_dl(Imcs, table_idx);
-  uint8_t Qm = nr_get_Qm_dl(Imcs, table_idx);
-
-  TBS = nr_compute_tbs(Qm,
-                       R,
-                       pdsch_rel15->rbSize,
-                       N_sh_symb,
-                       N_PRB_DMRS*dmrs_length,
-                       N_PRB_oh,
-                       tb_scaling,
-		       pdsch_rel15->nrOfLayers)>>3;
-
-  pdsch_rel15->targetCodeRate[0] = R;
-  pdsch_rel15->qamModOrder[0] = Qm;
-  pdsch_rel15->TBSize[0] = TBS;
-  //  pdsch_rel15->nb_mod_symbols = N_RE_prime*pdsch_rel15->n_prb*pdsch_rel15->nb_codewords;
-  pdsch_rel15->mcsTable[0] = table_idx;
-
-  LOG_D(MAC, "TBS %d bytes: N_PRB_DMRS %d N_sh_symb %d N_PRB_oh %d R %d Qm %d table %d nb_symbols %d\n",
-  TBS, N_PRB_DMRS, N_sh_symb, N_PRB_oh, R, Qm, table_idx,N_RE_prime*pdsch_rel15->rbSize*pdsch_rel15->NrOfCodewords );
-}
-
 // the following tables contain 10 times the value reported in 214 (in line with SCF specification and to avoid fractional values)
 //Table 5.1.3.1-1 of 38.214
 static const uint16_t Table_51311[32][2] = {{2, 1200}, {2, 1570}, {2, 1930}, {2, 2510}, {2, 3080}, {2, 3790}, {2, 4490}, {2, 5260},
