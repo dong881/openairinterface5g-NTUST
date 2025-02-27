@@ -60,6 +60,13 @@ typedef enum { ROLE_SERVER = 1, ROLE_CLIENT } role;
   };
 // clang-format on
 
+typedef struct histogram_s {
+  uint64_t diff[30];
+  int num_samples;
+  int min_samples;
+  double range;
+} histogram_t;
+
 typedef struct {
   int role;
   char channel_name[40];
@@ -76,7 +83,28 @@ typedef struct {
   uint64_t rx_early;
   uint64_t rx_samples_total;
   double average_tx_budget;
+  histogram_t tx_histogram;
 } shm_radio_state_t;
+
+static void histogram_add(histogram_t *histogram, double diff)
+{
+  histogram->num_samples++;
+  if (histogram->num_samples >= histogram->min_samples) {
+    int bin = min(sizeofArray(histogram->diff) - 1, max(0, (int)(diff / histogram->range * sizeofArray(histogram->diff))));
+    histogram->diff[bin]++;
+  }
+}
+
+static void histogram_print(histogram_t *histogram)
+{
+  LOG_I(HW, "SHM_RADIO: TX budget histogram: %d samples\n", histogram->num_samples);
+  float bin_size = histogram->range / sizeofArray(histogram->diff);
+  float bin_start = 0;
+  for (int i = 0; i < sizeofArray(histogram->diff); i++) {
+    LOG_I(HW, "Bin %d\t[%.1f - %.1fuS]:\t\t%lu\n", i, bin_start, bin_start + bin_size, histogram->diff[i]);
+    bin_start += bin_size;
+  }
+}
 
 static void shm_radio_readconfig(shm_radio_state_t *shm_radio_state)
 {
@@ -157,6 +185,7 @@ static int shm_radio_write(openair0_device *device,
   int64_t diff = timestamp - sample;
   double budget = diff / (shm_radio_state->sample_rate / 1e6);
   shm_radio_state->average_tx_budget = .05 * budget + .95 * shm_radio_state->average_tx_budget;
+  histogram_add(&shm_radio_state->tx_histogram, budget);
 
   int ret = shm_td_iq_channel_tx(shm_radio_state->channel, timestamp, nsamps, 0, samplesVoid[0]);
   if (ret == CHANNEL_ERROR_TOO_LATE) {
@@ -201,6 +230,7 @@ static void shm_radio_end(openair0_device *device)
         shm_radio_state->tx_early,
         shm_radio_state->rx_early);
   LOG_I(HW, "SHM_RADIO: Average TX budget %.3lf uS\n", shm_radio_state->average_tx_budget);
+  histogram_print(&shm_radio_state->tx_histogram);
   shm_td_iq_channel_destroy(shm_radio_state->channel);
 }
 
@@ -236,5 +266,8 @@ __attribute__((__visibility__("default"))) int device_init(openair0_device *devi
   device->trx_write_init = shm_radio_stub;
   shm_radio_state->last_received_sample = 0;
   shm_radio_state->sample_rate = openair0_cfg->sample_rate;
+  shm_radio_state->tx_histogram.min_samples = 100;
+  // Set the histogram range to 3000uS. Anything above that is not interesting
+  shm_radio_state->tx_histogram.range = 3000.0;
   return 0;
 }
