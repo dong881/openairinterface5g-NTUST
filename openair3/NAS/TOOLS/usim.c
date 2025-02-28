@@ -69,7 +69,7 @@ int main (int argc, char * const argv[])
     {NULL,     0,           NULL, 0}
   };
   int option_index;
-  char option_short;
+  int option_short;
 
   /*
    * Read command line parameters
@@ -94,6 +94,8 @@ int main (int argc, char * const argv[])
         output_dir = optarg;
         break;
       default:
+        fprintf(stderr, "unknown option %d, exit\n", option_short);
+        exit(1);
         break;
     }
   }
