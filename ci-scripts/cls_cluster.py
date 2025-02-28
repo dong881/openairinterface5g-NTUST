@@ -226,7 +226,7 @@ class Cluster:
 	def _undeploy_pod(self, filename):
 		self.cmd.run(f'oc delete -f {filename}')
 
-	def PullClusterImage(self, HTML, node, images):
+	def PullClusterImage(self, HTML, node, images, tag_prefix):
 		logging.debug(f'Pull OC image {images} to server {node}')
 		self.testCase_id = HTML.testCase_id
 		with cls_cmd.getConnection(node) as cmd:
@@ -242,7 +242,7 @@ class Cluster:
 				return False
 			tag = cls_containerize.CreateTag(self.ranCommitID, self.ranBranch, self.ranAllowMerge)
 			registry = f'{self.OCRegistry}/{CI_OC_RAN_NAMESPACE}'
-			success, msg = cls_containerize.Containerize.Pull_Image(cmd, images, tag, registry, None, None)
+			success, msg = cls_containerize.Containerize.Pull_Image(cmd, images, tag, tag_prefix, registry, None, None)
 			OC_logout(cmd)
 		param = f"on node {node}"
 		if success:
