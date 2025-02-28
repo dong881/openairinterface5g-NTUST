@@ -278,7 +278,7 @@ static void schedule_nr_MsgA_pusch(NR_UplinkConfigCommon_t *uplinkConfigCommon,
   pusch_pdu->nr_of_symbols = L;
   pusch_pdu->pusch_data.new_data_indicator = 1;
   pusch_pdu->nrOfLayers = 1;
-  pusch_pdu->num_dmrs_cdm_grps_no_data = 2; // no data in dmrs symbols as in 6.2.2 in 38.214
+  pusch_pdu->num_dmrs_cdm_grps_no_data = L <= 2 ? 1 : 2; // no data in dmrs symbols as in 6.2.2 in 38.214
   pusch_pdu->ul_dmrs_symb_pos = get_l_prime(3, 0, pusch_dmrs_pos2, pusch_len1, 10, dmrs_TypeA_Position);
   pusch_pdu->transform_precoding = *uplinkConfigCommon->initialUplinkBWP->ext1->msgA_ConfigCommon_r16->choice.setup->msgA_PUSCH_Config_r16->msgA_TransformPrecoder_r16;
   pusch_pdu->rb_bitmap[0] = 0;
@@ -1132,7 +1132,7 @@ static void fill_msg3_pusch_pdu(nfapi_nr_pusch_pdu_t *pusch_pdu,
   pusch_pdu->pusch_identity = *scc->physCellId; //If provided and the PUSCH is not a msg3 PUSCH, otherwise, L2 should set this to physical cell id.
   pusch_pdu->scid = 0; //DMRS sequence initialization [TS38.211, sec 6.4.1.1.1]. Should match what is sent in DCI 0_1, otherwise set to 0.
   pusch_pdu->dmrs_ports = 1;  // 6.2.2 in 38.214 only port 0 to be used
-  pusch_pdu->num_dmrs_cdm_grps_no_data = 2;  // no data in dmrs symbols as in 6.2.2 in 38.214
+  pusch_pdu->num_dmrs_cdm_grps_no_data = nr_of_symbols <= 2 ? 1 : 2;  // no data in dmrs symbols as in 6.2.2 in 38.214
   pusch_pdu->resource_alloc = 1; //type 1
   memset(pusch_pdu->rb_bitmap, 0, sizeof(pusch_pdu->rb_bitmap));
   pusch_pdu->rb_start = ra->msg3_first_rb;
