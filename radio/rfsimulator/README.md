@@ -69,16 +69,17 @@ the corresponding section in the configuration file.
 
 The RF simulator is using the configuration module, and its parameters are defined in a specific section called "rfsimulator". Add the following options to the command line in order to enable different RFSim features:
 
-| CL option                       | usage                                                                          | default                |
-|:---------------------           |:-------------------------------------------------------------------------------|----:                   |
-|`--rfsimulator.serveraddr <addr>`| IPv4v6 address or DNS name to connect to, or `server` to behave as a IPv4v6 TCP server | 127.0.0.1      |
-|`--rfsimulator.serverport <port>`| port number to connect to or to listen on (eNB, which behaves as a tcp server) | 4043                   |
-|`--rfsimulator.options`          | list of comma separated run-time options, two are supported: `chanmod`, `saviq`| all options disabled   |
-|`--rfsimulator.options saviq`    | store IQs to a file for future replay                                          | disabled               |
-|`--rfsimulator.options chanmod`  | enable the channel model                                                       | disabled               |
-|`--rfsimulator.IQfile <file>`    | path to a file to store the IQ samples to (only with `saviq`)                  | `/tmp/rfsimulator.iqs` |
-|`--rfsimulator.prop_delay`       | simulated receive-path (gNB: UL, UE: DL) propagation delay in ms               | 0                      |
-|`--rfsimulator.wait_timeout`     | wait timeout when no UE is connected                                           | 1                      |
+| CL option                        | usage                                                                          | default                |
+|:---------------------            |:-------------------------------------------------------------------------------|----:                   |
+|`--rfsimulator.serveraddr <addr>` | IPv4v6 address or DNS name to connect to, or `server` to behave as a IPv4v6 TCP server | 127.0.0.1      |
+|`--rfsimulator.serverport <port>` | port number to connect to or to listen on (eNB, which behaves as a tcp server) | 4043                   |
+|`--rfsimulator.options`           | list of comma separated run-time options, two are supported: `chanmod`, `saviq`| all options disabled   |
+|`--rfsimulator.options saviq`     | store IQs to a file for future replay                                          | disabled               |
+|`--rfsimulator.options chanmod`   | enable the channel model                                                       | disabled               |
+|`--rfsimulator.IQfile <file>`     | path to a file to store the IQ samples to (only with `saviq`)                  | `/tmp/rfsimulator.iqs` |
+|`--rfsimulator.prop_delay`        | simulated receive-path (gNB: UL, UE: DL) propagation delay in ms               | 0                      |
+|`--rfsimulator.wait_timeout`      | wait timeout when no UE is connected                                           | 1                      |
+|`--rfismulator.hanging-workaround`| Enable workaround to de-block potentially hanging server on new client connection.  | 0                 |
 
 Please refer to this document [`SIMULATION/TOOLS/DOC/channel_simulation.md`](../../openair1/SIMULATION/TOOLS/DOC/channel_simulation.md) for information about using the RFSimulator options to run the simulator with a channel model.
 
