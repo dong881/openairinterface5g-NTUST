@@ -70,7 +70,6 @@ void nr_ue_init_mac(NR_UE_MAC_INST_t *mac)
   mac->p_Max_alt = INT_MIN;
   mac->n_ta_offset = -1;
   mac->ntn_ta.ntn_params_changed = false;
-  pthread_mutex_init(&mac->if_mutex, NULL);
   reset_mac_inst(mac);
 
   // need to inizialize because might not been setup (optional timer)
@@ -137,6 +136,8 @@ NR_UE_MAC_INST_t *nr_l2_init_ue(int nb_inst)
     NR_UE_MAC_INST_t *mac = &nr_ue_mac_inst[j];
     mac->ue_id = j;
     nr_ue_init_mac(mac);
+    int ret = pthread_mutex_init(&mac->if_mutex, NULL);
+    AssertFatal(ret == 0, "Mutex init failed\n");
     nr_ue_mac_default_configs(mac);
     if (IS_SA_MODE(get_softmodem_params()))
       ue_init_config_request(mac, get_slots_per_frame_from_scs(get_softmodem_params()->numerology));
