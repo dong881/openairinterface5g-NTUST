@@ -97,7 +97,7 @@ typedef union {
   c16_t s[2];
 } amp_t;
 
-static inline int interleave_with_0_signal_first(c16_t *output, c16_t *mod_dmrs, const int amp_dmrs, int sz)
+static inline int interleave_with_0_signal_first(c16_t *output, c16_t *mod_dmrs, const int16_t amp_dmrs, int sz)
 {
 #ifdef DEBUG_DLSCH_MAPPING
   printf("doing DMRS pattern for port 0 : d0 0 d1 0 ... dNm2 0 dNm1 0 (ul %d, rr %d)\n", upper_limit, remaining_re);
@@ -149,7 +149,7 @@ static inline int interleave_with_0_signal_first(c16_t *output, c16_t *mod_dmrs,
   return 0;
 }
 
-static inline int interleave_with_0_start_with_0(c16_t *output, c16_t *mod_dmrs, const int amp_dmrs, int sz)
+static inline int interleave_with_0_start_with_0(c16_t *output, c16_t *mod_dmrs, const int16_t amp_dmrs, int sz)
 {
 #ifdef DEBUG_DLSCH_MAPPING
   printf("doing DMRS pattern for port 2 : 0 d0 0 d1 ... 0 dNm2 0 dNm1\n");
@@ -258,7 +258,7 @@ static inline int interleave_signals(c16_t *output, c16_t *signal1, const int am
 static inline int dmrs_case00(c16_t *output,
                               c16_t *txl,
                               c16_t *mod_dmrs,
-                              const int amp_dmrs,
+                              const int16_t amp_dmrs,
                               const int amp,
                               int sz,
                               int start_sc,
@@ -349,7 +349,7 @@ static inline int do_onelayer(NR_DL_FRAME_PARMS *frame_parms,
                               uint16_t dlPtrsSymPos,
                               int n_ptrs,
                               int amp,
-                              int amp_dmrs,
+                              int16_t amp_dmrs,
                               int l_prime,
                               nfapi_nr_dmrs_type_e dmrs_Type,
                               c16_t *dmrs_start)
@@ -559,7 +559,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   const int symbol_sz=frame_parms->ofdm_symbol_size;
   const int dmrs_Type = rel15->dmrsConfigType;
   const int nb_re_dmrs = rel15->numDmrsCdmGrpsNoData * (rel15->dmrsConfigType == NFAPI_NR_DMRS_TYPE1 ? 6 : 4);
-  const int amp_dmrs = (int)((double)amp * sqrt(rel15->numDmrsCdmGrpsNoData)); // 3GPP TS 38.214 Section 4.1: Table 4.1-1
+  const int16_t amp_dmrs = min((double)amp * sqrt(rel15->numDmrsCdmGrpsNoData), INT16_MAX); // 3GPP TS 38.214 Section 4.1: Table 4.1-1
   LOG_D(PHY,
         "pdsch: BWPStart %d, BWPSize %d, rbStart %d, rbsize %d\n",
         rel15->BWPStart,
