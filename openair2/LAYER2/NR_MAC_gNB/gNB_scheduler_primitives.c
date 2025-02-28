@@ -292,7 +292,7 @@ NR_pdsch_dmrs_t get_dl_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
   int frontloaded_symb = 1; // default value
   nr_dci_format_t dci_format = dl_bwp ? dl_bwp->dci_format : NR_DL_DCI_FORMAT_1_0;
   if (dci_format == NR_DL_DCI_FORMAT_1_0) {
-    dmrs.numDmrsCdmGrpsNoData = tda_info->nrOfSymbols == 2 ? 1 : 2;
+    dmrs.numDmrsCdmGrpsNoData = tda_info->nrOfSymbols <= 2 ? 1 : 2;
     dmrs.dmrs_ports_id = 0;
   }
   else {
@@ -696,7 +696,7 @@ NR_pusch_dmrs_t get_ul_dmrs_params(const NR_ServingCellConfigCommon_t *scc,
     dmrs.num_dmrs_cdm_grps_no_data = 2;
   } else {
     if (ul_bwp->transform_precoding && Layers < 3)
-      dmrs.num_dmrs_cdm_grps_no_data = ul_bwp->dci_format == NR_UL_DCI_FORMAT_0_1 || tda_info->nrOfSymbols == 2 ? 1 : 2;
+      dmrs.num_dmrs_cdm_grps_no_data = ul_bwp->dci_format == NR_UL_DCI_FORMAT_0_1 || tda_info->nrOfSymbols <= 2 ? 1 : 2;
     else
       dmrs.num_dmrs_cdm_grps_no_data = 2;
   }
