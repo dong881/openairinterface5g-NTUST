@@ -54,7 +54,18 @@ RUN apt-get update && \
 # library version. Installing it above would install the wrong version. Hence,
 # copy the right version from ran-build. When upgrading to Ubuntu24, install
 # the correct one above!
-COPY --from=gnb-build /usr/lib/x86_64-linux-gnu/libasan.so.8.0.0 /usr/lib/x86_64-linux-gnu/
+# note: this dockerfile should work for both x86 and arm, hence the glob below
+# which should either match "x86_64" (x86) or "aarch64" (ARM); since the target
+# directory needs to be also one of those two, but globs don't work in target
+# directories, work around this with mv
+COPY --from=gnb-build /usr/lib/*-linux-gnu/libasan.so.8.0.0 /usr/lib/
+ARG TARGETPLATFORM
+RUN case "${TARGETPLATFORM}" in \
+         "linux/amd64")  TARGET_DIR=x86_64-linux-gnu  ;; \
+         "linux/arm64")  TARGET_DIR=aarch64-linux-gnu  ;; \
+         *) exit 1 ;; \
+    esac; \
+    mv /usr/lib/libasan.so.8.0.0 /usr/lib/$TARGET_DIR/libasan.so.8.0.0
 ## Copy E2 SM models
 COPY --from=gnb-build /usr/local/lib/flexric /usr/local/lib/flexric
 
