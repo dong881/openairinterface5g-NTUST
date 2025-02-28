@@ -239,6 +239,7 @@ int main(int argc, char *argv[])
   int threadCnt=0;
   int max_ldpc_iterations = 5;
   int num_antennas_per_thread = 1;
+  uint32_t log_format = 0;
   if ((uniqCfg = load_configmodule(argc, argv, CONFIG_ENABLECMDLINEONLY)) == 0) {
     exit_fun("[NR_ULSIM] Error, configuration module init failed\n");
   }
@@ -250,8 +251,7 @@ int main(int argc, char *argv[])
   InitSinLUT();
 
   int c;
-  while ((c = getopt(argc, argv, "--:O:a:b:c:d:ef:g:h:i:k:m:n:p:q:r:s:t:u:v:w:y:z:A:C:F:G:H:I:M:N:PR:S:T:U:L:ZW:E:X:")) != -1) {
-
+  while ((c = getopt(argc, argv, "--:O:a:b:c:d:ef:g:h:i:jk:m:n:p:q:r:s:t:u:v:w:y:z:A:C:F:G:H:I:M:N:PR:S:T:U:L:ZW:E:X:")) != -1) {
     /* ignore long options starting with '--', option '-O' and their arguments that are handled by configmodule */
     /* with this opstring getopt returns 1 for non-option arguments, refer to 'man 3 getopt' */
     if (c == 1 || c == '-' || c == 'O')
@@ -345,7 +345,11 @@ int main(int argc, char *argv[])
         i+=2;
       } while (optarg[i-1] == ',');
       break;
-	
+
+    case 'j':
+      log_format |= MATLAB_RAW;
+      break;
+
     case 'k':
       printf("Setting threequarter_fs_flag\n");
       openair0_cfg[0].threequarter_fs= 1;
@@ -523,6 +527,7 @@ int main(int argc, char *argv[])
       printf("-g Channel model configuration. Arguments list: Number of arguments = 3, {Channel model: [A] TDLA30, [B] TDLB100, [C] TDLC300}, {Correlation: [l] Low, [m] Medium, [h] High}, {Maximum Doppler shift} e.g. -g A,l,10\n");
       printf("-h This message\n");
       printf("-i Change channel estimation technique. Arguments list: Number of arguments=2, Frequency domain {0:Linear interpolation, 1:PRB based averaging}, Time domain {0:Estimates of last DMRS symbol, 1:Average of DMRS symbols}. e.g. -i 1,0\n");
+      printf("-j Save signal buffers in binary format.");
       printf("-k 3/4 sampling\n");
       printf("-m MCS value\n");
       printf("-n Number of trials to simulate\n");
@@ -559,7 +564,7 @@ int main(int argc, char *argv[])
 
     }
   }
-  
+
   logInit();
   set_glog(loglvl);
 
@@ -1214,12 +1219,12 @@ int main(int argc, char *argv[])
           phy_procedures_nrUE_TX(UE, &UE_proc, &phy_data);
 
           if (n_trials == 1) {
-            LOG_M("txsig0.m", "txs0", &UE->common_vars.txData[0][slot_offset], slot_length, 1, 1);
+            LOG_M("txsig0.m", "txs0", &UE->common_vars.txData[0][slot_offset], slot_length, 1, 1 | log_format);
             if (precod_nbr_layers > 1) {
-            LOG_M("txsig1.m", "txs1", &UE->common_vars.txData[1][slot_offset], slot_length, 1, 1);
-            if (precod_nbr_layers == 4) {
-              LOG_M("txsig2.m", "txs2", &UE->common_vars.txData[2][slot_offset], slot_length, 1, 1);
-              LOG_M("txsig3.m", "txs3", &UE->common_vars.txData[3][slot_offset], slot_length, 1, 1);
+              LOG_M("txsig1.m", "txs1", &UE->common_vars.txData[1][slot_offset], slot_length, 1, 1 | log_format);
+              if (precod_nbr_layers == 4) {
+                LOG_M("txsig2.m", "txs2", &UE->common_vars.txData[2][slot_offset], slot_length, 1, 1 | log_format);
+                LOG_M("txsig3.m", "txs3", &UE->common_vars.txData[3][slot_offset], slot_length, 1, 1 | log_format);
               }
             }
           }
@@ -1293,16 +1298,16 @@ int main(int argc, char *argv[])
         ul_proc_error = phy_procedures_gNB_uespec_RX(gNB, frame, slot, &UL_INFO);
 
         if (n_trials == 1 && round == 0) {
-          LOG_M("rxsig0.m", "rx0", &rxdata[0][slot_offset], slot_length, 1, 1);
-          LOG_M("rxsigF0.m", "rxsF0", gNB->common_vars.rxdataF[0][0], 14 * frame_parms->ofdm_symbol_size, 1, 1);
+          LOG_M("rxsig0.m", "rx0", &rxdata[0][slot_offset], slot_length, 1, 1 | log_format);
+          LOG_M("rxsigF0.m", "rxsF0", gNB->common_vars.rxdataF[0][0], 14 * frame_parms->ofdm_symbol_size, 1, 1 | log_format);
           if (precod_nbr_layers > 1) {
             LOG_M("rxsig1.m", "rx1", &rxdata[1][slot_offset], slot_length, 1, 1);
-            LOG_M("rxsigF1.m", "rxsF1", gNB->common_vars.rxdataF[0][1], 14 * frame_parms->ofdm_symbol_size, 1, 1);
+            LOG_M("rxsigF1.m", "rxsF1", gNB->common_vars.rxdataF[0][1], 14 * frame_parms->ofdm_symbol_size, 1, 1 | log_format);
             if (precod_nbr_layers == 4) {
               LOG_M("rxsig2.m", "rx2", &rxdata[2][slot_offset], slot_length, 1, 1);
               LOG_M("rxsig3.m", "rx3", &rxdata[3][slot_offset], slot_length, 1, 1);
-              LOG_M("rxsigF2.m", "rxsF2", gNB->common_vars.rxdataF[0][2], 14 * frame_parms->ofdm_symbol_size, 1, 1);
-              LOG_M("rxsigF3.m", "rxsF3", gNB->common_vars.rxdataF[0][3], 14 * frame_parms->ofdm_symbol_size, 1, 1);
+              LOG_M("rxsigF2.m", "rxsF2", gNB->common_vars.rxdataF[0][2], 14 * frame_parms->ofdm_symbol_size, 1, 1 | log_format);
+              LOG_M("rxsigF3.m", "rxsF3", gNB->common_vars.rxdataF[0][3], 14 * frame_parms->ofdm_symbol_size, 1, 1 | log_format);
             }
           }
         }
@@ -1316,71 +1321,69 @@ int main(int argc, char *argv[])
                 &pusch_vars->ul_ch_estimates[0][start_symbol * frame_parms->ofdm_symbol_size],
                 frame_parms->ofdm_symbol_size,
                 1,
-                1);
+                1 | log_format);
 
           LOG_M("rxsigF0_comp.m",
                 "rxsF0_comp",
                 &pusch_vars->rxdataF_comp[0][start_symbol * (off + (NR_NB_SC_PER_RB * pusch_pdu->rb_size))],
                 nb_symb_sch * (off + (NR_NB_SC_PER_RB * pusch_pdu->rb_size)),
                 1,
-                1);
+                1 | log_format);
 
           if (precod_nbr_layers == 2) {
-
             LOG_M("chestF3.m",
                   "chF3",
                   &pusch_vars->ul_ch_estimates[3][start_symbol * frame_parms->ofdm_symbol_size],
                   frame_parms->ofdm_symbol_size,
                   1,
-                  1);
+                  1 | log_format);
 
             LOG_M("rxsigF2_comp.m",
                   "rxsF2_comp",
                   &pusch_vars->rxdataF_comp[2][start_symbol * (off + (NR_NB_SC_PER_RB * pusch_pdu->rb_size))],
                   nb_symb_sch * (off + (NR_NB_SC_PER_RB * pusch_pdu->rb_size)),
                   1,
-                  1);
+                  1 | log_format);
           }
 
           if (precod_nbr_layers == 4) {
-
             LOG_M("chestF5.m",
                   "chF5",
                   &pusch_vars->ul_ch_estimates[5][start_symbol * frame_parms->ofdm_symbol_size],
                   frame_parms->ofdm_symbol_size,
                   1,
-                  1);
+                  1 | log_format);
             LOG_M("chestF10.m",
                   "chF10",
                   &pusch_vars->ul_ch_estimates[10][start_symbol * frame_parms->ofdm_symbol_size],
                   frame_parms->ofdm_symbol_size,
                   1,
-                  1);
+                  1 | log_format);
             LOG_M("chestF15.m",
                   "chF15",
                   &pusch_vars->ul_ch_estimates[15][start_symbol * frame_parms->ofdm_symbol_size],
                   frame_parms->ofdm_symbol_size,
                   1,
-                  1);
+                  1 | log_format);
 
             LOG_M("rxsigF4_comp.m",
                   "rxsF4_comp",
                   &pusch_vars->rxdataF_comp[4][start_symbol * (off + (NR_NB_SC_PER_RB * pusch_pdu->rb_size))],
                   nb_symb_sch * (off + (NR_NB_SC_PER_RB * pusch_pdu->rb_size)),
                   1,
-                  1);
+                  1 | log_format);
             LOG_M("rxsigF8_comp.m",
                   "rxsF8_comp",
                   &pusch_vars->rxdataF_comp[8][start_symbol * (off + (NR_NB_SC_PER_RB * pusch_pdu->rb_size))],
                   nb_symb_sch * (off + (NR_NB_SC_PER_RB * pusch_pdu->rb_size)),
                   1,
-                  1);
+                  1 | log_format);
             LOG_M("rxsigF12_comp.m",
                   "rxsF12_comp",
                   &pusch_vars->rxdataF_comp[12][start_symbol * (off + (NR_NB_SC_PER_RB * pusch_pdu->rb_size))],
                   nb_symb_sch * (off + (NR_NB_SC_PER_RB * pusch_pdu->rb_size)),
                   1,
-                  1);
+                  1 | log_format);
           }
 
           LOG_M("rxsigF0_llr.m",
@@ -1388,7 +1391,7 @@ int main(int argc, char *argv[])
                 &pusch_vars->llr[0],
                 precod_nbr_layers * (nb_symb_sch - 1) * NR_NB_SC_PER_RB * pusch_pdu->rb_size * mod_order,
                 1,
-                0);
+                0 | log_format);
         }
 
         if ((ulsch_gNB->last_iteration_cnt >= ulsch_gNB->max_ldpc_iterations) || ul_proc_error == 1) {

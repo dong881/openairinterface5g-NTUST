@@ -988,6 +988,9 @@ printf("%d\n", slot);
     n_false_positive = 0;
     if (n_trials== 1) num_rounds = 1;
 
+    NR_gNB_DLSCH_t *gNB_dlsch = &msgDataTx->dlsch[0][0];
+    nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15 = &gNB_dlsch->harq_process.pdsch_pdu.pdsch_pdu_rel15;
+
     for (trial = 0; trial < n_trials && !stop; trial++) {
 
       errors_bit = 0;
@@ -1002,9 +1005,6 @@ printf("%d\n", slot);
 
       int harq_pid = slot;
       NR_DL_UE_HARQ_t *UE_harq_process = &UE->dl_harq_processes[0][harq_pid];
-
-      NR_gNB_DLSCH_t *gNB_dlsch = &msgDataTx->dlsch[0][0];
-      nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15 = &gNB_dlsch->harq_process.pdsch_pdu.pdsch_pdu_rel15;
 
       UE_harq_process->decodeResult = false;
       round = 0;
@@ -1109,10 +1109,10 @@ printf("%d\n", slot);
             sprintf(filename,"txsig%d.m", aa);//LOG_M
             LOG_M(filename,"txs", &txdata[aa][slot_offset +frame_parms->ofdm_symbol_size+frame_parms->nb_prefix_samples0],6*(frame_parms->ofdm_symbol_size+frame_parms->nb_prefix_samples),1,1);
           }
-        }
-        if (output_fd) {
-          printf("writing txdata to binary file\n");
-          fwrite(txdata[0],sizeof(int32_t),frame_length_complex_samples,output_fd);
+          if (output_fd) {
+            printf("writing txdata to binary file\n");
+            fwrite(txdata[0], sizeof(int32_t), frame_length_complex_samples, output_fd);
+          }
         }
 
         int txlev[n_tx];
@@ -1296,15 +1296,38 @@ printf("%d\n", slot);
     }
 
     if (n_trials == 1) {
+      unsigned int op_format = 1;
+      unsigned int dec = 1;
+      if (output_fd) { // Write in bin format
+        op_format |= MATLAB_RAW;
+      }
 
-      LOG_M("rxsig0.m","rxs0", UE->common_vars.rxdata[0], frame_length_complex_samples, 1, 1);
+      LOG_M("rxsig0.m", "rxs0", UE->common_vars.rxdata[0], frame_length_complex_samples, dec, op_format);
       if (UE->frame_parms.nb_antennas_rx>1)
-	LOG_M("rxsig1.m","rxs1", UE->common_vars.rxdata[1], frame_length_complex_samples, 1, 1);
-      LOG_M("rxF0.m","rxF0", UE->phy_sim_rxdataF, frame_parms->samples_per_slot_wCP, 1, 1);
-      LOG_M("rxF_ext.m","rxFe",UE->phy_sim_pdsch_rxdataF_ext,g_rbSize*12*14,1,1);
-      LOG_M("chestF0.m","chF0",UE->phy_sim_pdsch_dl_ch_estimates_ext,g_rbSize*12*14,1,1);
-      write_output("rxF_comp.m","rxFc",UE->phy_sim_pdsch_rxdataF_comp,N_RB_DL*12*14,1,1);
-      LOG_M("rxF_llr.m","rxFllr",UE->phy_sim_pdsch_llr,available_bits,1,0);
+        LOG_M("rxsig1.m", "rxs1", UE->common_vars.rxdata[1], frame_length_complex_samples, dec, op_format);
+      LOG_M("rxF0.m", "rxF0", UE->phy_sim_rxdataF, frame_parms->samples_per_slot_wCP, dec, op_format);
+      LOG_M("rxF_ext.m", "rxFe", UE->phy_sim_pdsch_rxdataF_ext, g_rbSize * 12 * 14, dec, op_format);
+      const uint32_t numReSym = (g_rbSize * 12 + 15) & (~15);
+      const uint32_t numValidReSym = g_rbSize * 12;
+      {
+        const int s = rel15->StartSymbolIndex;
+        const int n = rel15->NrOfSymbols;
+        for (int i = s; i < s + n; i++) {
+          char fName[50];
+          snprintf(fName, sizeof(fName), "chestF0_ext_s%d.m", i);
+          LOG_M(fName,
+                "chF0_ext",
+                ((c16_t *)UE->phy_sim_pdsch_dl_ch_estimates_ext) + (i * numReSym),
+                numValidReSym,
+                dec,
+                op_format);
+          snprintf(fName, sizeof(fName), "rxF_comp_s%d.m", i);
+          LOG_M(fName, "rxFc", ((c16_t *)UE->phy_sim_pdsch_rxdataF_comp) + (i * numReSym), numValidReSym, dec, op_format);
+        }
+      }
+      LOG_M("chestF0.m", "chF0", UE->phy_sim_pdsch_dl_ch_estimates, frame_parms->ofdm_symbol_size * 14, dec, op_format);
+      op_format = (op_format & (~1));
+      LOG_M("rxF_llr.m", "rxFllr", UE->phy_sim_pdsch_llr, available_bits, dec, op_format);
       break;
     }
 

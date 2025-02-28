@@ -766,10 +766,12 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
     for (int a = 0; a < nbRx; a++) {
       int offset = (void *)rxdataF_comp[0][a] - (void *)rxdataF_comp[0] + symbol * rx_size_symbol * sizeof(c16_t);
       memcpy(ue->phy_sim_pdsch_rxdataF_comp + offset, rxdataF_comp[0][a] + symbol * rx_size_symbol, sizeof(c16_t) * rx_size_symbol);
-      memcpy(ue->phy_sim_pdsch_dl_ch_estimates + offset, dl_ch_estimates, pdsch_est_size * sizeof(c16_t));
+      memcpy((c16_t *)ue->phy_sim_pdsch_dl_ch_estimates + pdsch_est_size * a, dl_ch_estimates, pdsch_est_size * sizeof(c16_t));
     }
   if (ue->phy_sim_pdsch_dl_ch_estimates_ext)
-    memcpy(ue->phy_sim_pdsch_dl_ch_estimates_ext + symbol * rx_size_symbol, dl_ch_estimates_ext, sizeof(dl_ch_estimates_ext));
+    memcpy((c16_t *)ue->phy_sim_pdsch_dl_ch_estimates_ext + symbol * rx_size_symbol,
+           dl_ch_estimates_ext,
+           sizeof(dl_ch_estimates_ext));
   return (0);
 }
 

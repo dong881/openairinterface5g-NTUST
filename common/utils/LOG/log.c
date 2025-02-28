@@ -157,14 +157,19 @@ int write_file_matlab(const char *fname, const char *vname, void *data, int leng
 
   //printf("Writing %d elements of type %d to %s\n",length,format,fname);
 
+  const int fname_len = strlen(fname);
+  char write_file_name[fname_len + 10];
+  const char *fn_format = (format & MATLAB_RAW) ? "%s.bin" : "%s";
+  snprintf(write_file_name, sizeof(write_file_name), fn_format, fname);
+
   if (format == 10 || format ==11 || format == 12 || format == 13 || format == 14 || multiVec) {
-    fp = fopen(fname,"a+");
+    fp = fopen(write_file_name, "a+");
   } else if (format != 10 && format !=11  && format != 12 && format != 13 && format != 14) {
-    fp = fopen(fname,"w+");
+    fp = fopen(write_file_name, "w+");
   }
 
   if (fp== NULL) {
-    printf("[OPENAIR][FILE OUTPUT] Cannot open file %s\n",fname);
+    printf("[OPENAIR][FILE OUTPUT] Cannot open file %s\n", write_file_name);
     return(-1);
   }
 
