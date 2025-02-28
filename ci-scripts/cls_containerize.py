@@ -93,7 +93,7 @@ def CopyLogsToExecutor(cmd, sourcePath, log_name):
 		os.remove(f'./{log_name}.zip')
 	if (os.path.isdir(f'./{log_name}')):
 		shutil.rmtree(f'./{log_name}')
-	cmd.copyin(f'{sourcePath}/cmake_targets/{log_name}.zip', f'./{log_name}.zip')
+	cmd.copyin(src=f'{sourcePath}/cmake_targets/{log_name}.zip', tgt=f'{os.getcwd()}/{log_name}.zip')
 	cmd.run(f'rm -f {log_name}.zip')
 	ZipFile(f'{log_name}.zip').extractall('.')
 
