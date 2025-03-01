@@ -958,6 +958,13 @@ printf("%d\n", slot);
     fprintf(csv_file,"avg_round,eff_rate,eff_throughput,TBS\n");
   }
   //---------------
+
+  Sched_INFO = malloc(sizeof(*Sched_INFO));
+  if (Sched_INFO == NULL) {
+    LOG_E(PHY, "out of memory\n");
+    exit(1);
+  }
+
   for (SNR = snr0; SNR < snr1 && !stop; SNR += .2) {
 
     varArray_t *table_tx=initVarArray(1000,sizeof(double));
@@ -1011,11 +1018,6 @@ printf("%d\n", slot);
       UE_harq_process->DLround = round;
       UE_harq_process->first_rx = 1;
 
-      Sched_INFO = malloc(sizeof(*Sched_INFO));
-      if (Sched_INFO == NULL) {
-        LOG_E(PHY, "out of memory\n");
-        exit(1);
-      }
       memset(Sched_INFO, 0, sizeof(*Sched_INFO));
       Sched_INFO->sched_response_id = -1;
 
@@ -1338,6 +1340,8 @@ printf("%d\n", slot);
 
     n_errs = n_errors[0];
   } // NSR
+
+  free(Sched_INFO);
 
   free_channel_desc_scm(gNB2UE);
 
