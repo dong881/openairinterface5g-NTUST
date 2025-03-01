@@ -54,6 +54,12 @@ extern notifiedFIFO_t oran_sync_fifo;
 #else
 volatile oran_sync_info_t oran_sync_info = {0};
 #endif
+
+/** @details xran-specific callback, called when all packets for given CC and
+ * 1/4, 1/2, 3/4, all symbols of a slot arrived. Currently, only used to get
+ * timing information and unblock another thread in xran_fh_rx_read_slot()
+ * through either a message queue, or writing in global memory with polling, on
+ * a full slot boundary. */
 void oai_xran_fh_rx_callback(void *pCallbackTag, xran_status_t status)
 {
   struct xran_cb_tag *callback_tag = (struct xran_cb_tag *)pCallbackTag;
@@ -151,6 +157,8 @@ void oai_xran_fh_rx_callback(void *pCallbackTag, xran_status_t status)
   } // rx_sym == 7
 }
 
+/** @details Only used to unblock timing in oai_xran_fh_rx_callback() on first
+ * call. */
 int oai_physide_dl_tti_call_back(void *param)
 {
   if (!first_call_set)
@@ -159,6 +167,11 @@ int oai_physide_dl_tti_call_back(void *param)
   return 0;
 }
 
+/** @brief Reads PRACH data from xran buffers.
+ *
+ * @details Reads PRACH data from xran-specific buffers and, if I/Q compression
+ * (bitwidth < 16 bits) is configured, uncompresses the data. Places PRACH data
+ * in OAI buffer. */
 static int read_prach_data(ru_info_t *ru, int frame, int slot)
 {
   /* calculate tti and subframe_id from frame, slot num */
@@ -228,6 +241,11 @@ static int read_prach_data(ru_info_t *ru, int frame, int slot)
   return (0);
 }
 
+/** @brief Check if symbol in slot is UL.
+ *
+ * @param frame_conf xran frame configuration
+ * @param slot the current (absolute) slot (number)
+ * @param sym_idx the current symbol index */
 static bool is_tdd_ul_symbol(const struct xran_frame_config *frame_conf, int slot, int sym_idx)
 {
   /* in FDD, every symbol is also UL */
@@ -239,11 +257,20 @@ static bool is_tdd_ul_symbol(const struct xran_frame_config *frame_conf, int slo
   return frame_conf->sSlotConfig[slot_in_period].nSymbolType[sym_idx] == 1 /* UL */;
 }
 
+/** @brief Check if current slot is DL or guard/mixed without UL (i.e., current
+ * slot is not UL). */
 static bool is_tdd_dl_guard_slot(const struct xran_frame_config *frame_conf, int slot)
 {
   return !is_tdd_ul_symbol(frame_conf, slot, XRAN_NUM_OF_SYMBOL_PER_SLOT - 1);
 }
 
+/** @details Read PRACH and PUSCH data from xran buffers.  If
+ * I/Q compression (bitwidth < 16 bits) is configured, deccompresses the data
+ * before writing. Prints ON TIME counters every 128 frames.
+ *
+ * Function is blocking and waits for next frame/slot combination. It is unblocked
+ * by oai_xran_fh_rx_callback(). It writes the current slot into parameters
+ * frame/slot. */
 int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot)
 {
   void *ptr = NULL;
@@ -438,6 +465,9 @@ int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot)
   return (0);
 }
 
+/** @details Write PDSCH IQ-data from OAI txdataF_BF buffer to xran buffers. If
+ * I/Q compression (bitwidth < 16 bits) is configured, compresses the data
+ * before writing. */
 int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp)
 {
   int tti = /*frame*SUBFRAMES_PER_SYSTEMFRAME*SLOTNUM_PER_SUBFRAME+*/ 20 * frame
