@@ -407,6 +407,12 @@ class Containerize():
 		result = re.search('build_cross_arm64', self.imageKind)
 		if result is not None:
 			self.dockerfileprefix = '.ubuntu22.cross-arm64'
+		result = re.search('native_arm', self.imageKind)
+		if result is not None:
+			imageNames.append(('oai-gnb', 'gNB', 'oai-gnb', ''))
+			imageNames.append(('oai-nr-cuup', 'nr-cuup', 'oai-nr-cuup', ''))
+			imageNames.append(('oai-nr-ue', 'nrUE', 'oai-nr-ue', ''))
+			imageNames.append(('oai-gnb-aerial', 'gNB.aerial', 'oai-gnb-aerial', ''))
 		
 		self.testCase_id = HTML.testCase_id
 		cmd.cd(lSourcePath)
