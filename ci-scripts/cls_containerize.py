@@ -726,9 +726,9 @@ class Containerize():
 			HTML.CreateHtmlTabFooter(False)
 			return False
 
-	def Push_Image_to_Local_Registry(self, HTML, svr_id):
+	def Push_Image_to_Local_Registry(self, HTML, svr_id, tag_prefix=""):
 		lIpAddr, lSourcePath = self.GetCredentials(svr_id)
-		logging.debug('Pushing images from server: ' + lIpAddr)
+		logging.debug('Pushing images to server: ' + lIpAddr)
 		ssh = cls_cmd.getConnection(lIpAddr)
 		imagePrefix = 'porcepix.sboai.cs.eurecom.fr'
 		ret = ssh.run(f'docker login -u oaicicd -p oaicicd {imagePrefix}')
@@ -743,7 +743,7 @@ class Containerize():
 		if self.ranAllowMerge:
 			orgTag = 'ci-temp'
 		for image in IMAGES:
-			tagToUse = CreateTag(self.ranCommitID, self.ranBranch, self.ranAllowMerge)
+			tagToUse = tag_prefix + CreateTag(self.ranCommitID, self.ranBranch, self.ranAllowMerge)
 			imageTag = f"{image}:{tagToUse}"
 			ret = ssh.run(f'docker image tag {image}:{orgTag} {imagePrefix}/{imageTag}')
 			if ret.returncode != 0:
@@ -757,9 +757,10 @@ class Containerize():
 				return False
 			# Creating a develop tag on the local private registry
 			if not self.ranAllowMerge:
-				ssh.run(f'docker image tag {image}:{orgTag} {imagePrefix}/{image}:develop')
-				ssh.run(f'docker push {imagePrefix}/{image}:develop')
-				ssh.run(f'docker rmi {imagePrefix}/{image}:develop')
+				devTag = f"{tag_prefix}develop"
+				ssh.run(f'docker image tag {image}:{orgTag} {imagePrefix}/{image}:{devTag}')
+				ssh.run(f'docker push {imagePrefix}/{image}:{devTag}')
+				ssh.run(f'docker rmi {imagePrefix}/{image}:{devTag}')
 			ssh.run(f'docker rmi {imagePrefix}/{imageTag} {image}:{orgTag}')
 
 		ret = ssh.run(f'docker logout {imagePrefix}')
