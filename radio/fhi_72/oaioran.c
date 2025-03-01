@@ -150,14 +150,6 @@ void oai_xran_fh_rx_callback(void *pCallbackTag, xran_status_t status)
     last_frame = frame;
   } // rx_sym == 7
 }
-void oai_xran_fh_srs_callback(void *pCallbackTag, xran_status_t status)
-{
-  rte_pause();
-}
-void oai_xran_fh_rx_prach_callback(void *pCallbackTag, xran_status_t status)
-{
-  rte_pause();
-}
 
 int oai_physide_dl_tti_call_back(void *param)
 {
@@ -167,19 +159,7 @@ int oai_physide_dl_tti_call_back(void *param)
   return 0;
 }
 
-int oai_physide_ul_half_slot_call_back(void *param)
-{
-  rte_pause();
-  return 0;
-}
-
-int oai_physide_ul_full_slot_call_back(void *param)
-{
-  rte_pause();
-  return 0;
-}
-
-int read_prach_data(ru_info_t *ru, int frame, int slot)
+static int read_prach_data(ru_info_t *ru, int frame, int slot)
 {
   /* calculate tti and subframe_id from frame, slot num */
   int sym_idx = 0;

@@ -48,6 +48,4 @@ typedef struct ru_info_s {
 int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot);
 int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp);
 
-int compute_xran_statistics();
-
 #endif /* _ORAN_ISOLATE_H_ */
