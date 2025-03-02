@@ -56,7 +56,7 @@ int get_ul_tda(gNB_MAC_INST *nrmac, int frame, int slot)
   }
 
   // Avoid slots with the SRS
-  UE_iterator(nrmac->UE_info.list, UE) {
+  UE_iterator(nrmac->UE_info.connected_ue_list, UE) {
     NR_sched_srs_t sched_srs = UE->UE_sched_ctrl.sched_srs;
     if(sched_srs.srs_scheduled && sched_srs.frame == frame && sched_srs.slot == slot)
       return 1;
@@ -2279,7 +2279,7 @@ static bool nr_ulsch_preprocessor(module_id_t module_id, frame_t frame, slot_t s
 {
   gNB_MAC_INST *nr_mac = RC.nrmac[module_id];
   // no UEs
-  if (nr_mac->UE_info.list[0] == NULL)
+  if (nr_mac->UE_info.connected_ue_list[0] == NULL)
     return false;
 
   NR_COMMON_channels_t *cc = nr_mac->common_channels;
@@ -2308,7 +2308,7 @@ static bool nr_ulsch_preprocessor(module_id_t module_id, frame_t frame, slot_t s
   max_sched_ues = min(max_sched_ues, MAX_DCI_CORESET);
 
   /* proportional fair scheduling algorithm */
-  pf_ul(module_id, frame, slot, sched_frame, sched_slot, nr_mac->UE_info.list, max_sched_ues, num_beams, len);
+  pf_ul(module_id, frame, slot, sched_frame, sched_slot, nr_mac->UE_info.connected_ue_list, max_sched_ues, num_beams, len);
   return true;
 }
 
@@ -2369,7 +2369,7 @@ void nr_schedule_ulsch(module_id_t module_id, frame_t frame, slot_t slot, nfapi_
 
   NR_ServingCellConfigCommon_t *scc = nr_mac->common_channels[0].ServingCellConfigCommon;
   NR_UEs_t *UE_info = &nr_mac->UE_info;
-  UE_iterator( UE_info->list, UE) {
+  UE_iterator(UE_info->connected_ue_list, UE) {
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     if (sched_ctrl->ul_failure && !get_softmodem_params()->phy_test)
       continue;

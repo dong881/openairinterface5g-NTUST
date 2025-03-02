@@ -184,8 +184,8 @@ int g_mcsIndex = -1, g_mcsTableIdx = 0, g_rbStart = -1, g_rbSize = -1, g_nrOfLay
 
 void nr_dlsim_preprocessor(module_id_t module_id, frame_t frame, slot_t slot)
 {
-  NR_UE_info_t *UE_info = RC.nrmac[module_id]->UE_info.list[0];
-  AssertFatal(RC.nrmac[module_id]->UE_info.list[1]==NULL, "can have only a single UE\n");
+  NR_UE_info_t *UE_info = RC.nrmac[module_id]->UE_info.connected_ue_list[0];
+  AssertFatal(RC.nrmac[module_id]->UE_info.connected_ue_list[1] == NULL, "can have only a single UE\n");
   NR_UE_sched_ctrl_t *sched_ctrl = &UE_info->UE_sched_ctrl;
   NR_UE_DL_BWP_t *current_BWP = &UE_info->current_DL_BWP;
   NR_ServingCellConfigCommon_t *scc = RC.nrmac[0]->common_channels[0].ServingCellConfigCommon;
@@ -802,7 +802,7 @@ printf("%d\n", slot);
   gNB_mac->pre_processor_dl = nr_dlsim_preprocessor;
   phy_init_nr_gNB(gNB);
   N_RB_DL = gNB->frame_parms.N_RB_DL;
-  NR_UE_info_t *UE_info = RC.nrmac[0]->UE_info.list[0];
+  NR_UE_info_t *UE_info = RC.nrmac[0]->UE_info.connected_ue_list[0];
 
   configure_UE_BWP(RC.nrmac[0], scc, &UE_info->UE_sched_ctrl, NULL, UE_info, -1, -1);
 

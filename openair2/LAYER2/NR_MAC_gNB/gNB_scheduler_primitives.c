@@ -2061,7 +2061,7 @@ void remove_front_nr_list(NR_list_t *listP)
 NR_UE_info_t *find_nr_UE(NR_UEs_t *UEs, rnti_t rntiP)
 {
 
-  UE_iterator(UEs->list, UE) {
+  UE_iterator(UEs->connected_ue_list, UE) {
     if (UE->rnti == rntiP) {
       LOG_D(NR_MAC,"Search and found rnti: %04x\n", rntiP);
       return UE;
@@ -2508,7 +2508,7 @@ NR_UE_info_t *add_new_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rntiP, NR_CellGroupConf
   NR_ServingCellConfigCommon_t *scc = nr_mac->common_channels[0].ServingCellConfigCommon;
   NR_UEs_t *UE_info = &nr_mac->UE_info;
   LOG_I(NR_MAC, "Adding new UE context with RNTI 0x%04x\n", rntiP);
-  dump_nr_list(UE_info->list);
+  dump_nr_list(UE_info->connected_ue_list);
 
   // We will attach at the end, to mitigate race conditions
   // This is not good, but we will fix it progressively
@@ -2563,8 +2563,8 @@ NR_UE_info_t *add_new_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rntiP, NR_CellGroupConf
   NR_SCHED_LOCK(&UE_info->mutex);
   int i;
   for(i=0; i<MAX_MOBILES_PER_GNB; i++) {
-    if (UE_info->list[i] == NULL) {
-      UE_info->list[i] = UE;
+    if (UE_info->connected_ue_list[i] == NULL) {
+      UE_info->connected_ue_list[i] = UE;
       break;
     }
   }
@@ -2577,7 +2577,7 @@ NR_UE_info_t *add_new_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rntiP, NR_CellGroupConf
   NR_SCHED_UNLOCK(&UE_info->mutex);
 
   LOG_D(NR_MAC, "Add NR rnti %x\n", rntiP);
-  dump_nr_list(UE_info->list);
+  dump_nr_list(UE_info->connected_ue_list);
   return (UE);
 }
 
@@ -2686,7 +2686,7 @@ void mac_remove_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rnti)
 
   NR_UEs_t *UE_info = &nr_mac->UE_info;
   NR_SCHED_LOCK(&UE_info->mutex);
-  UE_iterator(UE_info->list, UE) {
+  UE_iterator(UE_info->connected_ue_list, UE) {
     if (UE->rnti==rnti)
       break;
   }
@@ -2698,11 +2698,11 @@ void mac_remove_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rnti)
   }
 
   NR_UE_info_t * newUEs[MAX_MOBILES_PER_GNB+1]={0};
-  int newListIdx=0;
-  for (int i=0; i<MAX_MOBILES_PER_GNB; i++)
-    if(UE_info->list[i] && UE_info->list[i]->rnti != rnti)
-      newUEs[newListIdx++]=UE_info->list[i];
-  memcpy(UE_info->list, newUEs, sizeof(UE_info->list));
+  int newListIdx = 0;
+  for (int i = 0; i < MAX_MOBILES_PER_GNB; i++)
+    if(UE_info->connected_ue_list[i] && UE_info->connected_ue_list[i]->rnti != rnti)
+      newUEs[newListIdx++] = UE_info->connected_ue_list[i];
+  memcpy(UE_info->connected_ue_list, newUEs, sizeof(UE_info->connected_ue_list));
   NR_SCHED_UNLOCK(&UE_info->mutex);
 
   const int CC_id = 0;
@@ -2799,7 +2799,7 @@ void nr_csirs_scheduling(int Mod_idP, frame_t frame, slot_t slot, nfapi_nr_dl_tt
 
   UE_info->sched_csirs = 0;
 
-  UE_iterator(UE_info->list, UE) {
+  UE_iterator(UE_info->connected_ue_list, UE) {
     NR_UE_DL_BWP_t *dl_bwp = &UE->current_DL_BWP;
 
     // CSI-RS is common to all UEs in a given BWP
@@ -3161,7 +3161,7 @@ void nr_mac_update_timers(module_id_t module_id, frame_t frame, slot_t slot)
   NR_SCHED_ENSURE_LOCKED(&mac->sched_lock);
 
   NR_UEs_t *UE_info = &mac->UE_info;
-  UE_iterator(UE_info->list, UE) {
+  UE_iterator(UE_info->connected_ue_list, UE) {
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
 
     if (nr_mac_check_release(sched_ctrl, UE->rnti)) {

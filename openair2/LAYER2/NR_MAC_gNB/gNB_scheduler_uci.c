@@ -179,7 +179,7 @@ void nr_schedule_pucch(gNB_MAC_INST *nrmac, frame_t frameP, slot_t slotP)
   if (!is_ul_slot(slotP, &nrmac->frame_structure))
     return;
 
-  UE_iterator(nrmac->UE_info.list, UE) {
+  UE_iterator(nrmac->UE_info.connected_ue_list, UE) {
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     const int pucch_index = get_pucch_index(frameP, slotP, &nrmac->frame_structure, sched_ctrl->sched_pucch_size);
     NR_sched_pucch_t *curr_pucch = &UE->UE_sched_ctrl.sched_pucch[pucch_index];
@@ -217,7 +217,7 @@ void nr_csi_meas_reporting(int Mod_idP,frame_t frame, slot_t slot)
   /* already mutex protected: held in gNB_dlsch_ulsch_scheduler() */
   NR_SCHED_ENSURE_LOCKED(&nrmac->sched_lock);
 
-  UE_iterator(nrmac->UE_info.list, UE ) {
+  UE_iterator(nrmac->UE_info.connected_ue_list, UE) {
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
     const int n_slots_frame = nrmac->frame_structure.numb_slots_frame;
@@ -1219,7 +1219,7 @@ void nr_sr_reporting(gNB_MAC_INST *nrmac, frame_t SFN, slot_t slot)
   if (!is_ul_slot(slot, &nrmac->frame_structure))
     return;
   const int CC_id = 0;
-  UE_iterator(nrmac->UE_info.list, UE) {
+  UE_iterator(nrmac->UE_info.connected_ue_list, UE) {
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
     const int n_slots_frame = nrmac->frame_structure.numb_slots_frame;

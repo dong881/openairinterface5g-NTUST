@@ -105,7 +105,7 @@ void du_clear_all_ue_states()
   gNB_MAC_INST *mac = RC.nrmac[0];
   NR_SCHED_LOCK(&mac->sched_lock);
 
-  NR_UE_info_t *UE = *mac->UE_info.list;
+  NR_UE_info_t *UE = *mac->UE_info.connected_ue_list;
 
   instance_t f1inst = get_f1_gtp_instance();
 
@@ -116,7 +116,7 @@ void du_clear_all_ue_states()
     if (du_exists_f1_ue_data(rnti))
       du_remove_f1_ue_data(rnti);
     newGtpuDeleteAllTunnels(f1inst, rnti);
-    UE = *mac->UE_info.list;
+    UE = *mac->UE_info.connected_ue_list;
   }
   NR_SCHED_UNLOCK(&mac->sched_lock);
 }
