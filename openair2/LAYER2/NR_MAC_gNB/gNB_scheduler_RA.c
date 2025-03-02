@@ -522,7 +522,7 @@ void schedule_nr_prach(module_id_t module_idP, frame_t frameP, slot_t slotP)
             }
             if (scc->uplinkConfigCommon->initialUplinkBWP->ext1
                 && scc->uplinkConfigCommon->initialUplinkBWP->ext1->msgA_ConfigCommon_r16) {
-              if (gNB->UE_info.list[0] == NULL)
+              if (gNB->UE_info.connected_ue_list[0] == NULL)
                 schedule_nr_MsgA_pusch(scc->uplinkConfigCommon,
                                        gNB,
                                        module_idP,

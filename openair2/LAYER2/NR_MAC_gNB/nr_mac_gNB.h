@@ -781,7 +781,7 @@ typedef struct {
   /// scheduling control info
   // last element always NULL
   pthread_mutex_t mutex;
-  NR_UE_info_t *list[MAX_MOBILES_PER_GNB+1];
+  NR_UE_info_t *connected_ue_list[MAX_MOBILES_PER_GNB + 1];
   // bitmap of CSI-RS already scheduled in current slot
   int sched_csirs;
   uid_allocator_t uid_allocator;

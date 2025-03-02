@@ -62,7 +62,7 @@ void nr_preprocessor_phytest(module_id_t module_id, frame_t frame, slot_t slot)
   int slot_period = slot % mac->frame_structure.numb_slots_period;
   if (!is_xlsch_in_slot(dlsch_slot_bitmap, slot_period))
     return;
-  NR_UE_info_t *UE = mac->UE_info.list[0];
+  NR_UE_info_t *UE = mac->UE_info.connected_ue_list[0];
   NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   NR_UE_DL_BWP_t *dl_bwp = &UE->current_DL_BWP;
@@ -214,9 +214,9 @@ bool nr_ul_preprocessor_phytest(module_id_t module_id, frame_t frame, slot_t slo
   /* already mutex protected: held in gNB_dlsch_ulsch_scheduler() */
   NR_COMMON_channels_t *cc = nr_mac->common_channels;
   NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
-  NR_UE_info_t *UE = nr_mac->UE_info.list[0];
+  NR_UE_info_t *UE = nr_mac->UE_info.connected_ue_list[0];
 
-  AssertFatal(nr_mac->UE_info.list[1] == NULL,
+  AssertFatal(nr_mac->UE_info.connected_ue_list[1] == NULL,
               "cannot handle more than one UE\n");
   if (UE == NULL)
     return false;
