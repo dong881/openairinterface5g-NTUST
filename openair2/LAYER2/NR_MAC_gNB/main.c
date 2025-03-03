@@ -362,6 +362,9 @@ void mac_top_destroy_gNB(gNB_MAC_INST *mac)
   for (int i = 0; i < sizeofArray(UE_info->connected_ue_list); ++i)
     if (UE_info->connected_ue_list[i])
       delete_nr_ue_data(UE_info->connected_ue_list[i], cc, &UE_info->uid_allocator);
+  for (int i = 0; i < sizeofArray(UE_info->access_ue_list); ++i)
+    if (UE_info->access_ue_list[i])
+      delete_nr_ue_data(UE_info->access_ue_list[i], cc, &UE_info->uid_allocator);
 }
 
 void nr_mac_send_f1_setup_req(void)

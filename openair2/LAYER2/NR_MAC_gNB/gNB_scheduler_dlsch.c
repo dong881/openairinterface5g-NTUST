@@ -609,9 +609,6 @@ static void pf_dl(module_id_t module_id,
 
   /* Loop UE_info->list to check retransmission */
   UE_iterator(UE_list, UE) {
-    if (!UE->Msg4_MsgB_ACKed)
-      continue;
-
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     NR_UE_DL_BWP_t *current_BWP = &UE->current_DL_BWP;
 
