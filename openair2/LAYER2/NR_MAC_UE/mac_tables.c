@@ -38,7 +38,7 @@
 // next six columns contain table 7.3.1.1.2-3: Precoding information and number of layers for 4 antenna ports, if transformPrecoder= enabled, or if transformPrecoder=disabled and maxRank = 1
 // next four columns contain table 7.3.1.1.2-4: Precoding information and number of layers, for 2 antenna ports, if transformPrecoder=disabled and maxRank = 2
 // next four columns contain table 7.3.1.1.2-5: Precoding information and number of layers, for 2 antenna ports, if transformPrecoder= enabled, or if transformPrecoder= disabled and maxRank = 1
-const uint8_t table_7_3_1_1_2_2_3_4_5[64][20] = {
+static const uint8_t table_7_3_1_1_2_2_3_4_5[64][20] = {
   {1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0},
   {1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1},
   {1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  1,  2,  2,  0,  2,  0,  1,  2,  0,  0},
@@ -105,7 +105,7 @@ const uint8_t table_7_3_1_1_2_2_3_4_5[64][20] = {
   {0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0}
 };
 
-const uint8_t table_7_3_1_1_2_12[14][3] = {
+static const uint8_t table_7_3_1_1_2_12[14][3] = {
   {1,0,1},
   {1,1,1},
   {2,0,1},
@@ -122,7 +122,7 @@ const uint8_t table_7_3_1_1_2_12[14][3] = {
   {2,7,2}
 };
 
-const uint8_t table_7_3_1_1_2_13[10][4] = {
+static const uint8_t table_7_3_1_1_2_13[10][4] = {
   {1,0,1,1},
   {2,0,1,1},
   {2,2,3,1},
@@ -135,20 +135,20 @@ const uint8_t table_7_3_1_1_2_13[10][4] = {
   {2,2,6,2}
 };
 
-const uint8_t table_7_3_1_1_2_14[3][5] = {
+static const uint8_t table_7_3_1_1_2_14[3][5] = {
   {2,0,1,2,1},
   {2,0,1,4,2},
   {2,2,3,6,2}
 };
 
-const uint8_t table_7_3_1_1_2_15[4][6] = {
+static const uint8_t table_7_3_1_1_2_15[4][6] = {
   {2,0,1,2,3,1},
   {2,0,1,4,5,2},
   {2,2,3,6,7,2},
   {2,0,2,4,6,2}
 };
 
-const uint8_t table_7_3_1_1_2_16[12][2] = {
+static const uint8_t table_7_3_1_1_2_16[12][2] = {
   {1,0},
   {1,1},
   {2,0},
@@ -163,7 +163,7 @@ const uint8_t table_7_3_1_1_2_16[12][2] = {
   {3,5}
 };
 
-const uint8_t table_7_3_1_1_2_17[7][3] = {
+static const uint8_t table_7_3_1_1_2_17[7][3] = {
   {1,0,1},
   {2,0,1},
   {2,2,3},
@@ -172,18 +172,19 @@ const uint8_t table_7_3_1_1_2_17[7][3] = {
   {3,4,5},
   {2,0,2}
 };
-const uint8_t table_7_3_1_1_2_18[3][4] = {
+
+static const uint8_t table_7_3_1_1_2_18[3][4] = {
   {2,0,1,2},
   {3,0,1,2},
   {3,3,4,5}
 };
 
-const uint8_t table_7_3_1_1_2_19[2][5] = {
+static const uint8_t table_7_3_1_1_2_19[2][5] = {
   {2,0,1,2,3},
   {3,0,1,2,3}
 };
 
-const uint8_t table_7_3_1_1_2_20[28][3] = {
+static const uint8_t table_7_3_1_1_2_20[28][3] = {
   {1,0,1},
   {1,1,1},
   {2,0,1},
@@ -214,7 +215,7 @@ const uint8_t table_7_3_1_1_2_20[28][3] = {
   {1,7,2}
 };
 
-const uint8_t table_7_3_1_1_2_21[19][4] = {
+static const uint8_t table_7_3_1_1_2_21[19][4] = {
   {1,0,1,1},
   {2,0,1,1},
   {2,2,3,1},
@@ -236,7 +237,7 @@ const uint8_t table_7_3_1_1_2_21[19][4] = {
   {2,8,9,2}
 };
 
-const uint8_t table_7_3_1_1_2_22[6][5] = {
+static const uint8_t table_7_3_1_1_2_22[6][5] = {
   {2,0,1,2,1},
   {3,0,1,2,1},
   {3,3,4,5,1},
@@ -245,7 +246,7 @@ const uint8_t table_7_3_1_1_2_22[6][5] = {
   {3,4,5,10,2}
 };
 
-const uint8_t table_7_3_1_1_2_23[5][6] = {
+static const uint8_t table_7_3_1_1_2_23[5][6] = {
   {2,0,1,2,3,1},
   {3,0,1,2,3,1},
   {3,0,1,6,7,2},
@@ -253,7 +254,7 @@ const uint8_t table_7_3_1_1_2_23[5][6] = {
   {3,4,5,10,11,2}
 };
 
-const uint8_t table_7_3_2_3_3_1[12][5] = {
+static const uint8_t table_7_3_2_3_3_1[12][5] = {
   {1,1,0,0,0},
   {1,0,1,0,0},
   {1,1,1,0,0},
@@ -268,7 +269,7 @@ const uint8_t table_7_3_2_3_3_1[12][5] = {
   {2,1,0,1,0}
 };
 
-const uint8_t table_7_3_2_3_3_2_oneCodeword[31][10] = {
+static const uint8_t table_7_3_2_3_3_2_oneCodeword[31][10] = {
   {1,1,0,0,0,0,0,0,0,1},
   {1,0,1,0,0,0,0,0,0,1},
   {1,1,1,0,0,0,0,0,0,1},
@@ -302,14 +303,14 @@ const uint8_t table_7_3_2_3_3_2_oneCodeword[31][10] = {
   {2,1,0,1,0,1,0,1,0,2}
 };
 
-const uint8_t table_7_3_2_3_3_2_twoCodeword[4][10] = {
+static const uint8_t table_7_3_2_3_3_2_twoCodeword[4][10] = {
   {2,1,1,1,1,1,0,0,0,2},
   {2,1,1,1,1,1,0,1,0,2},
   {2,1,1,1,1,1,1,1,0,2},
   {2,1,1,1,1,1,1,1,1,2}
 };
 
-const uint8_t table_7_3_2_3_3_3_oneCodeword[24][7] = {
+static const uint8_t table_7_3_2_3_3_3_oneCodeword[24][7] = {
   {1,1,0,0,0,0,0},
   {1,0,1,0,0,0,0},
   {1,1,1,0,0,0,0},
@@ -336,12 +337,12 @@ const uint8_t table_7_3_2_3_3_3_oneCodeword[24][7] = {
   {3,1,0,1,0,0,0}
 };
 
-const uint8_t table_7_3_2_3_3_3_twoCodeword[2][7] = {
+static const uint8_t table_7_3_2_3_3_3_twoCodeword[2][7] = {
   {3,1,1,1,1,1,0},
   {3,1,1,1,1,1,1}
 };
 
-const uint8_t table_7_3_2_3_3_4_oneCodeword[58][14] = {
+static const uint8_t table_7_3_2_3_3_4_oneCodeword[58][14] = {
   {1,1,0,0,0,0,0,0,0,0,0,0,0,1},
   {1,0,1,0,0,0,0,0,0,0,0,0,0,1},
   {1,1,1,0,0,0,0,0,0,0,0,0,0,1},
@@ -402,7 +403,7 @@ const uint8_t table_7_3_2_3_3_4_oneCodeword[58][14] = {
   {2,0,0,0,0,0,0,0,0,1,1,0,0,2}
 };
 
-const uint8_t table_7_3_2_3_3_4_twoCodeword[6][14] = {
+static const uint8_t table_7_3_2_3_3_4_twoCodeword[6][14] = {
   {3,1,1,1,1,1,0,0,0,0,0,0,0,1},
   {3,1,1,1,1,1,1,0,0,0,0,0,0,1},
   {2,1,1,1,1,0,0,1,0,0,0,0,0,2},
@@ -412,7 +413,7 @@ const uint8_t table_7_3_2_3_3_4_twoCodeword[6][14] = {
 };
 
 // table 7.2-1 TS 38.321
-const uint32_t table_7_2_1[16] = {
+static const uint32_t table_7_2_1[16] = {
   5,    // row index 0
   10,   // row index 1
   20,   // row index 2

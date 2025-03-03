@@ -1689,7 +1689,7 @@ INPUT                  = \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/NR_MAC_gNB/gNB_scheduler_bch.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/openair2_proc.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/RLC/rlc.h \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/NR_MAC_UE/mac_vars.c \
+@CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/NR_MAC_UE/mac_tables.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/NR_MAC_UE/nr_ue_procedures.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/NR_MAC_UE/mac_defs.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/LAYER2/NR_MAC_UE/mac_proto.h \
