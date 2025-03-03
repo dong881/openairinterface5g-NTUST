@@ -650,6 +650,11 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
     // verify if report with current id has been scheduled for this frame and slot
     if ((n_slots_frame*frame + slot - offset)%period == 0) {
       reportQuantity_type = csi_report->reportQuantity_type;
+      // phy-test has hardcoded allocation, so no use to handle CSI reports except RSRP
+      if (get_softmodem_params()->phy_test
+          && reportQuantity_type != NR_CSI_ReportConfig__reportQuantity_PR_ssb_Index_RSRP
+          && reportQuantity_type != NR_CSI_ReportConfig__reportQuantity_PR_cri_RSRP)
+        continue;
       LOG_D(MAC,"SFN/SF:%d/%d reportQuantity type = %d\n",frame,slot,reportQuantity_type);
       switch(reportQuantity_type) {
         case NR_CSI_ReportConfig__reportQuantity_PR_cri_RSRP:
@@ -869,8 +874,7 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, frame_t frame, slot_t slot, c
     }
     free(uci_234->harq.harq_payload);
   }
-  /* phy-test has hardcoded allocation, so no use to handle CSI reports */
-  if ((uci_234->pduBitmap >> 2) & 0x01 && !get_softmodem_params()->phy_test) {
+  if ((uci_234->pduBitmap >> 2) & 0x01) {
     LOG_D(NR_MAC, "CSI CRC %d\n", uci_234->csi_part1.csi_part1_crc);
     if (uci_234->csi_part1.csi_part1_crc != 1) {
       // API to parse the csi report and store it into sched_ctrl
