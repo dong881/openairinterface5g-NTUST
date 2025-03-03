@@ -476,15 +476,18 @@ NR_CellGroupConfig_t *clone_CellGroupConfig(const NR_CellGroupConfig_t *orig)
 static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac, uint32_t cu_id)
 {
   int CC_id = 0;
-  const NR_COMMON_channels_t *cc = &mac->common_channels[CC_id];
   rnti_t rnti;
-  bool found = nr_mac_get_new_rnti(&mac->UE_info, cc->ra, sizeofArray(cc->ra), &rnti);
+  bool found = nr_mac_get_new_rnti(&mac->UE_info, &rnti);
   if (!found)
     return NULL;
 
-  NR_UE_info_t* UE = add_new_nr_ue(mac, rnti, NULL);
-  if (!UE)
+  NR_UE_info_t *UE = get_new_nr_ue_inst(&mac->UE_info.uid_allocator, rnti, NULL);
+  AssertFatal(UE != NULL, "cannot create UE context, UE context setup failure not implemented\n");
+  if (!add_new_UE_RA(mac, UE)) {
+    delete_nr_ue_data(UE, /*not used*/ NULL, &mac->UE_info.uid_allocator);
+    LOG_E(NR_MAC, "UE list full while creating new UE\n");
     return NULL;
+  }
 
   f1_ue_data_t new_ue_data = {.secondary_ue = cu_id};
   bool success = du_add_f1_ue_data(rnti, &new_ue_data);
@@ -499,11 +502,10 @@ static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac, uint32_t cu_id)
   // by add_new_nr_ue(); it's a kind of chicken-and-egg problem), so below we
   // complete the UE context with the information that add_new_nr_ue() would
   // have added
-  UE->Msg4_MsgB_ACKed = true;
   UE->CellGroup = cellGroupConfig;
 
   nr_rlc_activate_srb0(UE->rnti, UE, NULL);
-  nr_mac_prepare_ra_ue(mac, rnti, UE->CellGroup);
+  nr_mac_prepare_ra_ue(mac, UE);
   /* SRB1 is added to RLC and MAC in the handler later */
   return UE;
 }
@@ -759,13 +761,6 @@ void ue_context_modification_refuse(const f1ap_ue_context_modif_refuse_t *refuse
     return;
   }
 
-  const int CC_id = 0;
-  NR_COMMON_channels_t *cc = &mac->common_channels[CC_id];
-  for (int i = 0; i < NR_NB_RA_PROC_MAX; i++) {
-    NR_RA_t *ra = &cc->ra[i];
-    if (ra->rnti == UE->rnti)
-      nr_clear_ra_proc(ra);
-  }
   NR_SCHED_UNLOCK(&mac->sched_lock);
 
   f1ap_ue_context_release_req_t request = {
@@ -822,6 +817,7 @@ void dl_rrc_message_transfer(const f1ap_dl_rrc_message_t *dl_rrc)
   pthread_mutex_lock(&mac->sched_lock);
   /* check first that the scheduler knows such UE */
   NR_UE_info_t *UE = find_nr_UE(&mac->UE_info, dl_rrc->gNB_DU_ue_id);
+  UE = UE ? UE : find_ra_UE(&mac->UE_info, dl_rrc->gNB_DU_ue_id);
   if (UE == NULL) {
     LOG_E(MAC, "ERROR: unknown UE with RNTI %04x, ignoring DL RRC Message Transfer\n", dl_rrc->gNB_DU_ue_id);
     pthread_mutex_unlock(&mac->sched_lock);
@@ -870,12 +866,11 @@ void dl_rrc_message_transfer(const f1ap_dl_rrc_message_t *dl_rrc)
      * from the current configuration. Also, expect the reconfiguration from
      * the CU, so save the old UE's CellGroup for the new UE */
     UE->CellGroup->spCellConfig = NULL;
-    NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
     uid_t temp_uid = UE->uid;
     UE->uid = oldUE->uid;
     oldUE->uid = temp_uid;
-    configure_UE_BWP(mac, scc, sched_ctrl, NULL, UE, -1, -1);
+    configure_UE_BWP(mac, scc, UE, false, -1, -1);
     for (int i = 1; i < seq_arr_size(&oldUE->UE_sched_ctrl.lc_config); ++i) {
       const nr_lc_config_t *c = seq_arr_at(&oldUE->UE_sched_ctrl.lc_config, i);
       nr_mac_add_lcid(&UE->UE_sched_ctrl, c);

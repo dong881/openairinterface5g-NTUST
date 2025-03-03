@@ -60,8 +60,8 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, NR_ServingCellConfigCommon_t *scc, c
 void nr_mac_configure_sib1(gNB_MAC_INST *nrmac, const plmn_id_t *plmn, uint64_t cellID, int tac);
 bool nr_mac_configure_other_sib(gNB_MAC_INST *nrmac, int num_cu_sib, const f1ap_sib_msg_t cu_sib[num_cu_sib]);
 bool nr_mac_add_test_ue(gNB_MAC_INST *nrmac, uint32_t rnti, NR_CellGroupConfig_t *CellGroup);
-bool nr_mac_prepare_ra_ue(gNB_MAC_INST *nrmac, uint32_t rnti, NR_CellGroupConfig_t *CellGroup);
-
+void nr_mac_prepare_ra_ue(gNB_MAC_INST *nrmac, NR_UE_info_t *UE);
+bool add_new_UE_RA(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
 int nr_mac_get_reconfig_delay_slots(NR_SubcarrierSpacing_t scs);
 
 bool nr_mac_prepare_cellgroup_update(gNB_MAC_INST *nrmac, NR_UE_info_t *UE, NR_CellGroupConfig_t *CellGroup);
@@ -134,8 +134,6 @@ void nr_initiate_ra_proc(module_id_t module_idP,
                          uint8_t symbol,
                          int16_t timing_offset,
                          uint32_t preamble_power);
-
-void nr_clear_ra_proc(NR_RA_t *ra);
 
 int nr_allocate_CCEs(int module_idP, int CC_idP, frame_t frameP, slot_t slotP, int test_only);
 
@@ -310,21 +308,22 @@ void remove_nr_list(NR_list_t *listP, int id);
 void add_tail_nr_list(NR_list_t *listP, int id);
 void add_front_nr_list(NR_list_t *listP, int id);
 void remove_front_nr_list(NR_list_t *listP);
-
+void nr_release_ra_UE(gNB_MAC_INST *mac, rnti_t rnti);
 NR_UE_info_t * find_nr_UE(NR_UEs_t* UEs, rnti_t rntiP);
-
+NR_UE_info_t *find_ra_UE(NR_UEs_t *UEs, rnti_t rntiP);
+void delete_nr_ue_data(NR_UE_info_t *UE, NR_COMMON_channels_t *ccPtr, uid_allocator_t *uia);
 void configure_UE_BWP(gNB_MAC_INST *nr_mac,
                       NR_ServingCellConfigCommon_t *scc,
-                      NR_UE_sched_ctrl_t *sched_ctrl,
-                      NR_RA_t *ra,
                       NR_UE_info_t *UE,
+                      bool is_RA,
                       int dl_bwp_switch,
                       int ul_bwp_switch);
 
-NR_UE_info_t* add_new_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rntiP, NR_CellGroupConfig_t *CellGroup);
-
+bool transition_ra_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
+bool add_connected_nr_ue(gNB_MAC_INST *nr_mac, NR_UE_info_t *UE);
+void nr_check_Msg4_MsgB_Ack(module_id_t module_id, frame_t frame, slot_t slot, NR_UE_info_t *UE, bool success);
 void mac_remove_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rnti);
-
+NR_UE_info_t *get_new_nr_ue_inst(uid_allocator_t *uia, rnti_t rnti, NR_CellGroupConfig_t *CellGroup);
 int nr_get_default_pucch_res(int pucch_ResourceCommon);
 
 int nr_write_ce_dlsch_pdu(module_id_t module_idP,
@@ -362,11 +361,7 @@ void reset_dl_harq_list(NR_UE_sched_ctrl_t *sched_ctrl);
 
 void reset_ul_harq_list(NR_UE_sched_ctrl_t *sched_ctrl);
 
-void handle_nr_ul_harq(const int CC_idP,
-                       module_id_t mod_id,
-                       frame_t frame,
-                       slot_t slot,
-                       const nfapi_nr_crc_t *crc_pdu);
+void handle_nr_ul_harq(module_id_t mod_id, frame_t frame, slot_t slot, const nfapi_nr_crc_t *crc_pdu);
 
 uint8_t *allocate_transportBlock_buffer(byte_array_t *tb, uint32_t needed);
 void free_transportBlock_buffer(byte_array_t *tb);
@@ -394,7 +389,8 @@ uint8_t get_mcs_from_cqi(int mcs_table, int cqi_table, int cqi_idx);
 uint8_t get_dl_nrOfLayers(const NR_UE_sched_ctrl_t *sched_ctrl, const nr_dci_format_t dci_format);
 
 void free_sched_pucch_list(NR_UE_sched_ctrl_t *sched_ctrl);
-
+bool add_UE_to_list(int list_size, NR_UE_info_t *list[list_size], NR_UE_info_t *UE);
+NR_UE_info_t *remove_UE_from_list(int list_size, NR_UE_info_t *list[list_size], rnti_t rnti);
 int get_dl_tda(const gNB_MAC_INST *nrmac, int slot);
 int get_ul_tda(gNB_MAC_INST *nrmac, int frame, int slot);
 
@@ -430,7 +426,6 @@ int get_mcs_from_bler(const NR_bler_options_t *bler_options,
 
 int ul_buffer_index(int frame, int slot, int slots_per_frame, int size);
 void UL_tti_req_ahead_initialization(gNB_MAC_INST *gNB, int n, int CCid, frame_t frameP, int slotP);
-
 void fapi_beam_index_allocation(NR_ServingCellConfigCommon_t *scc, gNB_MAC_INST *mac);
 int get_fapi_beamforming_index(gNB_MAC_INST *mac, int ssb_idx);
 NR_beam_alloc_t beam_allocation_procedure(NR_beam_info_t *beam_info, int frame, int slot, int beam_index, int slots_per_frame);
@@ -467,7 +462,7 @@ void process_addmod_bearers_cellGroupConfig(NR_UE_sched_ctrl_t *sched_ctrl,
 bool nr_mac_add_lcid(NR_UE_sched_ctrl_t *sched_ctrl, const nr_lc_config_t *c);
 bool nr_mac_remove_lcid(NR_UE_sched_ctrl_t *sched_ctrl, long lcid);
 
-bool nr_mac_get_new_rnti(NR_UEs_t *UEs, const NR_RA_t *ra_base, int ra_count, rnti_t *rnti);
+bool nr_mac_get_new_rnti(NR_UEs_t *UEs, rnti_t *rnti);
 void nr_mac_update_pdcch_closed_loop_adjust(NR_UE_sched_ctrl_t *sched_ctrl, bool feedback_not_detected);
 
 void prepare_du_configuration_update(gNB_MAC_INST *mac,

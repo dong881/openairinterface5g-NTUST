@@ -371,9 +371,17 @@ void rrc_add_nsa_user(gNB_RRC_INST *rrc, rrc_gNB_ue_context_t *ue_context_p, x2a
               && secondaryCellGroup->spCellConfig->reconfigurationWithSync
               && secondaryCellGroup->spCellConfig->reconfigurationWithSync->rach_ConfigDedicated
               && secondaryCellGroup->spCellConfig->reconfigurationWithSync->rach_ConfigDedicated->choice.uplink->cfra);
-    NR_SCHED_LOCK(&RC.nrmac[rrc->module_id]->sched_lock);
-    ret = nr_mac_prepare_ra_ue(RC.nrmac[rrc->module_id], du_ue_id, secondaryCellGroup);
-    NR_SCHED_UNLOCK(&RC.nrmac[rrc->module_id]->sched_lock);
+    gNB_MAC_INST *nrmac = RC.nrmac[rrc->module_id];
+    NR_SCHED_LOCK(&nrmac->sched_lock);
+    NR_UE_info_t *UE_info = get_new_nr_ue_inst(&nrmac->UE_info.uid_allocator, UE->rnti, secondaryCellGroup);
+    AssertFatal(UE_info != NULL, "cannot create UE context: list is full?\n");
+    if (add_new_UE_RA(nrmac, UE_info)) {
+      ret = true;
+      nr_mac_prepare_ra_ue(nrmac, UE_info);
+    } else {
+      delete_nr_ue_data(UE_info, /* not used */ NULL, &nrmac->UE_info.uid_allocator);
+    }
+    NR_SCHED_UNLOCK(&nrmac->sched_lock);
   }
   AssertFatal(ret, "cannot add NSA UE in MAC, aborting\n");
 
