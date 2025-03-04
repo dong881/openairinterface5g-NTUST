@@ -64,7 +64,7 @@ static const float ssb_per_rach_occasion[8] = {0.125, 0.25, 0.5, 1, 2, 4, 8};
 
 static int16_t ssb_index_from_prach(module_id_t module_idP,
                                     frame_t frameP,
-                                    sub_frame_t slotP,
+                                    slot_t slotP,
                                     uint16_t preamble_index,
                                     uint8_t freq_index,
                                     uint8_t symbol)
@@ -255,7 +255,7 @@ static void schedule_nr_MsgA_pusch(NR_UplinkConfigCommon_t *uplinkConfigCommon,
                                    gNB_MAC_INST *nr_mac,
                                    module_id_t module_idP,
                                    frame_t frameP,
-                                   sub_frame_t slotP,
+                                   slot_t slotP,
                                    nfapi_nr_prach_pdu_t *prach_pdu,
                                    uint16_t dmrs_TypeA_Position,
                                    NR_PhysCellId_t physCellId)
@@ -356,7 +356,7 @@ static void schedule_nr_MsgA_pusch(NR_UplinkConfigCommon_t *uplinkConfigCommon,
 }
 
 static void fill_vrb(const frame_t frame,
-                     const sub_frame_t slot,
+                     const slot_t slot,
                      int nb_rb,
                      int beam_idx,
                      int vrb_size,
@@ -376,7 +376,7 @@ static void fill_vrb(const frame_t frame,
   }
 }
 
-void schedule_nr_prach(module_id_t module_idP, frame_t frameP, sub_frame_t slotP)
+void schedule_nr_prach(module_id_t module_idP, frame_t frameP, slot_t slotP)
 {
   gNB_MAC_INST *gNB = RC.nrmac[module_idP];
   /* already mutex protected: held in gNB_dlsch_ulsch_scheduler() */
@@ -826,7 +826,7 @@ static void start_ra_contention_resolution_timer(NR_RA_t *ra, const long ra_Cont
 static void nr_generate_Msg3_retransmission(module_id_t module_idP,
                                             int CC_id,
                                             frame_t frame,
-                                            sub_frame_t slot,
+                                            slot_t slot,
                                             NR_RA_t *ra,
                                             nfapi_nr_ul_dci_request_t *ul_dci_req)
 {
@@ -1227,7 +1227,7 @@ static void fill_msg3_pusch_pdu(nfapi_nr_pusch_pdu_t *pusch_pdu,
   }
 }
 
-static void nr_add_msg3(module_id_t module_idP, int CC_id, frame_t frameP, sub_frame_t slotP, NR_RA_t *ra, uint8_t *RAR_pdu)
+static void nr_add_msg3(module_id_t module_idP, int CC_id, frame_t frameP, slot_t slotP, NR_RA_t *ra, uint8_t *RAR_pdu)
 {
   gNB_MAC_INST *mac = RC.nrmac[module_idP];
   NR_COMMON_channels_t *cc = &mac->common_channels[CC_id];
@@ -1622,7 +1622,7 @@ static void prepare_dl_pdus(gNB_MAC_INST *nr_mac,
 static void nr_generate_Msg2(module_id_t module_idP,
                              int CC_id,
                              frame_t frameP,
-                             sub_frame_t slotP,
+                             slot_t slotP,
                              NR_RA_t *ra,
                              nfapi_nr_dl_tti_request_t *DL_req,
                              nfapi_nr_tx_data_request_t *TX_req)
@@ -1885,7 +1885,7 @@ static void nr_generate_Msg2(module_id_t module_idP,
 static void nr_generate_Msg4_MsgB(module_id_t module_idP,
                                   int CC_id,
                                   frame_t frameP,
-                                  sub_frame_t slotP,
+                                  slot_t slotP,
                                   NR_RA_t *ra,
                                   nfapi_nr_dl_tti_request_t *DL_req,
                                   nfapi_nr_tx_data_request_t *TX_req)
@@ -2197,7 +2197,7 @@ static void nr_generate_Msg4_MsgB(module_id_t module_idP,
   }
 }
 
-static void nr_check_Msg4_MsgB_Ack(module_id_t module_id, int CC_id, frame_t frame, sub_frame_t slot, NR_RA_t *ra)
+static void nr_check_Msg4_MsgB_Ack(module_id_t module_id, int CC_id, frame_t frame, slot_t slot, NR_RA_t *ra)
 {
   const char *ra_type_str = ra->ra_type == RA_2_STEP ? "MsgB" : "Msg4";
   NR_UE_info_t *UE = find_nr_UE(&RC.nrmac[module_id]->UE_info, ra->rnti);
@@ -2374,7 +2374,7 @@ static void nr_fill_rar(uint8_t Mod_idP, NR_RA_t *ra, uint8_t *dlsch_buffer, nfa
 
 void nr_schedule_RA(module_id_t module_idP,
                     frame_t frameP,
-                    sub_frame_t slotP,
+                    slot_t slotP,
                     nfapi_nr_ul_dci_request_t *ul_dci_req,
                     nfapi_nr_dl_tti_request_t *DL_req,
                     nfapi_nr_tx_data_request_t *TX_req)

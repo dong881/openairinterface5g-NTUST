@@ -296,10 +296,7 @@ void configure_csi_resource_mapping(fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_c
 @param
 @returns void
 */
-void nr_ue_msg3_scheduler(NR_UE_MAC_INST_t *mac,
-                          frame_t current_frame,
-                          sub_frame_t current_slot,
-                          uint8_t Msg3_tda_id);
+void nr_ue_msg3_scheduler(NR_UE_MAC_INST_t *mac, frame_t current_frame, slot_t current_slot, uint8_t Msg3_tda_id);
 
 void nr_ue_contention_resolution(NR_UE_MAC_INST_t *mac, int cc_id, frame_t frame, int slot, NR_PRACH_RESOURCES_t *prach_resources);
 

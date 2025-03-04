@@ -62,7 +62,7 @@ uint8_t nr_get_rv(int rel_round)
 void clear_nr_nfapi_information(gNB_MAC_INST *gNB,
                                 int CC_idP,
                                 frame_t frameP,
-                                sub_frame_t slotP,
+                                slot_t slotP,
                                 nfapi_nr_dl_tti_request_t *DL_req,
                                 nfapi_nr_tx_data_request_t *TX_req,
                                 nfapi_nr_ul_dci_request_t *UL_dci_req)
@@ -160,7 +160,7 @@ static void copy_ul_tti_req(nfapi_nr_ul_tti_request_t *to, nfapi_nr_ul_tti_reque
     to->groups_list[i] = from->groups_list[i];
 }
 
-void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, frame_t frame, sub_frame_t slot, NR_Sched_Rsp_t *sched_info)
+void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, frame_t frame, slot_t slot, NR_Sched_Rsp_t *sched_info)
 {
   protocol_ctxt_t ctxt = {0};
   PROTOCOL_CTXT_SET_BY_MODULE_ID(&ctxt, module_idP, ENB_FLAG_YES, NOT_A_RNTI, frame, slot,module_idP);
@@ -233,7 +233,7 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, frame_t frame, sub_frame_
        (schedule_nr_prach will assert if resources are not free). */
     const int n_slots_ahead = slots_frame - cc->prach_len + get_NTN_Koffset(scc);
     const frame_t f = (frame + (slot + n_slots_ahead) / slots_frame) % 1024;
-    const sub_frame_t s = (slot + n_slots_ahead) % slots_frame;
+    const slot_t s = (slot + n_slots_ahead) % slots_frame;
     schedule_nr_prach(module_idP, f, s);
   }
 

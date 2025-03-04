@@ -321,7 +321,7 @@ int nr_write_ce_dlsch_pdu(module_id_t module_idP,
   return offset;
 }
 
-static void nr_store_dlsch_buffer(module_id_t module_id, frame_t frame, sub_frame_t slot)
+static void nr_store_dlsch_buffer(module_id_t module_id, frame_t frame, slot_t slot)
 {
   UE_iterator(RC.nrmac[module_id]->UE_info.list, UE) {
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
@@ -425,7 +425,7 @@ static dl_bwp_info_t get_bwp_start_size(gNB_MAC_INST *mac, NR_UE_info_t *UE)
 
 static bool allocate_dl_retransmission(module_id_t module_id,
                                        frame_t frame,
-                                       sub_frame_t slot,
+                                       slot_t slot,
                                        int *n_rb_sched,
                                        NR_UE_info_t *UE,
                                        int beam_idx,
@@ -599,7 +599,7 @@ static int comparator(const void *p, const void *q) {
 
 static void pf_dl(module_id_t module_id,
                   frame_t frame,
-                  sub_frame_t slot,
+                  slot_t slot,
                   NR_UE_info_t **UE_list,
                   int max_num_ue,
                   int num_beams,
@@ -869,7 +869,7 @@ static void pf_dl(module_id_t module_id,
   }
 }
 
-static void nr_dlsch_preprocessor(module_id_t module_id, frame_t frame, sub_frame_t slot)
+static void nr_dlsch_preprocessor(module_id_t module_id, frame_t frame, slot_t slot)
 {
   gNB_MAC_INST *mac = RC.nrmac[module_id];
   NR_UEs_t *UE_info = &mac->UE_info;
@@ -927,7 +927,7 @@ nr_pp_impl_dl nr_init_dlsch_preprocessor(int CC_id) {
 
 void nr_schedule_ue_spec(module_id_t module_id,
                          frame_t frame,
-                         sub_frame_t slot,
+                         slot_t slot,
                          nfapi_nr_dl_tti_request_t *DL_req,
                          nfapi_nr_tx_data_request_t *TX_req)
 {

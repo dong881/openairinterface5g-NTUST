@@ -212,7 +212,7 @@ typedef struct {
   /// Frame where Msg2 is to be sent
   frame_t Msg2_frame;
   /// Subframe where Msg3 is to be sent
-  sub_frame_t Msg3_slot;
+  slot_t Msg3_slot;
   /// Frame where Msg3 is to be sent
   frame_t Msg3_frame;
   /// Msg3 time domain allocation index
@@ -622,7 +622,7 @@ typedef struct {
 
   /// For UL synchronization: store last UL scheduling grant
   frame_t last_ul_frame;
-  sub_frame_t last_ul_slot;
+  slot_t last_ul_slot;
 
   /// total amount of data awaiting for this UE
   uint32_t num_total_bytes;
@@ -797,12 +797,8 @@ typedef struct {
 
 #define UE_iterator(BaSe, VaR) NR_UE_info_t ** VaR##pptr=BaSe, *VaR; while ((VaR=*(VaR##pptr++)))
 
-typedef void (*nr_pp_impl_dl)(module_id_t mod_id,
-                              frame_t frame,
-                              sub_frame_t slot);
-typedef bool (*nr_pp_impl_ul)(module_id_t mod_id,
-                              frame_t frame,
-                              sub_frame_t slot);
+typedef void (*nr_pp_impl_dl)(module_id_t mod_id, frame_t frame, slot_t slot);
+typedef bool (*nr_pp_impl_ul)(module_id_t mod_id, frame_t frame, slot_t slot);
 
 typedef struct f1_config_t {
   f1ap_setup_req_t *setup_req;

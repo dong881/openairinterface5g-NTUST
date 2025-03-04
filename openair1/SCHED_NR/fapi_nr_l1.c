@@ -202,7 +202,7 @@ void nr_schedule_response(NR_Sched_Rsp_t *Sched_INFO)
   // copy data from L2 interface into L1 structures
   module_id_t Mod_id = Sched_INFO->module_id;
   frame_t frame = Sched_INFO->frame;
-  sub_frame_t slot = Sched_INFO->slot;
+  slot_t slot = Sched_INFO->slot;
 
   AssertFatal(RC.gNB != NULL, "RC.gNB is null\n");
   AssertFatal(RC.gNB[Mod_id] != NULL, "RC.gNB[%d] is null\n", Mod_id);

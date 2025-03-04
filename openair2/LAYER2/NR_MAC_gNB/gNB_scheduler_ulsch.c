@@ -265,7 +265,7 @@ static int nr_process_mac_pdu(instance_t module_idP,
                               NR_UE_info_t *UE,
                               uint8_t CC_id,
                               frame_t frameP,
-                              sub_frame_t slot,
+                              slot_t slot,
                               uint8_t *pduP,
                               uint32_t pdu_len,
                               const int8_t harq_pid)
@@ -574,7 +574,7 @@ static void abort_nr_ul_harq(NR_UE_info_t *UE, int8_t harq_pid)
 static bool get_UE_waiting_CFRA_msg3(const gNB_MAC_INST *gNB_mac,
                                      const int CC_id,
                                      const frame_t frame,
-                                     const sub_frame_t slot,
+                                     const slot_t slot,
                                      rnti_t rnti)
 {
   bool UE_waiting_CFRA_msg3 = false;
@@ -588,11 +588,7 @@ static bool get_UE_waiting_CFRA_msg3(const gNB_MAC_INST *gNB_mac,
   return UE_waiting_CFRA_msg3;
 }
 
-void handle_nr_ul_harq(const int CC_idP,
-                       module_id_t mod_id,
-                       frame_t frame,
-                       sub_frame_t slot,
-                       const nfapi_nr_crc_t *crc_pdu)
+void handle_nr_ul_harq(const int CC_idP, module_id_t mod_id, frame_t frame, slot_t slot, const nfapi_nr_crc_t *crc_pdu)
 {
   gNB_MAC_INST *nrmac = RC.nrmac[mod_id];
   if (nrmac->radio_config.disable_harq) {
@@ -695,7 +691,7 @@ static void handle_msg3_failed_rx(NR_RA_t *ra, int i, int harq_round_max)
 static void _nr_rx_sdu(const module_id_t gnb_mod_idP,
                        const int CC_idP,
                        const frame_t frameP,
-                       const sub_frame_t slotP,
+                       const slot_t slotP,
                        const rnti_t rntiP,
                        uint8_t *sduP,
                        const uint32_t sdu_lenP,
@@ -1005,7 +1001,7 @@ static void _nr_rx_sdu(const module_id_t gnb_mod_idP,
 void nr_rx_sdu(const module_id_t gnb_mod_idP,
                const int CC_idP,
                const frame_t frameP,
-               const sub_frame_t slotP,
+               const slot_t slotP,
                const rnti_t rntiP,
                uint8_t *sduP,
                const uint32_t sdu_lenP,
@@ -1458,7 +1454,7 @@ static int nr_srs_tpmi_estimation(const NR_PUSCH_Config_t *pusch_Config,
 
 void handle_nr_srs_measurements(const module_id_t module_id,
                                 const frame_t frame,
-                                const sub_frame_t slot,
+                                const slot_t slot,
                                 nfapi_nr_srs_indication_pdu_t *srs_ind)
 {
   gNB_MAC_INST *nrmac = RC.nrmac[module_id];
@@ -1630,7 +1626,7 @@ long get_K2(NR_PUSCH_TimeDomainResourceAllocationList_t *tdaList,
 static bool nr_UE_is_to_be_scheduled(const frame_structure_t *fs,
                                      NR_UE_info_t *UE,
                                      frame_t frame,
-                                     sub_frame_t slot,
+                                     slot_t slot,
                                      uint32_t ulsch_max_frame_inactivity)
 {
   const int n = fs->numb_slots_frame;
@@ -1751,7 +1747,7 @@ static void nr_ue_max_mcs_min_rb(int mu,
 
 static bool allocate_ul_retransmission(gNB_MAC_INST *nrmac,
 				       frame_t frame,
-				       sub_frame_t slot,
+				       slot_t slot,
 				       uint16_t *rballoc_mask,
 				       int *n_rb_sched,
 				       int dci_beam_idx,
@@ -2304,7 +2300,7 @@ static void pf_ul(module_id_t module_id,
   }
 }
 
-static bool nr_ulsch_preprocessor(module_id_t module_id, frame_t frame, sub_frame_t slot)
+static bool nr_ulsch_preprocessor(module_id_t module_id, frame_t frame, slot_t slot)
 {
   gNB_MAC_INST *nr_mac = RC.nrmac[module_id];
   // no UEs
@@ -2372,7 +2368,7 @@ nr_pp_impl_ul nr_init_ulsch_preprocessor(int CC_id)
   return nr_ulsch_preprocessor;
 }
 
-void nr_schedule_ulsch(module_id_t module_id, frame_t frame, sub_frame_t slot, nfapi_nr_ul_dci_request_t *ul_dci_req)
+void nr_schedule_ulsch(module_id_t module_id, frame_t frame, slot_t slot, nfapi_nr_ul_dci_request_t *ul_dci_req)
 {
   gNB_MAC_INST *nr_mac = RC.nrmac[module_id];
   /* already mutex protected: held in gNB_dlsch_ulsch_scheduler() */

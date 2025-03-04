@@ -57,7 +57,7 @@
     AssertFatal(ret == 0, "Failure in mutex management ret=%d\n", a); \
   }
 
-static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, sub_frame_t slotP);
+static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t slotP);
 static void schedule_ta_command(fapi_nr_dl_config_request_t *dl_config, NR_UE_MAC_INST_t *mac);
 static void schedule_ntn_config_command(fapi_nr_dl_config_request_t *dl_config, NR_UE_MAC_INST_t *mac);
 
@@ -65,12 +65,12 @@ static void nr_ue_fill_phr(NR_UE_MAC_INST_t *mac,
                            NR_SINGLE_ENTRY_PHR_MAC_CE *phr,
                            float P_CMAX,
                            float tx_power,
-                           frame_t frameP,
-                           sub_frame_t subframe);
+                           frame_t frame,
+                           slot_t slot);
 static uint8_t nr_ue_get_sdu(NR_UE_MAC_INST_t *mac,
                              int cc_id,
-                             frame_t frameP,
-                             sub_frame_t subframe,
+                             frame_t frame,
+                             slot_t slot,
                              uint8_t gNB_index,
                              uint8_t *ulsch_buffer,
                              const uint32_t buflen,
@@ -2585,7 +2585,7 @@ void nr_schedule_csirs_reception(NR_UE_MAC_INST_t *mac, int frame, int slot)
 // PRACH formats 9, 10, 11 are corresponding to dual PRACH format configurations A1/B1, A2/B2, A3/B3.
 // - todo:
 // - Partial configuration is actually already stored in (fapi_nr_prach_config_t) &mac->phy_config.config_req->prach_config
-static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, sub_frame_t slotP)
+static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t slotP)
 {
   RA_config_t *ra = &mac->ra;
   ra->RA_offset = 2; // to compensate the rx frame offset at the gNB
@@ -2801,8 +2801,8 @@ typedef struct {
 
 static void nr_ue_get_sdu_mac_ce_pre(NR_UE_MAC_INST_t *mac,
                                      int CC_id,
-                                     frame_t frameP,
-                                     sub_frame_t subframe,
+                                     frame_t frame,
+                                     slot_t slot,
                                      uint8_t gNB_index,
                                      uint8_t *ulsch_buffer,
                                      uint32_t buflen,
@@ -2842,7 +2842,7 @@ static void nr_ue_get_sdu_mac_ce_pre(NR_UE_MAC_INST_t *mac,
     if (buflen >= bsr_len + needed) {
       if (mac->scheduling_info.phr_info.phr_reporting) {
         mac_ce_p->phr_len = needed;
-        nr_ue_fill_phr(mac, &mac_ce_p->phr, P_CMAX, tx_power, frameP, subframe);
+        nr_ue_fill_phr(mac, &mac_ce_p->phr, P_CMAX, tx_power, frame, slot);
       }
     }
   }
@@ -3394,8 +3394,8 @@ static void nr_ue_fill_phr(NR_UE_MAC_INST_t *mac,
                            NR_SINGLE_ENTRY_PHR_MAC_CE *phr,
                            float P_CMAX,
                            float tx_power,
-                           frame_t frameP,
-                           sub_frame_t subframe)
+                           frame_t frame,
+                           slot_t slot)
 {
   nr_phr_info_t *phr_info = &mac->scheduling_info.phr_info;
   // Value mapping according to 38.133 10.1.18.1
@@ -3412,9 +3412,9 @@ static void nr_ue_fill_phr(NR_UE_MAC_INST_t *mac,
   }
 
   LOG_D(NR_MAC,
-        "PHR Reporting sfn.subframe %d.%d reason = %d, P_CMAX = %d (%5.2f dBm), headrom = %d (%d dB) tx_power = %5.2f dBm\n",
-        frameP,
-        subframe,
+        "PHR Reporting sfn.slot %d.%d reason = %d, P_CMAX = %d (%5.2f dBm), headrom = %d (%d dB) tx_power = %5.2f dBm\n",
+        frame,
+        slot,
         phr_info->phr_reporting,
         phr->PCMAX,
         P_CMAX,

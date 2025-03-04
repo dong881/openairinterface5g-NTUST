@@ -43,7 +43,7 @@
 /* This function checks whether the given Dl/UL slot is set
    in the input bitmap (per period), which is a mask indicating in which
    slot to transmit (among those available in the TDD configuration) */
-static bool is_xlsch_in_slot(uint64_t bitmap, sub_frame_t slot)
+static bool is_xlsch_in_slot(uint64_t bitmap, slot_t slot)
 {
   AssertFatal(slot < 64, "Unable to handle periods with length larger than 64 slots in phy-test mode\n");
   return (bitmap >> slot) & 0x01;
@@ -55,7 +55,7 @@ uint32_t target_dl_bw = 50;
 uint64_t dlsch_slot_bitmap = (1<<1);
 
 /* schedules whole bandwidth for first user, all the time */
-void nr_preprocessor_phytest(module_id_t module_id, frame_t frame, sub_frame_t slot)
+void nr_preprocessor_phytest(module_id_t module_id, frame_t frame, slot_t slot)
 {
   gNB_MAC_INST *mac = RC.nrmac[module_id];
   /* already mutex protected: held in gNB_dlsch_ulsch_scheduler() */
@@ -217,7 +217,7 @@ uint32_t target_ul_mcs = 9;
 uint32_t target_ul_bw = 50;
 uint32_t target_ul_Nl = 1;
 uint64_t ulsch_slot_bitmap = (1 << 8);
-bool nr_ul_preprocessor_phytest(module_id_t module_id, frame_t frame, sub_frame_t slot)
+bool nr_ul_preprocessor_phytest(module_id_t module_id, frame_t frame, slot_t slot)
 {
   gNB_MAC_INST *nr_mac = RC.nrmac[module_id];
   /* already mutex protected: held in gNB_dlsch_ulsch_scheduler() */

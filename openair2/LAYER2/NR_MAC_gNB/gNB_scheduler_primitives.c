@@ -2775,7 +2775,7 @@ int get_pdsch_to_harq_feedback(NR_PUCCH_Config_t *pucch_Config,
   }
 }
 
-void nr_csirs_scheduling(int Mod_idP, frame_t frame, sub_frame_t slot, nfapi_nr_dl_tti_request_t *DL_req)
+void nr_csirs_scheduling(int Mod_idP, frame_t frame, slot_t slot, nfapi_nr_dl_tti_request_t *DL_req)
 {
   int CC_id = 0;
   NR_UEs_t *UE_info = &RC.nrmac[Mod_idP]->UE_info;
@@ -3036,7 +3036,7 @@ static void nr_mac_clean_cellgroup(NR_CellGroupConfig_t *cell_group)
     free_and_zero(cell_group->rlc_BearerToAddModList->list.array[i]->reestablishRLC);
 }
 
-static void nr_mac_apply_cellgroup(gNB_MAC_INST *mac, NR_UE_info_t *UE, frame_t frame, sub_frame_t slot)
+static void nr_mac_apply_cellgroup(gNB_MAC_INST *mac, NR_UE_info_t *UE, frame_t frame, slot_t slot)
 {
   LOG_D(NR_MAC, "%4d.%2d RNTI %04x: UE inactivity timer expired\n", frame, slot, UE->rnti);
 
@@ -3139,9 +3139,7 @@ void nr_mac_release_ue(gNB_MAC_INST *mac, int rnti)
   mac_remove_nr_ue(mac, rnti);
 }
 
-void nr_mac_update_timers(module_id_t module_id,
-                          frame_t frame,
-                          sub_frame_t slot)
+void nr_mac_update_timers(module_id_t module_id, frame_t frame, slot_t slot)
 {
   gNB_MAC_INST *mac = RC.nrmac[module_id];
 
