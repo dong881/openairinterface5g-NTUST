@@ -681,6 +681,27 @@ static uint8_t nr_get_msg3_tpc(uint32_t preamble_power)
   return 3; // it means 0dB
 }
 
+static unsigned int get_slot_RA(const NR_ServingCellConfigCommon_t *scc,
+                                const NR_RACH_ConfigCommon_t *rach_ConfigCommon,
+                                const NR_MsgA_ConfigCommon_r16_t *msgacc,
+                                frame_type_t frame_type,
+                                int slot)
+{
+  uint8_t index = rach_ConfigCommon->rach_ConfigGeneric.prach_ConfigurationIndex;
+  uint16_t prach_format =
+    get_nr_prach_format_from_index(index, scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencyPointA, frame_type);
+  unsigned int slot_RA;
+  if ((prach_format & 0xff) < 4) {
+    const int ul_mu = scc->uplinkConfigCommon->frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing;
+    const int mu = nr_get_prach_or_ul_mu(msgacc, rach_ConfigCommon, ul_mu);
+    unsigned int slots_per_sf = (1 << mu);
+    slot_RA = slot / slots_per_sf;
+  } else {
+    slot_RA = slot;
+  }
+  return slot_RA;
+}
+
 void nr_initiate_ra_proc(module_id_t module_idP,
                          int CC_id,
                          frame_t frameP,
@@ -723,35 +744,22 @@ void nr_initiate_ra_proc(module_id_t module_idP,
   ra->msg3_TPC = nr_get_msg3_tpc(preamble_power);
 
   NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
-  {
-    // 3GPP TS 38.321 Section 5.1.3(a) says t_id for RA-RNTI depends on mu as specified in clause 5.3.2 in TS 38.211
-    // so mu = 0 for prach format < 4.
-    NR_RACH_ConfigCommon_t *rach_ConfigCommon = scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup;
-    NR_MsgA_ConfigCommon_r16_t *msgacc = NULL;
-    if (scc->uplinkConfigCommon->initialUplinkBWP->ext1 && scc->uplinkConfigCommon->initialUplinkBWP->ext1->msgA_ConfigCommon_r16)
-      msgacc = scc->uplinkConfigCommon->initialUplinkBWP->ext1->msgA_ConfigCommon_r16->choice.setup;
-    const int ul_mu = scc->uplinkConfigCommon->frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing;
-    const int mu = nr_get_prach_or_ul_mu(msgacc, rach_ConfigCommon, ul_mu);
-    uint8_t index = rach_ConfigCommon->rach_ConfigGeneric.prach_ConfigurationIndex;
-    uint16_t prach_format =
-        get_nr_prach_format_from_index(index, scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencyPointA, cc->frame_type);
-    unsigned int slot_RA;
-    if ((prach_format & 0xff) < 4) {
-      unsigned int slots_per_sf = (1 << mu);
-      slot_RA = slotP / slots_per_sf;
-    } else {
-      slot_RA = slotP;
-    }
-    uint8_t ul_carrier_id = 0; // 0 for NUL 1 for SUL
-    ra->RA_rnti = nr_get_ra_rnti(symbol, slot_RA, freq_index, ul_carrier_id);
-    if (scc->uplinkConfigCommon->initialUplinkBWP->ext1 && scc->uplinkConfigCommon->initialUplinkBWP->ext1->msgA_ConfigCommon_r16) {
-      ra->ra_type = RA_2_STEP;
-      ra->ra_state = nrRA_WAIT_MsgA_PUSCH;
-      ra->MsgB_rnti = nr_get_MsgB_rnti(symbol, slot_RA, freq_index, ul_carrier_id);
-    } else {
-      ra->ra_type = RA_4_STEP;
-      ra->ra_state = nrRA_Msg2;
-    }
+  // 3GPP TS 38.321 Section 5.1.3(a) says t_id for RA-RNTI depends on mu as specified in clause 5.3.2 in TS 38.211
+  // so mu = 0 for prach format < 4.
+  NR_RACH_ConfigCommon_t *rach_ConfigCommon = scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup;
+  NR_MsgA_ConfigCommon_r16_t *msgacc = NULL;
+  if (scc->uplinkConfigCommon->initialUplinkBWP->ext1 && scc->uplinkConfigCommon->initialUplinkBWP->ext1->msgA_ConfigCommon_r16)
+    msgacc = scc->uplinkConfigCommon->initialUplinkBWP->ext1->msgA_ConfigCommon_r16->choice.setup;
+  uint32_t slot_RA = get_slot_RA(scc, rach_ConfigCommon, msgacc, cc->frame_type, slotP);
+  uint8_t ul_carrier_id = 0; // 0 for NUL 1 for SUL
+  ra->RA_rnti = nr_get_ra_rnti(symbol, slot_RA, freq_index, ul_carrier_id);
+  if (scc->uplinkConfigCommon->initialUplinkBWP->ext1 && scc->uplinkConfigCommon->initialUplinkBWP->ext1->msgA_ConfigCommon_r16) {
+    ra->ra_type = RA_2_STEP;
+    ra->ra_state = nrRA_WAIT_MsgA_PUSCH;
+    ra->MsgB_rnti = nr_get_MsgB_rnti(symbol, slot_RA, freq_index, ul_carrier_id);
+  } else {
+    ra->ra_type = RA_4_STEP;
+    ra->ra_state = nrRA_Msg2;
   }
 
   int index = ra - cc->ra;
