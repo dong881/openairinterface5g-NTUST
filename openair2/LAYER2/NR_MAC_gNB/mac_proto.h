@@ -361,8 +361,6 @@ void reset_dl_harq_list(NR_UE_sched_ctrl_t *sched_ctrl);
 
 void reset_ul_harq_list(NR_UE_sched_ctrl_t *sched_ctrl);
 
-void handle_nr_ul_harq(module_id_t mod_id, frame_t frame, slot_t slot, const nfapi_nr_crc_t *crc_pdu);
-
 uint8_t *allocate_transportBlock_buffer(byte_array_t *tb, uint32_t needed);
 void free_transportBlock_buffer(byte_array_t *tb);
 
