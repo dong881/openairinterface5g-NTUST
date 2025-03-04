@@ -543,50 +543,31 @@ static void abort_nr_ul_harq(NR_UE_info_t *UE, int8_t harq_pid)
     sched_ctrl->sched_ul_bytes = 0;
 }
 
-void handle_nr_ul_harq(module_id_t mod_id, frame_t frame, slot_t slot, const nfapi_nr_crc_t *crc_pdu)
+static void handle_nr_ul_harq(gNB_MAC_INST *nrmac,
+                              NR_UE_info_t *UE,
+                              frame_t frame,
+                              slot_t slot,
+                              rnti_t rnti,
+                              int crc_harq_id,
+                              bool crc_status)
 {
-  gNB_MAC_INST *nrmac = RC.nrmac[mod_id];
   if (nrmac->radio_config.disable_harq) {
     LOG_D(NR_MAC, "skipping UL feedback handling as HARQ is disabled\n");
     return;
   }
 
-  NR_SCHED_LOCK(&nrmac->sched_lock);
-  NR_UEs_t *UE_info = &nrmac->UE_info;
-  UE_iterator(UE_info->access_ue_list, ra_UE) {
-    const NR_RA_t *ra = ra_UE->ra;
-    // if we find any ongoing RA that has already scheduled MSG3
-    // and it is expecting its reception in current frame and slot with matching RNTI
-    // we can exit the function (no HARQ involved)
-    if (ra->ra_state >= nrRA_WAIT_Msg3 && ra_UE->rnti == crc_pdu->rnti && frame == ra->Msg3_frame && slot == ra->Msg3_slot) {
-      LOG_D(NR_MAC, "UL for rnti %04x in RA (MSG3), no need to process HARQ\n", crc_pdu->rnti);
-      NR_SCHED_UNLOCK(&nrmac->sched_lock);
-      return;
-    }
-  }
-
-  NR_UE_info_t *UE = find_nr_UE(&nrmac->UE_info, crc_pdu->rnti);
-  UE = UE ? UE : find_ra_UE(&nrmac->UE_info, crc_pdu->rnti);
-  if (!UE) {
-    NR_SCHED_UNLOCK(&nrmac->sched_lock);
-    LOG_E(NR_MAC, "Couldn't identify UE connected with current UL HARQ process\n");
-    return;
-  }
-
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   int8_t harq_pid = sched_ctrl->feedback_ul_harq.head;
-  LOG_D(NR_MAC, "Comparing crc_pdu->harq_id vs feedback harq_pid = %d %d\n",crc_pdu->harq_id, harq_pid);
-  while (crc_pdu->harq_id != harq_pid || harq_pid < 0) {
-    LOG_W(NR_MAC, "Unexpected ULSCH HARQ PID %d (have %d) for RNTI 0x%04x\n", crc_pdu->harq_id, harq_pid, crc_pdu->rnti);
-    if (harq_pid < 0) {
-      NR_SCHED_UNLOCK(&nrmac->sched_lock);
+  LOG_D(NR_MAC, "Comparing crc harq_id vs feedback harq_pid = %d %d\n", crc_harq_id, harq_pid);
+  while (crc_harq_id != harq_pid || harq_pid < 0) {
+    LOG_W(NR_MAC, "Unexpected ULSCH HARQ PID %d (have %d) for RNTI 0x%04x\n", crc_harq_id, harq_pid, rnti);
+    if (harq_pid < 0)
       return;
-    }
 
     remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
     sched_ctrl->ul_harq_processes[harq_pid].is_waiting = false;
 
-    if(sched_ctrl->ul_harq_processes[harq_pid].round >= RC.nrmac[mod_id]->ul_bler.harq_round_max - 1) {
+    if(sched_ctrl->ul_harq_processes[harq_pid].round >= nrmac->ul_bler.harq_round_max - 1) {
       abort_nr_ul_harq(UE, harq_pid);
     } else {
       sched_ctrl->ul_harq_processes[harq_pid].round++;
@@ -599,27 +580,26 @@ void handle_nr_ul_harq(module_id_t mod_id, frame_t frame, slot_t slot, const nfa
   DevAssert(harq->is_waiting);
   harq->feedback_slot = -1;
   harq->is_waiting = false;
-  if (!crc_pdu->tb_crc_status) {
+  if (!crc_status) {
     finish_nr_ul_harq(sched_ctrl, harq_pid);
     LOG_D(NR_MAC,
           "Ulharq id %d crc passed for RNTI %04x\n",
           harq_pid,
-          crc_pdu->rnti);
-  } else if (harq->round >= RC.nrmac[mod_id]->ul_bler.harq_round_max  - 1) {
+          rnti);
+  } else if (harq->round >= nrmac->ul_bler.harq_round_max  - 1) {
     abort_nr_ul_harq(UE, harq_pid);
     LOG_D(NR_MAC,
           "RNTI %04x: Ulharq id %d crc failed in all rounds\n",
-          crc_pdu->rnti,
+          rnti,
           harq_pid);
   } else {
     harq->round++;
     LOG_D(NR_MAC,
           "Ulharq id %d crc failed for RNTI %04x\n",
           harq_pid,
-          crc_pdu->rnti);
+          rnti);
     add_tail_nr_list(&sched_ctrl->retrans_ul_harq, harq_pid);
   }
-  NR_SCHED_UNLOCK(&nrmac->sched_lock);
 }
 
 static void handle_msg3_failed_rx(gNB_MAC_INST *mac, NR_RA_t *ra, rnti_t rnti, int harq_round_max)
@@ -835,19 +815,14 @@ static void _nr_rx_sdu(const module_id_t gnb_mod_idP,
                        const uint16_t rssi)
 {
   gNB_MAC_INST *gNB_mac = RC.nrmac[gnb_mod_idP];
-
   const int current_rnti = rntiP;
   LOG_D(NR_MAC, "rx_sdu for rnti %04x\n", current_rnti);
   const int target_snrx10 = gNB_mac->pusch_target_snrx10;
   const int rssi_threshold = gNB_mac->pusch_rssi_threshold;
   const int pusch_failure_thres = gNB_mac->pusch_failure_thres;
-
   NR_UE_info_t *UE = find_nr_UE(&gNB_mac->UE_info, current_rnti);
-
   if (UE) {
-
     NR_UE_sched_ctrl_t *UE_scheduling_control = &UE->UE_sched_ctrl;
-
     if (sduP)
       T(T_GNB_MAC_UL_PDU_WITH_DATA, T_INT(gnb_mod_idP), T_INT(CC_idP),
         T_INT(rntiP), T_INT(frameP), T_INT(slotP), T_INT(harq_pid),
@@ -886,7 +861,6 @@ static void _nr_rx_sdu(const module_id_t gnb_mod_idP,
         UE_scheduling_control->ta_update = timing_advance;
       UE_scheduling_control->raw_rssi = rssi;
       UE_scheduling_control->pusch_snrx10 = ul_cqi * 5 - 640 - (txpower_calc * 10);
-
       if (UE_scheduling_control->tpc0 > 1)
         LOG_D(NR_MAC,
               "[UE %04x] %d.%d. PUSCH TPC %d and TA %d pusch_snrx10 %d rssi %d phrx_tx_power %d PHR (1PRB) %d mcs %d, nb_rb %d\n",
@@ -904,7 +878,7 @@ static void _nr_rx_sdu(const module_id_t gnb_mod_idP,
 
       NR_UE_ul_harq_t *cur_harq = &UE_scheduling_control->ul_harq_processes[harq_pid];
       if (cur_harq->round == 0)
-       UE->mac_stats.pusch_snrx10 = UE_scheduling_control->pusch_snrx10;
+        UE->mac_stats.pusch_snrx10 = UE_scheduling_control->pusch_snrx10;
       LOG_D(NR_MAC, "[UE %04x] PUSCH TPC %d and TA %d\n",UE->rnti,UE_scheduling_control->tpc0,UE_scheduling_control->ta_update);
     }
     else{
@@ -926,15 +900,13 @@ static void _nr_rx_sdu(const module_id_t gnb_mod_idP,
 
     if (sduP != NULL) {
       LOG_D(NR_MAC, "Received PDU at MAC gNB \n");
-
       UE->UE_sched_ctrl.pusch_consecutive_dtx_cnt = 0;
       UE_scheduling_control->sched_ul_bytes -= sdu_lenP;
       if (UE_scheduling_control->sched_ul_bytes < 0)
         UE_scheduling_control->sched_ul_bytes = 0;
 
       nr_process_mac_pdu(gnb_mod_idP, UE, CC_idP, frameP, slotP, sduP, sdu_lenP, harq_pid);
-    }
-    else {
+    } else {
       if (ul_cqi == 0xff || ul_cqi <= 128) {
         UE->UE_sched_ctrl.pusch_consecutive_dtx_cnt++;
         UE->mac_stats.ulsch_DTX++;
@@ -948,6 +920,7 @@ static void _nr_rx_sdu(const module_id_t gnb_mod_idP,
         nr_mac_trigger_ul_failure(&UE->UE_sched_ctrl, UE->current_UL_BWP.scs);
       }
     }
+    handle_nr_ul_harq(gNB_mac, UE, frameP, slotP, current_rnti, harq_pid, sduP == NULL);
   } else { 
     nr_rx_ra_sdu(gnb_mod_idP, CC_idP, frameP, slotP, current_rnti, sduP, sdu_lenP, timing_advance, ul_cqi, rssi);
   }
