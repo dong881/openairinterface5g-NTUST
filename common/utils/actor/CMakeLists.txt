@@ -1,6 +1,6 @@
 add_library(actor actor.c)
-target_include_directories(actor PUBLIC ./)
-target_link_libraries(actor PUBLIC thread-pool)
+# Only include header files due to issues with ODR in threadPool binaries
+target_include_directories(actor PUBLIC ./ ../threadPool/)
 if (ENABLE_TESTS)
   add_subdirectory(tests)
 endif()
