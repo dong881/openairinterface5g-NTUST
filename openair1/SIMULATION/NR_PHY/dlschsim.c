@@ -512,8 +512,8 @@ int main(int argc, char **argv)
 
 	//printf("crc32: [0]->0x%08x\n",crc24c(test_input, 32));
 	// generate signal
-        unsigned char output[rel15->rbSize * NR_SYMBOLS_PER_SLOT * NR_NB_SC_PER_RB * 8 * NR_MAX_NB_LAYERS] __attribute__((aligned(64)));
-        bzero(output,rel15->rbSize * NR_SYMBOLS_PER_SLOT * NR_NB_SC_PER_RB * 8 * NR_MAX_NB_LAYERS);
+        unsigned char output[rel15->rbSize * NR_SYMBOLS_PER_SLOT * NR_NB_SC_PER_RB * NR_MAX_NB_LAYERS] __attribute__((aligned(64)));
+        bzero(output, sizeof(output));
 	if (input_fd == NULL) {
     msgDataTx.num_pdsch_slot = 1;
 	  nr_dlsch_encoding(gNB, &msgDataTx, frame, slot, frame_parms, output, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
@@ -533,7 +533,7 @@ int main(int argc, char **argv)
 				//if (i<16)
 				//   printf("encoder output f[%d] = %d\n",i,dlsch->harq_processes[0]->f[i]);
 
-				if ((output[i]&1) == 0)
+				if ((output[i >> 3] & (1 << (i & 7))) == 0)
 					modulated_input[i] = 1.0;        ///sqrt(2);  //QPSK
 				else
 					modulated_input[i] = -1.0;        ///sqrt(2);

@@ -542,7 +542,7 @@ int main(int argc, char **argv)
             }
         */
 
-        if (harq_process_ul_ue->f[i] == 0)
+        if ((harq_process_ul_ue->f[i >> 3] & (1 << (i & 7))) == 0)
           modulated_input[i] = 1.0;        ///sqrt(2);  //QPSK
         else
           modulated_input[i] = -1.0;        ///sqrt(2);

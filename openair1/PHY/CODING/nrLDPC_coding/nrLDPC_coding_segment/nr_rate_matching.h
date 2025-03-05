@@ -24,8 +24,6 @@
 
 #include <stdint.h>
 
-#define NR_NULL 2
-
 /**
  * \brief interleave a code segment after encoding and rate matching
  * \param E size of the code segment in bits

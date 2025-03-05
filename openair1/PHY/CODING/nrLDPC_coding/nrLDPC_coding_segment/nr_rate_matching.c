@@ -626,8 +626,11 @@ int nr_rate_matching_ldpc(uint32_t Tbslbrm,
       printf("RM_TX k%u Ind: %u (%d)\n", k, ind, d[ind]);
 #endif
 
-      if (d[ind] != NR_NULL)
-        e[k++] = d[ind];
+      if (ind == Foffset)
+        ind = F + Foffset; // skip filler bits
+
+      e[k++] = d[ind];
+
     }
   }
 

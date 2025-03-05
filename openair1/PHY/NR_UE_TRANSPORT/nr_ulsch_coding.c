@@ -156,6 +156,10 @@ int nr_ulsch_encoding(PHY_VARS_NR_UE *ue,
     NR_UL_UE_HARQ_t *harq_process = &ue->ul_harq_processes[harq_pid];
     TB_parameters->segments = segments[pusch_id];
 
+    const nfapi_nr_ue_pusch_pdu_t *pusch_pdu = &ulsch->pusch_pdu;
+    uint16_t nb_rb = pusch_pdu->rb_size;
+    memset(harq_process->f, 0, 14 * nb_rb * 12 * 16);
+
     int r_offset = 0;
     for (int r = 0; r < TB_parameters->C; r++) {
       nrLDPC_segment_encoding_parameters_t *segment_parameters = &TB_parameters->segments[r];
