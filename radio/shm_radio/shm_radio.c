@@ -32,6 +32,8 @@
 #include <sys/epoll.h>
 #include <netdb.h>
 #include <pthread.h>
+#include <sys/un.h>
+#include <sys/socket.h>
 
 #include <common/utils/assertions.h>
 #include <common/utils/LOG/log.h>
@@ -67,6 +69,11 @@ typedef struct histogram_s {
   double range;
 } histogram_t;
 
+// Information about the peer
+typedef struct peer_info_s {
+  int num_rx_antennas;
+} peer_info_t;
+
 typedef struct {
   int role;
   char channel_name[40];
@@ -84,6 +91,7 @@ typedef struct {
   uint64_t rx_samples_total;
   double average_tx_budget;
   histogram_t tx_histogram;
+  peer_info_t peer_info;
 } shm_radio_state_t;
 
 static void histogram_add(histogram_t *histogram, double diff)
@@ -154,11 +162,116 @@ static void *shm_radio_timing_job(void *arg)
   return 0;
 }
 
+/**
+ * @brief Exchanges peer information between the server and the client.
+ *
+ * This function sets up a Unix domain socket server, waits for a client to connect,
+ * and exchanges peer information (number of RX antennas) with the client.
+ *
+ * @param peer_info The peer information to send to the client.
+ * @return The peer information received from the client.
+ *
+ * @note This function will block until a client connects and the information is exchanged.
+ */
+static peer_info_t server_exchange_peer_info(peer_info_t peer_info)
+{
+  int server_fd, client_fd;
+  struct sockaddr_un addr;
+  socklen_t addr_len = sizeof(addr);
+
+  // Create a Unix domain socket
+  server_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+  AssertFatal(server_fd >= 0, "socket() failed: errno: %d, %s\n", errno, strerror(errno));
+
+  // Bind the socket to a file path
+  memset(&addr, 0, sizeof(addr));
+  addr.sun_family = AF_UNIX;
+  strncpy(addr.sun_path, "/tmp/shm_radio_socket", sizeof(addr.sun_path) - 1);
+  unlink(addr.sun_path); // Ensure the path does not already exist
+  int ret = bind(server_fd, (struct sockaddr *)&addr, sizeof(addr));
+  AssertFatal(ret == 0, "bind() failed: errno: %d, %s\n", errno, strerror(errno));
+
+  // Listen for incoming connections
+  ret = listen(server_fd, 1);
+  AssertFatal(ret == 0, "listen() failed: errno: %d, %s\n", errno, strerror(errno));
+
+  // Accept a connection from a client
+  client_fd = accept(server_fd, (struct sockaddr *)&addr, &addr_len);
+  AssertFatal(client_fd >= 0, "accept() failed: errno: %d, %s\n", errno, strerror(errno));
+
+  // Send the antenna info to the server
+  ssize_t bytes_sent = send(client_fd, &peer_info, sizeof(peer_info), 0);
+  AssertFatal(bytes_sent == sizeof(peer_info), "send() failed: errno: %d, %s\n", errno, strerror(errno));
+
+  ssize_t bytes_received = recv(client_fd, &peer_info, sizeof(peer_info), 0);
+  AssertFatal(bytes_received == sizeof(peer_info), "recv() failed: errno: %d, %s\n", errno, strerror(errno));
+
+  LOG_I(HW, "Received client info: RX %d\n", peer_info.num_rx_antennas);
+
+  // Close the client and server sockets
+  close(client_fd);
+  close(server_fd);
+  return peer_info;
+}
+
+/**
+ * @brief Exchanges peer information between the client and the server.
+ *
+ * This function connects to a Unix domain socket server, exchanges peer information
+ * (number of RX antennas) with the server, and returns the peer information received
+ * from the server.
+ *
+ * @param peer_info The peer information to send to the server.
+ * @return The peer information received from the server.
+ *
+ * @note This function will block until the information is exchanged.
+ */
+static peer_info_t client_exchange_peer_info(peer_info_t peer_info)
+{
+  int client_fd;
+  struct sockaddr_un addr;
+
+  // Create a Unix domain socket
+  client_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+  AssertFatal(client_fd >= 0, "socket() failed: errno: %d, %s\n", errno, strerror(errno));
+
+  // Connect to the server
+  memset(&addr, 0, sizeof(addr));
+  addr.sun_family = AF_UNIX;
+  strncpy(addr.sun_path, "/tmp/shm_radio_socket", sizeof(addr.sun_path) - 1);
+  int ret = -1;
+  int tries = 0;
+  while (ret != 0 && tries < 10) {
+    ret = connect(client_fd, (struct sockaddr *)&addr, sizeof(addr));
+    tries++;
+    sleep(1);
+  }
+  AssertFatal(ret == 0, "connect() failed: errno: %d, %s\n", errno, strerror(errno));
+
+  peer_info_t peer_info_received;
+  ssize_t bytes_received = recv(client_fd, &peer_info_received, sizeof(peer_info_received), 0);
+  AssertFatal(bytes_received == sizeof(peer_info_received), "recv() failed: errno: %d, %s\n", errno, strerror(errno));
+
+  // Send the antenna info to the server
+  ssize_t bytes_sent = send(client_fd, &peer_info, sizeof(peer_info), 0);
+  AssertFatal(bytes_sent == sizeof(peer_info), "send() failed: errno: %d, %s\n", errno, strerror(errno));
+
+  LOG_I(HW, "Received peer info: RX %d\n", peer_info_received.num_rx_antennas);
+
+  // Close the client socket
+  close(client_fd);
+  return peer_info_received;
+}
+
 static int shm_radio_connect(openair0_device *device)
 {
   shm_radio_state_t *shm_radio_state = (shm_radio_state_t *)device->priv;
+  peer_info_t peer_info = {.num_rx_antennas = device->openair0_cfg[0].rx_num_channels};
   if (shm_radio_state->role == ROLE_SERVER) {
-    shm_radio_state->channel = shm_td_iq_channel_create(shm_radio_state->channel_name, 1, 1);
+    shm_radio_state->peer_info = server_exchange_peer_info(peer_info);
+    shm_radio_state->channel = shm_td_iq_channel_create(shm_radio_state->channel_name,
+                                                        shm_radio_state->peer_info.num_rx_antennas,
+                                                        device->openair0_cfg[0].rx_num_channels);
     shm_radio_state->run_timing_thread = true;
     while (!shm_td_iq_channel_is_connected(shm_radio_state->channel)) {
       LOG_I(HW, "Waiting for client\n");
@@ -167,6 +280,7 @@ static int shm_radio_connect(openair0_device *device)
     int ret = pthread_create(&shm_radio_state->timing_thread, NULL, shm_radio_timing_job, shm_radio_state);
     AssertFatal(ret == 0, "pthread_create() failed: errno: %d, %s\n", errno, strerror(errno));
   } else {
+    shm_radio_state->peer_info = client_exchange_peer_info(peer_info);
     shm_radio_state->channel = shm_td_iq_channel_connect(shm_radio_state->channel_name, 10);
   }
   return 0;
