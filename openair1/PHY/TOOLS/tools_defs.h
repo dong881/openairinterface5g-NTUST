@@ -753,30 +753,11 @@ uint32_t angle(struct complex16 perrror);
 /// computes the number of factors 2 in x
 unsigned char factor2(unsigned int x);
 
-/*!\fn int32_t phy_phase_compensation_top (uint32_t pilot_type, uint32_t initial_pilot,
-        uint32_t last_pilot, int32_t ignore_prefix);
-Compensate the phase rotation of the RF. WARNING: This function is currently unused. It has not been tested!
-@param pilot_type indicates whether it is a CHBCH (=0) or a SCH (=1) pilot
-@param initial_pilot index of the first pilot (which serves as reference)
-@param last_pilot index of the last pilot in the range of pilots to correct the phase
-@param ignore_prefix set to 1 if cyclic prefix has not been removed (by the hardware)
-
-*/
-
-
 int8_t dB_fixed(uint32_t x);
-
 uint8_t dB_fixed64(uint64_t x);
-
 int8_t dB_fixed2(uint32_t x,uint32_t y);
-
 int16_t dB_fixed_times10(uint32_t x);
 int16_t dB_fixed_x10(uint32_t x);
-
-int32_t phy_phase_compensation_top(uint32_t pilot_type,
-                                   uint32_t initial_pilot,
-                                   uint32_t last_pilot,
-                                   int32_t ignore_prefix);
 
 c32_t dot_product(const c16_t *x,
                   const c16_t *y,
@@ -784,9 +765,6 @@ c32_t dot_product(const c16_t *x,
                   const int output_shift);
 
 /** @} */
-
-
-double interp(double x, double *xs, double *ys, int count);
 
 void simde_mm_separate_real_imag_parts(simde__m128i *out_re, simde__m128i *out_im, simde__m128i in0, simde__m128i in1);
 void simde_mm256_separate_real_imag_parts(simde__m256i *out_re, simde__m256i *out_im, simde__m256i in0, simde__m256i in1);

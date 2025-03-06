@@ -30,7 +30,7 @@
  * Has been changed in August 2022 to rely on SIMD Everywhere (SIMDE) from MIT
  * by bruno.mongazon-cazavet@nokia-bell-labs.com
  *
- * All AVX22 code is mapped to SIMDE which transparently relies on AVX2 HW (avx2-capable host) or SIMDE emulation
+ * All AVX2 code is mapped to SIMDE which transparently relies on AVX2 HW (avx2-capable host) or SIMDE emulation
  * (non-avx2-capable host).
  * To force using SIMDE emulation on avx2-capable host use the --noavx2 flag. 
  * avx512 code is not mapped to SIMDE. It depends on --noavx512 flag.

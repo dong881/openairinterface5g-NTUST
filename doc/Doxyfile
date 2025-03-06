@@ -2248,7 +2248,6 @@ INPUT                  = \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/TOOLS/log2_approx.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/TOOLS/phy_scope_interface.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/TOOLS/simde_operations.c \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/TOOLS/lut.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/TOOLS/nr_phy_scope.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/TOOLS/nr_phy_scope.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/TOOLS/lte_phy_scope.c \
