@@ -492,24 +492,6 @@ void clean_UE_harq(PHY_VARS_NR_UE *UE)
   }
 }
 
-
-void init_N_TA_offset(PHY_VARS_NR_UE *ue)
-{
-  NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
-
-  // No timing offset for Sidelink, refer to 3GPP 38.211 Section 8.5
-  if (ue->sl_mode == 2)
-    ue->N_TA_offset = 0;
-  else
-    ue->N_TA_offset = set_default_nta_offset(fp->freq_range, fp->samples_per_subframe);
-  ue->ta_frame = -1;
-  ue->ta_slot = -1;
-
-  LOG_I(PHY,
-        "UE %d Setting N_TA_offset to %d samples (UL Freq %lu, N_RB %d, mu %d)\n",
-        ue->Mod_id, ue->N_TA_offset, fp->ul_CarrierFreq, fp->N_RB_DL, fp->numerology_index);
-}
-
 void phy_init_nr_top(PHY_VARS_NR_UE *ue) {
   NR_DL_FRAME_PARMS *frame_parms = &ue->frame_parms;
   init_delay_table(frame_parms->ofdm_symbol_size, MAX_DELAY_COMP, NR_MAX_OFDM_SYMBOL_SIZE, frame_parms->delay_table);

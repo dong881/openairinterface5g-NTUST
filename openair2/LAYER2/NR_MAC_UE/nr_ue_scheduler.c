@@ -2847,7 +2847,6 @@ static void schedule_ta_command(fapi_nr_dl_config_request_t *dl_config, NR_UE_MA
   fapi_nr_ta_command_pdu *ta = &dl_config->dl_config_list[dl_config->number_pdus].ta_command_pdu;
   ta->ta_frame = ul_time_alignment->frame;
   ta->ta_slot = ul_time_alignment->slot;
-  ta->ta_offset = mac->n_ta_offset;
   ta->is_rar = ul_time_alignment->ta_apply == rar_ta;
   ta->ta_command = ul_time_alignment->ta_command;
   dl_config->dl_config_list[dl_config->number_pdus].pdu_type = FAPI_NR_CONFIG_TA_COMMAND;

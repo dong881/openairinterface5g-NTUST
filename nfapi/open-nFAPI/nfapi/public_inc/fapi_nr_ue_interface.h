@@ -551,7 +551,6 @@ typedef struct {
  int ta_frame;
  int ta_slot;
  int ta_command;
- int ta_offset;
  bool is_rar;
 } fapi_nr_ta_command_pdu;
 
@@ -616,7 +615,7 @@ typedef struct
 {
   uint8_t phy_cell_id;//Physical Cell ID, 𝑁_{𝐼𝐷}^{𝑐𝑒𝑙𝑙} [38.211, sec 7.4.2.1] Value: 0 ->1007
   uint8_t frame_duplex_type;//Frame duplex type Value: 0 = FDD 1 = TDD
-
+  uint32_t N_TA_offset;
 } fapi_nr_cell_config_t;
 
 typedef struct 

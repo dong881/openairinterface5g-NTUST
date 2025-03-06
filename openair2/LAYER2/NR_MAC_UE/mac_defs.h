@@ -597,7 +597,6 @@ typedef struct NR_UE_MAC_INST_s {
   int dmrs_TypeA_Position;
   int p_Max;
   int p_Max_alt;
-  int n_ta_offset; // -1 not present, otherwise value to be applied
 
   ntn_timing_advance_componets_t ntn_ta;
 
