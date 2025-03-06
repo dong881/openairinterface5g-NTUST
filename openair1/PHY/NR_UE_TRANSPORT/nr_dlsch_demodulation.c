@@ -1504,14 +1504,10 @@ uint8_t nr_matrix_inverse(int32_t size,
  *
  * */
 // TODO: This function is just a wrapper, can be removed.
-void nr_conjch0_mult_ch1(int *ch0,
-                         int *ch1,
-                         int32_t *ch0conj_ch1,
-                         unsigned short nb_rb,
-                         unsigned char output_shift0)
+void nr_conjch0_mult_ch1(c16_t *ch0, c16_t *ch1, c16_t *ch0conj_ch1, unsigned short nb_rb, unsigned char output_shift0)
 {
   //This function is used to compute multiplications in H_hermitian * H matrix
-  mult_cpx_conj_vector((c16_t *)ch0, (c16_t *)ch1, (c16_t *)ch0conj_ch1, 12 * nb_rb, output_shift0);
+  mult_cpx_conj_vector(ch0, ch1, ch0conj_ch1, 12 * nb_rb, output_shift0);
 }
 
 /*
@@ -1548,11 +1544,11 @@ static void nr_dlsch_mmse(uint32_t rx_size_symbol,
   for (int rtx = 0; rtx < nl; rtx++) {//row
     for (int ctx = 0; ctx < nl; ctx++) {//column
       for (int aarx = 0; aarx < n_rx; aarx++)  {
-        int *ch0r = (int *)dl_ch_estimates_ext[rtx * n_rx + aarx];
-        int *ch0c = (int *)dl_ch_estimates_ext[ctx * n_rx + aarx];
+        c16_t *ch0r = (c16_t *)dl_ch_estimates_ext[rtx * n_rx + aarx];
+        c16_t *ch0c = (c16_t *)dl_ch_estimates_ext[ctx * n_rx + aarx];
         nr_conjch0_mult_ch1(ch0r,
                             ch0c,
-                            (int32_t *)conjH_H_elements[aarx][ctx][rtx], // sic
+                            conjH_H_elements[aarx][ctx][rtx], // sic
                             nb_rb_0,
                             shift);
         if (aarx != 0)

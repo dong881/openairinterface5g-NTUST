@@ -451,7 +451,7 @@ static void map_symbols(const nr_phy_pxsch_params_t p,
       c16_t mod_ptrs[ALNARS_16_4(p.nb_rb)] __attribute((aligned(16)));
       nr_modulation(gold, p.nb_rb, DMRS_MOD_ORDER, (int16_t *)mod_ptrs);
       const unsigned int beta_ptrs = 1; // temp value until power control is implemented
-      mult_complex_vector_real_scalar((int16_t *)mod_ptrs, beta_ptrs * AMP, (int16_t *)mod_ptrs_amp, p.nb_rb);
+      mult_complex_vector_real_scalar(mod_ptrs, beta_ptrs * AMP, mod_ptrs_amp, p.nb_rb);
     }
     map_current_symbol(p,
                        dmrs_symbol,

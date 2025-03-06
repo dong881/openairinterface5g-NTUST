@@ -253,7 +253,7 @@ static void nr_pusch_antenna_processing(void *arg)
         pil++;
         c16_t ch = c16addShift(ch0, ch1, 1);
         *max_ch = max(abs(ch.r), abs(ch.i));
-        multadd_real_four_symbols_vector_complex_scalar(filt8_rep4, &ch, &ul_ls_est[n]);
+        multadd_real_four_symbols_vector_complex_scalar(filt8_rep4, ch, &ul_ls_est[n]);
         ul_ls_est[n + 4] = ch;
         ul_ls_est[n + 5] = ch;
         noise_amp2 += c16amp2(c16sub(ch0, ch));

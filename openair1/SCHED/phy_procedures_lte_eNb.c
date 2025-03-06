@@ -1465,7 +1465,7 @@ void fill_rx_indication(PHY_VARS_eNB *eNB,
          pdu->rx_indication_rel8.length);
 
   // estimate timing advance for MAC
-  sync_pos                               = lte_est_timing_advance_pusch(&eNB->frame_parms, eNB->pusch_vars[ULSCH_id]->drs_ch_estimates_time);
+  sync_pos = lte_est_timing_advance_pusch(&eNB->frame_parms, (c16_t **)eNB->pusch_vars[ULSCH_id]->drs_ch_estimates_time);
   timing_advance_update                  = sync_pos; 
 
   for (int i=0;i<NUMBER_OF_SCH_STATS_MAX;i++) 

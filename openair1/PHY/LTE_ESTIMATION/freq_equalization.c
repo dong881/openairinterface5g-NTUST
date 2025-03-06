@@ -287,9 +287,9 @@ void init_fde() {
 }
 
 void freq_equalization(LTE_DL_FRAME_PARMS *frame_parms,
-                       int32_t **rxdataF_comp,
-                       int32_t **ul_ch_mag,
-                       int32_t **ul_ch_magb,
+                       c16_t **rxdataF_comp,
+                       c16_t **ul_ch_mag,
+                       c16_t **ul_ch_magb,
                        uint8_t symbol,
                        uint16_t Msc_RS,
                        uint8_t Qm)

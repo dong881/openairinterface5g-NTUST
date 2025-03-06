@@ -305,7 +305,6 @@ extern "C" {
       x128++;
     }
   }
-//cmult_sv.h
 
 /*!\fn void multadd_real_vector_complex_scalar(int16_t *x,int16_t *alpha,int16_t *y,uint32_t N)
 This function performs componentwise multiplication and accumulation of a complex scalar and a real vector.
@@ -317,14 +316,14 @@ This function performs componentwise multiplication and accumulation of a comple
 The function implemented is : \f$\mathbf{y} = y + \alpha\mathbf{x}\f$
 */
 
-  static inline void multadd_real_vector_complex_scalar(const int16_t *x, const int16_t *alpha, int16_t *y, uint32_t N)
+  static inline void multadd_real_vector_complex_scalar(const int16_t *x, const c16_t alpha, c16_t *y, const uint32_t N)
   {
     // do 8 multiplications at a time
     simd_q15_t *x_128 = (simd_q15_t *)x, *y_128 = (simd_q15_t *)y;
 
     //  printf("alpha = %d,%d\n",alpha[0],alpha[1]);
-    const simd_q15_t alpha_r_128 = set1_int16(alpha[0]);
-    const simd_q15_t alpha_i_128 = set1_int16(alpha[1]);
+    const simd_q15_t alpha_r_128 = set1_int16(alpha.r);
+    const simd_q15_t alpha_i_128 = set1_int16(alpha.i);
     for (uint32_t i = 0; i < N >> 3; i++) {
       const simd_q15_t yr = mulhi_s1_int16(alpha_r_128, x_128[i]);
       const simd_q15_t yi = mulhi_s1_int16(alpha_i_128, x_128[i]);
@@ -335,37 +334,18 @@ The function implemented is : \f$\mathbf{y} = y + \alpha\mathbf{x}\f$
     }
   }
 
-  // Same with correct types
-  static inline void multaddRealVectorComplexScalar(const c16_t *in, const c16_t alpha, c16_t *out, uint32_t N)
-  {
-    // do 8 multiplications at a time
-    simd_q15_t *x_128 = (simd_q15_t *)in, *y_128 = (simd_q15_t *)out;
-
-    //  printf("alpha = %d,%d\n",alpha[0],alpha[1]);
-    const simd_q15_t alpha_r_128 = set1_int16(alpha.r);
-    const simd_q15_t alpha_i_128 = set1_int16(alpha.i);
-    for (unsigned int i = 0; i < N >> 3; i++) {
-      const simd_q15_t yr = mulhi_s1_int16(alpha_r_128, x_128[i]);
-      const simd_q15_t yi = mulhi_s1_int16(alpha_i_128, x_128[i]);
-      const simd_q15_t tmp = simde_mm_loadu_si128(y_128);
-      simde_mm_storeu_si128(y_128++, simde_mm_adds_epi16(tmp, simde_mm_unpacklo_epi16(yr, yi)));
-      const simd_q15_t tmp2 = simde_mm_loadu_si128(y_128);
-      simde_mm_storeu_si128(y_128++, simde_mm_adds_epi16(tmp2, simde_mm_unpackhi_epi16(yr, yi)));
-    }
-  }
-
 static __attribute__((always_inline)) inline void multadd_real_four_symbols_vector_complex_scalar(const int16_t *x,
-                                                                                           c16_t *alpha,
+                                                                                           const c16_t alpha,
                                                                                            c16_t *y)
 {
     // do 8 multiplications at a time
-    const simd_q15_t alpha_r_128 = set1_int16(alpha->r);
-    const simd_q15_t alpha_i_128 = set1_int16(alpha->i);
+    const simd_q15_t alpha_r_128 = set1_int16(alpha.r);
+    const simd_q15_t alpha_i_128 = set1_int16(alpha.i);
 
     const simd_q15_t *x_128 = (const simd_q15_t *)x;
+    // fixme: this loads too much data after pointer x (8 * int16_t instead of 4 * int16_t)
     const simd_q15_t yr = mulhi_s1_int16(alpha_r_128, *x_128);
     const simd_q15_t yi = mulhi_s1_int16(alpha_i_128, *x_128);
-
     simd_q15_t y_128 = simde_mm_loadu_si128((simd_q15_t *)y);
     y_128 = simde_mm_adds_epi16(y_128, simde_mm_unpacklo_epi16(yr, yi));
     y_128 = simde_mm_adds_epi16(y_128, simde_mm_unpackhi_epi16(yr, yi));
@@ -451,7 +431,7 @@ This function performs componentwise multiplication and accumulation of a real s
 
 The function implemented is : \f$\mathbf{y} = y + \alpha\mathbf{x}\f$
 */
-static inline void multadd_complex_vector_real_scalar(int16_t *x, int16_t alpha, int16_t *y, uint32_t N)
+static inline void multadd_complex_vector_real_scalar(const c16_t *x, const int16_t alpha, c16_t *y, uint32_t N)
 {
   simd_q15_t alpha_128, *x_128 = (simd_q15_t *)x, *y_128 = (simd_q15_t *)y;
   alpha_128 = set1_int16(alpha);
@@ -462,11 +442,12 @@ static inline void multadd_complex_vector_real_scalar(int16_t *x, int16_t alpha,
   }
   for (uint32_t n = 0; n < num_adds; n++) {
     const uint32_t offset = num_simd_adds * 4;
-    y[offset + n] += (x[offset + n] * alpha) >> 16;
+    y[offset + n].r += (x[offset + n].r * alpha) >> 16;
+    y[offset + n].i += (x[offset + n].i * alpha) >> 16;
   }
 }
 
-static inline void mult_complex_vector_real_scalar(int16_t *x, int16_t alpha, int16_t *y, uint32_t N)
+static inline void mult_complex_vector_real_scalar(const c16_t *x, const int16_t alpha, c16_t *y, const uint32_t N)
 {
   simd_q15_t alpha_128, *x_128 = (simd_q15_t *)x, *y_128 = (simd_q15_t *)y;
 
@@ -478,7 +459,8 @@ static inline void mult_complex_vector_real_scalar(int16_t *x, int16_t alpha, in
   }
   for (uint32_t n = 0; n < num_adds; n++) {
     const uint32_t offset = num_simd_adds * 4;
-    y[offset + n] = (x[offset + n] * alpha) >> 16;
+    y[offset + n].r = (x[offset + n].r * alpha) >> 16;
+    y[offset + n].i = (x[offset + n].i * alpha) >> 16;
   }
 }
 
@@ -499,7 +481,7 @@ static inline void mult_complex_vector_real_scalar(int16_t *x, int16_t alpha, in
   @param N        - the size f the vectors (this function does N cpx mpy. WARNING: N%4==0;
   @param output_shift  - shift to be applied to generate output
 */
-static inline void mult_cpx_conj_vector(const c16_t *x1, const c16_t *x2, c16_t *y, uint32_t N, int output_shift)
+static inline void mult_cpx_conj_vector(const c16_t *x1, const c16_t *x2, c16_t *y, const uint32_t N, int const output_shift)
 {
   const simde__m128i *x1_128 = (simde__m128i *)x1;
   const simde__m128i *x2_128 = (simde__m128i *)x2;
@@ -524,8 +506,8 @@ static inline void mult_cpx_conj_vector(const c16_t *x1, const c16_t *x2, c16_t 
 static inline void mult_cpx_vector(const c16_t *x1, // Q15
                                    const c16_t *x2, // Q13
                                    c16_t *y,
-                                   uint32_t N,
-                                   int output_shift)
+                                   const uint32_t N,
+                                   const int output_shift)
 {
   const simde__m128i *x1_128 = (simde__m128i *)x1;
   const simde__m128i *x2_128 = (simde__m128i *)x2;
@@ -538,7 +520,7 @@ static inline void mult_cpx_vector(const c16_t *x1, // Q15
   }
 }
 
-static inline void multadd_cpx_vector(const c16_t *x1, const c16_t *x2, c16_t *y, uint32_t N, int output_shift)
+static inline void multadd_cpx_vector(const c16_t *x1, const c16_t *x2, c16_t *y, const uint32_t N, const int output_shift)
 {
   const simde__m128i *x1_128 = (simde__m128i *)x1;
   const simde__m128i *x2_128 = (simde__m128i *)x2;
@@ -877,7 +859,7 @@ This function performs componentwise subsctraction  of complex vectors
 The function implemented is : \f$\mathbf{y} = \alpha + \mathbf{x}\f$
 */
 
-static inline int32_t sub_cpx_vector16(c16_t *x, c16_t *y, c16_t *z, uint32_t N)
+static inline int32_t sub_cpx_vector16(const c16_t *x, const c16_t *y, c16_t *z, uint32_t N)
 {
   simde__m128i *x_128 = (simde__m128i *)x;
   simde__m128i *y_128 = (simde__m128i *)y;

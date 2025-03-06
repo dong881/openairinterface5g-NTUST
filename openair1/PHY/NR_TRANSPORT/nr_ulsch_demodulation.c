@@ -308,14 +308,14 @@ static void nr_ulsch_channel_compensation(c16_t *rxFext,
 }
 
 // Zero Forcing Rx function: nr_det_HhH()
-static void nr_ulsch_det_HhH (int32_t *after_mf_00,//a
-                              int32_t *after_mf_01,//b
-                              int32_t *after_mf_10,//c
-                              int32_t *after_mf_11,//d
-                              uint32_t *det_fin,//1/ad-bc
-                              unsigned short nb_rb,
-                              unsigned char symbol,
-                              int32_t shift)
+static void nr_ulsch_det_HhH(c16_t *after_mf_00, // a
+                             c16_t *after_mf_01, // b
+                             c16_t *after_mf_10, // c
+                             c16_t *after_mf_11, // d
+                             uint32_t *det_fin, // 1/ad-bc
+                             unsigned short nb_rb,
+                             unsigned char symbol,
+                             int32_t shift)
 {
   simde__m128i *after_mf_00_128,*after_mf_01_128, *after_mf_10_128, *after_mf_11_128, ad_re_128, bc_re_128; //ad_im_128, bc_im_128;
   simde__m128i *det_fin_128, det_re_128; //det_im_128, tmp_det0, tmp_det1;
@@ -365,14 +365,10 @@ static void nr_ulsch_det_HhH (int32_t *after_mf_00,//a
  *
  * */
 // TODO: This function is just a wrapper, can be removed.
-static void nr_ulsch_conjch0_mult_ch1(int *ch0,
-                                      int *ch1,
-                                      int32_t *ch0conj_ch1,
-                                      unsigned short nb_rb,
-                                      unsigned char output_shift0)
+static void nr_ulsch_conjch0_mult_ch1(c16_t *ch0, c16_t *ch1, c16_t *ch0conj_ch1, unsigned short nb_rb, unsigned char output_shift0)
 {
   //This function is used to compute multiplications in H_hermitian * H matrix
-  mult_cpx_conj_vector((c16_t *)ch0, (c16_t *)ch1, (c16_t *)ch0conj_ch1, 12 * nb_rb, output_shift0);
+  mult_cpx_conj_vector(ch0, ch1, ch0conj_ch1, 12 * nb_rb, output_shift0);
 }
 
 static simde__m128i nr_ulsch_comp_muli_sum(simde__m128i input_x,
@@ -422,26 +418,26 @@ static simde__m128i nr_ulsch_comp_muli_sum(simde__m128i input_x,
  *
  *
  * */
-static void nr_ulsch_construct_HhH_elements(int *conjch00_ch00,
-                                            int *conjch01_ch01,
-                                            int *conjch11_ch11,
-                                            int *conjch10_ch10,//
-                                            int *conjch20_ch20,
-                                            int *conjch21_ch21,
-                                            int *conjch30_ch30,
-                                            int *conjch31_ch31,
-                                            int *conjch00_ch01,//00_01
-                                            int *conjch01_ch00,//01_00
-                                            int *conjch10_ch11,//10_11
-                                            int *conjch11_ch10,//11_10
-                                            int *conjch20_ch21,
-                                            int *conjch21_ch20,
-                                            int *conjch30_ch31,
-                                            int *conjch31_ch30,
-                                            int32_t *after_mf_00,
-                                            int32_t *after_mf_01,
-                                            int32_t *after_mf_10,
-                                            int32_t *after_mf_11,
+static void nr_ulsch_construct_HhH_elements(c16_t *conjch00_ch00,
+                                            c16_t *conjch01_ch01,
+                                            c16_t *conjch11_ch11,
+                                            c16_t *conjch10_ch10, //
+                                            c16_t *conjch20_ch20,
+                                            c16_t *conjch21_ch21,
+                                            c16_t *conjch30_ch30,
+                                            c16_t *conjch31_ch31,
+                                            c16_t *conjch00_ch01, // 00_01
+                                            c16_t *conjch01_ch00, // 01_00
+                                            c16_t *conjch10_ch11, // 10_11
+                                            c16_t *conjch11_ch10, // 11_10
+                                            c16_t *conjch20_ch21,
+                                            c16_t *conjch21_ch20,
+                                            c16_t *conjch30_ch31,
+                                            c16_t *conjch31_ch30,
+                                            c16_t *after_mf_00,
+                                            c16_t *after_mf_01,
+                                            c16_t *after_mf_10,
+                                            c16_t *after_mf_11,
                                             unsigned short nb_rb,
                                             unsigned char symbol)
 {
@@ -532,52 +528,54 @@ static uint8_t nr_ulsch_mmse_2layers(NR_DL_FRAME_PARMS *frame_parms,
                                      int **ul_ch_mag,
                                      int **ul_ch_magb,
                                      int **ul_ch_magc,
-                                     int **ul_ch_estimates_ext,
+                                     int nb_layer,
+                                     int nb_rx_ant,
+                                     uint32_t buffer_length,
+                                     c16_t ul_ch_estimates_ext[nb_layer][nb_rx_ant][buffer_length],
                                      unsigned short nb_rb,
                                      unsigned char n_rx,
                                      unsigned char mod_order,
                                      int shift,
                                      unsigned char symbol,
                                      int length,
-                                     uint32_t noise_var,
-                                     uint32_t buffer_length)
+                                     uint32_t noise_var)
 {
-  int *ch00, *ch01, *ch10, *ch11;
-  int *ch20, *ch30, *ch21, *ch31;
+  c16_t *ch00, *ch01, *ch10, *ch11;
+  c16_t *ch20, *ch30, *ch21, *ch31;
   uint32_t nb_rb_0 = length/12 + ((length%12)?1:0);
 
   /* we need at least alignment to 16 bytes, let's put 32 to be sure
    * (maybe not necessary but doesn't hurt)
    */
-  int32_t conjch00_ch01[12*nb_rb] __attribute__((aligned(32)));
-  int32_t conjch01_ch00[12*nb_rb] __attribute__((aligned(32)));
-  int32_t conjch10_ch11[12*nb_rb] __attribute__((aligned(32)));
-  int32_t conjch11_ch10[12*nb_rb] __attribute__((aligned(32)));
-  int32_t conjch00_ch00[12*nb_rb] __attribute__((aligned(32)));
-  int32_t conjch01_ch01[12*nb_rb] __attribute__((aligned(32)));
-  int32_t conjch10_ch10[12*nb_rb] __attribute__((aligned(32)));
-  int32_t conjch11_ch11[12*nb_rb] __attribute__((aligned(32)));
-  int32_t conjch20_ch20[12*nb_rb] __attribute__((aligned(32)));
-  int32_t conjch21_ch21[12*nb_rb] __attribute__((aligned(32)));
-  int32_t conjch30_ch30[12*nb_rb] __attribute__((aligned(32)));
-  int32_t conjch31_ch31[12*nb_rb] __attribute__((aligned(32)));
-  int32_t conjch20_ch21[12*nb_rb] __attribute__((aligned(32)));
-  int32_t conjch30_ch31[12*nb_rb] __attribute__((aligned(32)));
-  int32_t conjch21_ch20[12*nb_rb] __attribute__((aligned(32)));
-  int32_t conjch31_ch30[12*nb_rb] __attribute__((aligned(32)));
+  c16_t conjch00_ch01[12 * nb_rb] __attribute__((aligned(32)));
+  c16_t conjch01_ch00[12 * nb_rb] __attribute__((aligned(32)));
+  c16_t conjch10_ch11[12 * nb_rb] __attribute__((aligned(32)));
+  c16_t conjch11_ch10[12 * nb_rb] __attribute__((aligned(32)));
+  c16_t conjch00_ch00[12 * nb_rb] __attribute__((aligned(32)));
+  c16_t conjch01_ch01[12 * nb_rb] __attribute__((aligned(32)));
+  c16_t conjch10_ch10[12 * nb_rb] __attribute__((aligned(32)));
+  c16_t conjch11_ch11[12 * nb_rb] __attribute__((aligned(32)));
+  c16_t conjch20_ch20[12 * nb_rb] __attribute__((aligned(32)));
+  c16_t conjch21_ch21[12 * nb_rb] __attribute__((aligned(32)));
+  c16_t conjch30_ch30[12 * nb_rb] __attribute__((aligned(32)));
+  c16_t conjch31_ch31[12 * nb_rb] __attribute__((aligned(32)));
+  c16_t conjch20_ch21[12 * nb_rb] __attribute__((aligned(32)));
+  c16_t conjch30_ch31[12 * nb_rb] __attribute__((aligned(32)));
+  c16_t conjch21_ch20[12 * nb_rb] __attribute__((aligned(32)));
+  c16_t conjch31_ch30[12 * nb_rb] __attribute__((aligned(32)));
 
-  int32_t af_mf_00[12*nb_rb] __attribute__((aligned(32)));
-  int32_t af_mf_01[12*nb_rb] __attribute__((aligned(32)));
-  int32_t af_mf_10[12*nb_rb] __attribute__((aligned(32)));
-  int32_t af_mf_11[12*nb_rb] __attribute__((aligned(32)));
+  c16_t af_mf_00[12 * nb_rb] __attribute__((aligned(32)));
+  c16_t af_mf_01[12 * nb_rb] __attribute__((aligned(32)));
+  c16_t af_mf_10[12 * nb_rb] __attribute__((aligned(32)));
+  c16_t af_mf_11[12 * nb_rb] __attribute__((aligned(32)));
   uint32_t determ_fin[12*nb_rb] __attribute__((aligned(32)));
 
   switch (n_rx) {
     case 2://
-      ch00 = &((int *)ul_ch_estimates_ext)[0 * buffer_length];
-      ch01 = &((int *)ul_ch_estimates_ext)[2 * buffer_length];
-      ch10 = &((int *)ul_ch_estimates_ext)[1 * buffer_length];
-      ch11 = &((int *)ul_ch_estimates_ext)[3 * buffer_length];
+      ch00 = ul_ch_estimates_ext[0][0];
+      ch01 = ul_ch_estimates_ext[1][0];
+      ch10 = ul_ch_estimates_ext[0][1];
+      ch11 = ul_ch_estimates_ext[1][1];
       ch20 = NULL;
       ch21 = NULL;
       ch30 = NULL;
@@ -585,14 +583,14 @@ static uint8_t nr_ulsch_mmse_2layers(NR_DL_FRAME_PARMS *frame_parms,
       break;
 
     case 4://
-      ch00 = &((int *)ul_ch_estimates_ext)[0 * buffer_length];
-      ch01 = &((int *)ul_ch_estimates_ext)[4 * buffer_length];
-      ch10 = &((int *)ul_ch_estimates_ext)[1 * buffer_length];
-      ch11 = &((int *)ul_ch_estimates_ext)[5 * buffer_length];
-      ch20 = &((int *)ul_ch_estimates_ext)[2 * buffer_length];
-      ch21 = &((int *)ul_ch_estimates_ext)[6 * buffer_length];
-      ch30 = &((int *)ul_ch_estimates_ext)[3 * buffer_length];
-      ch31 = &((int *)ul_ch_estimates_ext)[7 * buffer_length];
+      ch00 = ul_ch_estimates_ext[0][0];
+      ch01 = ul_ch_estimates_ext[1][0];
+      ch10 = ul_ch_estimates_ext[0][1];
+      ch11 = ul_ch_estimates_ext[1][1];
+      ch20 = ul_ch_estimates_ext[2][0];
+      ch21 = ul_ch_estimates_ext[2][1];
+      ch30 = ul_ch_estimates_ext[3][0];
+      ch31 = ul_ch_estimates_ext[3][1];
       break;
 
     default:
@@ -1031,15 +1029,17 @@ static void inner_rx(PHY_VARS_gNB *gNB,
                             (int **)rxF_ch_maga,
                             (int **)rxF_ch_magb,
                             (int **)rxF_ch_magc,
-                            (int **)chFext,
+                            nb_layer,
+                            nb_rx_ant,
+                            buffer_length,
+                            chFext,
                             rel15_ul->rb_size,
                             frame_parms->nb_antennas_rx,
                             rel15_ul->qam_mod_order,
                             pusch_vars->log2_maxh,
                             symbol,
                             pusch_vars->ul_valid_re_per_slot[symbol],
-                            nvar,
-                            buffer_length);
+                            nvar);
     }
   }
   if (nb_layer != 2 || rel15_ul->qam_mod_order > 6)

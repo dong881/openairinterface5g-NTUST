@@ -202,23 +202,21 @@ int32_t dlsch_qpsk_llr_SIC(LTE_DL_FRAME_PARMS *frame_parms,
                            uint16_t mod_order_0,
                            uint32_t rb_alloc)
 {
-
-  int16_t rho_amp_x0[2*frame_parms->N_RB_DL*12];
-  int16_t rho_rho_amp_x0[2*frame_parms->N_RB_DL*12];
+  c16_t rho_amp_x0[frame_parms->N_RB_DL * 12];
+  c16_t rho_rho_amp_x0[frame_parms->N_RB_DL * 12];
   uint16_t amp_tmp;
   uint16_t *llr16=(uint16_t*)dlsch_llr;
   int i, len,  nsymb;
   uint8_t symbol, symbol_mod;
-  int len_acc=0;
-  uint16_t *sic_data;
+  int len_acc = 0;
   uint16_t pbch_pss_sss_adjust;
 
   nsymb = (frame_parms->Ncp==0) ? 14:12;
 
   for (symbol=num_pdcch_symbols; symbol<nsymb; symbol++) {
-    uint16_t *rxF = (uint16_t*)(&rxdataF_comp[0][((int16_t)symbol*frame_parms->N_RB_DL*12)]);
-    int16_t *rho_1=(int16_t*)(&rho_i[0][((int16_t)symbol*frame_parms->N_RB_DL*12)]);
-    sic_data = (uint16_t*)&sic_buffer[0][((int16_t)len_acc)];
+    uint16_t *rxF = (uint16_t *)&rxdataF_comp[0][symbol * frame_parms->N_RB_DL * 12];
+    c16_t *rho_1 = (c16_t *)&rho_i[0][symbol * frame_parms->N_RB_DL * 12];
+    c16_t *sic_data = (c16_t *)&sic_buffer[0][len_acc];
 
     symbol_mod = (symbol>=(7-frame_parms->Ncp)) ? symbol-(7-frame_parms->Ncp) : symbol;
 
@@ -249,14 +247,14 @@ int32_t dlsch_qpsk_llr_SIC(LTE_DL_FRAME_PARMS *frame_parms,
 
     len_acc+=len; //accumulated length; this is done because in sic_buffer we have only data symbols
 
-    mult_complex_vector_real_scalar((int16_t *)sic_data,
+    mult_complex_vector_real_scalar(sic_data,
                                     amp_tmp,
-                                    (int16_t *)rho_amp_x0, // this is in Q13
+                                    rho_amp_x0, // this is in Q13
                                     len);
 
-    mult_cpx_vector((c16_t *)rho_1, // Q15
-                    (c16_t *)rho_amp_x0, // Q13
-                    (c16_t *)rho_rho_amp_x0,
+    mult_cpx_vector(rho_1, // Q15
+                    rho_amp_x0, // Q13
+                    rho_rho_amp_x0,
                     len,
                     13);
 
@@ -271,10 +269,10 @@ int32_t dlsch_qpsk_llr_SIC(LTE_DL_FRAME_PARMS *frame_parms,
 #endif
 
     sub_cpx_vector16((c16_t *)rxF,
-                     (c16_t *)rho_rho_amp_x0,
+                     rho_rho_amp_x0,
                      //(int16_t *)clean_x1,
                      (c16_t *)rxF,
-                     len*2);
+                     len * 2);
 
 #ifdef DEBUG_LLR_SIC
     LOG_M("rxFdata_comp1_after.m","rxF_a", rxF,len,1,1);
@@ -406,14 +404,13 @@ void dlsch_16qam_llr_SIC (LTE_DL_FRAME_PARMS *frame_parms,
                           uint16_t mod_order_0,
                           uint32_t rb_alloc)
 {
-  int16_t rho_amp_x0[2*frame_parms->N_RB_DL*12];
-  int16_t rho_rho_amp_x0[2*frame_parms->N_RB_DL*12];
+  c16_t rho_amp_x0[frame_parms->N_RB_DL * 12];
+  c16_t rho_rho_amp_x0[frame_parms->N_RB_DL * 12];
   uint16_t amp_tmp;
   uint32_t *llr32=(uint32_t*)dlsch_llr;
   int i, len,  nsymb;
   uint8_t symbol, symbol_mod;
-  int len_acc=0;
-  uint16_t *sic_data;
+  int len_acc = 0;
   uint16_t pbch_pss_sss_adjust;
   unsigned char len_mod4=0;
   simde__m128i llr128[2];
@@ -421,10 +418,10 @@ void dlsch_16qam_llr_SIC (LTE_DL_FRAME_PARMS *frame_parms,
   nsymb = (frame_parms->Ncp==0) ? 14:12;
 
   for (symbol=num_pdcch_symbols; symbol<nsymb; symbol++) {
-    uint16_t *rxF = (uint16_t*)(&rxdataF_comp[0][((int16_t)symbol*frame_parms->N_RB_DL*12)]);
-    int16_t *rho_1=(int16_t*)(&rho_i[0][((int16_t)symbol*frame_parms->N_RB_DL*12)]);
-    ch_mag = (simde__m128i*)(&dl_ch_mag[0][((int16_t)symbol*frame_parms->N_RB_DL*12)]);
-    sic_data = (uint16_t*)(&sic_buffer[0][((int16_t)len_acc)]);
+    uint16_t *rxF = (uint16_t *)&rxdataF_comp[0][symbol * frame_parms->N_RB_DL * 12];
+    c16_t *rho_1 = (c16_t *)&rho_i[0][symbol * frame_parms->N_RB_DL * 12];
+    ch_mag = (simde__m128i *)&dl_ch_mag[0][symbol * frame_parms->N_RB_DL * 12];
+    c16_t *sic_data = (c16_t *)&sic_buffer[0][len_acc];
 
     symbol_mod = (symbol>=(7-frame_parms->Ncp)) ? symbol-(7-frame_parms->Ncp) : symbol;
 
@@ -446,22 +443,22 @@ void dlsch_16qam_llr_SIC (LTE_DL_FRAME_PARMS *frame_parms,
 
     len_acc+=len;
 
-    mult_complex_vector_real_scalar((int16_t *)sic_data,
+    mult_complex_vector_real_scalar(sic_data,
                                     amp_tmp,
-                                    (int16_t *)rho_amp_x0, // this is in Q13
+                                    rho_amp_x0, // this is in Q13
                                     len);
 
-    mult_cpx_vector((c16_t *)rho_1, // Q15
-                    (c16_t *)rho_amp_x0, // Q13
-                    (c16_t *)rho_rho_amp_x0,
+    mult_cpx_vector(rho_1, // Q15
+                    rho_amp_x0, // Q13
+                    rho_rho_amp_x0,
                     len,
                     13);
 
     sub_cpx_vector16((c16_t *)rxF,
-                     (c16_t *)rho_rho_amp_x0,
+                     rho_rho_amp_x0,
                      //(int16_t *)clean_x1,
                      (c16_t *)rxF,
-                     len*2);
+                     len * 2);
 
     len_mod4 = len&3;
     len>>=2;  // length in quad words (4 REs)
@@ -635,14 +632,13 @@ void dlsch_64qam_llr_SIC(LTE_DL_FRAME_PARMS *frame_parms,
                          uint16_t mod_order_0,
                          uint32_t rb_alloc)
 {
-  int16_t rho_amp_x0[2*frame_parms->N_RB_DL*12];
-  int16_t rho_rho_amp_x0[2*frame_parms->N_RB_DL*12];
+  c16_t rho_amp_x0[frame_parms->N_RB_DL * 12];
+  c16_t rho_rho_amp_x0[frame_parms->N_RB_DL * 12];
   uint16_t amp_tmp;
   uint16_t *llr32=(uint16_t*)dlsch_llr;
   int i, len,  nsymb, len2;
   uint8_t symbol, symbol_mod;
-  int len_acc=0;
-  uint16_t *sic_data;
+  int len_acc = 0;
   uint16_t pbch_pss_sss_adjust;
   unsigned char len_mod4=0;
   uint16_t *llr2;
@@ -651,11 +647,11 @@ void dlsch_64qam_llr_SIC(LTE_DL_FRAME_PARMS *frame_parms,
   nsymb = (frame_parms->Ncp==0) ? 14:12;
 
   for (symbol=num_pdcch_symbols; symbol<nsymb; symbol++) {
-    uint16_t *rxF = (uint16_t*)(&rxdataF_comp[0][((int16_t)symbol*frame_parms->N_RB_DL*12)]);
-    int16_t *rho_1=(int16_t*)(&rho_i[0][((int16_t)symbol*frame_parms->N_RB_DL*12)]);
-    ch_mag = (simde__m128i*)(&dl_ch_mag[0][((int16_t)symbol*frame_parms->N_RB_DL*12)]);
-    ch_magb = (simde__m128i*)(&dl_ch_magb[0][((int16_t)symbol*frame_parms->N_RB_DL*12)]);
-    sic_data = (uint16_t*)(&sic_buffer[0][((int16_t)len_acc)]);
+    uint16_t *rxF = (uint16_t *)(&rxdataF_comp[0][symbol * frame_parms->N_RB_DL * 12]);
+    c16_t *rho_1 = (c16_t *)(&rho_i[0][symbol * frame_parms->N_RB_DL * 12]);
+    ch_mag = (simde__m128i *)(&dl_ch_mag[0][symbol * frame_parms->N_RB_DL * 12]);
+    ch_magb = (simde__m128i *)(&dl_ch_magb[0][symbol * frame_parms->N_RB_DL * 12]);
+    c16_t *sic_data = (c16_t *)(&sic_buffer[0][len_acc]);
 
     symbol_mod = (symbol>=(7-frame_parms->Ncp)) ? symbol-(7-frame_parms->Ncp) : symbol;
 
@@ -677,22 +673,22 @@ void dlsch_64qam_llr_SIC(LTE_DL_FRAME_PARMS *frame_parms,
 
     len_acc+=len;
 
-    mult_complex_vector_real_scalar((int16_t *)sic_data,
+    mult_complex_vector_real_scalar(sic_data,
                                     amp_tmp,
-                                    (int16_t *)rho_amp_x0, // this is in Q13
+                                    rho_amp_x0, // this is in Q13
                                     len);
 
-    mult_cpx_vector((c16_t *)rho_1, // Q15
-                    (c16_t *)rho_amp_x0, // Q13
-                    (c16_t *)rho_rho_amp_x0,
+    mult_cpx_vector(rho_1, // Q15
+                    rho_amp_x0, // Q13
+                    rho_rho_amp_x0,
                     len,
                     13);
 
     sub_cpx_vector16((c16_t *)rxF,
-                      (c16_t *)rho_rho_amp_x0,
-                      //(int16_t *)clean_x1,
-                      (c16_t *)rxF,
-                      len*2);
+                     rho_rho_amp_x0,
+                     //(int16_t *)clean_x1,
+                     (c16_t *)rxF,
+                     len * 2);
 
     llr2 = llr32;
     llr32 += (len*6);

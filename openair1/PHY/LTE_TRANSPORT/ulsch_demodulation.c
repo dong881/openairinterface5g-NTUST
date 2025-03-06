@@ -536,14 +536,15 @@ void rx_ulsch(PHY_VARS_eNB *eNB,
                              l%(frame_parms->symbols_per_tti/2),
                              l/(frame_parms->symbols_per_tti/2),
                              frame_parms);
-    lte_ul_channel_estimation(&eNB->frame_parms,proc,
-		              eNB->ulsch[UE_id],
-		              eNB->pusch_vars[UE_id]->drs_ch_estimates,
-			      eNB->pusch_vars[UE_id]->drs_ch_estimates_time,
-			      eNB->pusch_vars[UE_id]->rxdataF_ext,
+    lte_ul_channel_estimation(&eNB->frame_parms,
+                              proc,
+                              eNB->ulsch[UE_id],
+                              (c16_t **)eNB->pusch_vars[UE_id]->drs_ch_estimates,
+                              (c16_t **)eNB->pusch_vars[UE_id]->drs_ch_estimates_time,
+                              (c16_t **)eNB->pusch_vars[UE_id]->rxdataF_ext,
                               UE_id,
-                              l%(frame_parms->symbols_per_tti/2),
-                              l/(frame_parms->symbols_per_tti/2));
+                              l % (frame_parms->symbols_per_tti / 2),
+                              l / (frame_parms->symbols_per_tti / 2));
   }
 
   int correction_factor = 1;
@@ -637,11 +638,11 @@ void rx_ulsch(PHY_VARS_eNB *eNB,
     //    if ((eNB->measurements.n0_power_dB[0]+3)<pusch_vars->ulsch_power[0])
     if (23<pusch_vars->ulsch_power[0]) {
       freq_equalization(frame_parms,
-                        pusch_vars->rxdataF_comp,
-                        pusch_vars->ul_ch_mag,
-                        pusch_vars->ul_ch_magb,
+                        (c16_t **)pusch_vars->rxdataF_comp,
+                        (c16_t **)pusch_vars->ul_ch_mag,
+                        (c16_t **)pusch_vars->ul_ch_magb,
                         l,
-                        ulsch[UE_id]->harq_processes[harq_pid]->nb_rb*12,
+                        ulsch[UE_id]->harq_processes[harq_pid]->nb_rb * 12,
                         Qm);
     }
   }

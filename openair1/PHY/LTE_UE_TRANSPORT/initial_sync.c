@@ -297,9 +297,7 @@ int initial_sync(PHY_VARS_UE *ue, runmode_t mode) {
 
   exit(-1);
   */
-  sync_pos = lte_sync_time(ue->common_vars.rxdata,
-                           frame_parms,
-                           (int *)&ue->common_vars.eNb_id);
+  sync_pos = lte_sync_time((c16_t **)ue->common_vars.rxdata, frame_parms, (int *)&ue->common_vars.eNb_id);
 
   //  LOG_M("rxdata1.m","rxd1",ue->common_vars.rxdata[0],10*frame_parms->samples_per_tti,1,1);
   if (sync_pos >= frame_parms->nb_prefix_samples)
