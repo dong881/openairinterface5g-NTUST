@@ -1162,13 +1162,11 @@ void init_NR_UE(int nb_inst, char *uecap_file, char *reconfig_file, char *rbconf
 }
 
 void init_NR_UE_threads(PHY_VARS_NR_UE *UE) {
-  pthread_t thread;
   char thread_name[16];
   sprintf(thread_name, "UEthread_%d", UE->Mod_id);
-  threadCreate(&thread, UE_thread, (void *)UE, thread_name, -1, OAI_PRIORITY_RT_MAX);
+  threadCreate(&UE->main_thread, UE_thread, (void *)UE, thread_name, -1, OAI_PRIORITY_RT_MAX);
   if (!IS_SOFTMODEM_NOSTATS) {
-    pthread_t stat_pthread;
     sprintf(thread_name, "L1_UE_stats_%d", UE->Mod_id);
-    threadCreate(&stat_pthread, nrL1_UE_stats_thread, UE, thread_name, -1, OAI_PRIORITY_RT_LOW);
+    threadCreate(&UE->stat_thread, nrL1_UE_stats_thread, UE, thread_name, -1, OAI_PRIORITY_RT_LOW);
   }
 }

@@ -24,6 +24,7 @@
 #include <sched.h>
 #include <stdbool.h>
 #include <signal.h>
+#include <errno.h>
 
 #include "T.h"
 #include "common/oai_version.h"
@@ -572,8 +573,20 @@ int main(int argc, char **argv)
   if (PHY_vars_UE_g && PHY_vars_UE_g[0]) {
     for (int CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
       PHY_VARS_NR_UE *phy_vars = PHY_vars_UE_g[0][CC_id];
-      if (phy_vars && phy_vars->rfdevice.trx_end_func)
-        phy_vars->rfdevice.trx_end_func(&phy_vars->rfdevice);
+      if (phy_vars) {
+        shutdown_actor(&phy_vars->ul_actor);
+        for (int i = 0; i < NUM_DL_ACTORS; i++) {
+          shutdown_actor(&phy_vars->dl_actors[i]);
+        }
+        int ret = pthread_join(phy_vars->main_thread, NULL);
+        AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
+        if (!IS_SOFTMODEM_NOSTATS) {
+          ret = pthread_join(phy_vars->stat_thread, NULL);
+          AssertFatal(ret == 0, "pthread_join error %d, errno %d (%s)\n", ret, errno, strerror(errno));
+        }
+        if (phy_vars->rfdevice.trx_end_func)
+          phy_vars->rfdevice.trx_end_func(&phy_vars->rfdevice);
+      }
     }
   }
 
