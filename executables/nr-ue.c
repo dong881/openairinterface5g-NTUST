@@ -970,6 +970,8 @@ void *UE_thread(void *arg)
       syncMsg->UE = UE;
       memset(&syncMsg->proc, 0, sizeof(syncMsg->proc));
       pushNotifiedFIFO(&UE->sync_actor.fifo, Msg);
+      timing_advance = 0;
+      UE->timing_advance = 0;
       trashed_frames = 0;
       syncRunning = true;
       continue;
