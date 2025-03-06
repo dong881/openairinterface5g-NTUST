@@ -24,11 +24,14 @@
 
 static void fil_srs_indication_report_tlv(nfapi_srs_report_tlv_t *tlv)
 {
-  tlv->tag = rand16_range(0,3);
-  tlv->length = rand32_range(0,sizeof(tlv->value));
-  for (int i = 0; i < (tlv->length + 3) / 4; ++i) {
+  tlv->tag = rand16_range(0, 3);
+  tlv->length = rand32_range(1, sizeof(tlv->value));
+  const uint16_t last_idx = ((tlv->length + 3) / 4) - 1;
+  for (int i = 0; i < last_idx; ++i) {
     tlv->value[i] = rand32();
   }
+  const uint8_t num_bytes = 4 - get_tlv_padding(tlv->length);
+  tlv->value[last_idx] = rand32_range(0, 1 << (8 * num_bytes));
 }
 
 static void fill_srs_indication_PDU(nfapi_nr_srs_indication_pdu_t *pdu)

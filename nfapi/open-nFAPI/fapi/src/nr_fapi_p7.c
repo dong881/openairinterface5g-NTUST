@@ -2300,6 +2300,28 @@ uint8_t pack_nr_srs_indication(void *msg, uint8_t **ppWritePackedMsg, uint8_t *e
   return 1;
 }
 
+uint8_t unpack_nr_srs_report_tlv_value(nfapi_srs_report_tlv_t *report_tlv, uint8_t **ppReadPackedMsg, uint8_t *end)
+{
+#ifndef ENABLE_AERIAL
+  for (int i = 0; i < (report_tlv->length + 3) / 4; i++) {
+    if (!pull32(ppReadPackedMsg, &report_tlv->value[i], end)) {
+      return 0;
+    }
+  }
+#else
+  const uint16_t last_idx = ((report_tlv->length + 3) / 4) - 1;
+  for (int i = 0; i < last_idx; i++) {
+    if (!pull32(ppReadPackedMsg, &report_tlv->value[i], end)) {
+      return 0;
+    }
+  }
+  // Pull last bytes according to how much padding it would need to be 32-bit aligned
+  const uint8_t padding = get_tlv_padding(report_tlv->length);
+  pullx32(4 - padding, ppReadPackedMsg, &report_tlv->value[last_idx], end);
+#endif
+  return 1;
+}
+
 static uint8_t unpack_nr_srs_report_tlv(nfapi_srs_report_tlv_t *report_tlv, uint8_t **ppReadPackedMsg, uint8_t *end) {
 
   if(!(pull16(ppReadPackedMsg, &report_tlv->tag, end) &&
@@ -2307,10 +2329,8 @@ static uint8_t unpack_nr_srs_report_tlv(nfapi_srs_report_tlv_t *report_tlv, uint
     return 0;
   }
 #ifndef ENABLE_AERIAL
-  for (int i = 0; i < (report_tlv->length + 3) / 4; i++) {
-    if (!pull32(ppReadPackedMsg, &report_tlv->value[i], end)) {
-      return 0;
-    }
+  if (!unpack_nr_srs_report_tlv_value(report_tlv, ppReadPackedMsg, end)) {
+    return 0;
   }
 #endif
   return 1;

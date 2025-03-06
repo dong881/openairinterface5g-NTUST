@@ -2684,6 +2684,18 @@ void dump_uci_indication(const nfapi_nr_uci_indication_t *msg)
   }
 }
 
+static void dump_srs_report_tlv(const nfapi_srs_report_tlv_t* tlv, int depth)
+{
+  depth++;
+  INDENTED_PRINTF("TAG = 0x%02x\n", tlv->tag);
+  INDENTED_PRINTF("LENGTH = 0x%02x\n", tlv->length);
+  INDENTED_PRINTF("VALUE = ");
+  for (int i = 0; i < ((tlv->length + 3) / 4); ++i) {
+     printf("0x%04x ", tlv->value[i]);
+  }
+  printf("\n");
+}
+
 void dump_srs_indication(const nfapi_nr_srs_indication_t *msg)
 {
   int depth = 0;
@@ -2704,7 +2716,7 @@ void dump_srs_indication(const nfapi_nr_srs_indication_t *msg)
     INDENTED_PRINTF("Timing advance offset in nanoseconds = 0x%02x\n", pdu->timing_advance_offset_nsec);
     INDENTED_PRINTF("SRS usage = 0x%02x\n", pdu->srs_usage);
     INDENTED_PRINTF("Report Type = 0x%02x\n", pdu->report_type);
-    /* call to dump_srs_report_tlv */
+    dump_srs_report_tlv(&pdu->report_tlv, depth);
     depth--;
   }
 }

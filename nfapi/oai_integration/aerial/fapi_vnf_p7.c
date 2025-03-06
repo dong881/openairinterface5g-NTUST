@@ -309,11 +309,8 @@ uint8_t aerial_unpack_nr_srs_indication(uint8_t **ppReadPackedMsg,
   nfapi_nr_srs_indication_t *srs_ind = (nfapi_nr_srs_indication_t *)msg;
   for (uint8_t pdu_idx = 0; pdu_idx < srs_ind->number_of_pdus; pdu_idx++) {
     nfapi_nr_srs_indication_pdu_t *pdu = &srs_ind->pdu_list[pdu_idx];
-    nfapi_srs_report_tlv_t *report_tlv = &pdu->report_tlv;
-    for (int i = 0; i < (report_tlv->length + 3) / 4; i++) {
-      if (!pull32(pDataMsg, &report_tlv->value[i], data_end)) {
-        return 0;
-      }
+    if (!unpack_nr_srs_report_tlv_value(&pdu->report_tlv, pDataMsg, data_end)) {
+      return 0;
     }
   }
   return retval;
