@@ -115,7 +115,6 @@ void nr_ue_send_synch_request(NR_UE_MAC_INST_t *mac, module_id_t module_id, int 
 void nr_ue_reset_sync_state(NR_UE_MAC_INST_t *mac)
 {
   // reset synchornization status
-  mac->first_sync_frame = -1;
   mac->state = UE_NOT_SYNC;
   mac->ra.ra_state = nrRA_UE_IDLE;
 }

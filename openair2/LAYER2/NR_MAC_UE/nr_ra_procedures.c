@@ -830,21 +830,8 @@ static void setup_ra_response_window(RA_config_t *ra,
 bool init_RA(NR_UE_MAC_INST_t *mac, int frame)
 {
   RA_config_t *ra = &mac->ra;
-  // Delay init RA procedure to allow the convergence of the IIR filter on PRACH noise measurements at gNB side
-  LOG_D(NR_MAC,
-        "ra->ra_state %d frame %d mac->first_sync_frame %d xxx %d",
-        ra->ra_state,
-        frame,
-        mac->first_sync_frame,
-        ((MAX_FRAME_NUMBER + frame - mac->first_sync_frame) % MAX_FRAME_NUMBER) > 10);
-  if ((mac->first_sync_frame > -1 || get_softmodem_params()->do_ra || get_softmodem_params()->nsa)
-      && ((MAX_FRAME_NUMBER + frame - mac->first_sync_frame) % MAX_FRAME_NUMBER) > 150) {
-    ra->ra_state = nrRA_GENERATE_PREAMBLE;
-    LOG_D(NR_MAC, "PRACH Condition met: ra state %d, frame %d, sync_frame %d\n", ra->ra_state, frame, mac->first_sync_frame);
-  } else {
-    LOG_D(NR_MAC, "PRACH Condition not met: ra state %d, frame %d, sync_frame %d\n", ra->ra_state, frame, mac->first_sync_frame);
-    return false;
-  }
+  LOG_D(NR_MAC, "Initialization of RA\n");
+  ra->ra_state = nrRA_GENERATE_PREAMBLE;
 
   // TODO this piece of code is required to compute MSG3_size that is used by ra_preambles_config function
   // Not a good implementation, it needs improvements

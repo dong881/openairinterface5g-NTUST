@@ -1335,11 +1335,9 @@ void nr_ue_ul_scheduler(NR_UE_MAC_INST_t *mac, nr_uplink_indication_t *ul_info)
   RA_config_t *ra = &mac->ra;
 
   if (mac->state == UE_PERFORMING_RA && ra->ra_state == nrRA_UE_IDLE) {
-    bool res = init_RA(mac, frame_tx);
-    if (res) {
-      // perform the Random Access Resource selection procedure (see clause 5.1.2 and .2a)
-      ra_resource_selection(mac);
-    }
+    init_RA(mac, frame_tx);
+    // perform the Random Access Resource selection procedure (see clause 5.1.2 and .2a)
+    ra_resource_selection(mac);
   }
 
   if (mac->state == UE_PERFORMING_RA && ra->ra_state == nrRA_GENERATE_PREAMBLE)

@@ -238,9 +238,6 @@ void nr_ue_decode_mib(NR_UE_MAC_INST_t *mac, int cc_id)
   mac->ssb_subcarrier_offset = ssb_subcarrier_offset;
   mac->dmrs_TypeA_Position = mac->mib->dmrs_TypeA_Position;
 
-  if (mac->first_sync_frame == -1)
-    mac->first_sync_frame = frame;
-
   if (get_softmodem_params()->phy_test)
     mac->state = UE_CONNECTED;
   else if (mac->state == UE_NOT_SYNC) {

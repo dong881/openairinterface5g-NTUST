@@ -538,7 +538,6 @@ typedef struct NR_UE_MAC_INST_s {
   NR_UE_L2_STATE_t state;
   int servCellIndex;
   long physCellId;
-  int first_sync_frame;
   bool get_sib1;
   bool get_otherSI;
   NR_MIB_t *mib;

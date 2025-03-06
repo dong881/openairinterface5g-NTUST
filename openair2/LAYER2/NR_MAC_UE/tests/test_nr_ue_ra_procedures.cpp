@@ -106,7 +106,6 @@ TEST(test_init_ra, four_step_cbra)
   mac.frame_structure.frame_type = TDD;
   mac.frame_structure.numb_slots_frame = 20;
   mac.frequency_range = FR1;
-  mac.first_sync_frame = 0;
   int frame = 151;
 
   init_RA(&mac, frame);
@@ -141,7 +140,6 @@ TEST(test_init_ra, four_step_cfra)
   mac.frame_structure.frame_type = TDD;
   mac.frame_structure.numb_slots_frame = 20;
   mac.frequency_range = FR1;
-  mac.first_sync_frame = 0;
   int frame = 151;
 
   NR_RACH_ConfigDedicated_t rach_ConfigDedicated = {0};
