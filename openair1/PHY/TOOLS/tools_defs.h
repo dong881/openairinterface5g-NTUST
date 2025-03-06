@@ -699,26 +699,25 @@ The function implemented is : \f$\mathbf{y} = \alpha\mathbf{x}\f$
 */
 void rotate_cpx_vector(const c16_t *const x, const c16_t *const alpha, c16_t *y, uint32_t N, uint16_t output_shift);
 
-//cadd_sv.c
-
-/*!\fn int32_t add_cpx_vector(int16_t *x,int16_t *alpha,int16_t *y,uint32_t N)
-This function performs componentwise addition of a vector with a complex scalar.
+/*!\fn int32_t sub_cpx_vector16(c16_t *x,c16_t *y, c16_t z, uint32_t N)
+This function performs componentwise subsctraction  of complex vectors
 @param x Vector input (Q1.15)  in the format  |Re0  Im0 Re1 Im1|,......,|Re(N-2)  Im(N-2) Re(N-1) Im(N-1)|
-@param alpha Scalar input (Q1.15) in the format  |Re0 Im0|
 @param y Output (Q1.15) in the format  |Re0  Im0 Re1 Im1|,......,|Re(N-2)  Im(N-2) Re(N-1) Im(N-1)|
 @param N Length of x WARNING: N>=4
 
 The function implemented is : \f$\mathbf{y} = \alpha + \mathbf{x}\f$
 */
-int32_t add_cpx_vector(int16_t *x,
-                       int16_t *alpha,
-                       int16_t *y,
-                       uint32_t N);
 
-int32_t sub_cpx_vector16(int16_t *x,
-                         int16_t *y,
-                         int16_t *z,
-                         uint32_t N);
+static inline int32_t sub_cpx_vector16(c16_t *x, c16_t *y, c16_t *z, uint32_t N)
+{
+  simde__m128i *x_128 = (simde__m128i *)x;
+  simde__m128i *y_128 = (simde__m128i *)y;
+  simde__m128i *z_128 = (simde__m128i *)z;
+
+  for (uint32_t i = 0; i < (N >> 3); i++)
+    z_128[i] = simde_mm_subs_epi16(x_128[i], y_128[i]);
+  return (0);
+}
 
 /*!\fn int32_t signal_energy(int *,uint32_t);
 \brief Computes the signal energy per subcarrier

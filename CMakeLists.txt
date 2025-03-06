@@ -812,7 +812,6 @@ set(PHY_SRC_COMMON
   ${OPENAIR1_DIR}/PHY/CODING/viterbi_lte.c
   ${OPENAIR1_DIR}/PHY/INIT/init_top.c
   ${OPENAIR1_DIR}/PHY/INIT/lte_parms.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/cadd_vv.c
   ${OPENAIR1_DIR}/PHY/TOOLS/dfts_load.c
   ${OPENAIR1_DIR}/PHY/TOOLS/log2_approx.c
   ${OPENAIR1_DIR}/PHY/TOOLS/cmult_sv.c
@@ -947,7 +946,6 @@ set(PHY_SRC_UE
   ${OPENAIR1_DIR}/PHY/NR_ESTIMATION/nr_freq_equalization.c
   ${OPENAIR1_DIR}/PHY/NR_ESTIMATION/nr_measurements_gNB.c
   ${OPENAIR1_DIR}/PHY/TOOLS/file_output.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/cadd_vv.c
   ${OPENAIR1_DIR}/PHY/TOOLS/log2_approx.c
   ${OPENAIR1_DIR}/PHY/TOOLS/cmult_sv.c
   ${OPENAIR1_DIR}/PHY/TOOLS/cmult_vv.c
@@ -999,7 +997,6 @@ set(PHY_SRC_UE
   ${OPENAIR1_DIR}/PHY/NR_UE_ESTIMATION/nr_ue_measurements.c
   ${OPENAIR1_DIR}/PHY/NR_UE_ESTIMATION/nr_adjust_gain.c
   ${OPENAIR1_DIR}/PHY/TOOLS/file_output.c
-  ${OPENAIR1_DIR}/PHY/TOOLS/cadd_vv.c
   ${OPENAIR1_DIR}/PHY/TOOLS/log2_approx.c
   ${OPENAIR1_DIR}/PHY/TOOLS/cmult_sv.c
   ${OPENAIR1_DIR}/PHY/TOOLS/cmult_vv.c

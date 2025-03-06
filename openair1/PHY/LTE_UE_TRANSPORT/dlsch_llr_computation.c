@@ -271,10 +271,10 @@ int32_t dlsch_qpsk_llr_SIC(LTE_DL_FRAME_PARMS *frame_parms,
      symbol==nsymb-1 ? 14 : 13);
 #endif
 
-    sub_cpx_vector16((int16_t *)rxF,
-                     (int16_t *)rho_rho_amp_x0,
+    sub_cpx_vector16((c16_t *)rxF,
+                     (c16_t *)rho_rho_amp_x0,
                      //(int16_t *)clean_x1,
-                     (int16_t *)rxF,
+                     (c16_t *)rxF,
                      len*2);
 
 #ifdef DEBUG_LLR_SIC
@@ -459,10 +459,10 @@ void dlsch_16qam_llr_SIC (LTE_DL_FRAME_PARMS *frame_parms,
                     len,
                     13);
 
-    sub_cpx_vector16((int16_t *)rxF,
-                     (int16_t *)rho_rho_amp_x0,
+    sub_cpx_vector16((c16_t *)rxF,
+                     (c16_t *)rho_rho_amp_x0,
                      //(int16_t *)clean_x1,
-                     (int16_t *)rxF,
+                     (c16_t *)rxF,
                      len*2);
 
     len_mod4 = len&3;
@@ -691,10 +691,10 @@ void dlsch_64qam_llr_SIC(LTE_DL_FRAME_PARMS *frame_parms,
                     len,
                     13);
 
-    sub_cpx_vector16((int16_t *)rxF,
-                      (int16_t *)rho_rho_amp_x0,
+    sub_cpx_vector16((c16_t *)rxF,
+                      (c16_t *)rho_rho_amp_x0,
                       //(int16_t *)clean_x1,
-                      (int16_t *)rxF,
+                      (c16_t *)rxF,
                       len*2);
 
     llr2 = llr32;
