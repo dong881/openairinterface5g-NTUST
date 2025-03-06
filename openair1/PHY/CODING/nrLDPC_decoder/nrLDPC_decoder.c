@@ -552,8 +552,6 @@ static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
     uint32_t numIter = 1;
     int32_t pcRes = 1; // pcRes is 0 if the ldpc decoder is succesful
     while ((numIter <= numMaxIter) && (pcRes != 0)) {
-      // Increase iteration counter
-      numIter++;
       if (check_abort(ab)) {
         numIter = numMaxIter + 2;
         break;
@@ -847,7 +845,7 @@ static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
             pcRes = nrLDPC_cnProcPc_BG2(p_lut, cnProcBuf, cnProcBufRes, Z);
           NR_LDPC_PROFILER_DETAIL(stop_meas(&p_profiler->cnProcPc));
         } else {
-          if (numIter > 2) {
+          if (numIter > 1) {
             int8_t llrOut[NR_LDPC_MAX_NUM_LLR] __attribute__((aligned(64))) = {0};
             int8_t* p_llrOut = outMode == nrLDPC_outMode_LLRINT8 ? p_out : llrOut;
             nrLDPC_llrRes2llrOut(p_lut, p_llrOut, llrRes, Z, BG);
@@ -861,6 +859,8 @@ static inline uint32_t nrLDPC_decoder_core(int8_t* p_llr,
             }
           }
         }
+      // Increase iteration counter
+      numIter++;
     }
     if (!p_decParams->check_crc) {
       int8_t llrOut[NR_LDPC_MAX_NUM_LLR] __attribute__((aligned(64))) = {0};
