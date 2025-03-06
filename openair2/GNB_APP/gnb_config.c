@@ -2222,14 +2222,14 @@ int RCconfig_NR_NG(MessageDef *msg_p, uint32_t i) {
             NGAP_REGISTER_GNB_REQ(msg_p).num_plmn = PLMNParamList.numelt;
 
             for (int l = 0; l < PLMNParamList.numelt; ++l) {
-              NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].mcc = *PLMNParamList.paramarray[l][GNB_MOBILE_COUNTRY_CODE_IDX].uptr;
-              NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].mnc = *PLMNParamList.paramarray[l][GNB_MOBILE_NETWORK_CODE_IDX].uptr;
-              NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].mnc_digit_length = *PLMNParamList.paramarray[l][GNB_MNC_DIGIT_LENGTH].u8ptr;
+              NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].plmn.mcc = *PLMNParamList.paramarray[l][GNB_MOBILE_COUNTRY_CODE_IDX].uptr;
+              NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].plmn.mnc = *PLMNParamList.paramarray[l][GNB_MOBILE_NETWORK_CODE_IDX].uptr;
+              NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].plmn.mnc_digit_length = *PLMNParamList.paramarray[l][GNB_MNC_DIGIT_LENGTH].u8ptr;
               NGAP_REGISTER_GNB_REQ (msg_p).default_drx      = 0;
-              AssertFatal((NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].mnc_digit_length == 2)
-                              || (NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].mnc_digit_length == 3),
+              AssertFatal((NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].plmn.mnc_digit_length == 2)
+                              || (NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].plmn.mnc_digit_length == 3),
                           "BAD MNC DIGIT LENGTH %d",
-                          NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].mnc_digit_length);
+                          NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].plmn.mnc_digit_length);
 
               NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].num_nssai = set_snssai_config(NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].s_nssai, 8, k, l);
             }
@@ -2549,7 +2549,7 @@ void wait_f1_setup_response(void)
   }
   NR_SCHED_UNLOCK(&mac->sched_lock);
 }
-static bool check_plmn_identity(const f1ap_plmn_t *check_plmn, const f1ap_plmn_t *plmn)
+static bool check_plmn_identity(const plmn_id_t *check_plmn, const plmn_id_t *plmn)
 {
   return plmn->mcc == check_plmn->mcc && plmn->mnc_digit_length == check_plmn->mnc_digit_length && plmn->mnc == check_plmn->mnc;
 }

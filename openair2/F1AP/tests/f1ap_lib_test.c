@@ -80,7 +80,7 @@ static void f1ap_msg_free(F1AP_F1AP_PDU_t *pdu)
  */
 static void test_initial_ul_rrc_message_transfer(void)
 {
-  f1ap_plmn_t plmn = { .mcc = 208, .mnc = 95, .mnc_digit_length = 2 };
+  plmn_id_t plmn = {.mcc = 208, .mnc = 95, .mnc_digit_length = 2};
   uint8_t rrc[] = "RRC Container";
   uint8_t du2cu[] = "DU2CU Container";
   f1ap_initial_ul_rrc_message_t orig = {

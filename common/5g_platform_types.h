@@ -24,6 +24,12 @@
 
 #include <stdint.h>
 
+typedef struct plmn_id_s {
+  uint16_t mcc;
+  uint16_t mnc;
+  uint8_t mnc_digit_length;
+} plmn_id_t;
+
 typedef struct nssai_s {
   uint8_t sst;
   uint32_t sd;

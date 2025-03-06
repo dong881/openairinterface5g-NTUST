@@ -94,7 +94,7 @@ bool DURecvCb(protocol_ctxt_t *ctxt_pP,
   return true;
 }
 
-static bool check_plmn_identity(const f1ap_plmn_t *check_plmn, const f1ap_plmn_t *plmn)
+static bool check_plmn_identity(const plmn_id_t *check_plmn, const plmn_id_t *plmn)
 {
   return plmn->mcc == check_plmn->mcc && plmn->mnc_digit_length == check_plmn->mnc_digit_length && plmn->mnc == check_plmn->mnc;
 }

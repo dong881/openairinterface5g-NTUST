@@ -26,6 +26,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "openair3/UTILS/conversions.h"
+#include "common/5g_platform_types.h"
 
 #include "F1AP_Cause.h"
 #include "f1ap_messages_types.h"
@@ -71,8 +72,7 @@
     }                                                                                                \
   } while (0)
 
-struct f1ap_plmn_t;
-bool eq_f1ap_plmn(const struct f1ap_plmn_t *a, const struct f1ap_plmn_t *b);
+bool eq_f1ap_plmn(const plmn_id_t *a, const plmn_id_t *b);
 struct f1ap_served_cell_info_t;
 bool eq_f1ap_cell_info(const struct f1ap_served_cell_info_t *a, const struct f1ap_served_cell_info_t *b);
 struct f1ap_gnb_du_system_info_t;

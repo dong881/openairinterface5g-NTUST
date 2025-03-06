@@ -1423,7 +1423,7 @@ F1AP_F1AP_PDU_t *encode_f1ap_du_configuration_update(const f1ap_gnb_du_configura
           &served_cells_to_modify_item_ies->value.choice.Served_Cells_To_Modify_Item;
 
       F1AP_NRCGI_t *oldNRCGI = &served_cells_to_modify_item->oldNRCGI;
-      const f1ap_plmn_t *old_plmn = &msg->cell_to_modify[i].old_plmn;
+      const plmn_id_t *old_plmn = &msg->cell_to_modify[i].old_plmn;
       MCC_MNC_TO_PLMNID(old_plmn->mcc, old_plmn->mnc, old_plmn->mnc_digit_length, &oldNRCGI->pLMN_Identity);
       NR_CELL_ID_TO_BIT_STRING(msg->cell_to_modify[i].old_nr_cellid, &oldNRCGI->nRCellIdentity);
 
@@ -1449,7 +1449,7 @@ F1AP_F1AP_PDU_t *encode_f1ap_du_configuration_update(const f1ap_gnb_du_configura
       F1AP_Served_Cells_To_Delete_Item_t *served_cells_to_delete_item =
           &served_cells_to_delete_item_ies->value.choice.Served_Cells_To_Delete_Item;
       F1AP_NRCGI_t *oldNRCGI = &served_cells_to_delete_item->oldNRCGI;
-      const f1ap_plmn_t *plmn = &msg->cell_to_delete[i].plmn;
+      const plmn_id_t *plmn = &msg->cell_to_delete[i].plmn;
       MCC_MNC_TO_PLMNID(plmn->mcc, plmn->mnc, plmn->mnc_digit_length, &(oldNRCGI->pLMN_Identity));
       NR_CELL_ID_TO_BIT_STRING(msg->cell_to_delete[i].nr_cellid, &(oldNRCGI->nRCellIdentity));
     }
@@ -1519,7 +1519,7 @@ bool decode_f1ap_du_configuration_update(const F1AP_F1AP_PDU_t *pdu, f1ap_gnb_du
                    ->value.choice.Served_Cells_To_Modify_Item;
           /* Old NR CGI (M) */
           F1AP_NRCGI_t *oldNRCGI = &served_cells_item->oldNRCGI;
-          f1ap_plmn_t *old_plmn = &out->cell_to_modify[i].old_plmn;
+          plmn_id_t *old_plmn = &out->cell_to_modify[i].old_plmn;
           PLMNID_TO_MCC_MNC(&oldNRCGI->pLMN_Identity, old_plmn->mcc, old_plmn->mnc, old_plmn->mnc_digit_length);
           /* Old NR CGI Cell ID */
           BIT_STRING_TO_NR_CELL_IDENTITY(&oldNRCGI->nRCellIdentity, out->cell_to_modify[i].old_nr_cellid);
@@ -1542,7 +1542,7 @@ bool decode_f1ap_du_configuration_update(const F1AP_F1AP_PDU_t *pdu, f1ap_gnb_du
               &((F1AP_Served_Cells_To_Delete_ItemIEs_t *)ie->value.choice.Served_Cells_To_Delete_List.list.array[i])
                    ->value.choice.Served_Cells_To_Delete_Item;
           F1AP_NRCGI_t *oldNRCGI = &served_cells_item->oldNRCGI;
-          f1ap_plmn_t *plmn = &out->cell_to_delete[i].plmn;
+          plmn_id_t *plmn = &out->cell_to_delete[i].plmn;
           /* Old NR CGI (M) */
           PLMNID_TO_MCC_MNC(&(oldNRCGI->pLMN_Identity), plmn->mcc, plmn->mnc, plmn->mnc_digit_length);
           // NR cellID
@@ -1833,7 +1833,7 @@ F1AP_F1AP_PDU_t *encode_f1ap_cu_configuration_update_acknowledge(const f1ap_gnb_
       p1->cause.present = F1AP_Cause_PR_radioNetwork;
       p1->cause.choice.radioNetwork = msg->cells_failed_to_be_activated[i].cause;
       // NR CGI (M)
-      const f1ap_plmn_t *plmn = &msg->cells_failed_to_be_activated[i].plmn;
+      const plmn_id_t *plmn = &msg->cells_failed_to_be_activated[i].plmn;
       MCC_MNC_TO_PLMNID(plmn->mcc, plmn->mnc, plmn->mnc_digit_length, &(p1->nRCGI.pLMN_Identity));
       printf("plmn->mcc %d %d %d %ld \n",
         p1->nRCGI.pLMN_Identity.buf[0], p1->nRCGI.pLMN_Identity.buf[1], p1->nRCGI.pLMN_Identity.buf[2], p1->nRCGI.pLMN_Identity.size);
@@ -1880,7 +1880,7 @@ bool decode_f1ap_cu_configuration_update_acknowledge(const F1AP_F1AP_PDU_t *pdu,
               (F1AP_Cells_Failed_to_be_Activated_List_ItemIEs_t *)cell_fail_list->list.array[j];
           const F1AP_Cells_Failed_to_be_Activated_List_Item_t *item = &itemIE->value.choice.Cells_Failed_to_be_Activated_List_Item;
           // NR CGI (M)
-          f1ap_plmn_t *plmn = &out->cells_failed_to_be_activated[j].plmn;
+          plmn_id_t *plmn = &out->cells_failed_to_be_activated[j].plmn;
           PLMNID_TO_MCC_MNC(&(item->nRCGI.pLMN_Identity), plmn->mcc, plmn->mnc, plmn->mnc_digit_length);
           BIT_STRING_TO_NR_CELL_IDENTITY(&item->nRCGI.nRCellIdentity, out->cells_failed_to_be_activated[j].nr_cellid);
           // Cause (M)

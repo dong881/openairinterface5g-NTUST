@@ -79,7 +79,7 @@ void free_MeasurementTimingConfiguration(struct NR_MeasurementTimingConfiguratio
 
 #define NR_MAX_SIB_LENGTH 2976 // 3GPP TS 38.331 section 5.2.1
 NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
-                                      const f1ap_plmn_t *plmn,
+                                      const plmn_id_t *plmn,
                                       uint64_t cellID,
                                       int tac,
                                       const nr_mac_config_t *mac_config);

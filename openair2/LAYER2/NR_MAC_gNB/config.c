@@ -958,7 +958,7 @@ void prepare_du_configuration_update(gNB_MAC_INST *mac,
   mac->mac_rrc.gnb_du_configuration_update(&update);
 }
 
-void nr_mac_configure_sib1(gNB_MAC_INST *nrmac, const f1ap_plmn_t *plmn, uint64_t cellID, int tac)
+void nr_mac_configure_sib1(gNB_MAC_INST *nrmac, const plmn_id_t *plmn, uint64_t cellID, int tac)
 {
   AssertFatal(IS_SA_MODE(get_softmodem_params()), "error: SIB1 only applicable for SA\n");
 

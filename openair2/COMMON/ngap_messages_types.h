@@ -435,9 +435,7 @@ typedef enum ngap_paging_ind_present_s {
 } ngap_paging_ind_present_t;
 
 typedef struct {
-  uint16_t mcc;
-  uint16_t mnc;
-  uint8_t mnc_digit_length;
+  plmn_id_t plmn;
   uint16_t num_nssai;
   nssai_t s_nssai[8];
 } ngap_plmn_t;

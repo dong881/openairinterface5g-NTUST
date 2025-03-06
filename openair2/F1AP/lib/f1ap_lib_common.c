@@ -27,7 +27,7 @@
 #include "common/utils/assertions.h"
 #include "common/utils/utils.h"
 
-bool eq_f1ap_plmn(const f1ap_plmn_t *a, const f1ap_plmn_t *b)
+bool eq_f1ap_plmn(const plmn_id_t *a, const plmn_id_t *b)
 {
   _F1_EQ_CHECK_INT(a->mcc, b->mcc);
   _F1_EQ_CHECK_INT(a->mnc, b->mnc);
