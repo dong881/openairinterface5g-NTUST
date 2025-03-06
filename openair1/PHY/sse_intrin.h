@@ -51,27 +51,52 @@
 #include <simde/simde-common.h>
 #include <simde/x86/avx2.h>
 #include <simde/x86/fma.h>
-#if defined(__x86_64) || defined(__i386__)
-
-/* x86 processors */
 
 #if defined(__AVX512BW__) || defined(__AVX512F__)
 #include <immintrin.h>
+// a solution should be found to use simde package for also AVX512, but it is C++ implementation, difficult to use in OAI
+typedef struct {
+  union {
+    __m512i v;
+    int16_t i16[32];
+    int8_t i8[64];
+  };
+} oai512_t;
 #endif
-#elif defined(__arm__) || defined(__aarch64__)
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#if defined(__arm__) || defined(__aarch64__)
 /* ARM processors */
 // note this fails on some x86 machines, with an error like:
 // /usr/lib/gcc/x86_64-redhat-linux/8/include/gfniintrin.h:57:1: error: inlining failed in call to always_inline ‘_mm_gf2p8affine_epi64_epi8’: target specific option mismatch
 #include <simde/x86/clmul.h>
 
 #endif // x86_64 || i386
+
 #include <stdbool.h>
 #include "assertions.h"
 
 /*
  * OAI specific SSE section
  */
+
+typedef struct {
+  union {
+    simde__m128i v;
+    int16_t i16[8];
+    int8_t i8[16];
+  };
+} oai128_t;
+typedef struct {
+  union {
+    simde__m256i v;
+    int16_t i16[16];
+    int8_t i8[32];
+  };
+} oai256_t;
 
 __attribute__((always_inline)) static inline int64_t simde_mm_average_sse(simde__m128i *a, int length, int shift)
 {
@@ -140,17 +165,6 @@ __attribute__((always_inline)) static inline int32_t simde_mm_average(simde__m12
   return (uint32_t)(avg / scale);
 }
 
-#define oai_mm_displaySamples(vect) {\
-  simde__m128i x = vect;\
-  printf("[%s] SSE vector: %s = (%hd, %hd) (%hd, %hd) (%hd, %hd) (%hd, %hd)\n",\
-    __func__, #vect,\
-    simde_mm_extract_epi16(x, 0), simde_mm_extract_epi16(x, 1),\
-    simde_mm_extract_epi16(x, 2), simde_mm_extract_epi16(x, 3),\
-    simde_mm_extract_epi16(x, 4), simde_mm_extract_epi16(x, 5),\
-    simde_mm_extract_epi16(x, 6), simde_mm_extract_epi16(x, 7)\
-  );\
-}
-
 /**
  * Perform element-wise conjugation on a 128-bit SIMD vector of 16-bit integers.
  *
@@ -161,18 +175,10 @@ __attribute__((always_inline)) static inline int32_t simde_mm_average(simde__m12
  * @param 128-bit SIMD vector of 4x complex 16-bit integers.
  * @return Complex conjugated 128-bit SIMD vector.
  */
-__attribute__((always_inline)) static inline
-simde__m128i oai_mm_conj(simde__m128i a) {
-
-  // Use simde__m128i_private for static constant initialization
-  static const simde__m128i_private neg_imag_private = {
-    .i16 = {1, -1, 1, -1, 1, -1, 1, -1}
-  };
-
-  // Convert to simde__m128i using SIMDe's helper function
-  simde__m128i neg_imag = simde__m128i_from_private(neg_imag_private);
-
-  return simde_mm_sign_epi16(a, neg_imag);
+__attribute__((always_inline)) static inline simde__m128i oai_mm_conj(simde__m128i a)
+{
+  const oai128_t neg_imag = {.i16 = {1, -1, 1, -1, 1, -1, 1, -1}};
+  return simde_mm_sign_epi16(a, neg_imag.v);
 }
 
 /**
@@ -188,25 +194,9 @@ simde__m128i oai_mm_conj(simde__m128i a) {
 __attribute__((always_inline)) static inline
 simde__m128i oai_mm_swap(simde__m128i a)
 {
-#if (1)
-  #define SHUFFLE_MASK_SWAP SIMDE_MM_SHUFFLE(2, 3, 0, 1) // 0xb1
-  return simde_mm_shufflehi_epi16(simde_mm_shufflelo_epi16(
-    a, SHUFFLE_MASK_SWAP), SHUFFLE_MASK_SWAP);
-  #undef SHUFFLE_MASK_SWAP
-#else
   // Shuffle mask to swap bytes for IQ swapping
-  static const simde__m128i_private shuffle_mask_swap_private = {
-    .i8 = {
-       2,  3,  0,  1,  6,  7,  4,  5, // Low bytes
-      10, 11,  8,  9, 14, 15, 12, 13  // High bytes
-    }
-  };
-
-  // Convert to simde__m128i using SIMDe's helper function
-  simde__m128i shuffle_mask_swap = simde__m128i_from_private(shuffle_mask_swap_private);
-
-  return simde_mm_shuffle_epi8(a, shuffle_mask_swap);
-#endif
+  const oai128_t shuffle_mask_swap = {.i8 = {2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9, 14, 15, 12, 13}};
+  return simde_mm_shuffle_epi8(a, shuffle_mask_swap.v);
 }
 
 __attribute__((always_inline)) static inline
@@ -270,23 +260,6 @@ simde__m128i oai_mm_cpx_mult_conj(simde__m128i a, simde__m128i b, int shift)
  * OAI specific AVX2 section
  */
 
-//#if defined(__x86_64__) || defined(__i386__) || defined(__arm__) || defined(__aarch64__)
-
-#define oai_mm256_displaySamples(vect) {\
-  simde__m256i x = vect;\
-  printf("[%s] AVX2 vector: %s = (%hd, %hd) (%hd, %hd) (%hd, %hd) (%hd, %hd) (%hd, %hd) (%hd, %hd) (%hd, %hd) (%hd, %hd)\n",\
-    __func__, #vect,\
-    simde_mm256_extract_epi16(x,  0), simde_mm256_extract_epi16(x,  1),\
-    simde_mm256_extract_epi16(x,  2), simde_mm256_extract_epi16(x,  3),\
-    simde_mm256_extract_epi16(x,  4), simde_mm256_extract_epi16(x,  5),\
-    simde_mm256_extract_epi16(x,  6), simde_mm256_extract_epi16(x,  7),\
-    simde_mm256_extract_epi16(x,  8), simde_mm256_extract_epi16(x,  9),\
-    simde_mm256_extract_epi16(x, 10), simde_mm256_extract_epi16(x, 11),\
-    simde_mm256_extract_epi16(x, 12), simde_mm256_extract_epi16(x, 13),\
-    simde_mm256_extract_epi16(x, 14), simde_mm256_extract_epi16(x, 15)\
-  );\
-}
-
 /**
  * Perform element-wise conjugation on a 256-bit SIMD vector of 16-bit integers.
  *
@@ -297,17 +270,10 @@ simde__m128i oai_mm_cpx_mult_conj(simde__m128i a, simde__m128i b, int shift)
  * @param 256-bit SIMD vector of 8x complex 16-bit integers.
  * @return Complex conjugated 256-bit SIMD vector.
  */
-__attribute__((always_inline)) static inline
-simde__m256i oai_mm256_conj(simde__m256i a) {
-  // Use simde__m256i_private for static constant initialization
-  static const simde__m256i_private neg_imag_private = {
-    .i16 = {1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1}
-  };
-
-  // Convert to simde__m256i using SIMDe's helper function
-  simde__m256i neg_imag = simde__m256i_from_private(neg_imag_private);
-
-  return simde_mm256_sign_epi16(a, neg_imag);
+__attribute__((always_inline)) static inline simde__m256i oai_mm256_conj(simde__m256i a)
+{
+  const oai256_t neg_imag = {.i16 = {1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1}};
+  return simde_mm256_sign_epi16(a, neg_imag.v);
 }
 
 /**
@@ -320,28 +286,14 @@ simde__m256i oai_mm256_conj(simde__m256i a) {
  * @param 256-bit SIMD vector of 16-bit integers.
  * @return Swapped 256-bit SIMD vector.
  */
-__attribute__((always_inline)) static inline
-simde__m256i oai_mm256_swap(simde__m256i a) {
-#if(1)
-  #define SHUFFLE_MASK_SWAP SIMDE_MM_SHUFFLE(2, 3, 0, 1) // 0xb1
-  // Perform high and low 128-bit shuffles within the 256-bit register
-  return simde_mm256_shufflehi_epi16(simde_mm256_shufflelo_epi16(
-    a, SHUFFLE_MASK_SWAP), SHUFFLE_MASK_SWAP);
-  #undef SHUFFLE_MASK_SWAP
-#else
+__attribute__((always_inline)) static inline simde__m256i oai_mm256_swap(simde__m256i a)
+{
   // Shuffle mask to swap bytes for IQ swapping
-  static const simde__m256i_private shuffle_mask_swap_private = {
-    .i8 = {
-       2,  3,  0,  1,  6,  7,  4,  5, 10, 11,  8,  9, 14, 15, 12, 13, // Low bytes
-      18, 19, 16, 17, 22, 23, 20, 21, 26, 27, 24, 25, 30, 31, 28, 29  // High bytes
-    }
-  };
-
-  // Convert from private to simde__m256i
-  simde__m256i shuffle_mask_swap = simde__m256i_from_private(shuffle_mask_swap_private);
-
-  return simde_mm256_shuffle_epi8(a, shuffle_mask_swap);
-#endif
+  const oai256_t shuffle_mask_swap = {.i8 = {
+                                          2,  3,  0,  1,  6,  7,  4,  5,  10, 11, 8,  9,  14, 15, 12, 13, // Low bytes
+                                          18, 19, 16, 17, 22, 23, 20, 21, 26, 27, 24, 25, 30, 31, 28, 29 // High bytes
+                                      }};
+  return simde_mm256_shuffle_epi8(a, shuffle_mask_swap.v);
 }
 
 __attribute__((always_inline)) static inline
@@ -432,6 +384,8 @@ void oai_mm256_separate_vectors(simde__m256i combined, simde__m128i *re, simde__
     #undef SHUFFLE_MASK
 }
 
-//#endif
+#ifdef __cplusplus
+}
+#endif
 
 #endif // SSE_INTRIN_H
