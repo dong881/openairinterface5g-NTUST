@@ -942,22 +942,19 @@ static void nr_dlsch_channel_compensation(uint32_t rx_size_symbol,
         dl_ch128_2 = (simde__m128i *)dl_ch_estimates_ext[atx * frame_parms->nb_antennas_rx + aarx];
         
         // multiply by conjugated channel
-        mult_cpx_conj_vector((int16_t *)dl_ch128,
-                             (int16_t *)dl_ch128_2,
-                             (int16_t *)rho128,
-                             12 * nb_rb_0,
-                             output_shift,
-                             0);
+        mult_cpx_conj_vector((c16_t *)dl_ch128, (c16_t *)dl_ch128_2, (c16_t *)rho128, 12 * nb_rb_0, output_shift);
 
-          if (first_symbol_flag) {
-            //rho_nm = H_arx_n.conj(H_arx_m)
-            //rho_rx_corr[arx][nm] = |H_arx_n|^2.|H_arx_m|^2 &rho[aarx][l*n_layers+atx][symbol*nb_rb*12]
-            measurements->rx_correlation[0][aarx][l * n_layers + atx] = signal_energy(&rho[aarx][l * n_layers + atx][symbol * nb_rb * 12],length);
-            //avg_rho_re[aarx][l*n_layers+atx] = 16*avg_rho_re[aarx][l*n_layers+atx]/length;
-            //avg_rho_im[aarx][l*n_layers+atx] = 16*avg_rho_im[aarx][l*n_layers+atx]/length;
-            //printf("rho[rx]%d tx%d tx%d = Re: %d Im: %d\n",aarx, l,atx, avg_rho_re[aarx][l*n_layers+atx], avg_rho_im[aarx][l*n_layers+atx]);
-            //printf("rho_corr[rx]%d tx%d tx%d = %d ...\n",aarx, l,atx, measurements->rx_correlation[0][aarx][l*n_layers+atx]);
-          }
+        if (first_symbol_flag) {
+          // rho_nm = H_arx_n.conj(H_arx_m)
+          // rho_rx_corr[arx][nm] = |H_arx_n|^2.|H_arx_m|^2 &rho[aarx][l*n_layers+atx][symbol*nb_rb*12]
+          measurements->rx_correlation[0][aarx][l * n_layers + atx] =
+              signal_energy(&rho[aarx][l * n_layers + atx][symbol * nb_rb * 12], length);
+          // avg_rho_re[aarx][l*n_layers+atx] = 16*avg_rho_re[aarx][l*n_layers+atx]/length;
+          // avg_rho_im[aarx][l*n_layers+atx] = 16*avg_rho_im[aarx][l*n_layers+atx]/length;
+          // printf("rho[rx]%d tx%d tx%d = Re: %d Im: %d\n",aarx, l,atx, avg_rho_re[aarx][l*n_layers+atx],
+          // avg_rho_im[aarx][l*n_layers+atx]); printf("rho_corr[rx]%d tx%d tx%d = %d ...\n",aarx, l,atx,
+          // measurements->rx_correlation[0][aarx][l*n_layers+atx]);
+        }
         }
       }
     }
@@ -1514,11 +1511,7 @@ void nr_conjch0_mult_ch1(int *ch0,
                          unsigned char output_shift0)
 {
   //This function is used to compute multiplications in H_hermitian * H matrix
-  mult_cpx_conj_vector((int16_t *)ch0,
-                       (int16_t *)ch1,
-                       (int16_t *)ch0conj_ch1,
-                       12 * nb_rb,
-                       output_shift0, 0);
+  mult_cpx_conj_vector((c16_t *)ch0, (c16_t *)ch1, (c16_t *)ch0conj_ch1, 12 * nb_rb, output_shift0);
 }
 
 /*

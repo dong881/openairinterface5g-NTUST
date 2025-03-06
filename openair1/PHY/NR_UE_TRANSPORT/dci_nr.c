@@ -401,12 +401,7 @@ void nr_pdcch_channel_compensation(int32_t rx_size,
     //printf("rxdataf_comp addr %p\n",&rxdataF_comp[(aatx<<1)+aarx][symbol*20*12]);
     
     // multiply by conjugated channel
-    mult_cpx_conj_vector((int16_t *)dl_ch128,
-                         (int16_t *)rxdataF128,
-                         (int16_t *)rxdataF_comp128,
-                         12 * coreset_nbr_rb,
-                         output_shift,
-                         0);
+    mult_cpx_conj_vector((c16_t *)dl_ch128, (c16_t *)rxdataF128, (c16_t *)rxdataF_comp128, 12 * coreset_nbr_rb, output_shift);
 
     for (int rb = 0; rb < 12 * coreset_nbr_rb; rb++) {
         LOG_DDD("rxdataF128[%d]=(%d,%d) X dlch[%d]=(%d,%d) rxdataF_comp128[%d]=(%d,%d)\n",

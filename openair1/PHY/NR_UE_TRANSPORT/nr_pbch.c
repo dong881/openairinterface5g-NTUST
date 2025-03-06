@@ -234,12 +234,11 @@ void nr_pbch_channel_compensation(struct complex16 rxdataF_ext[][PBCH_MAX_RE_PER
                                   uint8_t output_shift)
 {
   for (int aarx=0; aarx<frame_parms->nb_antennas_rx; aarx++) {
-    mult_cpx_conj_vector((int16_t *)dl_ch_estimates_ext[aarx],
-                         (int16_t *)rxdataF_ext[aarx],
-                         (int16_t *)rxdataF_comp[aarx],
+    mult_cpx_conj_vector((c16_t *)dl_ch_estimates_ext[aarx],
+                         (c16_t *)rxdataF_ext[aarx],
+                         (c16_t *)rxdataF_comp[aarx],
                          nb_re,
-                         output_shift,
-                         0);
+                         output_shift);
   }
 }
 

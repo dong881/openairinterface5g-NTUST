@@ -440,19 +440,8 @@ void ulsch_channel_compensation(int32_t **rxdataF_ext,
       //LOG_I(PHY, "comp: ant %d symbol %d rb %d => %d,%d,%d (output_shift %d)\n", aarx, symbol, rb, *((int16_t *)&ul_ch_mag128[0]), *((int16_t *)&ul_ch_mag128[1]), *((int16_t *)&ul_ch_mag128[2]), output_shift );
 
     }
-    mult_cpx_conj_vector((int16_t *)ul_ch128,
-                         (int16_t *)rxdataF128,
-                         (int16_t *)rxdataF_comp128,
-                         12 * nb_rb,
-                         output_shift,
-			                   0);
-    /*
-      LOG_I(PHY, "Antenna %d:", aarx); 
-      print_shorts("rx:",&rxdataF128[0]);
-      print_shorts("ch:",&ul_ch128[0]);
-      print_shorts("pack:",&rxdataF_comp128[0]);
-    */
-    
+    mult_cpx_conj_vector((c16_t *)ul_ch128, (c16_t *)rxdataF128, (c16_t *)rxdataF_comp128, 12 * nb_rb, output_shift);
+
     // Add a jitter to compensate for the saturation in "packs" resulting in a bias on the DC after IDFT
     for (uint16_t rb = 0; rb < 3*nb_rb; rb++) {
       rxdataF_comp128[rb] = simde_mm_add_epi16(rxdataF_comp128[rb], *(simde__m128i *)jitter);

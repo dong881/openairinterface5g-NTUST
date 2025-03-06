@@ -249,15 +249,14 @@ int32_t dlsch_qpsk_llr_SIC(LTE_DL_FRAME_PARMS *frame_parms,
 
     len_acc+=len; //accumulated length; this is done because in sic_buffer we have only data symbols
 
-    multadd_complex_vector_real_scalar((int16_t *)sic_data,
-                                       amp_tmp,
-                                       (int16_t *)rho_amp_x0, //this is in Q13
-                                       1,
-                                       len);
+    mult_complex_vector_real_scalar((int16_t *)sic_data,
+                                    amp_tmp,
+                                    (int16_t *)rho_amp_x0, // this is in Q13
+                                    len);
 
-    mult_cpx_vector((int16_t *)rho_1, //Q15
-                    (int16_t *)rho_amp_x0, //Q13
-                    (int16_t*)rho_rho_amp_x0,
+    mult_cpx_vector((c16_t *)rho_1, // Q15
+                    (c16_t *)rho_amp_x0, // Q13
+                    (c16_t *)rho_rho_amp_x0,
                     len,
                     13);
 
@@ -447,15 +446,14 @@ void dlsch_16qam_llr_SIC (LTE_DL_FRAME_PARMS *frame_parms,
 
     len_acc+=len;
 
-    multadd_complex_vector_real_scalar((int16_t *)sic_data,
-                                       amp_tmp,
-                                       (int16_t *)rho_amp_x0, //this is in Q13
-                                       1,
-                                       len);
+    mult_complex_vector_real_scalar((int16_t *)sic_data,
+                                    amp_tmp,
+                                    (int16_t *)rho_amp_x0, // this is in Q13
+                                    len);
 
-    mult_cpx_vector((int16_t *)rho_1, //Q15
-                    (int16_t *)rho_amp_x0, //Q13
-                    (int16_t*)rho_rho_amp_x0,
+    mult_cpx_vector((c16_t *)rho_1, // Q15
+                    (c16_t *)rho_amp_x0, // Q13
+                    (c16_t *)rho_rho_amp_x0,
                     len,
                     13);
 
@@ -679,15 +677,14 @@ void dlsch_64qam_llr_SIC(LTE_DL_FRAME_PARMS *frame_parms,
 
     len_acc+=len;
 
-    multadd_complex_vector_real_scalar((int16_t *)sic_data,
-                                        amp_tmp,
-                                        (int16_t *)rho_amp_x0, //this is in Q13
-                                        1,
-                                        len);
+    mult_complex_vector_real_scalar((int16_t *)sic_data,
+                                    amp_tmp,
+                                    (int16_t *)rho_amp_x0, // this is in Q13
+                                    len);
 
-    mult_cpx_vector((int16_t *)rho_1, //Q15
-                    (int16_t *)rho_amp_x0, //Q13
-                    (int16_t*)rho_rho_amp_x0,
+    mult_cpx_vector((c16_t *)rho_1, // Q15
+                    (c16_t *)rho_amp_x0, // Q13
+                    (c16_t *)rho_rho_amp_x0,
                     len,
                     13);
 

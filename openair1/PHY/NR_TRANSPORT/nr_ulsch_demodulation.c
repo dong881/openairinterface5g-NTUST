@@ -372,12 +372,7 @@ static void nr_ulsch_conjch0_mult_ch1(int *ch0,
                                       unsigned char output_shift0)
 {
   //This function is used to compute multiplications in H_hermitian * H matrix
-  mult_cpx_conj_vector((int16_t *)ch0,
-                       (int16_t *)ch1,
-                       (int16_t *)ch0conj_ch1,
-                       12 * nb_rb,
-                       output_shift0, 0);
-
+  mult_cpx_conj_vector((c16_t *)ch0, (c16_t *)ch1, (c16_t *)ch0conj_ch1, 12 * nb_rb, output_shift0);
 }
 
 static simde__m128i nr_ulsch_comp_muli_sum(simde__m128i input_x,

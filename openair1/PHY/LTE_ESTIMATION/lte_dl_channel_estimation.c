@@ -184,9 +184,10 @@ int lte_dl_channel_estimation(PHY_VARS_UE *ue,
     memset(dl_ch,0,4*(ue->frame_parms.ofdm_symbol_size));
 
     if (ue->high_speed_flag==0) // multiply previous channel estimate by ch_est_alpha
-      multadd_complex_vector_real_scalar(dl_ch-(ue->frame_parms.ofdm_symbol_size<<1),
-                                         ue->ch_est_alpha,dl_ch-(ue->frame_parms.ofdm_symbol_size<<1),
-                                         1,ue->frame_parms.ofdm_symbol_size);
+      mult_complex_vector_real_scalar(dl_ch - (ue->frame_parms.ofdm_symbol_size << 1),
+                                      ue->ch_est_alpha,
+                                      dl_ch - (ue->frame_parms.ofdm_symbol_size << 1),
+                                      ue->frame_parms.ofdm_symbol_size);
 
 #ifdef DEBUG_CH
     printf("k %d, first_carrier %d\n",k,ue->frame_parms.first_carrier_offset);
@@ -545,27 +546,25 @@ int lte_dl_channel_estimation(PHY_VARS_UE *ue,
     } else {
       LOG_E(PHY,"channel estimation not implemented for ue->frame_parms.N_RB_DL = %d\n",ue->frame_parms.N_RB_DL);
     }
-
+    int symb_sz = ue->frame_parms.ofdm_symbol_size;
     if (ue->perfect_ce == 0) {
       // Temporal Interpolation
       // printf("ch_offset %d\n",ch_offset);
       dl_ch = (int16_t *)&dl_ch_estimates[(p<<1)+aarx][ch_offset];
 
       if (ue->high_speed_flag == 0) {
-        multadd_complex_vector_real_scalar(dl_ch,
-                                           32767-ue->ch_est_alpha,
-                                           dl_ch-(ue->frame_parms.ofdm_symbol_size<<1),0,ue->frame_parms.ofdm_symbol_size);
+        multadd_complex_vector_real_scalar(dl_ch, 32767 - ue->ch_est_alpha, dl_ch - (symb_sz << 1), symb_sz);
       } else { // high_speed_flag == 1
         if (symbol == 0) {
           //      printf("Interpolating %d->0\n",4-ue->frame_parms.Ncp);
-          //      dl_ch_prev = (int16_t *)&dl_ch_estimates[(p<<1)+aarx][(4-ue->frame_parms.Ncp)*(ue->frame_parms.ofdm_symbol_size)];
+          //      dl_ch_prev = (int16_t *)&dl_ch_estimates[(p<<1)+aarx][(4-ue->frame_parms.Ncp)*(symb_sz)];
           if(((Ns>>1)!=0) || ( ((Ns>>1)==0) && interpolateS11S12)) {
             //LOG_I(PHY,"Interpolate s11-->s0 to get s12 and s13  Ns %d \n", Ns);
-            dl_ch_prev = (int16_t *)&dl_ch_estimates_previous[(p<<1)+aarx][pilot3*(ue->frame_parms.ofdm_symbol_size)];
-            multadd_complex_vector_real_scalar(dl_ch_prev,21845,dl_ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)),1,ue->frame_parms.ofdm_symbol_size);
-            multadd_complex_vector_real_scalar(dl_ch,10923,dl_ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)),0,ue->frame_parms.ofdm_symbol_size);
-            multadd_complex_vector_real_scalar(dl_ch_prev,10923,dl_ch_prev+(2*((ue->frame_parms.ofdm_symbol_size)<<1)),1,ue->frame_parms.ofdm_symbol_size);
-            multadd_complex_vector_real_scalar(dl_ch,21845,dl_ch_prev+(2*((ue->frame_parms.ofdm_symbol_size)<<1)),0,ue->frame_parms.ofdm_symbol_size);
+            dl_ch_prev = (int16_t *)&dl_ch_estimates_previous[(p << 1) + aarx][pilot3 * (symb_sz)];
+            mult_complex_vector_real_scalar(dl_ch_prev, 21845, dl_ch_prev + (2 * (symb_sz)), symb_sz);
+            multadd_complex_vector_real_scalar(dl_ch, 10923, dl_ch_prev + (2 * (symb_sz)), symb_sz);
+            mult_complex_vector_real_scalar(dl_ch_prev, 10923, dl_ch_prev + (2 * ((symb_sz) << 1)), symb_sz);
+            multadd_complex_vector_real_scalar(dl_ch, 21845, dl_ch_prev + (2 * ((symb_sz) << 1)), symb_sz);
           }
 
           interpolateS11S12 = 1;
@@ -583,60 +582,60 @@ int lte_dl_channel_estimation(PHY_VARS_UE *ue,
               previous_subframe = ((Ns>>1) - 1 )%9;
 
             if((subframe_select(&ue->frame_parms,previous_subframe) == SF_UL)) {
-              multadd_complex_vector_real_scalar(dl_ch_prev,328,dl_ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)),1,ue->frame_parms.ofdm_symbol_size);
-              multadd_complex_vector_real_scalar(dl_ch,32440,dl_ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)),0,ue->frame_parms.ofdm_symbol_size);
-              multadd_complex_vector_real_scalar(dl_ch_prev,328,dl_ch_prev+(2*((ue->frame_parms.ofdm_symbol_size)<<1)),1,ue->frame_parms.ofdm_symbol_size);
-              multadd_complex_vector_real_scalar(dl_ch,32440,dl_ch_prev+(2*((ue->frame_parms.ofdm_symbol_size)<<1)),0,ue->frame_parms.ofdm_symbol_size);
-              multadd_complex_vector_real_scalar(dl_ch_prev,8192,dl_ch_prev+(3*2*(ue->frame_parms.ofdm_symbol_size)),1,ue->frame_parms.ofdm_symbol_size);
-              multadd_complex_vector_real_scalar(dl_ch,32440,dl_ch_prev+(3*2*(ue->frame_parms.ofdm_symbol_size)),0,ue->frame_parms.ofdm_symbol_size);
+              mult_complex_vector_real_scalar(dl_ch_prev, 328, dl_ch_prev + (2 * (symb_sz)), symb_sz);
+              multadd_complex_vector_real_scalar(dl_ch, 32440, dl_ch_prev + (2 * (symb_sz)), symb_sz);
+              mult_complex_vector_real_scalar(dl_ch_prev, 328, dl_ch_prev + (2 * ((symb_sz) << 1)), symb_sz);
+              multadd_complex_vector_real_scalar(dl_ch, 32440, dl_ch_prev + (2 * ((symb_sz) << 1)), symb_sz);
+              mult_complex_vector_real_scalar(dl_ch_prev, 8192, dl_ch_prev + (3 * 2 * (symb_sz)), symb_sz);
+              multadd_complex_vector_real_scalar(dl_ch, 32440, dl_ch_prev + (3 * 2 * (symb_sz)), symb_sz);
             } else {
-              multadd_complex_vector_real_scalar(dl_ch_prev,24576,dl_ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)),1,ue->frame_parms.ofdm_symbol_size);
-              multadd_complex_vector_real_scalar(dl_ch,8192,dl_ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)),0,ue->frame_parms.ofdm_symbol_size);
-              multadd_complex_vector_real_scalar(dl_ch_prev,16384,dl_ch_prev+(2*((ue->frame_parms.ofdm_symbol_size)<<1)),1,ue->frame_parms.ofdm_symbol_size);
-              multadd_complex_vector_real_scalar(dl_ch,16384,dl_ch_prev+(2*((ue->frame_parms.ofdm_symbol_size)<<1)),0,ue->frame_parms.ofdm_symbol_size);
-              multadd_complex_vector_real_scalar(dl_ch_prev,8192,dl_ch_prev+(3*2*(ue->frame_parms.ofdm_symbol_size)),1,ue->frame_parms.ofdm_symbol_size);
-              multadd_complex_vector_real_scalar(dl_ch,24576,dl_ch_prev+(3*2*(ue->frame_parms.ofdm_symbol_size)),0,ue->frame_parms.ofdm_symbol_size);
+              mult_complex_vector_real_scalar(dl_ch_prev, 24576, dl_ch_prev + (2 * (symb_sz)), symb_sz);
+              multadd_complex_vector_real_scalar(dl_ch, 8192, dl_ch_prev + (2 * (symb_sz)), symb_sz);
+              mult_complex_vector_real_scalar(dl_ch_prev, 16384, dl_ch_prev + (2 * ((symb_sz) << 1)), symb_sz);
+              multadd_complex_vector_real_scalar(dl_ch, 16384, dl_ch_prev + (2 * ((symb_sz) << 1)), symb_sz);
+              mult_complex_vector_real_scalar(dl_ch_prev, 8192, dl_ch_prev + (3 * 2 * (symb_sz)), symb_sz);
+              multadd_complex_vector_real_scalar(dl_ch, 24576, dl_ch_prev + (3 * 2 * (symb_sz)), symb_sz);
             }
           } else {
-            multadd_complex_vector_real_scalar(dl_ch_prev,328,dl_ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)),1,ue->frame_parms.ofdm_symbol_size);
-            multadd_complex_vector_real_scalar(dl_ch,21845,dl_ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)),0,ue->frame_parms.ofdm_symbol_size);
-            multadd_complex_vector_real_scalar(dl_ch_prev,21845,dl_ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)<<1),1,ue->frame_parms.ofdm_symbol_size);
-            multadd_complex_vector_real_scalar(dl_ch,10923,dl_ch_prev+(2*((ue->frame_parms.ofdm_symbol_size)<<1)),0,ue->frame_parms.ofdm_symbol_size);
+            mult_complex_vector_real_scalar(dl_ch_prev, 328, dl_ch_prev + (2 * (symb_sz)), symb_sz);
+            multadd_complex_vector_real_scalar(dl_ch, 21845, dl_ch_prev + (2 * (symb_sz)), symb_sz);
+            mult_complex_vector_real_scalar(dl_ch_prev, 21845, dl_ch_prev + (2 * (symb_sz) << 1), symb_sz);
+            multadd_complex_vector_real_scalar(dl_ch, 10923, dl_ch_prev + (2 * ((symb_sz) << 1)), symb_sz);
           } // pilot spacing 3 symbols (1/3,2/3 combination)
         } else if (symbol == pilot2) {
-          dl_ch_prev = (int16_t *)&dl_ch_estimates[(p<<1)+aarx][pilot1*(ue->frame_parms.ofdm_symbol_size)];
-          multadd_complex_vector_real_scalar(dl_ch_prev,21845,dl_ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)),1,ue->frame_parms.ofdm_symbol_size);
-          multadd_complex_vector_real_scalar(dl_ch,10923,dl_ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)),0,ue->frame_parms.ofdm_symbol_size);
-          multadd_complex_vector_real_scalar(dl_ch_prev,10923,dl_ch_prev+(2*((ue->frame_parms.ofdm_symbol_size)<<1)),1,ue->frame_parms.ofdm_symbol_size);
-          multadd_complex_vector_real_scalar(dl_ch,21845,dl_ch_prev+(2*((ue->frame_parms.ofdm_symbol_size)<<1)),0,ue->frame_parms.ofdm_symbol_size);
+          dl_ch_prev = (int16_t *)&dl_ch_estimates[(p << 1) + aarx][pilot1 * (symb_sz)];
+          mult_complex_vector_real_scalar(dl_ch_prev, 21845, dl_ch_prev + (2 * (symb_sz)), symb_sz);
+          multadd_complex_vector_real_scalar(dl_ch, 10923, dl_ch_prev + (2 * (symb_sz)), symb_sz);
+          mult_complex_vector_real_scalar(dl_ch_prev, 10923, dl_ch_prev + (2 * ((symb_sz) << 1)), symb_sz);
+          multadd_complex_vector_real_scalar(dl_ch, 21845, dl_ch_prev + (2 * ((symb_sz) << 1)), symb_sz);
         } else { // symbol == pilot3
           //      printf("Interpolating 0->%d\n",4-ue->frame_parms.Ncp);
-          dl_ch_prev = (int16_t *)&dl_ch_estimates[(p<<1)+aarx][pilot2*(ue->frame_parms.ofdm_symbol_size)];
+          dl_ch_prev = (int16_t *)&dl_ch_estimates[(p << 1) + aarx][pilot2 * (symb_sz)];
 
           if (ue->frame_parms.Ncp==0) {// pilot spacing 4 symbols (1/4,1/2,3/4 combination)
-            multadd_complex_vector_real_scalar(dl_ch_prev,24576,dl_ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)),1,ue->frame_parms.ofdm_symbol_size);
-            multadd_complex_vector_real_scalar(dl_ch,8192,dl_ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)),0,ue->frame_parms.ofdm_symbol_size);
-            multadd_complex_vector_real_scalar(dl_ch_prev,16384,dl_ch_prev+(2*((ue->frame_parms.ofdm_symbol_size)<<1)),1,ue->frame_parms.ofdm_symbol_size);
-            multadd_complex_vector_real_scalar(dl_ch,16384,dl_ch_prev+(2*((ue->frame_parms.ofdm_symbol_size)<<1)),0,ue->frame_parms.ofdm_symbol_size);
-            multadd_complex_vector_real_scalar(dl_ch_prev,8192,dl_ch_prev+(3*2*(ue->frame_parms.ofdm_symbol_size)),1,ue->frame_parms.ofdm_symbol_size);
-            multadd_complex_vector_real_scalar(dl_ch,24576,dl_ch_prev+(3*2*(ue->frame_parms.ofdm_symbol_size)),0,ue->frame_parms.ofdm_symbol_size);
+            mult_complex_vector_real_scalar(dl_ch_prev, 24576, dl_ch_prev + (2 * (symb_sz)), symb_sz);
+            multadd_complex_vector_real_scalar(dl_ch, 8192, dl_ch_prev + (2 * (symb_sz)), symb_sz);
+            mult_complex_vector_real_scalar(dl_ch_prev, 16384, dl_ch_prev + (2 * ((symb_sz) << 1)), symb_sz);
+            multadd_complex_vector_real_scalar(dl_ch, 16384, dl_ch_prev + (2 * ((symb_sz) << 1)), symb_sz);
+            mult_complex_vector_real_scalar(dl_ch_prev, 8192, dl_ch_prev + (3 * 2 * (symb_sz)), symb_sz);
+            multadd_complex_vector_real_scalar(dl_ch, 24576, dl_ch_prev + (3 * 2 * (symb_sz)), symb_sz);
           } else {
-            multadd_complex_vector_real_scalar(dl_ch_prev,10923,dl_ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)),1,ue->frame_parms.ofdm_symbol_size);
-            multadd_complex_vector_real_scalar(dl_ch,21845,dl_ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)),0,ue->frame_parms.ofdm_symbol_size);
-            multadd_complex_vector_real_scalar(dl_ch_prev,21845,dl_ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)<<1),1,ue->frame_parms.ofdm_symbol_size);
-            multadd_complex_vector_real_scalar(dl_ch,10923,dl_ch_prev+(2*((ue->frame_parms.ofdm_symbol_size)<<1)),0,ue->frame_parms.ofdm_symbol_size);
+            mult_complex_vector_real_scalar(dl_ch_prev, 10923, dl_ch_prev + (2 * (symb_sz)), symb_sz);
+            multadd_complex_vector_real_scalar(dl_ch, 21845, dl_ch_prev + (2 * (symb_sz)), symb_sz);
+            mult_complex_vector_real_scalar(dl_ch_prev, 21845, dl_ch_prev + (2 * (symb_sz) << 1), symb_sz);
+            multadd_complex_vector_real_scalar(dl_ch, 10923, dl_ch_prev + (2 * ((symb_sz) << 1)), symb_sz);
           } // pilot spacing 3 symbols (1/3,2/3 combination)
 
           if((ue->rx_offset_diff !=0) && ((Ns>>1) == 9)) {
             //LOG_I(PHY,"Extrapolate s7-->s11 to get s12 and s13 Ns %d\n", Ns);
             interpolateS11S12 = 0;
             //LOG_E(PHY,"Interpolate s7--s11 s12 s13 pilot 3 Ns %d l %d symbol %d \n", Ns, l, symbol);
-            int16_t *dlChEst_ofdm11 = (int16_t *)&dl_ch_estimates[(p<<1)+aarx][pilot3*(ue->frame_parms.ofdm_symbol_size)];
-            int16_t *dlChEst_ofdm7  = (int16_t *)&dl_ch_estimates[(p<<1)+aarx][pilot2*(ue->frame_parms.ofdm_symbol_size)];
+            int16_t *dlChEst_ofdm11 = (int16_t *)&dl_ch_estimates[(p << 1) + aarx][pilot3 * (symb_sz)];
+            int16_t *dlChEst_ofdm7 = (int16_t *)&dl_ch_estimates[(p << 1) + aarx][pilot2 * (symb_sz)];
             // interpolate ofdm s12: 5/4*ofdms11 + -1/4*ofdms7 5/4 q1.15 40960 -1/4 q1.15 8192
-            int16_t *dlChEst_ofdm12 = (int16_t *)&dl_ch_estimates[(p<<1)+aarx][12*ue->frame_parms.ofdm_symbol_size];
+            int16_t *dlChEst_ofdm12 = (int16_t *)&dl_ch_estimates[(p << 1) + aarx][12 * symb_sz];
 
-            for(int i=0; i<(2*ue->frame_parms.ofdm_symbol_size); i++) {
+            for (int i = 0; i < (2 * symb_sz); i++) {
               int64_t tmp_mult = 0;
               tmp_mult = ((int64_t)dlChEst_ofdm11[i] * 40960 - (int64_t)dlChEst_ofdm7[i] * 8192);
               tmp_mult = tmp_mult >> 15;
@@ -644,9 +643,9 @@ int lte_dl_channel_estimation(PHY_VARS_UE *ue,
             }
 
             // interpolate ofdm s13: 3/2*ofdms11 + -1/2*ofdms7 3/2 q1.15 49152 1/2 q1.15 16384
-            int16_t *dlChEst_ofdm13 = (int16_t *)&dl_ch_estimates[(p<<1)+aarx][13*ue->frame_parms.ofdm_symbol_size];
+            int16_t *dlChEst_ofdm13 = (int16_t *)&dl_ch_estimates[(p << 1) + aarx][13 * symb_sz];
 
-            for(int i=0; i<(2*ue->frame_parms.ofdm_symbol_size); i++) {
+            for (int i = 0; i < (2 * symb_sz); i++) {
               int64_t tmp_mult = 0;
               tmp_mult = ((int64_t)dlChEst_ofdm11[i] * 49152 - (int64_t)dlChEst_ofdm7[i] * 16384);
               tmp_mult = tmp_mult >> 15;

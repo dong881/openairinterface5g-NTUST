@@ -2241,8 +2241,6 @@ INPUT                  = \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/TOOLS/cdot_prod.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/TOOLS/phy_scope_interface.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/TOOLS/oai_dfts_neon.c \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/TOOLS/cmult_vv.c \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/TOOLS/cmult_sv.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/TOOLS/dB_routines.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/TOOLS/dfts_load.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/TOOLS/log2_approx.c \

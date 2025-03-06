@@ -272,8 +272,14 @@ int32_t lte_ul_channel_estimation(LTE_DL_FRAME_PARMS *frame_parms,
                               Msc_RS,
                               15);
             // Combine the two rotated estimates
-            multadd_complex_vector_real_scalar((int16_t *) &ul_ch_estimates[aa][frame_parms->N_RB_UL*12*k],SCALE,(int16_t *) &ul_ch_estimates[aa][frame_parms->N_RB_UL*12*k],1,Msc_RS);
-            multadd_complex_vector_real_scalar((int16_t *) &tmp_estimates[0],SCALE,(int16_t *) &ul_ch_estimates[aa][frame_parms->N_RB_UL*12*k],0,Msc_RS);
+            mult_complex_vector_real_scalar((int16_t *)&ul_ch_estimates[aa][frame_parms->N_RB_UL * 12 * k],
+                                            SCALE,
+                                            (int16_t *)&ul_ch_estimates[aa][frame_parms->N_RB_UL * 12 * k],
+                                            Msc_RS);
+            multadd_complex_vector_real_scalar((int16_t *)&tmp_estimates[0],
+                                               SCALE,
+                                               (int16_t *)&ul_ch_estimates[aa][frame_parms->N_RB_UL * 12 * k],
+                                               Msc_RS);
             /*
             if ((k<pilot_pos1) || ((k>pilot_pos2))) {
 
@@ -495,8 +501,14 @@ int32_t lte_ul_channel_estimation_RRU(LTE_DL_FRAME_PARMS *frame_parms,
                             Msc_RS,
                             15);
           // Combine the two rotated estimates
-          multadd_complex_vector_real_scalar((int16_t *) &ul_ch_estimates[aa][frame_parms->N_RB_UL*12*k], SCALE, (int16_t *) &ul_ch_estimates[aa][frame_parms->N_RB_UL*12*k], 1, Msc_RS);
-          multadd_complex_vector_real_scalar((int16_t *) &tmp_estimates[0],                               SCALE, (int16_t *) &ul_ch_estimates[aa][frame_parms->N_RB_UL*12*k], 0, Msc_RS);
+          mult_complex_vector_real_scalar((int16_t *)&ul_ch_estimates[aa][frame_parms->N_RB_UL * 12 * k],
+                                          SCALE,
+                                          (int16_t *)&ul_ch_estimates[aa][frame_parms->N_RB_UL * 12 * k],
+                                          Msc_RS);
+          multadd_complex_vector_real_scalar((int16_t *)&tmp_estimates[0],
+                                             SCALE,
+                                             (int16_t *)&ul_ch_estimates[aa][frame_parms->N_RB_UL * 12 * k],
+                                             Msc_RS);
         }
       } //for(k=...
 
@@ -579,12 +591,11 @@ int32_t lte_srs_channel_estimation(LTE_DL_FRAME_PARMS *frame_parms,
 #endif
     //LOG_M("eNB_rxF.m","rxF",&common_vars->rxdataF[0][aa][2*frame_parms->ofdm_symbol_size*symbol],2*(frame_parms->ofdm_symbol_size),2,1);
     //LOG_M("eNB_srs.m","srs_eNB",common_vars->srs,(frame_parms->ofdm_symbol_size),1,1);
-    mult_cpx_conj_vector((int16_t *) &common_vars->rxdataF[aa][2*frame_parms->ofdm_symbol_size*symbol],
-                         (int16_t *) srs_vars->srs,
-                         (int16_t *) srs_vars->srs_ch_estimates[aa],
+    mult_cpx_conj_vector((c16_t *)&common_vars->rxdataF[aa][2 * frame_parms->ofdm_symbol_size * symbol],
+                         (c16_t *)srs_vars->srs,
+                         (c16_t *)srs_vars->srs_ch_estimates[aa],
                          frame_parms->ofdm_symbol_size,
-                         15,
-                         0);
+                         15);
 #ifdef DEBUG_SRS
     sprintf(fname,"srs_ch_est%d.m",aa);
     sprintf(vname,"srs_est%d",aa);

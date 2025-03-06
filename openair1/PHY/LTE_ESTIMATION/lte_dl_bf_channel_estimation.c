@@ -188,9 +188,10 @@ int lte_dl_bf_channel_estimation(PHY_VARS_UE *phy_vars_ue,
     if (phy_vars_ue->high_speed_flag==0) {
     // multiply previous channel estimate by ch_est_alpha
       if (frame_parms->Ncp==0){
-        multadd_complex_vector_real_scalar(dl_bf_ch-(frame_parms->ofdm_symbol_size<<1),
-                                           phy_vars_ue->ch_est_alpha,dl_bf_ch-(frame_parms->ofdm_symbol_size<<1),
-                                           1,frame_parms->ofdm_symbol_size);
+        mult_complex_vector_real_scalar(dl_bf_ch - (frame_parms->ofdm_symbol_size << 1),
+                                        phy_vars_ue->ch_est_alpha,
+                                        dl_bf_ch - (frame_parms->ofdm_symbol_size << 1),
+                                        frame_parms->ofdm_symbol_size);
       } else {
         LOG_E(PHY,"lte_dl_bf_channel_estimation: beamforming channel estimation not supported for TM7 Extended CP.\n"); // phy_vars_ue->ch_est_beta should be defined equaling 1/3
       }
@@ -659,8 +660,9 @@ int lte_dl_bf_channel_estimation(PHY_VARS_UE *phy_vars_ue,
 
       if (phy_vars_ue->high_speed_flag == 0) {
         multadd_complex_vector_real_scalar(dl_bf_ch,
-                                           32767-phy_vars_ue->ch_est_alpha,
-                                           dl_bf_ch-(frame_parms->ofdm_symbol_size<<1),0,frame_parms->ofdm_symbol_size);
+                                           32767 - phy_vars_ue->ch_est_alpha,
+                                           dl_bf_ch - (frame_parms->ofdm_symbol_size << 1),
+                                           frame_parms->ofdm_symbol_size);
         //printf("dlsch_bf_ch_est.c:symbol %d,dl_bf_ch (%d,%d)\n",symbol,*(dl_bf_ch-512*2),*(dl_bf_ch-512*2+1));
       } else { // high_speed_flag == 1
         if (beamforming_mode==7) {
@@ -673,17 +675,41 @@ int lte_dl_bf_channel_estimation(PHY_VARS_UE *phy_vars_ue,
               printf("[dlsch_bf_ch_est.c] symbol=%d, dl_bf_ch_prev=(%d,%d), dl_bf_ch=(%d,%d)\n", symbol, dl_bf_ch_prev[0], dl_bf_ch_prev[1], dl_bf_ch[0], dl_bf_ch[1]);
 #endif
               // pilot spacing 5 symbols (1/5,2/5,3/5,4/5 combination)
-              multadd_complex_vector_real_scalar(dl_bf_ch_prev,26214,dl_bf_ch_prev+(2*(frame_parms->ofdm_symbol_size)),1,frame_parms->ofdm_symbol_size);
-              multadd_complex_vector_real_scalar(dl_bf_ch,6554,dl_bf_ch_prev+(2*(frame_parms->ofdm_symbol_size)),0,frame_parms->ofdm_symbol_size);
+              mult_complex_vector_real_scalar(dl_bf_ch_prev,
+                                              26214,
+                                              dl_bf_ch_prev + (2 * (frame_parms->ofdm_symbol_size)),
+                                              frame_parms->ofdm_symbol_size);
+              multadd_complex_vector_real_scalar(dl_bf_ch,
+                                                 6554,
+                                                 dl_bf_ch_prev + (2 * (frame_parms->ofdm_symbol_size)),
+                                                 frame_parms->ofdm_symbol_size);
 
-              multadd_complex_vector_real_scalar(dl_bf_ch_prev,19661,dl_bf_ch-(3*2*(frame_parms->ofdm_symbol_size)),1,frame_parms->ofdm_symbol_size);
-              multadd_complex_vector_real_scalar(dl_bf_ch,13107,dl_bf_ch-(3*2*(frame_parms->ofdm_symbol_size)),0,frame_parms->ofdm_symbol_size);
+              mult_complex_vector_real_scalar(dl_bf_ch_prev,
+                                              19661,
+                                              dl_bf_ch - (3 * 2 * (frame_parms->ofdm_symbol_size)),
+                                              frame_parms->ofdm_symbol_size);
+              multadd_complex_vector_real_scalar(dl_bf_ch,
+                                                 13107,
+                                                 dl_bf_ch - (3 * 2 * (frame_parms->ofdm_symbol_size)),
+                                                 frame_parms->ofdm_symbol_size);
 
-              multadd_complex_vector_real_scalar(dl_bf_ch_prev,13107,dl_bf_ch-(2*((frame_parms->ofdm_symbol_size)<<1)),1,frame_parms->ofdm_symbol_size);
-              multadd_complex_vector_real_scalar(dl_bf_ch,19661,dl_bf_ch-(2*((frame_parms->ofdm_symbol_size)<<1)),0,frame_parms->ofdm_symbol_size);
+              mult_complex_vector_real_scalar(dl_bf_ch_prev,
+                                              13107,
+                                              dl_bf_ch - (2 * ((frame_parms->ofdm_symbol_size) << 1)),
+                                              frame_parms->ofdm_symbol_size);
+              multadd_complex_vector_real_scalar(dl_bf_ch,
+                                                 19661,
+                                                 dl_bf_ch - (2 * ((frame_parms->ofdm_symbol_size) << 1)),
+                                                 frame_parms->ofdm_symbol_size);
 
-              multadd_complex_vector_real_scalar(dl_bf_ch_prev,6554,dl_bf_ch-(2*(frame_parms->ofdm_symbol_size)),1,frame_parms->ofdm_symbol_size);
-              multadd_complex_vector_real_scalar(dl_bf_ch,26214,dl_bf_ch-(2*(frame_parms->ofdm_symbol_size)),0,frame_parms->ofdm_symbol_size);
+              mult_complex_vector_real_scalar(dl_bf_ch_prev,
+                                              6554,
+                                              dl_bf_ch - (2 * (frame_parms->ofdm_symbol_size)),
+                                              frame_parms->ofdm_symbol_size);
+              multadd_complex_vector_real_scalar(dl_bf_ch,
+                                                 26214,
+                                                 dl_bf_ch - (2 * (frame_parms->ofdm_symbol_size)),
+                                                 frame_parms->ofdm_symbol_size);
             } else if (symbol == pilot1) {
               dl_bf_ch_prev = (short *)&dl_bf_ch_estimates[aarx][pilot0*(frame_parms->ofdm_symbol_size)];
 #ifdef DEBUG_BF_CH
@@ -691,11 +717,23 @@ int lte_dl_bf_channel_estimation(PHY_VARS_UE *phy_vars_ue,
 #endif
 
               // pilot spacing 3 symbols (1/3,2/3 combination)
-              multadd_complex_vector_real_scalar(dl_bf_ch_prev,21845,dl_bf_ch_prev+(2*(frame_parms->ofdm_symbol_size)),1,frame_parms->ofdm_symbol_size);
-              multadd_complex_vector_real_scalar(dl_bf_ch,10923,dl_bf_ch_prev+(2*(frame_parms->ofdm_symbol_size)),0,frame_parms->ofdm_symbol_size);
+              mult_complex_vector_real_scalar(dl_bf_ch_prev,
+                                              21845,
+                                              dl_bf_ch_prev + (2 * (frame_parms->ofdm_symbol_size)),
+                                              frame_parms->ofdm_symbol_size);
+              multadd_complex_vector_real_scalar(dl_bf_ch,
+                                                 10923,
+                                                 dl_bf_ch_prev + (2 * (frame_parms->ofdm_symbol_size)),
+                                                 frame_parms->ofdm_symbol_size);
 
-              multadd_complex_vector_real_scalar(dl_bf_ch_prev,10923,dl_bf_ch_prev+(2*((frame_parms->ofdm_symbol_size)<<1)),1,frame_parms->ofdm_symbol_size);
-              multadd_complex_vector_real_scalar(dl_bf_ch,21845,dl_bf_ch_prev+(2*((frame_parms->ofdm_symbol_size)<<1)),0,frame_parms->ofdm_symbol_size);
+              mult_complex_vector_real_scalar(dl_bf_ch_prev,
+                                              10923,
+                                              dl_bf_ch_prev + (2 * ((frame_parms->ofdm_symbol_size) << 1)),
+                                              frame_parms->ofdm_symbol_size);
+              multadd_complex_vector_real_scalar(dl_bf_ch,
+                                                 21845,
+                                                 dl_bf_ch_prev + (2 * ((frame_parms->ofdm_symbol_size) << 1)),
+                                                 frame_parms->ofdm_symbol_size);
 
             } else if (symbol == pilot2) {
               dl_bf_ch_prev = (short *)&dl_bf_ch_estimates[aarx][pilot1*(frame_parms->ofdm_symbol_size)];
@@ -703,21 +741,45 @@ int lte_dl_bf_channel_estimation(PHY_VARS_UE *phy_vars_ue,
               printf("[dlsch_bf_ch_est.c] symbol=%d, dl_bf_ch_prev=(%d,%d), dl_bf_ch=(%d,%d)\n", symbol, dl_bf_ch_prev[0], dl_bf_ch_prev[1], dl_bf_ch[0], dl_bf_ch[1]);
 #endif
 
-              multadd_complex_vector_real_scalar(dl_bf_ch_prev,21845,dl_bf_ch_prev+(2*(frame_parms->ofdm_symbol_size)),1,frame_parms->ofdm_symbol_size);
-              multadd_complex_vector_real_scalar(dl_bf_ch,10923,dl_bf_ch_prev+(2*(frame_parms->ofdm_symbol_size)),0,frame_parms->ofdm_symbol_size);
+              mult_complex_vector_real_scalar(dl_bf_ch_prev,
+                                              21845,
+                                              dl_bf_ch_prev + (2 * (frame_parms->ofdm_symbol_size)),
+                                              frame_parms->ofdm_symbol_size);
+              multadd_complex_vector_real_scalar(dl_bf_ch,
+                                                 10923,
+                                                 dl_bf_ch_prev + (2 * (frame_parms->ofdm_symbol_size)),
+                                                 frame_parms->ofdm_symbol_size);
 
-              multadd_complex_vector_real_scalar(dl_bf_ch_prev,10923,dl_bf_ch_prev+(2*((frame_parms->ofdm_symbol_size)<<1)),1,frame_parms->ofdm_symbol_size);
-              multadd_complex_vector_real_scalar(dl_bf_ch,21845,dl_bf_ch_prev+(2*((frame_parms->ofdm_symbol_size)<<1)),0,frame_parms->ofdm_symbol_size);
+              mult_complex_vector_real_scalar(dl_bf_ch_prev,
+                                              10923,
+                                              dl_bf_ch_prev + (2 * ((frame_parms->ofdm_symbol_size) << 1)),
+                                              frame_parms->ofdm_symbol_size);
+              multadd_complex_vector_real_scalar(dl_bf_ch,
+                                                 21845,
+                                                 dl_bf_ch_prev + (2 * ((frame_parms->ofdm_symbol_size) << 1)),
+                                                 frame_parms->ofdm_symbol_size);
             } else { // symbol == pilot3
             //      printf("Interpolating 0->%d\n",4-phy_vars_ue->lte_frame_parms.Ncp);
             dl_bf_ch_prev = (short *)&dl_bf_ch_estimates[aarx][pilot2*(frame_parms->ofdm_symbol_size)];
 
             // pilot spacing 3 symbols (1/3,2/3 combination)
-            multadd_complex_vector_real_scalar(dl_bf_ch_prev,21845,dl_bf_ch_prev+(2*(frame_parms->ofdm_symbol_size)),1,frame_parms->ofdm_symbol_size);
-            multadd_complex_vector_real_scalar(dl_bf_ch,10923,dl_bf_ch_prev+(2*(frame_parms->ofdm_symbol_size)),0,frame_parms->ofdm_symbol_size);
+            mult_complex_vector_real_scalar(dl_bf_ch_prev,
+                                            21845,
+                                            dl_bf_ch_prev + (2 * (frame_parms->ofdm_symbol_size)),
+                                            frame_parms->ofdm_symbol_size);
+            multadd_complex_vector_real_scalar(dl_bf_ch,
+                                               10923,
+                                               dl_bf_ch_prev + (2 * (frame_parms->ofdm_symbol_size)),
+                                               frame_parms->ofdm_symbol_size);
 
-            multadd_complex_vector_real_scalar(dl_bf_ch_prev,10923,dl_bf_ch_prev+(2*((frame_parms->ofdm_symbol_size)<<1)),1,frame_parms->ofdm_symbol_size);
-            multadd_complex_vector_real_scalar(dl_bf_ch,21845,dl_bf_ch_prev+(2*((frame_parms->ofdm_symbol_size)<<1)),0,frame_parms->ofdm_symbol_size);
+            mult_complex_vector_real_scalar(dl_bf_ch_prev,
+                                            10923,
+                                            dl_bf_ch_prev + (2 * ((frame_parms->ofdm_symbol_size) << 1)),
+                                            frame_parms->ofdm_symbol_size);
+            multadd_complex_vector_real_scalar(dl_bf_ch,
+                                               21845,
+                                               dl_bf_ch_prev + (2 * ((frame_parms->ofdm_symbol_size) << 1)),
+                                               frame_parms->ofdm_symbol_size);
             }
 
           } else {

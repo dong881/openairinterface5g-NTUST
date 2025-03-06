@@ -206,12 +206,12 @@ void apply_nr_rotation_RX(const NR_DL_FRAME_PARMS *frame_parms,
                         &rot2,
                         this_symbol + frame_parms->first_carrier_offset - 6,
                         (nb_rb + 1) * 6, 15);
-      multadd_cpx_vector((int16_t *)this_symbol, (int16_t *)shift_rot, (int16_t *)this_symbol,
-                         1, (nb_rb + 1) * 6, 15);
-      multadd_cpx_vector((int16_t *)(this_symbol + frame_parms->first_carrier_offset - 6),
-                         (int16_t *)(shift_rot   + frame_parms->first_carrier_offset - 6),
-                         (int16_t *)(this_symbol + frame_parms->first_carrier_offset - 6),
-                         1, (nb_rb + 1) * 6, 15);
+      mult_cpx_vector(this_symbol, shift_rot, this_symbol, (nb_rb + 1) * 6, 15);
+      mult_cpx_vector(this_symbol + frame_parms->first_carrier_offset - 6,
+                      shift_rot + frame_parms->first_carrier_offset - 6,
+                      this_symbol + frame_parms->first_carrier_offset - 6,
+                      (nb_rb + 1) * 6,
+                      15);
     } else {
       rotate_cpx_vector(this_symbol, &rot2, this_symbol,
                         nb_rb * 6, 15);
@@ -219,12 +219,12 @@ void apply_nr_rotation_RX(const NR_DL_FRAME_PARMS *frame_parms,
                         &rot2,
                         this_symbol + frame_parms->first_carrier_offset,
                         nb_rb * 6, 15);
-      multadd_cpx_vector((int16_t *)this_symbol, (int16_t *)shift_rot, (int16_t *)this_symbol,
-                         1, nb_rb * 6, 15);
-      multadd_cpx_vector((int16_t *)(this_symbol + frame_parms->first_carrier_offset),
-                         (int16_t *)(shift_rot   + frame_parms->first_carrier_offset),
-                         (int16_t *)(this_symbol + frame_parms->first_carrier_offset),
-                         1, nb_rb * 6, 15);
+      mult_cpx_vector(this_symbol, shift_rot, this_symbol, nb_rb * 6, 15);
+      mult_cpx_vector(this_symbol + frame_parms->first_carrier_offset,
+                      shift_rot + frame_parms->first_carrier_offset,
+                      this_symbol + frame_parms->first_carrier_offset,
+                      nb_rb * 6,
+                      15);
     }
   }
 }

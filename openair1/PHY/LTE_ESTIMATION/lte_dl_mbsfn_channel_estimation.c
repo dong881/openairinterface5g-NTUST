@@ -680,42 +680,43 @@ int lte_dl_mbsfn_channel_estimation(PHY_VARS_UE *ue,
     }
 
     //------------------------Temporal Interpolation ------------------------------
+    int symb_sz = ue->frame_parms.ofdm_symbol_size;
     if (l==6) {
       ch = (short *)&dl_ch_estimates[aarx][ch_offset];
       //        printf("Interpolating ch 2,6 => %d\n",ch_offset);
-      ch_prev = (short *)&dl_ch_estimates[aarx][2*(ue->frame_parms.ofdm_symbol_size)];
-      ch0 = (short *)&dl_ch_estimates[aarx][0*(ue->frame_parms.ofdm_symbol_size)];
-      memcpy(ch0,ch_prev,4*ue->frame_parms.ofdm_symbol_size);
-      ch1 = (short *)&dl_ch_estimates[aarx][1*(ue->frame_parms.ofdm_symbol_size)];
-      memcpy(ch1,ch_prev,4*ue->frame_parms.ofdm_symbol_size);
+      ch_prev = (short *)&dl_ch_estimates[aarx][2 * (symb_sz)];
+      ch0 = (short *)&dl_ch_estimates[aarx][0 * (symb_sz)];
+      memcpy(ch0, ch_prev, 4 * symb_sz);
+      ch1 = (short *)&dl_ch_estimates[aarx][1 * (symb_sz)];
+      memcpy(ch1, ch_prev, 4 * symb_sz);
       // 3/4 ch2 + 1/4 ch6 => ch3
-      multadd_complex_vector_real_scalar(ch_prev,24576,ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)),1,ue->frame_parms.ofdm_symbol_size);
-      multadd_complex_vector_real_scalar(ch,8192,ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)),0,ue->frame_parms.ofdm_symbol_size);
+      mult_complex_vector_real_scalar(ch_prev, 24576, ch_prev + (2 * (symb_sz)), symb_sz);
+      multadd_complex_vector_real_scalar(ch, 8192, ch_prev + (2 * (symb_sz)), symb_sz);
       // 1/2 ch2 + 1/2 ch6 => ch4
-      multadd_complex_vector_real_scalar(ch_prev,16384,ch_prev+(4*(ue->frame_parms.ofdm_symbol_size)),1,ue->frame_parms.ofdm_symbol_size);
-      multadd_complex_vector_real_scalar(ch,16384,ch_prev+(4*(ue->frame_parms.ofdm_symbol_size)),0,ue->frame_parms.ofdm_symbol_size);
+      mult_complex_vector_real_scalar(ch_prev, 16384, ch_prev + (4 * (symb_sz)), symb_sz);
+      multadd_complex_vector_real_scalar(ch, 16384, ch_prev + (4 * (symb_sz)), symb_sz);
       // 1/4 ch2 + 3/4 ch6 => ch5
-      multadd_complex_vector_real_scalar(ch_prev,8192,ch_prev+(6*((ue->frame_parms.ofdm_symbol_size))),1,ue->frame_parms.ofdm_symbol_size);
-      multadd_complex_vector_real_scalar(ch,24576,ch_prev+(6*((ue->frame_parms.ofdm_symbol_size))),0,ue->frame_parms.ofdm_symbol_size);
+      mult_complex_vector_real_scalar(ch_prev, 8192, ch_prev + (6 * ((symb_sz))), symb_sz);
+      multadd_complex_vector_real_scalar(ch, 24576, ch_prev + (6 * ((symb_sz))), symb_sz);
     }
 
     if (l==10) {
       ch = (short *)&dl_ch_estimates[aarx][ch_offset];
-      ch_prev = (short *)&dl_ch_estimates[aarx][6*(ue->frame_parms.ofdm_symbol_size)];
+      ch_prev = (short *)&dl_ch_estimates[aarx][6 * (symb_sz)];
       // 3/4 ch6 + 1/4 ch10 => ch7
-      multadd_complex_vector_real_scalar(ch_prev,24576,ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)),1,ue->frame_parms.ofdm_symbol_size);
-      multadd_complex_vector_real_scalar(ch,8192,ch_prev+(2*(ue->frame_parms.ofdm_symbol_size)),0,ue->frame_parms.ofdm_symbol_size);
+      mult_complex_vector_real_scalar(ch_prev, 24576, ch_prev + (2 * (symb_sz)), symb_sz);
+      multadd_complex_vector_real_scalar(ch, 8192, ch_prev + (2 * (symb_sz)), symb_sz);
       // 1/2 ch6 + 1/2 ch10 => ch8
-      multadd_complex_vector_real_scalar(ch_prev,16384,ch_prev+(4*(ue->frame_parms.ofdm_symbol_size)),1,ue->frame_parms.ofdm_symbol_size);
-      multadd_complex_vector_real_scalar(ch,16384,ch_prev+(4*(ue->frame_parms.ofdm_symbol_size)),0,ue->frame_parms.ofdm_symbol_size);
+      mult_complex_vector_real_scalar(ch_prev, 16384, ch_prev + (4 * (symb_sz)), symb_sz);
+      multadd_complex_vector_real_scalar(ch, 16384, ch_prev + (4 * (symb_sz)), symb_sz);
       // 1/4 ch6 + 3/4 ch10 => ch9
-      multadd_complex_vector_real_scalar(ch_prev,8192,ch_prev+(6*((ue->frame_parms.ofdm_symbol_size))),1,ue->frame_parms.ofdm_symbol_size);
-      multadd_complex_vector_real_scalar(ch,24576,ch_prev+(6*((ue->frame_parms.ofdm_symbol_size))),0,ue->frame_parms.ofdm_symbol_size);
+      mult_complex_vector_real_scalar(ch_prev, 8192, ch_prev + (6 * ((symb_sz))), symb_sz);
+      multadd_complex_vector_real_scalar(ch, 24576, ch_prev + (6 * ((symb_sz))), symb_sz);
       // 5/4 ch10 - 1/4 ch6 => ch11
       // Ch11
-      ch_prev = (short *)&dl_ch_estimates[aarx][10*(ue->frame_parms.ofdm_symbol_size)];
-      ch11 = (short *)&dl_ch_estimates[aarx][11*(ue->frame_parms.ofdm_symbol_size)];
-      memcpy(ch11,ch_prev,4*ue->frame_parms.ofdm_symbol_size);
+      ch_prev = (short *)&dl_ch_estimates[aarx][10 * (symb_sz)];
+      ch11 = (short *)&dl_ch_estimates[aarx][11 * (symb_sz)];
+      memcpy(ch11, ch_prev, 4 * symb_sz);
     }
   }
 
