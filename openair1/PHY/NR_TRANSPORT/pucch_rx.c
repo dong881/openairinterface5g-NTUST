@@ -915,8 +915,6 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
                       nfapi_nr_pucch_pdu_t* pucch_pdu)
 {
   NR_DL_FRAME_PARMS *frame_parms = &gNB->frame_parms;
-  const simde__m256i conj256 = simde_mm256_set_epi16(-1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1);
-
   //pucch_GroupHopping_t pucch_GroupHopping = pucch_pdu->group_hop_flag + (pucch_pdu->sequence_hop_flag<<1);
   const int nb_symbols=pucch_pdu->nr_of_symbols;
 
@@ -1081,7 +1079,7 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
     c16_t pil_dmrs[nb_re_dmrs] __attribute__((aligned(32)));
     uint8_t *sGold8 = (uint8_t *)(sGold + pucch_pdu->prb_start / 4);
     for (int group = 0; group < nb_re_dmrs; group += 4)
-      *(simde__m128i *)(pil_dmrs + group) = simde_mm_sign_epi16(byte2m128i[*sGold8++], *(simde__m128i *)&conj256);
+      *(simde__m128i *)(pil_dmrs + group) = oai_mm_conj(byte2m128i[*sGold8++]);
 
     // Compute delay
     c16_t ch_ls[128] __attribute__((aligned(32))) = {0};
@@ -1160,7 +1158,7 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
       for (simde__m256i *ptr = (simde__m256i *)r_ext[aa][symb], *ptr2 = (simde__m256i *)r_ext2[aa][symb]; pil_ptr < end;
            ptr++, pil_ptr++, ptr2++) {
         simde__m256i tmp = simde_mm256_srai_epi16(*ptr, scaling);
-        *ptr2 = simde_mm256_sign_epi16(simde_mm256_sign_epi16(simde_mm256_shuffle_epi8(tmp, swap), *pil_ptr), conj256);
+        *ptr2 = oai_mm256_conj(simde_mm256_sign_epi16(simde_mm256_shuffle_epi8(tmp, swap), *pil_ptr));
         *ptr = simde_mm256_sign_epi16(tmp, *pil_ptr);
       }
     }

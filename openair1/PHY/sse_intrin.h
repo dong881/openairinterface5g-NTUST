@@ -248,48 +248,21 @@ simde__m128i oai_mm_cpx_mult(simde__m128i z1, simde__m128i z2, int shift)
 }
 
 /**
- * Perform a CONJUGATE DOT PRODUCT on a 128-bit SIMD vector of 16-bit integers.
+ * Perform a CONJUGATE multiplication on a 128-bit SIMD vector of 16-bit integers.
  *
  * Input:  z1 = (a + bi) [ a0,  b0,  ...,  a3,  b3]
  * Input:  z2 = (c + di) [ c0,  d0,  ...,  c3,  d3]
  * Output: z3 = (e + fi) [ e0,  f0,  ...,  e3,  f3]
- * 
- * swap(conj(z1))        [-b0,  a0,  ..., -b3,  a3]
- * 
- * z3 = conj(z1) * z2 = + (ac+bd) + (ad-bc)i 
+ * z3 = z1 * conj(z2) = + (ac+bd) + i(bc-ad)
  *
  * @param 128-bit SIMD vector of four complex 16-bit integers.
  * @return a 128-bit SIMD vector.
  */
 __attribute__((always_inline)) static inline
-simde__m128i oai_mm_cpx_mult_conja(simde__m128i a, simde__m128i b, int shift)
+simde__m128i oai_mm_cpx_mult_conj(simde__m128i a, simde__m128i b, int shift)
 {
   simde__m128i re = oai_mm_smadd(a, b, shift);
   simde__m128i im = oai_mm_smadd(oai_mm_swap(oai_mm_conj(a)),  b, shift);
-  return oai_mm_pack(re, im);
-}
-
-/**
- * Perform a DOT PRODUCT on a 128-bit SIMD vector of 16-bit integers.
- *
- * Input:  z1 = (a + bi) [ a0,  b0,  ...,  a3,  b3]
- * Input:  z2 = (c + di) [ c0,  d0,  ...,  c3,  d3]
- * Output: z3 = (e + fi) [ e0,  f0,  ...,  e3,  f3]
- * 
- * swap(conj(z2))        [-d0,  c0,  ..., -d3,  c3]
- * conj(swap(z1))        [ b0, -a0,  ...,  b3, -a3] // alternative way
- *
- * z3 = z1 * conj(z2) = + (ac+bd) + (bc-ad)i 
- *
- * @param 128-bit SIMD vector of 16-bit integers.
- * @return a 128-bit SIMD vector.
- */
-__attribute__((always_inline)) static inline
-simde__m128i oai_mm_cpx_mult_conjb(simde__m128i a, simde__m128i b, int shift)
-{
-  simde__m128i re = oai_mm_smadd(a, b, shift);
-  simde__m128i im = oai_mm_smadd(a, oai_mm_swap(oai_mm_conj(b)), shift);
-  //simde__m128i im = oai_mm_smadd(oai_mm_conj(oai_mm_swap(a)),  b, shift); // alternative way
   return oai_mm_pack(re, im);
 }
 
@@ -387,23 +360,6 @@ simde__m256i oai_mm256_pack(simde__m256i a, simde__m256i b)
 }
 
 /**
- * Perform a COMPLEX SQUARED on a 256-bit SIMD vector of complex 16-bit integers.
- *
- * Input:  z1 = (a + bi) [ a0,  b0,  ...,  a7,  b7 ]
- * Output: z3 = (e + fi) [ e0,  f0,  ...,  e7,  f7]
- *
- * z3 = |z1|^2 = + (a^2+b^2)
- *
- * @param 256-bit SIMD vector of eight complex 16-bit integers.
- * @return a 256-bit SIMD vector.
- */
-__attribute__((always_inline)) static inline
-simde__m256i oai_mm256_cpx_mag_squared(simde__m256i z1, int shift)
-{
-  return oai_mm256_smadd(z1, z1, shift);
-}
-
-/**
  * Perform a COMPLEX MULTIPLICATION on a 256-bit SIMD vector of complex 16-bit integers.
  *
  * Input:  z1 = (a + bi) [ a0,  b0,  ...,  a7,  b7 ]
@@ -427,21 +383,18 @@ simde__m256i oai_mm256_cpx_mult(simde__m256i z1, simde__m256i z2, int shift)
 }
 
 /**
- * Perform a CONJUGATE DOT PRODUCT on a 256-bit SIMD vector of complex 16-bit integers.
+ * Perform a CONJUGATE multiplication on a 256-bit SIMD vector of complex 16-bit integers.
  *
  * Input:  z1 = (a + bi) [ a0,  b0,  ...,  a3,  b3]
  * Input:  z2 = (c + di) [ c0,  d0,  ...,  c3,  d3]
  * Output: z3 = (e + fi) [ e0,  f0,  ...,  e3,  f3]
- * 
- * swap(conj(z1))        [-b0,  a0,  ..., -b3,  a3]
- * 
- * z3 = conj(z1) * z2 = + (ac+bd) + (ad-bc)i 
+ * z3 =  z1 * conj(z2) =  (ac+bd) + i(bc-ad)
  *
  * @param 256-bit SIMD vector of eight complex 16-bit integers.
  * @return a 256-bit SIMD vector.
  */
 __attribute__((always_inline)) static inline
-simde__m256i oai_mm256_cpx_mult_conja(simde__m256i a, simde__m256i b, int shift)
+simde__m256i oai_mm256_cpx_mult_conj(simde__m256i a, simde__m256i b, int shift)
 {
   simde__m256i re = oai_mm256_smadd(a, b, shift);
   simde__m256i im = oai_mm256_smadd(oai_mm256_swap(oai_mm256_conj(a)),  b, shift);
@@ -455,31 +408,6 @@ void oai_mm256_combine_vectors(simde__m128i a_re, simde__m128i a_im, simde__m256
         simde_mm_unpackhi_epi16(a_re, a_im),
         simde_mm_unpacklo_epi16(a_re, a_im)
     );
-}
-
-/**
- * Perform a DOT PRODUCT on a 256-bit SIMD vector of complex 16-bit integers.
- *
- * Input:  z1 = (a + bi) [ a0,  b0,  ...,  a3,  b3]
- * Input:  z2 = (c + di) [ c0,  d0,  ...,  c3,  d3]
- * Output: z3 = (e + fi) [ e0,  f0,  ...,  e3,  f3]
- * 
- * swap(conj(z2))        [-d0,  c0,  ..., -d3,  c3]
- * conj(swap(z1))        [ b0, -a0,  ...,  b3, -a3] // alternative way
- * 
- * z3 = z1 * conj(z2) = + (ac+bd) + (bc-ad)i 
- * 
- * @param 256-bit SIMD vector of eight complex 16-bit integers.
- * @return a 256-bit SIMD vector.
- */
-
-__attribute__((always_inline)) static inline
-simde__m256i oai_mm256_cpx_mult_conjb(simde__m256i a, simde__m256i b, int shift)
-{
-  simde__m256i re = oai_mm256_smadd(a, b, shift);
-  simde__m256i im = oai_mm256_smadd(a, oai_mm256_swap(oai_mm256_conj(b)), shift);
-  //simde__m256i im = oai_mm256_smadd(oai_mm256_conj(oai_mm256_swap(a)), b, shift); // alternative way
-  return oai_mm256_pack(re, im);
 }
 
 // Function to separate the real and imaginary parts from the combined 256-bit vector

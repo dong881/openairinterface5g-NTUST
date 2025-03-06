@@ -467,7 +467,7 @@ void conjch0_mult_ch1(int *ch0,
 
   for (unsigned short rb=0; rb<3*nb_rb; rb++) {
 
-    ch0conj_ch1_128[rb] = oai_mm_cpx_mult_conja(dl_ch0_128[rb], dl_ch1_128[rb], output_shift0);
+    ch0conj_ch1_128[rb] = oai_mm_cpx_mult_conj(dl_ch0_128[rb], dl_ch1_128[rb], output_shift0);
 
 #ifdef DEBUG_RANK_EST
     printf("\n Computing conjugates \n");

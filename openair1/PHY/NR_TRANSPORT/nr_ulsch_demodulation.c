@@ -274,22 +274,22 @@ static void nr_ulsch_channel_compensation(c16_t *rxFext,
       for (int i = 0; i < buffer_length >> 3; i++) 
       {
         // MRC        
-        simde__m256i comp = oai_mm256_cpx_mult_conja(chF_256[i], rxF_256[i], output_shift);
+        simde__m256i comp = oai_mm256_cpx_mult_conj(chF_256[i], rxF_256[i], output_shift);
         rxComp_256[i] = simde_mm256_add_epi16(rxComp_256[i], comp); 
 
         if (mod_order > 2) {
-            simde__m256i mag = oai_mm256_cpx_mag_squared(chF_256[i], output_shift); // |h|^2
-            // pack and duplicate
-            mag = simde_mm256_packs_epi32(mag, mag);
-            mag = simde_mm256_unpacklo_epi16(mag, mag);
+          simde__m256i mag = oai_mm256_smadd(chF_256[i], chF_256[i], output_shift); // |h|^2
+          // pack and duplicate
+          mag = simde_mm256_packs_epi32(mag, mag);
+          mag = simde_mm256_unpacklo_epi16(mag, mag);
 
-            rxF_ch_maga_256[i] = simde_mm256_add_epi16(rxF_ch_maga_256[i], simde_mm256_mulhrs_epi16(mag, QAM_ampa_256));
-            
-            if (mod_order > 4)
-                rxF_ch_magb_256[i] = simde_mm256_add_epi16(rxF_ch_magb_256[i], simde_mm256_mulhrs_epi16(mag, QAM_ampb_256));
-            
-            if (mod_order > 6)
-                rxF_ch_magc_256[i] = simde_mm256_add_epi16(rxF_ch_magc_256[i], simde_mm256_mulhrs_epi16(mag, QAM_ampc_256));
+          rxF_ch_maga_256[i] = simde_mm256_add_epi16(rxF_ch_maga_256[i], simde_mm256_mulhrs_epi16(mag, QAM_ampa_256));
+
+          if (mod_order > 4)
+            rxF_ch_magb_256[i] = simde_mm256_add_epi16(rxF_ch_magb_256[i], simde_mm256_mulhrs_epi16(mag, QAM_ampb_256));
+
+          if (mod_order > 6)
+            rxF_ch_magc_256[i] = simde_mm256_add_epi16(rxF_ch_magc_256[i], simde_mm256_mulhrs_epi16(mag, QAM_ampc_256));
         }        
       }
       if (rho != NULL) {
@@ -298,7 +298,7 @@ static void nr_ulsch_channel_compensation(c16_t *rxFext,
           simde__m256i *chF_256  = (simde__m256i *)&chFext[(aatx * nb_rx_ant + aarx) * buffer_length];
           simde__m256i *chF2_256 = (simde__m256i *)&chFext[ (atx * nb_rx_ant + aarx) * buffer_length];
           for (int i = 0; i < buffer_length >> 3; i++) {
-            rho_256[i] = simde_mm256_adds_epi16(rho_256[i], oai_mm256_cpx_mult_conja(chF_256[i], chF2_256[i], output_shift));
+            rho_256[i] = simde_mm256_adds_epi16(rho_256[i], oai_mm256_cpx_mult_conj(chF_256[i], chF2_256[i], output_shift));
           }
         }
       }

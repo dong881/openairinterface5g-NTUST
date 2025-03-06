@@ -1340,12 +1340,12 @@ void dlsch_channel_compensation(int **rxdataF_ext,
         }
 
         // multiply by conjugated channel
-        rxdataF_comp128[0] = oai_mm_cpx_mult_conja(dl_ch128[0], rxdataF128[0], output_shift);
-        rxdataF_comp128[1] = oai_mm_cpx_mult_conja(dl_ch128[1], rxdataF128[1], output_shift);
+        rxdataF_comp128[0] = oai_mm_cpx_mult_conj(dl_ch128[0], rxdataF128[0], output_shift);
+        rxdataF_comp128[1] = oai_mm_cpx_mult_conj(dl_ch128[1], rxdataF128[1], output_shift);
 
         if (pilots==0) {
           // multiply by conjugated channel
-          rxdataF_comp128[2] = oai_mm_cpx_mult_conja(dl_ch128[2], rxdataF128[2], output_shift);
+          rxdataF_comp128[2] = oai_mm_cpx_mult_conj(dl_ch128[2], rxdataF128[2], output_shift);
           dl_ch128+=3;
           dl_ch_mag128+=3;
           dl_ch_mag128b+=3;
@@ -1370,7 +1370,7 @@ void dlsch_channel_compensation(int **rxdataF_ext,
 
       for (rb=0; rb<3*nb_rb; rb++) {
         // multiply by conjugated channel
-        rho128[rb] = oai_mm_cpx_mult_conja(dl_ch128[rb], dl_ch128_2[rb], output_shift);
+        rho128[rb] = oai_mm_cpx_mult_conj(dl_ch128[rb], dl_ch128_2[rb], output_shift);
       }
 
       if (first_symbol_flag==1) {
@@ -1449,8 +1449,8 @@ void dlsch_channel_compensation_core(int **rxdataF_ext,
           }
 
           // multiply by conjugated channel
-          rxdataF_comp128[0] = oai_mm_cpx_mult_conja(dl_ch128[0], rxdataF128[0], output_shift);
-          rxdataF_comp128[1] = oai_mm_cpx_mult_conja(dl_ch128[1], rxdataF128[1], output_shift);
+          rxdataF_comp128[0] = oai_mm_cpx_mult_conj(dl_ch128[0], rxdataF128[0], output_shift);
+          rxdataF_comp128[1] = oai_mm_cpx_mult_conj(dl_ch128[1], rxdataF128[1], output_shift);
           dl_ch128+=2;
           dl_ch_mag128+=2;
           dl_ch_mag128b+=2;
@@ -1474,8 +1474,8 @@ void dlsch_channel_compensation_core(int **rxdataF_ext,
       if (length_mod8 == 0) {
         for (ii=0; ii<length>>3; ++ii) {
           // multiply by conjugated channel
-          rho128[0] = oai_mm_cpx_mult_conja(dl_ch128[0], dl_ch128_2[0], output_shift);
-          rho128[1] = oai_mm_cpx_mult_conja(dl_ch128[1], dl_ch128_2[1], output_shift);
+          rho128[0] = oai_mm_cpx_mult_conj(dl_ch128[0], dl_ch128_2[0], output_shift);
+          rho128[1] = oai_mm_cpx_mult_conj(dl_ch128[1], dl_ch128_2[1], output_shift);
           dl_ch128+=2;
           dl_ch128_2+=2;
           rho128+=2;
@@ -1691,12 +1691,12 @@ void dlsch_channel_compensation_TM56(int **rxdataF_ext,
       }
 
       // MF multiply by conjugated channel
-      rxdataF_comp128[0] = oai_mm_cpx_mult_conja(dl_ch0_128[0], rxdataF128[0], output_shift);
-      rxdataF_comp128[1] = oai_mm_cpx_mult_conja(dl_ch0_128[1], rxdataF128[1], output_shift);
+      rxdataF_comp128[0] = oai_mm_cpx_mult_conj(dl_ch0_128[0], rxdataF128[0], output_shift);
+      rxdataF_comp128[1] = oai_mm_cpx_mult_conj(dl_ch0_128[1], rxdataF128[1], output_shift);
 
       if (pilots==0) {
         // multiply by conjugated channel
-        rxdataF_comp128[2] = oai_mm_cpx_mult_conja(dl_ch0_128[2], rxdataF128[2], output_shift);
+        rxdataF_comp128[2] = oai_mm_cpx_mult_conj(dl_ch0_128[2], rxdataF128[2], output_shift);
         dl_ch0_128+=3;
         dl_ch1_128+=3;
         dl_ch_mag128+=3;
@@ -1966,22 +1966,22 @@ void dlsch_channel_compensation_TM34(LTE_DL_FRAME_PARMS *frame_parms,
 
       // layer 0
       // MF multiply by conjugated channel
-      rxdataF_comp0_128[0] = oai_mm_cpx_mult_conja(dl_ch0_128[0], rxdataF128[0], output_shift0);
-      rxdataF_comp0_128[1] = oai_mm_cpx_mult_conja(dl_ch0_128[1], rxdataF128[1], output_shift0);
+      rxdataF_comp0_128[0] = oai_mm_cpx_mult_conj(dl_ch0_128[0], rxdataF128[0], output_shift0);
+      rxdataF_comp0_128[1] = oai_mm_cpx_mult_conj(dl_ch0_128[1], rxdataF128[1], output_shift0);
 
       if (pilots==0) {
         // multiply by conjugated channel
-        rxdataF_comp0_128[2] = oai_mm_cpx_mult_conja(dl_ch0_128[2], rxdataF128[2], output_shift0);
+        rxdataF_comp0_128[2] = oai_mm_cpx_mult_conj(dl_ch0_128[2], rxdataF128[2], output_shift0);
       }
 
       // layer 1
       // MF multiply by conjugated channel
-      rxdataF_comp1_128[0] = oai_mm_cpx_mult_conja(dl_ch1_128[0], rxdataF128[0], output_shift1);
-      rxdataF_comp1_128[1] = oai_mm_cpx_mult_conja(dl_ch1_128[1], rxdataF128[1], output_shift1);
+      rxdataF_comp1_128[0] = oai_mm_cpx_mult_conj(dl_ch1_128[0], rxdataF128[0], output_shift1);
+      rxdataF_comp1_128[1] = oai_mm_cpx_mult_conj(dl_ch1_128[1], rxdataF128[1], output_shift1);
 
       if (pilots==0) {
         // multiply by conjugated channel
-        rxdataF_comp1_128[2] = oai_mm_cpx_mult_conja(dl_ch1_128[2], rxdataF128[2], output_shift1);
+        rxdataF_comp1_128[2] = oai_mm_cpx_mult_conj(dl_ch1_128[2], rxdataF128[2], output_shift1);
         dl_ch0_128+=3;
         dl_ch1_128+=3;
         dl_ch_mag0_128+=3;
@@ -2049,12 +2049,12 @@ void dlsch_dual_stream_correlation(LTE_DL_FRAME_PARMS *frame_parms,
 
     for (rb=0; rb<nb_rb; rb++) {
       // multiply by conjugated channel
-      dl_ch_rho128[0] = oai_mm_cpx_mult_conja(dl_ch128[0], dl_ch128i[0], output_shift);
-      dl_ch_rho128[1] = oai_mm_cpx_mult_conja(dl_ch128[1], dl_ch128i[1], output_shift);
+      dl_ch_rho128[0] = oai_mm_cpx_mult_conj(dl_ch128[0], dl_ch128i[0], output_shift);
+      dl_ch_rho128[1] = oai_mm_cpx_mult_conj(dl_ch128[1], dl_ch128i[1], output_shift);
 
       if (pilots==0) {
         // multiply by conjugated channel
-        dl_ch_rho128[2] = oai_mm_cpx_mult_conja(dl_ch128[2], dl_ch128i[2], output_shift);
+        dl_ch_rho128[2] = oai_mm_cpx_mult_conj(dl_ch128[2], dl_ch128i[2], output_shift);
         dl_ch128+=3;
         dl_ch128i+=3;
         dl_ch_rho128+=3;

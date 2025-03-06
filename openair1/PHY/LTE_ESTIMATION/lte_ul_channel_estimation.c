@@ -142,7 +142,7 @@ int32_t lte_ul_channel_estimation(LTE_DL_FRAME_PARMS *frame_parms,
       ul_ref128 = (simde__m128i *)ul_ref_sigs_rx[u][v][Msc_RS_idx];
 
       for (i = 0; i < Msc_RS >> 2; i++) {
-        ul_ch128[i] = oai_mm_cpx_mult_conja(ul_ref128[i], rxdataF128[i], 15);
+        ul_ch128[i] = oai_mm_cpx_mult_conj(ul_ref128[i], rxdataF128[i], 15);
       }
 
       alpha_ind = 0;
@@ -370,7 +370,7 @@ int32_t lte_ul_channel_estimation_RRU(LTE_DL_FRAME_PARMS *frame_parms,
     ul_ref128 = (simde__m128i *)ul_ref_sigs_rx[u][v][Msc_RS_idx];
 
     for (i = 0; i < Msc_RS >> 2; i++) {
-      ul_ch128[i] = oai_mm_cpx_mult_conja(ul_ref128[i], rxdataF128[i], 15);
+      ul_ch128[i] = oai_mm_cpx_mult_conj(ul_ref128[i], rxdataF128[i], 15);
     }
 
     alpha_ind = 0;
@@ -659,9 +659,9 @@ int16_t lte_ul_freq_offset_estimation(LTE_DL_FRAME_PARMS *frame_parms, int32_t *
   // correlate and average the 2 channel estimates ul_ch1*ul_ch2
   for (int rb=0; rb<nb_rb; rb++) {
     simde__m128i R[3];
-    R[0] = oai_mm_cpx_mult_conja(ul_ch1[0], ul_ch2[0], output_shift);
-    R[1] = oai_mm_cpx_mult_conja(ul_ch1[1], ul_ch2[1], output_shift);
-    R[2] = oai_mm_cpx_mult_conja(ul_ch1[2], ul_ch2[2], output_shift);
+    R[0] = oai_mm_cpx_mult_conj(ul_ch1[0], ul_ch2[0], output_shift);
+    R[1] = oai_mm_cpx_mult_conj(ul_ch1[1], ul_ch2[1], output_shift);
+    R[2] = oai_mm_cpx_mult_conj(ul_ch1[2], ul_ch2[2], output_shift);
 
     // Horizontal add
     R[0] = simde_mm_add_epi16(simde_mm_srai_epi16(R[0], 1), simde_mm_srai_epi16(R[1], 1));

@@ -910,7 +910,7 @@ void pdcch_channel_compensation(int32_t **rxdataF_ext,
 
       for (uint16_t rb=0; rb<frame_parms->N_RB_DL*len_rb; rb++) {
         // multiply by conjugated channel
-        rxdataF_comp128[rb] = oai_mm_cpx_mult_conja(dl_ch128[rb], rxdataF128[rb], output_shift);
+        rxdataF_comp128[rb] = oai_mm_cpx_mult_conj(dl_ch128[rb], rxdataF128[rb], output_shift);
       }
     }
   }
@@ -925,7 +925,7 @@ void pdcch_channel_compensation(int32_t **rxdataF_ext,
 
       for (uint16_t rb=0; rb<frame_parms->N_RB_DL*3; rb++) {
         // multiply by conjugated channel
-        rho128[rb] = oai_mm_cpx_mult_conja(dl_ch128[rb], dl_ch128_2[rb], output_shift);
+        rho128[rb] = oai_mm_cpx_mult_conj(dl_ch128[rb], dl_ch128_2[rb], output_shift);
       }
     }
 

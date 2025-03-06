@@ -343,8 +343,8 @@ void mch_channel_compensation(int **rxdataF_ext,
       }
 
       // multiply by conjugated channel
-      rxdataF_comp128[0] = oai_mm_cpx_mult_conja(dl_ch128[0], rxdataF128[0], output_shift);
-      rxdataF_comp128[1] = oai_mm_cpx_mult_conja(dl_ch128[1], rxdataF128[1], output_shift);
+      rxdataF_comp128[0] = oai_mm_cpx_mult_conj(dl_ch128[0], rxdataF128[0], output_shift);
+      rxdataF_comp128[1] = oai_mm_cpx_mult_conj(dl_ch128[1], rxdataF128[1], output_shift);
 
       dl_ch128+=2;
       dl_ch_mag128+=2;
@@ -414,8 +414,8 @@ void mch_channel_compensation_khz_1dot25(int **rxdataF_ext,
       }
 
       // multiply by conjugated channel
-      rxdataF_comp128[0] = oai_mm_cpx_mult_conja(dl_ch128[0], rxdataF128[0], output_shift);
-      rxdataF_comp128[1] = oai_mm_cpx_mult_conja(dl_ch128[1], rxdataF128[1], output_shift);
+      rxdataF_comp128[0] = oai_mm_cpx_mult_conj(dl_ch128[0], rxdataF128[0], output_shift);
+      rxdataF_comp128[1] = oai_mm_cpx_mult_conj(dl_ch128[1], rxdataF128[1], output_shift);
 
       dl_ch128+=2;
       dl_ch_mag128+=2;

@@ -914,9 +914,9 @@ static void nr_dlsch_channel_compensation(uint32_t rx_size_symbol,
         }
 
         // Multiply received data by conjugated channel
-        rxdataF_comp128[0] = oai_mm_cpx_mult_conjb(rxdataF128[0], dl_ch128[0], output_shift);
-        rxdataF_comp128[1] = oai_mm_cpx_mult_conjb(rxdataF128[1], dl_ch128[1], output_shift);
-        rxdataF_comp128[2] = oai_mm_cpx_mult_conjb(rxdataF128[2], dl_ch128[2], output_shift);
+        rxdataF_comp128[0] = oai_mm_cpx_mult_conj(dl_ch128[0], rxdataF128[0], output_shift);
+        rxdataF_comp128[1] = oai_mm_cpx_mult_conj(dl_ch128[1], rxdataF128[1], output_shift);
+        rxdataF_comp128[2] = oai_mm_cpx_mult_conj(dl_ch128[2], rxdataF128[2], output_shift);
 
         dl_ch128 += 3;
         dl_ch_mag128 += 3;

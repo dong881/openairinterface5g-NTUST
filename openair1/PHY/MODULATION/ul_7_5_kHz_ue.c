@@ -73,7 +73,7 @@ void apply_7_5_kHz(PHY_VARS_UE *ue,int32_t*txdata,uint8_t slot)
 
   for (uint32_t i = 0; i < (len >> 2); i++) {
     // Real part of complex multiplication (note: 7_5kHz signal is conjugated for this to work)
-    txptr128[i] = oai_mm_cpx_mult_conja(kHz7_5ptr128[i], txptr128[i], 15);
+    txptr128[i] = oai_mm_cpx_mult_conj(kHz7_5ptr128[i], txptr128[i], 15);
   }
 
 }

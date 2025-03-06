@@ -49,7 +49,7 @@ void mult_cpx_conj_vector(int16_t *x1,
 
   // SSE compute 4 cpx multiply for each loop
   for(uint32_t i = 0; i < (N >> 2); i++) {
-    simde__m128i result = oai_mm_cpx_mult_conja(x1_128[i], x2_128[i], output_shift);
+    simde__m128i result = oai_mm_cpx_mult_conj(x1_128[i], x2_128[i], output_shift);
     
     if (madd==1)
       result = simde_mm_adds_epi16(y_128[i], result);

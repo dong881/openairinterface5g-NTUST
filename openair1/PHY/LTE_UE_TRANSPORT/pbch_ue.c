@@ -208,7 +208,7 @@ void pbch_channel_compensation(int **rxdataF_ext,
       int len_rb = (symbol_mod > 1) ? 3 : 2;
       for (uint16_t rb=0; rb<nb_rb*len_rb; rb++) {
         //  multiply by conjugated channel
-        rxdataF_comp128[rb] = oai_mm_cpx_mult_conja(dl_ch128[rb], rxdataF128[rb], output_shift);
+        rxdataF_comp128[rb] = oai_mm_cpx_mult_conj(dl_ch128[rb], rxdataF128[rb], output_shift);
       }
     }
 
