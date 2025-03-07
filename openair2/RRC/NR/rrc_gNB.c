@@ -2410,8 +2410,11 @@ static void print_rrc_meas(FILE *f, const NR_MeasResults_t *measresults)
   NR_MeasResultServMO_t *measresultservmo = measresults->measResultServingMOList.list.array[0];
   NR_MeasResultNR_t *measresultnr = &measresultservmo->measResultServingCell;
   NR_MeasQuantityResults_t *mqr = measresultnr->measResult.cellResults.resultsSSB_Cell;
-
-  fprintf(f, "    servingCellId %ld MeasResultNR for phyCellId %ld:\n      resultSSB:", measresultservmo->servCellId, *measresultnr->physCellId);
+  if (measresultnr->physCellId)
+    fprintf(f,
+            "    servingCellId %ld MeasResultNR for phyCellId %ld:\n      resultSSB:",
+            measresultservmo->servCellId,
+            *measresultnr->physCellId);
   if (mqr != NULL) {
     const long rrsrp = *mqr->rsrp - 156;
     const float rrsrq = (float) (*mqr->rsrq - 87) / 2.0f;
@@ -2427,7 +2430,8 @@ static void print_rrc_meas(FILE *f, const NR_MeasResults_t *measresults)
     for (int i = 0; i < meas_neigh->list.count; ++i) {
       NR_MeasResultNR_t *measresultneigh = meas_neigh->list.array[i];
       NR_MeasQuantityResults_t *neigh_mqr = measresultneigh->measResult.cellResults.resultsSSB_Cell;
-      fprintf(f, "    neighboring cell for phyCellId %ld:\n      resultSSB:", *measresultneigh->physCellId);
+      if (measresultneigh->physCellId)
+        fprintf(f, "    neighboring cell for phyCellId %ld:\n      resultSSB:", *measresultneigh->physCellId);
       if (mqr != NULL) {
         const long rrsrp = *neigh_mqr->rsrp - 156;
         const float rrsrq = (float)(*neigh_mqr->rsrq - 87) / 2.0f;
