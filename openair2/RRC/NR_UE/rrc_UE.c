@@ -1138,8 +1138,7 @@ static void rrc_ue_generate_RRCSetupComplete(const NR_UE_RRC_INST_t *rrc, const 
   nr_pdcp_data_req_srb(rrc->ue_id, srb_id, 0, size, buffer, deliver_pdu_srb_rlc, NULL);
 }
 
-static void nr_rrc_process_rrcsetup(NR_UE_RRC_INST_t *rrc,
-                                    const NR_RRCSetup_t *rrcSetup)
+static void nr_rrc_process_rrcsetup(NR_UE_RRC_INST_t *rrc, const NR_RRCSetup_t *rrcSetup)
 {
   // if the RRCSetup is received in response to an RRCReestablishmentRequest
   // or RRCResumeRequest or RRCResumeRequest1
