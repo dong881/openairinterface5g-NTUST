@@ -15,10 +15,10 @@ Ref :
   DLSCH encoding : 155.0
   L1 Rx processing : 345.0
   PUSCH inner-receiver : 155.0
-  Schedule Response : 3.0
-  DL & UL scheduling timing : 13.0
+  Schedule Response : 1.0
+  DL & UL scheduling timing : 8.0
   UL Indication : 3.0
-  Slot Indication : 12.0
+  Slot Indication : 9.0
 DeviationThreshold :
   feprx : 0.25
   feptx_prec : 0.25
