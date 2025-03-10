@@ -38,7 +38,6 @@ Specific test files
 pss_test.c: test for detection of primary synchronisation signal.             
 sss_test.c: test for detection of secundary synchronisation signal.
 pbch_test.c: test for decoding of packet braodcast channel.
-srs_test.c: test of sounding reference signal.
 frame_config_test.c : test of frame configurations (FDD/TDD).
 pss_util_test.c:  common functions for running synchronisation tests.
 pss_util_test.h: common headers for synchronisation tests.
@@ -71,14 +70,12 @@ make pss_test           -> build pss_test: detection of NR (Primary Synchronisat
 make sss_test           -> build sss_test: detection of NR SSS (Secundary Synchronisation Channel - second step for UE synchronisation).
 make pbch_test          -> build pbch_test: decoding of NR PBCH (Packet Broadcast Channel -> UE read MIB Master Information Block which gives network parameters).
 make frame_config_test  -> build frame_config_test: NR FDD/TDD configuration.
-make srs_test           -> build srs_test: Sounding Reference Signals are transmitted by UE to the network which can use them for channel estimations.
 make clean              -> clean all projects.
 
 And execution of tests:
 ./pss_test              -> run NR PSS tests.
 ./sss_test              -> run NR SSS tests.
 ./pbch_test             -> run NR PBCH tests.
-./srs_test              -> run NR srs tests.
 ./frame_config_test     -> run NR frame configuration tests.
 
 There is a script in build/run_test.sh which allows:

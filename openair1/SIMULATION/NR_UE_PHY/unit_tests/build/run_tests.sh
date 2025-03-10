@@ -66,7 +66,6 @@ tst_files="
    pss_test
    sss_test
    pbch_test
-   srs_test
    frame_config_test"
 
 #---------------------------------------------------------------------------

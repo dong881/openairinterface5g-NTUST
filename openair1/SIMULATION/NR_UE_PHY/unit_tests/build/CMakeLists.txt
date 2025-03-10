@@ -60,7 +60,7 @@ target_link_libraries(pss_test
                        -Wl,--start-group UTIL SCHED_NR_UE_LIB PHY PHY_COMMON PHY_UE PHY_NR_UE -Wl,--end-group
                       pthread m ${ATLAS_LIBRARIES}
                       )
-                      
+
 add_executable(sss_test ${OPENAIR1_DIR}/SIMULATION/NR_UE_PHY/unit_tests/src/sss_test.c ${SRC_UNIT_TESTS} )
 target_link_libraries(sss_test 
                        -Wl,--start-group UTIL SCHED_NR_UE_LIB PHY PHY_COMMON PHY_UE PHY_NR_UE -Wl,--end-group
@@ -72,13 +72,7 @@ target_link_libraries(frame_config_test
                        -Wl,--start-group UTIL SCHED_NR_UE_LIB PHY PHY_COMMON PHY_UE PHY_NR_UE -Wl,--end-group
                       pthread m ${ATLAS_LIBRARIES}
                       )
-                      
-add_executable(srs_test ${OPENAIR1_DIR}/SIMULATION/NR_UE_PHY/unit_tests/src/srs_test.c ${SRC_UNIT_TESTS} )
-target_link_libraries(srs_test 
-                       -Wl,--start-group UTIL SCHED_NR_UE_LIB PHY PHY_COMMON PHY_UE PHY_NR_UE -Wl,--end-group
-                      pthread m ${ATLAS_LIBRARIES}
-                      )
-                      
+
 add_executable(pbch_test ${OPENAIR1_DIR}/SIMULATION/NR_UE_PHY/unit_tests/src/pbch_test.c ${SRC_UNIT_TESTS} )
 target_link_libraries(pbch_test 
                       -Wl,--start-group UTIL SCHED_NR_UE_LIB PHY PHY_COMMON PHY_UE PHY_NR_UE -Wl,--end-group

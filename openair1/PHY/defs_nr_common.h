@@ -218,8 +218,6 @@ struct NR_DL_FRAME_PARMS {
   c16_t delay_table[2 * MAX_DELAY_COMP + 1][NR_MAX_OFDM_SYMBOL_SIZE];
   /// Table used to apply the delay compensation in PUCCH2
   c16_t delay_table128[2 * MAX_DELAY_COMP + 1][128];
-  /// SRS configuration from TS 38.331 RRC
-  SRS_NR srs_nr;
   /// Power used by SSB in order to estimate signal strength and path loss
   int ss_PBCH_BlockPower;
   /// for NR TDD management
