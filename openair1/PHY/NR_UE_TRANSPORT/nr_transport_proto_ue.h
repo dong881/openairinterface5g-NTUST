@@ -81,14 +81,14 @@ void nr_conjch0_mult_ch1(int *ch0,
     @param[in] DLSCH_ids array of active downlink shared channels
     @returns 0 on success, 1 on unsuccessful decoding
 */
-uint32_t nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
-                           const UE_nr_rxtx_proc_t *proc,
-                           NR_UE_DLSCH_t *dlsch,
-                           short **dlsch_llr,
-                           uint8_t **b,
-                           int *G,
-                           int nb_dlsch,
-                           uint8_t *DLSCH_ids);
+void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
+                       const UE_nr_rxtx_proc_t *proc,
+                       NR_UE_DLSCH_t *dlsch,
+                       short **dlsch_llr,
+                       uint8_t **b,
+                       int *G,
+                       int nb_dlsch,
+                       uint8_t *DLSCH_ids);
 
 /** \brief This is the alternative top-level entry point for ULSCH encoding in UE.
     It handles all the HARQ processes in only one call. The routine first

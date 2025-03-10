@@ -1163,7 +1163,7 @@ printf("%d\n", slot);
         //---------------------- count errors ----------------------
         //----------------------------------------------------------
 
-        if (dlsch0->last_iteration_cnt >= dlsch0->max_ldpc_iterations+1)
+        if (dlsch0->last_iteration_cnt >= dlsch0->max_ldpc_iterations)
           n_errors[round]++;
 
         int16_t *UE_llr = (int16_t*)UE->phy_sim_pdsch_llr;

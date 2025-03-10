@@ -239,7 +239,7 @@ typedef struct {
   /// Maximum number of LDPC iterations
   uint8_t max_ldpc_iterations;
   /// number of iterations used in last LDPC decoding
-  uint8_t last_iteration_cnt;
+  int8_t last_iteration_cnt;
   /// Status Flag indicating for this ULSCH
   bool active;
   /// Flag to indicate that the UL configuration has been handled. Used to remove a stale ULSCH when frame wraps around

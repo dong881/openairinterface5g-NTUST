@@ -123,7 +123,6 @@ int main(int argc, char **argv)
   NR_DL_FRAME_PARMS *frame_parms;
   double sigma;
   unsigned char qbits = 8;
-  int ret;
   int loglvl = OAILOG_WARNING;
   uint8_t dlsch_threads = 0;
   float target_error_rate = 0.01;
@@ -577,18 +576,18 @@ int main(int argc, char **argv)
       short *p_channel_output_fixed = channel_output_fixed;
       uint8_t *p_b = b;
       int available_bits_array[1] = { available_bits };
-      ret = nr_dlsch_decoding(UE,
-                              &proc,
-                              dlsch0_ue,
-                              &p_channel_output_fixed,
-                              &p_b,
-                              available_bits_array,
-                              1,
-                              DLSCH_ids);
+      nr_dlsch_decoding(UE,
+                        &proc,
+                        dlsch0_ue,
+                        &p_channel_output_fixed,
+                        &p_b,
+                        available_bits_array,
+                        1,
+                        DLSCH_ids);
 
       vcd_signal_dumper_dump_function_by_name(VCD_SIGNAL_DUMPER_FUNCTIONS_DLSCH_DECODING0, VCD_FUNCTION_OUT);
 
-      if (ret > dlsch0_ue->max_ldpc_iterations)
+      if (dlsch0_ue->last_iteration_cnt > dlsch0_ue->max_ldpc_iterations)
 				n_errors++;
 
 			//count errors

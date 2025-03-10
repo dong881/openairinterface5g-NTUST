@@ -277,8 +277,8 @@ int decoder_xdma(nrLDPC_TB_decoding_parameters_t *TB_params, int frame_rx, int s
 
   for (uint32_t job = 0; job < num_threads_prepare; job++) {
     args_fpga_decode_prepare_t *args = &arr[job];
-    if (args->no_iteration_ldpc > TB_params->max_ldpc_iterations)
-      no_iteration_ldpc = TB_params->max_ldpc_iterations + 1;
+    if (args->no_iteration_ldpc >= TB_params->max_ldpc_iterations)
+      no_iteration_ldpc = TB_params->max_ldpc_iterations;
   }
 
   // launch decode with FPGA
@@ -306,12 +306,12 @@ int decoder_xdma(nrLDPC_TB_decoding_parameters_t *TB_params, int frame_rx, int s
 #ifdef DEBUG_CRC
       LOG_I(PHY, "segment %d CRC NOK\n", r);
 #endif
-      no_iteration_ldpc = TB_params->max_ldpc_iterations + 1;
+      no_iteration_ldpc = TB_params->max_ldpc_iterations;
     }
     for (int i = 0; i < out_CBoffset; i++) {
       segment_params->c[i] = multi_outdata[i + r * out_CBoffset];
     }
-    segment_params->decodeSuccess = (no_iteration_ldpc <= TB_params->max_ldpc_iterations);
+    segment_params->decodeSuccess = (no_iteration_ldpc < TB_params->max_ldpc_iterations);
     if (segment_params->decodeSuccess) {
       *TB_params->processedSegments = *TB_params->processedSegments + 1;
     }
@@ -396,7 +396,7 @@ void nr_ulsch_FPGA_decoding_prepare_blocks(void *args)
         == -1) {
       stop_meas(&segment_params->ts_rate_unmatch);
       LOG_E(PHY, "ulsch_decoding.c: Problem in rate_matching\n");
-      no_iteration_ldpc = max_ldpc_iterations + 1;
+      no_iteration_ldpc = max_ldpc_iterations;
       arguments->no_iteration_ldpc = no_iteration_ldpc;
       return;
     } else {

@@ -59,14 +59,14 @@ void nr_dlsch_unscrambling(int16_t *llr, uint32_t size, uint8_t q, uint32_t Nid,
 
 /*! \brief Prepare necessary parameters for nrLDPC_coding_interface
  */
-uint32_t nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
-                           const UE_nr_rxtx_proc_t *proc,
-                           NR_UE_DLSCH_t *dlsch,
-                           int16_t **dlsch_llr,
-                           uint8_t **b,
-                           int *G,
-                           int nb_dlsch,
-                           uint8_t *DLSCH_ids)
+void nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
+                       const UE_nr_rxtx_proc_t *proc,
+                       NR_UE_DLSCH_t *dlsch,
+                       int16_t **dlsch_llr,
+                       uint8_t **b,
+                       int *G,
+                       int nb_dlsch,
+                       uint8_t *DLSCH_ids)
 {
   nrLDPC_TB_decoding_parameters_t TBs[nb_dlsch];
   memset(TBs, 0, sizeof(TBs));
@@ -100,7 +100,7 @@ uint32_t nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
 
     if (!harq_process) {
       LOG_E(PHY, "dlsch_decoding_slot.c: NULL harq_process pointer\n");
-      return dlsch[DLSCH_id].max_ldpc_iterations + 1;
+      return;
     }
 
     nrLDPC_TB_decoding_parameters_t *TB_parameters = &TBs[pdsch_id];
@@ -164,7 +164,7 @@ uint32_t nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
 
       if (harq_process->C > MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * TB_parameters->nb_layers) {
         LOG_E(PHY, "nr_segmentation.c: too many segments %d, A %d\n", harq_process->C, TB_parameters->A);
-        return dlsch[DLSCH_id].max_ldpc_iterations + 1;
+        return;
       }
 
       if (LOG_DEBUGFLAG(DEBUG_DLSCH_DECOD) && (!slot_parameters.frame % 100))
@@ -242,7 +242,8 @@ uint32_t nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
   int ret_decoder = phy_vars_ue->nrLDPC_coding_interface.nrLDPC_coding_decoder(&slot_parameters);
 
   if (ret_decoder != 0) {
-    return dlsch->max_ldpc_iterations + 1;
+    LOG_E(PHY, "nrLDPC_coding_decoder returned an error: %d\n", ret_decoder);
+    return;
   }
 
   // post decode
@@ -316,11 +317,11 @@ uint32_t nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
     if (harq_process->decodeResult) {
       LOG_D(PHY, "DLSCH received ok \n");
       harq_process->status = SCH_IDLE;
-      dlsch->last_iteration_cnt = dlsch->max_ldpc_iterations;
+      dlsch->last_iteration_cnt = dlsch->max_ldpc_iterations - 1;
     } else {
       LOG_D(PHY, "DLSCH received nok \n");
       kpiStructure.nb_nack++;
-      dlsch->last_iteration_cnt = dlsch->max_ldpc_iterations + 1;
+      dlsch->last_iteration_cnt = dlsch->max_ldpc_iterations;
       UEdumpScopeData(phy_vars_ue, proc->nr_slot_rx, proc->frame_rx, "DLSCH_NACK");
     }
 
@@ -355,5 +356,4 @@ uint32_t nr_dlsch_decoding(PHY_VARS_NR_UE *phy_vars_ue,
 
   }
 
-  return dlsch[0].last_iteration_cnt;
 }

@@ -218,7 +218,7 @@ static void nr_process_decode_segment(void *arg)
   int decodeIterations =
       LDPCdecoder(p_decoderParms, 0, 0, 0, l, llrProcBuf, p_procTime, rdata->abort_decode);
 
-  if (decodeIterations <= p_decoderParms->numMaxIter) {
+  if (decodeIterations < p_decoderParms->numMaxIter) {
     memcpy(rdata->c, llrProcBuf, K >> 3);
     *rdata->decodeSuccess = true;
   } else {

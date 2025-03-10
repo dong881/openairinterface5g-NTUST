@@ -686,20 +686,18 @@ static uint32_t compute_csi_rm_unav_res(fapi_nr_dl_config_dlsch_pdu_rel15_t *dls
 
 /*! \brief Process the whole DLSCH slot
  */
-static bool nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
+static void nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
                                    const UE_nr_rxtx_proc_t *proc,
                                    NR_UE_DLSCH_t dlsch[2],
                                    int16_t *llr[2]) {
   if (dlsch[0].active == false) {
     LOG_E(PHY, "DLSCH should be active when calling this function\n");
-    return true;
+    return;
   }
 
-  bool dec = false;
   int harq_pid = dlsch[0].dlsch_config.harq_process_nbr;
   int frame_rx = proc->frame_rx;
   int nr_slot_rx = proc->nr_slot_rx;
-  uint32_t ret = UINT32_MAX;
   NR_DL_UE_HARQ_t *dl_harq0 = &ue->dl_harq_processes[0][harq_pid];
   NR_DL_UE_HARQ_t *dl_harq1 = &ue->dl_harq_processes[1][harq_pid];
   uint16_t dmrs_len = get_num_dmrs(dlsch[0].dlsch_config.dlDmrsSymbPos);
@@ -732,7 +730,7 @@ static bool nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
     const int ack_nack_slot_and_frame =
         (proc->nr_slot_rx + dlsch[0].dlsch_config.k1_feedback) + proc->frame_rx * ue->frame_parms.slots_per_frame;
     dynamic_barrier_join(&ue->process_slot_tx_barriers[ack_nack_slot_and_frame % NUM_PROCESS_SLOT_TX_BARRIERS]);
-    return false;
+    return;
   }
 
   int G[2];
@@ -765,10 +763,8 @@ static bool nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
   }
 
   start_meas_nr_ue_phy(ue, DLSCH_DECODING_STATS);
-  ret = nr_dlsch_decoding(ue, proc, dlsch, llr, p_b, G, nb_dlsch, DLSCH_ids);
+  nr_dlsch_decoding(ue, proc, dlsch, llr, p_b, G, nb_dlsch, DLSCH_ids);
   stop_meas_nr_ue_phy(ue, DLSCH_DECODING_STATS);
-
-  if (ret < ue->max_ldpc_iterations + 1) dec = true;
 
   int ind_type = -1;
   switch (dlsch[0].rnti_type) {
@@ -829,7 +825,6 @@ static bool nr_ue_dlsch_procedures(PHY_VARS_NR_UE *ue,
   else if (ue->phy_sim_dlsch_b && is_cw1_active == ACTIVE)
     memcpy(ue->phy_sim_dlsch_b, p_b[1], dlsch_bytes);
 
-  return dec;
 }
 
 static bool is_ssb_index_transmitted(const PHY_VARS_NR_UE *ue, const int index)
