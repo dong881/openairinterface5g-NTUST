@@ -220,12 +220,6 @@ struct NR_DL_FRAME_PARMS {
   c16_t delay_table128[2 * MAX_DELAY_COMP + 1][128];
   /// Power used by SSB in order to estimate signal strength and path loss
   int ss_PBCH_BlockPower;
-  /// for NR TDD management
-  TDD_UL_DL_configCommon_t  *p_tdd_UL_DL_Configuration;
-
-  TDD_UL_DL_configCommon_t  *p_tdd_UL_DL_ConfigurationCommon2;
-
-  TDD_UL_DL_SlotConfig_t *p_TDD_UL_DL_ConfigDedicated;
 
   /// TDD configuration
   uint16_t tdd_uplink_nr[2*NR_MAX_SLOTS_PER_FRAME]; /* this is a bitmap of symbol of each slot given for 2 frames */

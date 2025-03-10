@@ -2283,10 +2283,8 @@ INPUT                  = \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/SIMULATION/TOOLS/phase_noise.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/SIMULATION/TOOLS/channel_sim.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/SIMULATION/TOOLS/sim.h \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair1/SCHED_NR_UE/phy_frame_config_nr.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/SCHED_NR_UE/harq_nr.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/SCHED_NR_UE/fapi_nr_ue_l1.c \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair1/SCHED_NR_UE/phy_frame_config_nr_ue.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/SCHED_NR_UE/pucch_uci_ue_nr.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/SCHED_NR_UE/harq_nr.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/SCHED_NR_UE/phy_procedures_nr_ue.c \
