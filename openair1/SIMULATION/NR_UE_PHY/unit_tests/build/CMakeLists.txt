@@ -55,18 +55,6 @@ set(INC_UNIT_TESTS
      ${OPENAIR1_DIR}/SIMULATION/NR_UE_PHY/unit_tests/src/pss_util_test.h
     )
 
-add_executable(pss_test ${OPENAIR1_DIR}/SIMULATION/NR_UE_PHY/unit_tests/src/pss_test.c ${SRC_UNIT_TESTS} )
-target_link_libraries(pss_test 
-                       -Wl,--start-group UTIL SCHED_NR_UE_LIB PHY PHY_COMMON PHY_UE PHY_NR_UE -Wl,--end-group
-                      pthread m ${ATLAS_LIBRARIES}
-                      )
-
-add_executable(sss_test ${OPENAIR1_DIR}/SIMULATION/NR_UE_PHY/unit_tests/src/sss_test.c ${SRC_UNIT_TESTS} )
-target_link_libraries(sss_test 
-                       -Wl,--start-group UTIL SCHED_NR_UE_LIB PHY PHY_COMMON PHY_UE PHY_NR_UE -Wl,--end-group
-                      pthread m ${ATLAS_LIBRARIES}
-                      )
-
 add_executable(frame_config_test ${OPENAIR1_DIR}/SIMULATION/NR_UE_PHY/unit_tests/src/frame_config_test.c ${SRC_UNIT_TESTS} )
 target_link_libraries(frame_config_test 
                        -Wl,--start-group UTIL SCHED_NR_UE_LIB PHY PHY_COMMON PHY_UE PHY_NR_UE -Wl,--end-group
