@@ -476,15 +476,6 @@ typedef struct PHY_VARS_NR_UE_s {
   int ta_slot;
   int ta_command;
 
-  /// Flag to tell if UE is secondary user (cognitive mode)
-  unsigned char    is_secondary_ue;
-  /// Flag to tell if secondary gNB has channel estimates to create NULL-beams from.
-  unsigned char    has_valid_precoder;
-  /// hold the precoder for NULL beam to the primary gNB
-  int              **ul_precoder_S_UE;
-  /// holds the maximum channel/precoder coefficient
-  char             log2_maxp;
-
   /// Flag to initialize averaging of PHY measurements
   int init_averaging;
 
@@ -504,17 +495,6 @@ typedef struct PHY_VARS_NR_UE_s {
   /// CSI variables
   nr_csi_info_t *nr_csi_info;
 
-  //#if defined(UPGRADE_RAT_NR)
-#if 1
-  SystemInformationBlockType1_nr_t systemInformationBlockType1_nr;
-#endif
-
-  //#if defined(UPGRADE_RAT_NR)
-#if 1
-  scheduling_request_config_t scheduling_request_config_nr[NUMBER_OF_CONNECTED_gNB_MAX];
-
-#endif
-  uint32_t use_ia_receiver;
   // TODO: move this out of phy
   time_stats_t ue_ul_indication_stats;
   nr_ue_phy_cpu_stat_t phy_cpu_stats;

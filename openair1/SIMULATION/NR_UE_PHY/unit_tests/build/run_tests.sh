@@ -68,8 +68,7 @@ tst_files="
    pbch_test
    srs_test
    frame_config_test
-   harq_test
-   pucch_uci_test"
+   harq_test"
 
 #---------------------------------------------------------------------------
 # manage input parameters

@@ -41,7 +41,6 @@ pbch_test.c: test for decoding of packet braodcast channel.
 srs_test.c: test of sounding reference signal.
 frame_config_test.c : test of frame configurations (FDD/TDD).
 harq_test.c : test of HARQ downlink and uplink.
-pucch_uci_test : test of packed Uplink Control Channel Uplink Control Information
 pss_util_test.c:  common functions for running synchronisation tests.
 pss_util_test.h: common headers for synchronisation tests.
 input_buffer_test.h: it allows providing samples for pss test.
@@ -75,7 +74,6 @@ make pbch_test          -> build pbch_test: decoding of NR PBCH (Packet Broadcas
 make frame_config_test  -> build frame_config_test: NR FDD/TDD configuration.
 make srs_test           -> build srs_test: Sounding Reference Signals are transmitted by UE to the network which can use them for channel estimations.
 make harq_test          -> build harq_test: Hybrid Repeat Request Acknowledgment: mecanism to acknowledge transmitted and received transport blocks.
-make pucch_uci_test     -> build pucch_uci_test : Packet Uplink Control Channel / Uplink Control information : create UCI payload and select PUCCH formats and its parameters. 
 make clean              -> clean all projects.
 
 And execution of tests:
@@ -85,7 +83,6 @@ And execution of tests:
 ./srs_test              -> run NR srs tests.
 ./frame_config_test     -> run NR frame configuration tests.
 ./harq_test             -> run NR HARQ downlink and uplink tests.
-./pucch_uci_test        -> run NR PUCCH UCI tests.
 
 There is a script in build/run_test.sh which allows:
 - building/running/checking all tests
