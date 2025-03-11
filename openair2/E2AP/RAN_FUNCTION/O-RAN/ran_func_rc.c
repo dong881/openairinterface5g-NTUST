@@ -490,14 +490,15 @@ static seq_ran_param_t fill_rrc_state_change_seq_ran(const rrc_state_e2sm_rc_e r
   return seq_ran_param;
 }
 
-static rc_ind_data_t* fill_ue_rrc_state_change(const gNB_RRC_UE_t *rrc_ue_context, const rrc_state_e2sm_rc_e rrc_state)
+static rc_ind_data_t* fill_ue_rrc_state_change(const gNB_RRC_UE_t *rrc_ue_context, const rrc_state_e2sm_rc_e rrc_state, const uint16_t cond_id)
 {
   rc_ind_data_t* rc_ind = calloc(1, sizeof(rc_ind_data_t));
   assert(rc_ind != NULL && "Memory exhausted");
 
   // Generate Indication Header
   rc_ind->hdr.format = FORMAT_1_E2SM_RC_IND_HDR;
-  rc_ind->hdr.frmt_1.ev_trigger_id = NULL;
+  rc_ind->hdr.frmt_1.ev_trigger_id = malloc_or_fail(sizeof(uint32_t));
+  *rc_ind->hdr.frmt_1.ev_trigger_id = cond_id;
 
   // Generate Indication Message
   rc_ind->msg.format = FORMAT_2_E2SM_RC_IND_MSG;
@@ -534,11 +535,12 @@ static void send_aper_ric_ind(const uint32_t ric_req_id, rc_ind_data_t* rc_ind_d
 static void check_rrc_state(const gNB_RRC_UE_t *rrc_ue_context, const rrc_state_e2sm_rc_e rrc_state, const uint32_t ric_req_id, const e2sm_rc_ev_trg_frmt_4_t *frmt_4)
 {
   for (size_t i = 0; i < frmt_4->sz_ue_info_chng; i++) {
+    const uint16_t cond_id = frmt_4->ue_info_chng[i].ev_trig_cond_id;
     const rrc_state_lst_t *rrc_elem = &frmt_4->ue_info_chng[i].rrc_state;
     for (size_t j = 0; j < rrc_elem->sz_rrc_state; j++) {
       const rrc_state_e2sm_rc_e ev_tr_rrc_state = rrc_elem->state_chng_to[j].state_chngd_to;
       if (ev_tr_rrc_state == rrc_state || ev_tr_rrc_state == ANY_RRC_STATE_E2SM_RC) {
-        rc_ind_data_t* rc_ind_data = fill_ue_rrc_state_change(rrc_ue_context, rrc_state);
+        rc_ind_data_t* rc_ind_data = fill_ue_rrc_state_change(rrc_ue_context, rrc_state, cond_id);
         send_aper_ric_ind(ric_req_id, rc_ind_data);
       }
     }
