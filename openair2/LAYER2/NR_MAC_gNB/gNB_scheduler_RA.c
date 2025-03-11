@@ -584,8 +584,6 @@ void schedule_nr_prach(module_id_t module_idP, frame_t frameP, slot_t slotP)
         total_prach_slots = get_long_prach_dur(format0, mu_pusch);
         AssertFatal(slotP + total_prach_slots - 1 < slots_frame, "PRACH cannot extend across frames\n");
       } else {
-        // TODO: to be revisited for format B4 (also extends beyond current slot for FR1 30kHz SCS and FR2)
-        AssertFatal((format != 0xb4) || (mu_pusch < 1), "Format B4 not supported for this PUSCH SCS\n");
         total_prach_slots = 1;
       }
       // reserve PRBs occupied by PRACH in all PRACH slot.
