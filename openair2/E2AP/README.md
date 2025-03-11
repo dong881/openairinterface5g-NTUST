@@ -144,6 +144,7 @@ From O-RAN.WG3.E2SM-KPM-version specification, we implemented:
 We support RC v1.03. Uses ASN.1 encoding.
 
 From ORAN.WG3.E2SM-RC-v01.03 specification, we implemented:
+  * REPORT Service Style 1 ("Message copy" - section 7.4.2) - aperiodic subscription for "RRC Message" and "UE ID"
   * REPORT Service Style 4 ("UE Information" - section 7.4.5) - aperiodic subscription for "UE RRC State Change"
   * CONTROL Service Style 1 ("Radio Bearer Control" - section 7.6.2) - "QoS flow mapping configuration" (e.g creating a new DRB)
 
@@ -216,7 +217,7 @@ e2_agent = {
     ```
     Note: we assume that each UE has only 1 DRB; CU-UP does not store the slices, therefore "coarse filtering" is used
 
-  * start the RC monitor xApp - aperiodic subscription for "UE RRC State Change"
+  * start the RC monitor xApp - aperiodic subscriptions for "UE RRC State Change", "RRC Message" copy (`RRC Reconfiguration`, `Measurement Report`, `Security Mode Complete`, `RRC Setup Complete`), and "UE ID" when `RRC Setup Complete` and/or `F1 UE Context Setup Request` detected
     ```bash
     cd flexric
     ./build/examples/xApp/c/monitor/xapp_rc_moni
