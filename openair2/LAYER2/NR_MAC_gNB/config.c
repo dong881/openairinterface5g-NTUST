@@ -981,7 +981,8 @@ bool nr_mac_add_test_ue(gNB_MAC_INST *nrmac, uint32_t rnti, NR_CellGroupConfig_t
     NR_SCHED_UNLOCK(&nrmac->sched_lock);
     return false;
   }
-  configure_UE_BWP(nrmac, nrmac->common_channels[0].ServingCellConfigCommon, UE, false, -1, -1);
+  int ss_type = NR_SearchSpace__searchSpaceType_PR_ue_Specific;
+  configure_UE_BWP(nrmac, nrmac->common_channels[0].ServingCellConfigCommon, UE, false, ss_type, -1, -1);
   process_addmod_bearers_cellGroupConfig(&UE->UE_sched_ctrl, CellGroup->rlc_BearerToAddModList);
   AssertFatal(CellGroup->rlc_BearerToReleaseList == NULL, "cannot release bearers while adding new UEs\n");
   NR_SCHED_UNLOCK(&nrmac->sched_lock);

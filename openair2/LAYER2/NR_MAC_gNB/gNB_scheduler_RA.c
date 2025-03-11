@@ -768,7 +768,7 @@ void nr_initiate_ra_proc(module_id_t module_idP,
   LOG_A(NR_MAC, "%d.%d UE RA-RNTI %04x TC-RNTI %04x: initiating RA procedure\n", frame, slot, ra->RA_rnti, UE->rnti);
 
   // Configure RA BWP
-  configure_UE_BWP(nr_mac, scc, UE, true, -1, -1);
+  configure_UE_BWP(nr_mac, scc, UE, true, NR_SearchSpace__searchSpaceType_PR_common, -1, -1);
   // return current SSB order in the list of tranmitted SSBs
   int n_ssb = ssb_index_from_prach(module_idP, frame, slot, preamble_index, freq_index, symbol);
   UE->UE_beam_index = get_fapi_beamforming_index(nr_mac, cc->ssb_index[n_ssb]);

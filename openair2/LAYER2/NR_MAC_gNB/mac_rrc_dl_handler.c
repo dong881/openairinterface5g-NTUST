@@ -870,7 +870,7 @@ void dl_rrc_message_transfer(const f1ap_dl_rrc_message_t *dl_rrc)
     uid_t temp_uid = UE->uid;
     UE->uid = oldUE->uid;
     oldUE->uid = temp_uid;
-    configure_UE_BWP(mac, scc, UE, false, -1, -1);
+    configure_UE_BWP(mac, scc, UE, false, NR_SearchSpace__searchSpaceType_PR_common, -1, -1);
     for (int i = 1; i < seq_arr_size(&oldUE->UE_sched_ctrl.lc_config); ++i) {
       const nr_lc_config_t *c = seq_arr_at(&oldUE->UE_sched_ctrl.lc_config, i);
       nr_mac_add_lcid(&UE->UE_sched_ctrl, c);

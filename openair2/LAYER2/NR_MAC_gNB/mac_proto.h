@@ -271,11 +271,6 @@ NR_ControlResourceSet_t *get_coreset(gNB_MAC_INST *nrmac,
                                      NR_SearchSpace_t *ss,
                                      NR_SearchSpace__searchSpaceType_PR ss_type);
 
-/* find a search space within a BWP */
-NR_SearchSpace_t *get_searchspace(NR_ServingCellConfigCommon_t *scc,
-                                  NR_BWP_DownlinkDedicated_t *bwp_Dedicated,
-                                  NR_SearchSpace__searchSpaceType_PR target_ss);
-
 long get_K2(NR_PUSCH_TimeDomainResourceAllocationList_t *tdaList,
             int time_domain_assignment,
             int mu,
@@ -316,6 +311,7 @@ void configure_UE_BWP(gNB_MAC_INST *nr_mac,
                       NR_ServingCellConfigCommon_t *scc,
                       NR_UE_info_t *UE,
                       bool is_RA,
+                      int target_ss,
                       int dl_bwp_switch,
                       int ul_bwp_switch);
 

@@ -394,10 +394,10 @@ NR_ControlResourceSet_t *get_coreset(gNB_MAC_INST *nrmac,
   }
 }
 
-NR_SearchSpace_t *get_searchspace(NR_ServingCellConfigCommon_t *scc,
-                                  NR_BWP_DownlinkDedicated_t *bwp_Dedicated,
-                                  NR_SearchSpace__searchSpaceType_PR target_ss) {
-
+static NR_SearchSpace_t *get_searchspace(NR_ServingCellConfigCommon_t *scc,
+                                         NR_BWP_DownlinkDedicated_t *bwp_Dedicated,
+                                         NR_SearchSpace__searchSpaceType_PR target_ss)
+{
   int n = 0;
   if(bwp_Dedicated)
     n = bwp_Dedicated->pdcch_Config->choice.setup->searchSpacesToAddModList->list.count;
@@ -2208,6 +2208,7 @@ void configure_UE_BWP(gNB_MAC_INST *nr_mac,
                       NR_ServingCellConfigCommon_t *scc,
                       NR_UE_info_t *UE,
                       bool is_RA,
+                      int target_ss,
                       int dl_bwp_switch,
                       int ul_bwp_switch)
 {
@@ -2225,13 +2226,11 @@ void configure_UE_BWP(gNB_MAC_INST *nr_mac,
   sc_info->n_ul_bwp = 0;
   int old_dl_bwp_id = DL_BWP->bwp_id;
   int old_ul_bwp_id = UL_BWP->bwp_id;
-  int target_ss;
 
   NR_ServingCellConfig_t *servingCellConfig = NULL;
   if (CellGroup && CellGroup->spCellConfig && CellGroup->spCellConfig->spCellConfigDedicated) {
 
     servingCellConfig  = CellGroup->spCellConfig->spCellConfigDedicated;
-    target_ss = NR_SearchSpace__searchSpaceType_PR_ue_Specific;
 
     if(dl_bwp_switch >= 0 && ul_bwp_switch >= 0) {
       AssertFatal(dl_bwp_switch == ul_bwp_switch, "Different UL and DL BWP not supported\n");
@@ -2291,7 +2290,6 @@ void configure_UE_BWP(gNB_MAC_INST *nr_mac,
   else {
     DL_BWP->bwp_id = 0;
     UL_BWP->bwp_id = 0;
-    target_ss = NR_SearchSpace__searchSpaceType_PR_common;
     DL_BWP->pdsch_Config = NULL;
     UL_BWP->pusch_Config = NULL;
     UL_BWP->pucch_Config = NULL;
@@ -3068,7 +3066,12 @@ static void nr_mac_apply_cellgroup(gNB_MAC_INST *mac, NR_UE_info_t *UE, frame_t 
   NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
 
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
-  configure_UE_BWP(mac, scc, UE, false, -1, -1);
+  int ss_type;
+  if (UE->CellGroup && UE->CellGroup->spCellConfig)
+    ss_type = NR_SearchSpace__searchSpaceType_PR_ue_Specific;
+  else
+    ss_type = NR_SearchSpace__searchSpaceType_PR_common;
+  configure_UE_BWP(mac, scc, UE, false, ss_type, -1, -1);
 
   reset_srs_stats(UE);
 

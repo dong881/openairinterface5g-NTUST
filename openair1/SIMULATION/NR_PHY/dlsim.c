@@ -804,7 +804,7 @@ printf("%d\n", slot);
   N_RB_DL = gNB->frame_parms.N_RB_DL;
   NR_UE_info_t *UE_info = RC.nrmac[0]->UE_info.connected_ue_list[0];
 
-  configure_UE_BWP(RC.nrmac[0], scc, UE_info, false, -1, -1);
+  configure_UE_BWP(RC.nrmac[0], scc, UE_info, false, NR_SearchSpace__searchSpaceType_PR_ue_Specific, -1, -1);
 
   // stub to configure frame_parms
   //  nr_phy_config_request_sim(gNB,N_RB_DL,N_RB_DL,mu,Nid_cell,SSB_positions);
