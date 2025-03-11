@@ -375,7 +375,7 @@ bool dlsch_procedures(PHY_VARS_eNB *eNB,
     stop_meas(&eNB->dlsch_encoding_stats);
 
     if (eNB->dlsch_encoding_stats.p_time > 500 * 3000 && cpu_meas_enabled) {
-      print_meas_now(&eNB->dlsch_encoding_stats,"total coding",stderr);
+      print_meas_now(&eNB->dlsch_encoding_stats, "total coding", stdout);
     }
 
 #ifdef PHY_TX_THREAD
