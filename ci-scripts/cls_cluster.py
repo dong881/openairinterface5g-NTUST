@@ -330,7 +330,7 @@ class Cluster:
 			self._recreate_bc('ran-base', baseTag, 'openshift/ran-base-bc.yaml')
 			ranbase_job = self._start_build('ran-base')
 			attemptedImages += ['ran-base']
-			status = ranbase_job is not None and self._wait_build_end([ranbase_job], 800)
+			status = ranbase_job is not None and self._wait_build_end([ranbase_job], 1000)
 			if not status: logging.error('failure during build of ran-base')
 			self.cmd.run(f'oc logs {ranbase_job} &> cmake_targets/log/ran-base.log') # cannot use cmd.run because of redirect
 			# recover logs by mounting image
@@ -392,7 +392,7 @@ class Cluster:
 			gnb_aw2s_job = self._start_build('oai-gnb-aw2s')
 			attemptedImages += ['oai-gnb-aw2s']
 
-			wait = enb_job is not None and gnb_job is not None and gnb_aw2s_job is not None and self._wait_build_end([enb_job, gnb_job, gnb_aw2s_job], 600)
+			wait = enb_job is not None and gnb_job is not None and gnb_aw2s_job is not None and self._wait_build_end([enb_job, gnb_job, gnb_aw2s_job], 800)
 			if not wait: logging.error('error during build of eNB/gNB')
 			status = status and wait
 			# recover logs
@@ -421,7 +421,7 @@ class Cluster:
 			nrue_job = self._start_build('oai-nr-ue')
 			attemptedImages += ['oai-nr-ue']
 
-			wait = nr_cuup_job is not None and lteue_job is not None and nrue_job is not None and self._wait_build_end([nr_cuup_job, lteue_job, nrue_job], 600)
+			wait = nr_cuup_job is not None and lteue_job is not None and nrue_job is not None and self._wait_build_end([nr_cuup_job, lteue_job, nrue_job], 800)
 			if not wait: logging.error('error during build of nr-cuup/lteUE/nrUE')
 			status = status and wait
 			# recover logs
