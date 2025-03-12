@@ -72,8 +72,8 @@ def OC_deploy_CN(cmd, ocUserName, ocPassword, ocNamespace, path):
 	succeeded = OC_login(cmd, ocUserName, ocPassword, ocNamespace)
 	if not succeeded:
 		return False, CONST.OC_LOGIN_FAIL
-	cmd.run('helm uninstall oai5gcn --wait --timeout 60s')
-	ret = cmd.run(f'helm install --wait --timeout 120s oai5gcn {path}/ci-scripts/charts/oai-5g-basic/.')
+	cmd.run(f'helm list -aq -n {ocNamespace} | xargs -r helm uninstall -n {ocNamespace} --wait')
+	ret = cmd.run(f'helm install --wait oai5gcn {path}/ci-scripts/charts/oai-5g-basic/.')
 	if ret.returncode != 0:
 		logging.error('OC OAI CN5G: Deployment failed')
 		OC_logout(cmd)
@@ -100,10 +100,10 @@ def OC_undeploy_CN(cmd, ocUserName, ocPassword, ocNamespace, path):
 			cmd.run(f'oc logs -f {podName} {ci} &> {path}/logs/{ii}.log &')
 	cmd.run(f'cd {path}/logs && zip -r -qq test_logs_CN.zip *.log')
 	cmd.copyin(f'{path}/logs/test_logs_CN.zip','test_logs_CN.zip')
-	ret = cmd.run('helm uninstall --wait --timeout 60s oai5gcn')
+	ret = cmd.run(f'helm list -aq -n {ocNamespace} | xargs -r helm uninstall -n {ocNamespace} --wait')
 	if ret.returncode != 0:
 		logging.error('OC OAI CN5G: Undeployment failed')
-		cmd.run('helm uninstall --wait --timeout 60s oai5gcn')
+		cmd.run(f'helm list -aq -n {ocNamespace} | xargs -r helm uninstall -n {ocNamespace} --wait')
 		OC_logout(cmd)
 		return False, CONST.OC_PROJECT_FAIL
 	report = cmd.run('oc get pods')
