@@ -16,7 +16,6 @@ add_dependencies(tests test_log2_approx)
 add_test(NAME test_log2_approx
   COMMAND ./test_log2_approx --gtest_filter=-log2_approx.complete)
 
-
 add_executable(dft_test test_dft.c ../dfts_load.c)
 target_link_libraries(dft_test minimal_lib shlib_loader SIMU m)
 add_dependencies(tests dft_test)
@@ -28,3 +27,15 @@ target_link_libraries(test_vector_op PRIVATE LOG minimal_lib)
 add_dependencies(tests test_vector_op)
 add_test(NAME test_vector_op
   COMMAND test_vector_op)
+
+add_executable(test_simde_operations test_simde_operations.cpp ../simde_operations.c)
+target_link_libraries(test_simde_operations PRIVATE GTest::gtest LOG minimal_lib)
+add_dependencies(tests test_simde_operations)
+add_test(NAME test_simde_operations
+  COMMAND ./test_simde_operations)
+
+add_executable(test_sse_intrinsics test_sse_intrinsics.cpp)
+target_link_libraries(test_sse_intrinsics PRIVATE GTest::gtest LOG minimal_lib)
+add_dependencies(tests test_sse_intrinsics)
+add_test(NAME test_sse_intrinsics
+  COMMAND ./test_sse_intrinsics)

@@ -252,7 +252,7 @@ __attribute__((always_inline)) static inline
 simde__m128i oai_mm_cpx_mult_conj(simde__m128i a, simde__m128i b, int shift)
 {
   simde__m128i re = oai_mm_smadd(a, b, shift);
-  simde__m128i im = oai_mm_smadd(oai_mm_swap(oai_mm_conj(a)),  b, shift);
+  simde__m128i im = oai_mm_smadd(oai_mm_swap(oai_mm_conj(a)), b, shift);
   return oai_mm_pack(re, im);
 }
 
@@ -349,39 +349,8 @@ __attribute__((always_inline)) static inline
 simde__m256i oai_mm256_cpx_mult_conj(simde__m256i a, simde__m256i b, int shift)
 {
   simde__m256i re = oai_mm256_smadd(a, b, shift);
-  simde__m256i im = oai_mm256_smadd(oai_mm256_swap(oai_mm256_conj(a)),  b, shift);
+  simde__m256i im = oai_mm256_smadd(oai_mm256_swap(oai_mm256_conj(a)), b, shift);
   return oai_mm256_pack(re, im);
-}
-
-// Function to perform interleaving and combining re and im to a complex vector
-__attribute__((always_inline)) static inline
-void oai_mm256_combine_vectors(simde__m128i a_re, simde__m128i a_im, simde__m256i *a) {
-    *a = simde_mm256_set_m128i(
-        simde_mm_unpackhi_epi16(a_re, a_im),
-        simde_mm_unpacklo_epi16(a_re, a_im)
-    );
-}
-
-// Function to separate the real and imaginary parts from the combined 256-bit vector
-__attribute__((always_inline)) static inline
-void oai_mm256_separate_vectors(simde__m256i combined, simde__m128i *re, simde__m128i *im) {
-    
-    #define SHUFFLE_MASK SIMDE_MM_SHUFFLE(3, 1, 2, 0) // 0xD8
-
-    simde__m256i xmm0 = simde_mm256_shuffle_epi32(simde_mm256_shufflehi_epi16(simde_mm256_shufflelo_epi16(combined, SHUFFLE_MASK), SHUFFLE_MASK), SHUFFLE_MASK);
-    
-    // Unpack the low and high parts of the combined vector to extract real and imaginary parts
-    simde__m128i lo = simde_mm256_extractf128_si256(xmm0, 0);  // Extract the lower 128 bits (real part)
-    simde__m128i hi = simde_mm256_extractf128_si256(xmm0, 1);  // Extract the higher 128 bits (imaginary part)
-    
-    // Now we need to separate the real and imaginary parts within each 128-bit part.
-    simde__m128i xmmre = simde_mm_unpacklo_epi16(lo, hi); // Real part of the low half
-    simde__m128i xmmim = simde_mm_unpackhi_epi16(lo, hi); // Imaginary part of the high half
-    
-    *re = simde_mm_shuffle_epi32(simde_mm_shufflehi_epi16(simde_mm_shufflelo_epi16(xmmre, SHUFFLE_MASK), SHUFFLE_MASK), SHUFFLE_MASK);
-    *im = simde_mm_shuffle_epi32(simde_mm_shufflehi_epi16(simde_mm_shufflelo_epi16(xmmim, SHUFFLE_MASK), SHUFFLE_MASK), SHUFFLE_MASK);
-
-    #undef SHUFFLE_MASK
 }
 
 #ifdef __cplusplus

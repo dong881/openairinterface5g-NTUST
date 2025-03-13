@@ -21,54 +21,76 @@
 
 #include <simde/x86/avx2.h>
 
+#define SHUFFLE_MASK SIMDE_MM_SHUFFLE(3, 1, 2, 0) // 0xD8
+
+// Helper function for 128-bit vectors
+static inline simde__m128i
+simde_mm_presort_complex(simde__m128i x) {
+  return simde_mm_shuffle_epi32(simde_mm_shufflehi_epi16(simde_mm_shufflelo_epi16(x, SHUFFLE_MASK), SHUFFLE_MASK), SHUFFLE_MASK);
+}
+
+// Helper function for 256-bit vectors
+static inline simde__m256i
+simde_mm256_presort_complex(simde__m256i x) {
+  return simde_mm256_shuffle_epi32(simde_mm256_shufflehi_epi16(simde_mm256_shufflelo_epi16(x, SHUFFLE_MASK), SHUFFLE_MASK), SHUFFLE_MASK);
+}
+
 void simde_mm_separate_real_imag_parts(simde__m128i *out_re, simde__m128i *out_im, simde__m128i in0, simde__m128i in1)
 {
-  #define SHUFFLE_MASK SIMDE_MM_SHUFFLE(3, 1, 2, 0) // 0xD8
-
-  // Put in0 = [Re(0,1) Re(2,3) Im(0,1) Im(2,3)]
-  in0 = simde_mm_shufflelo_epi16(in0, SHUFFLE_MASK);
-  in0 = simde_mm_shufflehi_epi16(in0, SHUFFLE_MASK);
-  in0 = simde_mm_shuffle_epi32(in0, SHUFFLE_MASK);
-
-  // Put xmm1 = [Re(4,5) Re(6,7) Im(4,5) Im(6,7)]
-  in1 = simde_mm_shufflelo_epi16(in1, SHUFFLE_MASK);
-  in1 = simde_mm_shufflehi_epi16(in1, SHUFFLE_MASK);
-  in1 = simde_mm_shuffle_epi32(in1, SHUFFLE_MASK);
+  // presort real and imag part
+  simde__m128i xmm0 = simde_mm_presort_complex(in0);
+  simde__m128i xmm1 = simde_mm_presort_complex(in1);
   
-  if (out_re != NULL)
-    *out_re = simde_mm_unpacklo_epi64(in0, in1);
+  if (out_re)
+    *out_re = simde_mm_unpacklo_epi64(xmm0, xmm1);
 
-  if (out_im != NULL)
-    *out_im = simde_mm_unpackhi_epi64(in0, in1);
+  if (out_im)
+    *out_im = simde_mm_unpackhi_epi64(xmm0, xmm1);
 
-  #undef SHUFFLE_MASK
 }
 
 void simde_mm256_separate_real_imag_parts(simde__m256i *out_re, simde__m256i *out_im, simde__m256i in0, simde__m256i in1)
 {
-  #define SHUFFLE_MASK SIMDE_MM_SHUFFLE(3, 1, 2, 0) // 0xD8
-
-  // Put in0 = [Re(0,1,2,3) Im(0,1,2,3) Re(4,5,6,7) Im(4,5,6,7)]
-  in0 = simde_mm256_shufflelo_epi16(in0, SHUFFLE_MASK);
-  in0 = simde_mm256_shufflehi_epi16(in0, SHUFFLE_MASK);
-  in0 = simde_mm256_shuffle_epi32(in0, SHUFFLE_MASK);
-
-  // Put in1 = [Re(8,9,10,11) Im(8,9,10,11) Re(12,13,14,15) Im(12,13,14,15)]
-  in1 = simde_mm256_shufflelo_epi16(in1, SHUFFLE_MASK);
-  in1 = simde_mm256_shufflehi_epi16(in1, SHUFFLE_MASK);
-  in1 = simde_mm256_shuffle_epi32(in1, SHUFFLE_MASK);
-
-  // Put tmp0 = [Re(0,1,2,3) Re(8,9,10,11) Re(4,5,6,7) Re(12,13,14,15)]
-  simde__m256i tmp0 = simde_mm256_unpacklo_epi64(in0, in1);
-
-  // Put tmp1 = [Im(0,1,2,3) Im(8,9,10,11) Im(4,5,6,7) Im(12,13,14,15)]
-  simde__m256i tmp1 = simde_mm256_unpackhi_epi64(in0, in1);
   
-  if (out_re != NULL)
-    *out_re = simde_mm256_permute4x64_epi64(tmp0, SHUFFLE_MASK);
+  // presort
+  simde__m256i xmm0 = simde_mm256_presort_complex(in0);
+  simde__m256i xmm1 = simde_mm256_presort_complex(in1);
+ 
+  if (out_re)
+    *out_re = simde_mm256_permute4x64_epi64(simde_mm256_unpacklo_epi64(xmm0, xmm1), SHUFFLE_MASK);
 
-  if (out_im != NULL)
-    *out_im = simde_mm256_permute4x64_epi64(tmp1, SHUFFLE_MASK);
+  if (out_im)
+    *out_im = simde_mm256_permute4x64_epi64(simde_mm256_unpackhi_epi64(xmm0, xmm1), SHUFFLE_MASK);
 
-  #undef SHUFFLE_MASK
 }
+
+// Function to separate the real and imaginary parts from the combined 256-bit vector
+//__attribute__((always_inline)) static inline
+void simde_mm256_separate_vectors(simde__m256i combined, simde__m128i *re, simde__m128i *im) {
+
+  // presort
+  simde__m256i xmm0 = simde_mm256_presort_complex(combined);
+    
+  // Unpack the low and high parts of the combined vector to extract real and imaginary parts
+  simde__m128i lo = simde_mm256_extractf128_si256(xmm0, 0);  // Extract the lower 128 bits (real part)
+  simde__m128i hi = simde_mm256_extractf128_si256(xmm0, 1);  // Extract the higher 128 bits (imaginary part)
+    
+  // Now we need to separate the real and imaginary parts within each 128-bit part.
+  simde__m128i xmmre = simde_mm_unpacklo_epi16(lo, hi); // Real part of the low half
+  simde__m128i xmmim = simde_mm_unpackhi_epi16(lo, hi); // Imaginary part of the high half
+
+  *re = simde_mm_presort_complex(xmmre);
+  *im = simde_mm_presort_complex(xmmim);
+
+}
+
+// Function to perform interleaving and combining re and im to a complex vector
+//__attribute__((always_inline)) static inline
+void simde_mm256_combine_vectors(simde__m128i re, simde__m128i im, simde__m256i *combined) {
+  *combined = simde_mm256_set_m128i(
+    simde_mm_unpackhi_epi16(re, im),
+    simde_mm_unpacklo_epi16(re, im)
+  );
+}
+
+#undef SHUFFLE_MASK
