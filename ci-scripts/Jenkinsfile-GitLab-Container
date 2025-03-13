@@ -27,6 +27,7 @@ def nodeExecutor = params.nodeExecutor
 def doBuild = true
 def do4Gtest = false
 def do5Gtest = false
+def do5GUeTest = false
 
 //
 def gitCommitAuthorEmailAddr
@@ -65,16 +66,23 @@ pipeline {
               message += " - ~4G-LTE (perform 4G tests)\n"
               message += " - ~5G-NR (perform 5G tests)\n"
               message += " - ~CI (perform both 4G and 5G tests)\n\n"
+              message += " - ~nrUE (perform only 5G-UE related tests including physims excluding LDPC tests)\n"
               message += "Not performing CI due to lack of labels"
               addGitLabMRComment comment: message
               error('Not performing CI due to lack of labels')
             } else if (LABEL_CHECK == 'FULL') {
               do4Gtest = true
               do5Gtest = true
+              do5GUeTest = true
             } else if (LABEL_CHECK == "SHORTEN-4G") {
               do4Gtest = true
             } else if (LABEL_CHECK == 'SHORTEN-5G') {
               do5Gtest = true
+            } else if (LABEL_CHECK == 'SHORTEN-5G-UE') {
+              do5GUeTest = true
+            } else if (LABEL_CHECK == 'SHORTEN-4G-5G-UE') {
+              do4Gtest = true
+              do5GUeTest = true
             } else if (LABEL_CHECK == 'documentation') {
               doBuild = false
             } else {
@@ -217,7 +225,7 @@ pipeline {
       when { expression {doBuild} }
       parallel {
         stage ("PhySim-Cluster") {
-          when { expression {do4Gtest || do5Gtest} }
+          when { expression {do4Gtest || do5Gtest || do5GUeTest} }
           steps {
             script {
               triggerSlaveJob ('RAN-PhySim-Cluster', 'PhySim-Cluster')
@@ -263,7 +271,7 @@ pipeline {
           }
         }
         stage ("RF-Sim-Test-5G") {
-          when { expression {do5Gtest} }
+          when { expression {do5Gtest || do5GUeTest} }
           steps {
             script {
               triggerSlaveJob ('RAN-RF-Sim-Test-5G', 'RF-Sim-Test-5G')
@@ -286,7 +294,7 @@ pipeline {
           }
         }
         stage ("OAI-FLEXRIC-RAN-Integration-Test") {
-          when { expression {do5Gtest} }
+          when { expression {do5Gtest || do5GUeTest} }
           steps {
             script {
               triggerSlaveJob ('OAI-FLEXRIC-RAN-Integration-Test', 'OAI-FLEXRIC-RAN-Integration-Test')
@@ -609,7 +617,7 @@ pipeline {
           }
         }
         stage ("SA-OAIUE-CN5G") {
-          when { expression {do5Gtest} }
+          when { expression {do5Gtest || do5GUeTest} }
           steps {
             script {
               triggerSlaveJob ('RAN-SA-OAIUE-CN5G', 'SA-OAIUE-CN5G')
