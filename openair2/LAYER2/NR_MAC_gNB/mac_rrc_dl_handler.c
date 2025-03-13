@@ -571,10 +571,10 @@ void ue_context_setup_request(const f1ap_ue_context_setup_t *req)
     nr_rlc_srb_recv_sdu(req->gNB_DU_ue_id, id, req->rrc_container, req->rrc_container_length);
   }
 
+  NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
   UE->capability = ue_cap;
   if (ue_cap != NULL) {
     // store the new UE capabilities, and update the cellGroupConfig
-    NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
     update_cellGroupConfig(new_CellGroup, UE->uid, UE->capability, &mac->radio_config, scc);
   }
 
@@ -583,6 +583,10 @@ void ue_context_setup_request(const f1ap_ue_context_setup_t *req)
     struct NR_CellGroupConfig__rlc_BearerToAddModList *addmod = new_CellGroup->rlc_BearerToAddModList;
     for (int i = 0; i < addmod->list.count; ++i) {
       asn1cCallocOne(addmod->list.array[i]->reestablishRLC, NR_RLC_BearerConfig__reestablishRLC_true);
+      for (int i = 1; i < seq_arr_size(&UE->UE_sched_ctrl.lc_config); ++i) {
+        nr_lc_config_t *lc_config = seq_arr_at(&UE->UE_sched_ctrl.lc_config, i);
+        nr_rlc_reestablish_entity(UE->rnti, lc_config->lcid);
+      }
     }
   }
 
@@ -595,7 +599,9 @@ void ue_context_setup_request(const f1ap_ue_context_setup_t *req)
   AssertFatal(enc_rval.encoded > 0, "Could not encode CellGroup, failed element %s\n", enc_rval.failed_type->name);
   resp.du_to_cu_rrc_information->cellGroupConfig_length = (enc_rval.encoded + 7) >> 3;
 
-  nr_mac_prepare_cellgroup_update(mac, UE, new_CellGroup);
+  ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->CellGroup);
+  UE->CellGroup = new_CellGroup;
+  configure_UE_BWP(mac, scc, UE, false, NR_SearchSpace__searchSpaceType_PR_common, -1, -1);
 
   NR_SCHED_UNLOCK(&mac->sched_lock);
 
@@ -666,9 +672,15 @@ void ue_context_modification_request(const f1ap_ue_context_modif_req_t *req)
     nr_rlc_srb_recv_sdu(req->gNB_DU_ue_id, id, req->rrc_container, req->rrc_container_length);
   }
 
+  NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
   if (req->ReconfigComplOutcome != RRCreconf_info_not_present && req->ReconfigComplOutcome != RRCreconf_success) {
     LOG_E(NR_MAC,
           "RRC reconfiguration outcome unsuccessful, but no rollback mechanism implemented to come back to old configuration\n");
+  } else if (req->ReconfigComplOutcome == RRCreconf_success) {
+    LOG_I(NR_MAC, "DU received confirmation of successful RRC Reconfiguration\n");
+    // we re-configure the BWP to apply the CellGroup and to use UE specific Search Space with DCIX1
+    nr_mac_clean_cellgroup(UE->CellGroup);
+    configure_UE_BWP(mac, scc, UE, false, NR_SearchSpace__searchSpaceType_PR_ue_Specific, -1, -1);
   }
 
   if (ue_cap != NULL) {
@@ -676,7 +688,6 @@ void ue_context_modification_request(const f1ap_ue_context_modif_req_t *req)
     ASN_STRUCT_FREE(asn_DEF_NR_UE_NR_Capability, UE->capability);
     UE->capability = ue_cap;
     LOG_I(NR_MAC, "UE %04x: received capabilities, updating CellGroupConfig\n", UE->rnti);
-    NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
     update_cellGroupConfig(new_CellGroup, UE->uid, UE->capability, &mac->radio_config, scc);
   }
 
@@ -694,7 +705,9 @@ void ue_context_modification_request(const f1ap_ue_context_modif_req_t *req)
     AssertFatal(enc_rval.encoded > 0, "Could not encode CellGroup, failed element %s\n", enc_rval.failed_type->name);
     resp.du_to_cu_rrc_information->cellGroupConfig_length = (enc_rval.encoded + 7) >> 3;
 
-    nr_mac_prepare_cellgroup_update(mac, UE, new_CellGroup);
+    ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->CellGroup);
+    UE->CellGroup = new_CellGroup;
+    configure_UE_BWP(mac, scc, UE, false, NR_SearchSpace__searchSpaceType_PR_common, -1, -1);
   } else {
     ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, new_CellGroup); // we actually don't need it
   }
@@ -832,24 +845,13 @@ void dl_rrc_message_transfer(const f1ap_dl_rrc_message_t *dl_rrc)
     DevAssert(success);
   }
 
-  if (UE->expect_reconfiguration && dl_rrc->srb_id == 1) {
-    /* we expected a reconfiguration, and this is on DCCH. We assume this is
-     * the reconfiguration: nr_mac_prepare_cellgroup_update() already stored
-     * the CellGroupConfig. Below, we trigger a timer, and the CellGroupConfig
-     * will be applied after its expiry in nr_mac_apply_cellgroup().*/
-    NR_SCHED_LOCK(&mac->sched_lock);
-    int delay = nr_mac_get_reconfig_delay_slots(UE->current_UL_BWP.scs);
-    nr_mac_interrupt_ue_transmission(mac, UE, FOLLOW_INSYNC_RECONFIG, delay);
-    NR_SCHED_UNLOCK(&mac->sched_lock);
-    UE->expect_reconfiguration = false;
-    /* Re-establish RLC for all remaining bearers */
-    if (UE->reestablish_rlc) {
-      for (int i = 1; i < seq_arr_size(&UE->UE_sched_ctrl.lc_config); ++i) {
-        nr_lc_config_t *lc_config = seq_arr_at(&UE->UE_sched_ctrl.lc_config, i);
-        nr_rlc_reestablish_entity(dl_rrc->gNB_DU_ue_id, lc_config->lcid);
-      }
-      UE->reestablish_rlc = false;
+  if (UE->reestablish_rlc && dl_rrc->srb_id == 1) {
+    // we expected a reconfiguration to re-establish RLC, and this is on DCCH. We assume this is the reconfiguration.
+    for (int i = 1; i < seq_arr_size(&UE->UE_sched_ctrl.lc_config); ++i) {
+      nr_lc_config_t *lc_config = seq_arr_at(&UE->UE_sched_ctrl.lc_config, i);
+      nr_rlc_reestablish_entity(dl_rrc->gNB_DU_ue_id, lc_config->lcid);
     }
+    UE->reestablish_rlc = false;
   }
 
   if (dl_rrc->old_gNB_DU_ue_id != NULL) {
@@ -866,27 +868,25 @@ void dl_rrc_message_transfer(const f1ap_dl_rrc_message_t *dl_rrc)
      * from the current configuration. Also, expect the reconfiguration from
      * the CU, so save the old UE's CellGroup for the new UE */
     UE->CellGroup->spCellConfig = NULL;
-    NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
     uid_t temp_uid = UE->uid;
     UE->uid = oldUE->uid;
     oldUE->uid = temp_uid;
-    configure_UE_BWP(mac, scc, UE, false, NR_SearchSpace__searchSpaceType_PR_common, -1, -1);
     for (int i = 1; i < seq_arr_size(&oldUE->UE_sched_ctrl.lc_config); ++i) {
       const nr_lc_config_t *c = seq_arr_at(&oldUE->UE_sched_ctrl.lc_config, i);
       nr_mac_add_lcid(&UE->UE_sched_ctrl, c);
     }
-
-    nr_mac_prepare_cellgroup_update(mac, UE, oldUE->CellGroup);
+    ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->CellGroup);
+    UE->CellGroup = oldUE->CellGroup;
     oldUE->CellGroup = NULL;
     mac_remove_nr_ue(mac, *dl_rrc->old_gNB_DU_ue_id);
     pthread_mutex_unlock(&mac->sched_lock);
     nr_rlc_remove_ue(dl_rrc->gNB_DU_ue_id);
     nr_rlc_update_id(*dl_rrc->old_gNB_DU_ue_id, dl_rrc->gNB_DU_ue_id);
+    /* 38.331 clause 5.3.7.4: apply the specified configuration defined in 9.2.1 for SRB1 */
+    nr_rlc_reconfigure_entity(dl_rrc->gNB_DU_ue_id, 1, NULL);
     /* Set flag to trigger RLC re-establishment
      * for remaining RBs in next RRCReconfiguration */
     UE->reestablish_rlc = true;
-    /* 38.331 clause 5.3.7.4: apply the specified configuration defined in 9.2.1 for SRB1 */
-    nr_rlc_reconfigure_entity(dl_rrc->gNB_DU_ue_id, 1, NULL);
     instance_t f1inst = get_f1_gtp_instance();
     if (f1inst >= 0) // we actually use F1-U
       gtpv1u_update_ue_id(f1inst, *dl_rrc->old_gNB_DU_ue_id, dl_rrc->gNB_DU_ue_id);

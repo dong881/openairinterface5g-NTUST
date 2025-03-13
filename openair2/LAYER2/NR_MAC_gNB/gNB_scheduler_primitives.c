@@ -2083,7 +2083,6 @@ NR_UE_info_t *find_ra_UE(NR_UEs_t *UEs, rnti_t rntiP)
 void delete_nr_ue_data(NR_UE_info_t *UE, NR_COMMON_channels_t *ccPtr, uid_allocator_t *uia)
 {
   ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->CellGroup);
-  ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->reconfigCellGroup);
   ASN_STRUCT_FREE(asn_DEF_NR_UE_NR_Capability, UE->capability);
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   seq_arr_free(&sched_ctrl->lc_config, NULL);
@@ -2098,7 +2097,7 @@ void delete_nr_ue_data(NR_UE_info_t *UE, NR_COMMON_channels_t *ccPtr, uid_alloca
   free_sched_pucch_list(sched_ctrl);
   uid_linear_allocator_free(uia, UE->uid);
   LOG_I(NR_MAC, "Remove NR rnti 0x%04x\n", UE->rnti);
-  free(UE->ra);
+  free_and_zero(UE->ra);
   free(UE);
 }
 
@@ -2392,6 +2391,8 @@ void configure_UE_BWP(gNB_MAC_INST *nr_mac,
             sc_info->nrofHARQ_ProcessesForPUSCH_r17 = pusch_servingcellconfig->ext3->nrofHARQ_ProcessesForPUSCH_r17;
         }
       }
+      create_dl_harq_list(sched_ctrl, sc_info);
+      create_ul_harq_list(sched_ctrl, sc_info);
     }
 
     if (CellGroup && CellGroup->physicalCellGroupConfig)
@@ -3025,7 +3026,7 @@ void nr_csirs_scheduling(int Mod_idP, frame_t frame, slot_t slot, nfapi_nr_dl_tt
   }
 }
 
-static void nr_mac_clean_cellgroup(NR_CellGroupConfig_t *cell_group)
+void nr_mac_clean_cellgroup(NR_CellGroupConfig_t *cell_group)
 {
   DevAssert(cell_group != NULL);
   /* remove a reconfigurationWithSync, we don't need it anymore */
@@ -3043,43 +3044,6 @@ static void nr_mac_clean_cellgroup(NR_CellGroupConfig_t *cell_group)
   /* remove reestablishRLC, we don't need it anymore */
   for (int i = 0; i < cell_group->rlc_BearerToAddModList->list.count; ++i)
     free_and_zero(cell_group->rlc_BearerToAddModList->list.array[i]->reestablishRLC);
-}
-
-static void nr_mac_apply_cellgroup(gNB_MAC_INST *mac, NR_UE_info_t *UE, frame_t frame, slot_t slot)
-{
-  LOG_D(NR_MAC, "%4d.%2d RNTI %04x: UE inactivity timer expired\n", frame, slot, UE->rnti);
-
-  /* check if there is a new CellGroupConfig to be applied */
-  if (UE->interrupt_action == FOLLOW_INSYNC_RECONFIG && UE->reconfigCellGroup != NULL) {
-    LOG_D(NR_MAC, "%4d.%2d RNTI %04x: Apply CellGroupConfig after UE inactivity\n", frame, slot, UE->rnti);
-    ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->CellGroup);
-    UE->CellGroup = UE->reconfigCellGroup;
-    UE->reconfigCellGroup = NULL;
-    UE->interrupt_action = FOLLOW_INSYNC;
-
-    if (LOG_DEBUGFLAG(DEBUG_ASN1))
-      xer_fprint(stdout, &asn_DEF_NR_CellGroupConfig, (const void *)UE->CellGroup);
-
-    nr_mac_clean_cellgroup(UE->CellGroup);
-  }
-
-  NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
-
-  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
-  int ss_type;
-  if (UE->CellGroup && UE->CellGroup->spCellConfig)
-    ss_type = NR_SearchSpace__searchSpaceType_PR_ue_Specific;
-  else
-    ss_type = NR_SearchSpace__searchSpaceType_PR_common;
-  configure_UE_BWP(mac, scc, UE, false, ss_type, -1, -1);
-
-  reset_srs_stats(UE);
-
-  if (IS_SA_MODE(get_softmodem_params())) {
-    // add all available DL,UL HARQ processes for this UE in SA
-    create_dl_harq_list(sched_ctrl, &UE->sc_info);
-    create_ul_harq_list(sched_ctrl, &UE->sc_info);
-  }
 }
 
 int nr_mac_get_reconfig_delay_slots(NR_SubcarrierSpacing_t scs)
@@ -3109,7 +3073,7 @@ int nr_mac_interrupt_ue_transmission(gNB_MAC_INST *mac, NR_UE_info_t *UE, interr
   // frames, after the inactivity of the UE.
   UE->UE_sched_ctrl.ta_frame = (mac->frame - 1 + 1024) % 1024;
 
-  LOG_D(NR_MAC, "UE %04x: Interrupt UE transmission (%d slots) action %d reconfigCellGroup %p\n", UE->rnti, slots, UE->interrupt_action, UE->reconfigCellGroup);
+  LOG_D(NR_MAC, "UE %04x: Interrupt UE transmission (%d slots) action %d\n", UE->rnti, slots, UE->interrupt_action);
   return 0;
 }
 
@@ -3182,8 +3146,6 @@ void nr_mac_update_timers(module_id_t module_id, frame_t frame, slot_t slot)
       nr_timer_stop(&sched_ctrl->transm_interrupt);
       if (UE->interrupt_action == FOLLOW_OUTOFSYNC)
         nr_mac_trigger_ul_failure(sched_ctrl, UE->current_DL_BWP.scs);
-      else
-        nr_mac_apply_cellgroup(mac, UE, frame, slot);
     }
   }
 }
