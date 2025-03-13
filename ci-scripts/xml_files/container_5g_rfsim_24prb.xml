@@ -34,6 +34,9 @@
  020002
  030001
  030002
+ 040001
+ 000004
+ 020002
  100001
  222222
         </TestCaseRequestedList>
@@ -76,6 +79,12 @@
                 <nodes>cacofonix</nodes>
         </testCase>
 
+        <testCase id="000004">
+                <class>IdleSleep</class>
+                <desc>Sleep</desc>
+                <idle_sleep_time_in_sec>5</idle_sleep_time_in_sec>
+        </testCase>
+
         <testCase id="020001">
                 <class>Ping</class>
                 <desc>Ping ext-dn from NR-UE</desc>
@@ -116,6 +125,14 @@
                 <svr_node>cacofonix</svr_node>
                 <iperf_packetloss_threshold>5</iperf_packetloss_threshold>
                 <iperf_bitrate_threshold>90</iperf_bitrate_threshold>
+        </testCase>
+
+        <testCase id="040001">
+                <class>Custom_Command</class>
+                <desc>Force Msg3 C-RNTI RA</desc>
+                <node>cacofonix</node>
+                <command>echo ciUE force_crnti_ra | nc 192.168.71.150 8091</command>
+                <command_fail>yes</command_fail>
         </testCase>
 
         <testCase id="100001">
