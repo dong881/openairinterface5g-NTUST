@@ -622,36 +622,6 @@ static void handle_msg3_failed_rx(gNB_MAC_INST *mac, NR_RA_t *ra, rnti_t rnti, i
   ra->ra_state = nrRA_Msg3_retransmission;
 }
 
-static NR_UE_info_t *configure_UE_crnti_msg3(gNB_MAC_INST *mac, NR_UE_info_t *old_UE, NR_UE_info_t *new_UE)
-{
-  // in case UE beam has changed
-  old_UE->UE_beam_index = new_UE->UE_beam_index;
-  // Reset UL failure for old UE
-  nr_mac_reset_ul_failure(&old_UE->UE_sched_ctrl);
-  // Reset HARQ processes
-  reset_dl_harq_list(&old_UE->UE_sched_ctrl);
-  reset_ul_harq_list(&old_UE->UE_sched_ctrl);
-  // old UE need to complete RA by sending DL
-  free_and_zero(old_UE->ra);
-  old_UE->ra = new_UE->ra;
-  new_UE->ra = NULL;
-  NR_UE_sched_ctrl_t *sched_ctrl = &old_UE->UE_sched_ctrl;
-  sched_ctrl->search_space = new_UE->UE_sched_ctrl.search_space;
-  sched_ctrl->coreset = new_UE->UE_sched_ctrl.coreset;
-  memcpy(&sched_ctrl->sched_pdcch, &new_UE->UE_sched_ctrl.sched_pdcch, sizeof(NR_sched_pdcch_t));
-  old_UE->current_DL_BWP.dci_format = NR_DL_DCI_FORMAT_1_0;
-  // replace new UE with old UE in the access list
-  for (int i = 0; i < NR_NB_RA_PROC_MAX; i++) {
-    if (mac->UE_info.access_ue_list[i] && mac->UE_info.access_ue_list[i]->rnti == new_UE->rnti) {
-      mac->UE_info.access_ue_list[i] = old_UE;
-      break;
-    }
-  }
-  // remove new UE
-  delete_nr_ue_data(new_UE, mac->common_channels, &mac->UE_info.uid_allocator);
-  return old_UE;
-}
-
 static void nr_rx_ra_sdu(const module_id_t mod_id,
                          const int CC_id,
                          const frame_t frame,
@@ -732,12 +702,21 @@ static void nr_rx_ra_sdu(const module_id_t mod_id,
     UE_scheduling_control->ta_update = timing_advance;
   UE_scheduling_control->raw_rssi = rssi;
   LOG_D(NR_MAC, "[UE %04x] PUSCH TPC %d and TA %d\n", UE->rnti, UE_scheduling_control->tpc0, UE_scheduling_control->ta_update);
+  NR_ServingCellConfigCommon_t *scc = mac->common_channels[0].ServingCellConfigCommon;
   if (ra->cfra) {
     LOG_A(NR_MAC, "(rnti 0x%04x) CFRA procedure succeeded!\n", UE->rnti);
     nr_mac_reset_ul_failure(UE_scheduling_control);
     reset_dl_harq_list(UE_scheduling_control);
     reset_ul_harq_list(UE_scheduling_control);
     process_addmod_bearers_cellGroupConfig(&UE->UE_sched_ctrl, UE->CellGroup->rlc_BearerToAddModList);
+    int ss_type;
+    // we configure the UE using common search space with DCIX0 while waiting for a reconfiguration in SA
+    // in NSA (or do-ra) there is no reconfiguration in NR
+    if (IS_SA_MODE(get_softmodem_params()))
+      ss_type = NR_SearchSpace__searchSpaceType_PR_common;
+    else
+      ss_type = NR_SearchSpace__searchSpaceType_PR_ue_Specific;
+    configure_UE_BWP(mac, scc, UE, false, ss_type, -1, -1);
     if (!transition_ra_connected_nr_ue(mac, UE)) {
       LOG_E(NR_MAC, "cannot add UE %04x: list is full\n", UE->rnti);
       delete_nr_ue_data(UE, NULL, &mac->UE_info.uid_allocator);
@@ -766,19 +745,23 @@ static void nr_rx_ra_sdu(const module_id_t mod_id,
         nr_release_ra_UE(mac, rnti);
         return;
       }
-      // remove old UE from connected UEs
-      remove_UE_from_list(MAX_MOBILES_PER_GNB + 1, mac->UE_info.connected_ue_list, crnti);
-      UE = configure_UE_crnti_msg3(mac, old_UE, UE);
-      ra = UE->ra;
-      if (UE->reconfigCellGroup) {
-        // Nothing to do
-        // A RRCReconfiguration message should be already pending (for example, an ongoing RRCReestablishment), and it will be
-        // transmitted in Msg4
-      } else {
-        // Trigger RRC Reconfiguration
-        LOG_I(NR_MAC, "Received UL_SCH_LCID_C_RNTI with C-RNTI 0x%04x, triggering RRC Reconfiguration\n", UE->rnti);
-        nr_mac_trigger_reconfiguration(mac, UE);
-      }
+      // in case UE beam has changed
+      old_UE->UE_beam_index = UE->UE_beam_index;
+      // Reset UL failure for old UE
+      nr_mac_reset_ul_failure(&old_UE->UE_sched_ctrl);
+      // Reset HARQ processes
+      reset_dl_harq_list(&old_UE->UE_sched_ctrl);
+      reset_ul_harq_list(&old_UE->UE_sched_ctrl);
+      // Trigger RRC Reconfiguration
+      LOG_I(NR_MAC, "Received UL_SCH_LCID_C_RNTI with C-RNTI 0x%04x, triggering RRC Reconfiguration\n", crnti);
+      nr_mac_trigger_reconfiguration(mac, old_UE);
+      nr_release_ra_UE(mac, rnti);
+      LOG_A(NR_MAC, "%4d.%2d UE %04x: RA with C-RNTI complete\n", frame, slot, crnti);
+      // we configure the UE using common search space with DCIX0 while waiting for a reconfiguration
+      configure_UE_BWP(mac, scc, old_UE, false, NR_SearchSpace__searchSpaceType_PR_common, -1, -1);
+      // TODO do we actually need to still process the PDU?
+      nr_process_mac_pdu(mod_id, old_UE, CC_id, frame, slot, sdu, sdu_len, -1);
+      return;
     } else {
       // UE Contention Resolution Identity
       // Store the first 48 bits belonging to the uplink CCCH SDU within Msg3 to fill in Msg4

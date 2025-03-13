@@ -743,11 +743,8 @@ typedef struct {
   NR_mac_stats_t mac_stats;
   /// currently active CellGroupConfig
   NR_CellGroupConfig_t *CellGroup;
-  /// CellGroupConfig that is to be activated after the next reconfiguration
-  bool expect_reconfiguration;
   /// reestablishRLC has to be signaled in RRCreconfiguration
   bool reestablish_rlc;
-  NR_CellGroupConfig_t *reconfigCellGroup;
   interrupt_followup_action_t interrupt_action;
   NR_UE_NR_Capability_t *capability;
   // UE selected beam index

@@ -1738,12 +1738,6 @@ static void nr_generate_Msg2(module_id_t module_idP,
       *ul_bwp->tdaList_Common->list.array[ra->Msg3_tda_id]->k2 + get_NTN_Koffset(scc),
       ul_bwp->scs);
 
-  if (ra->cfra) {
-    int delay = nr_mac_get_reconfig_delay_slots(dl_bwp->scs);
-    interrupt_followup_action_t action = UE->reconfigCellGroup ? FOLLOW_INSYNC_RECONFIG : FOLLOW_INSYNC;
-    nr_mac_interrupt_ue_transmission(RC.nrmac[module_idP], UE, action, delay);
-  }
-
   LOG_D(NR_MAC,
         "UE %04x: %d.%d: Setting RA-Msg3 reception (%s) for SFN.Slot %d.%d\n",
         UE->rnti,
@@ -2091,25 +2085,17 @@ void nr_check_Msg4_MsgB_Ack(module_id_t module_id, frame_t frame, slot_t slot, N
 
   if (harq->round == 0) {
     if (success) {
+      gNB_MAC_INST *nr_mac = RC.nrmac[module_id];
+      NR_ServingCellConfigCommon_t *scc = nr_mac->common_channels[0].ServingCellConfigCommon;
+      // we configure the UE using common search space with DCIX0 while waiting for a reconfiguration
+      configure_UE_BWP(nr_mac, scc, UE, false, NR_SearchSpace__searchSpaceType_PR_common, -1, -1);
+      transition_ra_connected_nr_ue(nr_mac, UE);
       LOG_A(NR_MAC, "%4d.%2d UE %04x: Received Ack of %s. CBRA procedure succeeded!\n", frame, slot, UE->rnti, ra_type_str);
     } else {
       LOG_I(NR_MAC, "%4d.%2d UE %04x: RA Procedure failed at %s!\n", frame, slot, UE->rnti, ra_type_str);
       nr_mac_trigger_ul_failure(sched_ctrl, UE->current_DL_BWP.scs);
     }
 
-    // Pause scheduling according to:
-    // 3GPP TS 38.331 Section 12 Table 12.1-1: UE performance requirements for RRC procedures for UEs
-    // Msg4 may transmit a RRCReconfiguration, for example when UE sends RRCReestablishmentComplete and MAC CE for C-RNTI in Msg3.
-    // In that case, gNB will generate a RRCReconfiguration that will be transmitted in Msg4, so we need to apply CellGroup after the Ack,
-    // UE->reconfigCellGroup already set when processing RRCReestablishment message
-    int delay = nr_mac_get_reconfig_delay_slots(UE->current_UL_BWP.scs);
-    gNB_MAC_INST *nr_mac = RC.nrmac[module_id];
-    nr_mac_interrupt_ue_transmission(nr_mac, UE, UE->interrupt_action, delay);
-    if (!transition_ra_connected_nr_ue(nr_mac, UE)) {
-      LOG_E(NR_MAC, "cannot add UE %04x: list is full\n", UE->rnti);
-      delete_nr_ue_data(UE, NULL, &nr_mac->UE_info.uid_allocator);
-      return;
-    }
     if (sched_ctrl->retrans_dl_harq.head >= 0) {
       remove_nr_list(&sched_ctrl->retrans_dl_harq, current_harq_pid);
     }

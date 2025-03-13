@@ -1013,24 +1013,3 @@ void nr_mac_prepare_ra_ue(gNB_MAC_INST *nrmac, NR_UE_info_t *UE)
   }
   LOG_I(NR_MAC, "Added new %s process for UE RNTI %04x with initial CellGroup\n", ra->cfra ? "CFRA" : "CBRA", UE->rnti);
 }
-
-/* Prepare a new CellGroupConfig to be applied for this UE. We cannot
- * immediatly apply it, as we have to wait for the reconfiguration through RRC.
- * This function sets up everything to apply the reconfiguration. Later, we
- * will trigger the UE inactivity with nr_mac_interrupt_ue_transmission(); upon
- * expiry, nr_mac_apply_cellgroup() will apply the CellGroupConfig (radio
- * config etc). */
-bool nr_mac_prepare_cellgroup_update(gNB_MAC_INST *nrmac, NR_UE_info_t *UE, NR_CellGroupConfig_t *CellGroup)
-{
-  DevAssert(nrmac != NULL);
-  DevAssert(UE != NULL);
-  DevAssert(CellGroup != NULL);
-
-  /* we assume that this function is mutex-protected from outside */
-  NR_SCHED_ENSURE_LOCKED(&nrmac->sched_lock);
-
-  UE->reconfigCellGroup = CellGroup;
-  UE->expect_reconfiguration = true;
-
-  return true;
-}
