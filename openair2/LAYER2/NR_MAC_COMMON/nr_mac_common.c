@@ -4779,12 +4779,16 @@ void compute_csi_bitlen(const NR_CSI_MeasConfig_t *csi_MeasConfig, nr_csi_report
   uint8_t nb_resources = 0;
   NR_CSI_ReportConfig__reportQuantity_PR reportQuantity_type;
   NR_CSI_ResourceConfigId_t csi_ResourceConfigId;
-  struct NR_CSI_ResourceConfig *csi_resourceconfig;
+  NR_CSI_ResourceConfig_t *csi_resourceconfig;
 
+  if (!csi_MeasConfig->csi_ReportConfigToAddModList) {
+    LOG_E(NR_MAC, "csi_ReportConfigToAddModList is NULL, not expected\n");
+    return;
+  }
   // for each CSI measurement report configuration (list of CSI-ReportConfig)
   LOG_D(NR_MAC,"Searching %d csi_reports\n",csi_MeasConfig->csi_ReportConfigToAddModList->list.count);
   for (csi_report_id = 0; csi_report_id < csi_MeasConfig->csi_ReportConfigToAddModList->list.count; csi_report_id++) {
-    struct NR_CSI_ReportConfig *csi_reportconfig = csi_MeasConfig->csi_ReportConfigToAddModList->list.array[csi_report_id];
+    NR_CSI_ReportConfig_t *csi_reportconfig = csi_MeasConfig->csi_ReportConfigToAddModList->list.array[csi_report_id];
     // MAC structure for CSI measurement reports (per UE and per report)
     nr_csi_report_t *csi_report = &csi_report_template[csi_report_id];
     // csi-ResourceConfigId of a CSI-ResourceConfig included in the configuration
