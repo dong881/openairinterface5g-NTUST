@@ -94,11 +94,20 @@ int force_RRC_IDLE(char *buf, int debug, telnet_printfunc_t prnt)
   return 0;
 }
 
+/** @brief Trigger RA with Msg3 C-RNTI */
+int force_crnti_ra(char *buf, int debug, telnet_printfunc_t prnt)
+{
+  NR_UE_MAC_INST_t *mac = get_mac_inst(0);
+  trigger_MAC_UE_RA(mac, NULL);
+  return 0;
+}
+
 /* Telnet shell command definitions */
 static telnetshell_cmddef_t cicmds[] = {
   {"sync_state", "[UE_ID(int,opt)]", get_sync_state},
   {"force_rlf", "", force_rlf},
   {"force_RRC_IDLE", "", force_RRC_IDLE},
+  {"force_crnti_ra", "", force_crnti_ra},
   {"", "", NULL},
 };
 
