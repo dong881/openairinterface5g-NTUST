@@ -33,6 +33,7 @@
 #include "PHY/NR_REFSIG/ul_ref_seq_nr.h"
 #include "executables/softmodem-common.h"
 #include "nr_phy_common.h"
+#include "openair1/PHY/TOOLS/phy_scope_interface.h"
 
 //#define DEBUG_CH
 //#define DEBUG_PUSCH
@@ -40,6 +41,29 @@
 
 #define NO_INTERP 1
 #define dBc(x, y) (dB_fixed(((int32_t)(x)) * (x) + ((int32_t)(y)) * (y)))
+
+typedef struct puschAntennaProc_s {
+  unsigned char Ns;
+  int nl;
+  unsigned short p;
+  unsigned char symbol;
+  unsigned short bwp_start_subcarrier;
+  int aarx;
+  int beam_nb;
+  int numAntennas;
+  nfapi_nr_pusch_pdu_t *pusch_pdu;
+  int *max_ch;
+  c16_t *pilot;
+  int *nest_count;
+  uint64_t *noise_amp2;
+  delay_t *delay;
+  int chest_freq;
+  NR_gNB_PUSCH *pusch_vars;
+  NR_DL_FRAME_PARMS *frame_parms;
+  c16_t ***rxdataF;
+  task_ans_t *ans;
+  scopeData_t *scope;
+} puschAntennaProc_t;
 
 __attribute__((always_inline)) inline c16_t c32x16cumulVectVectWithSteps(c16_t *in1,
                                                                          int *offset1,
@@ -142,8 +166,13 @@ static void nr_pusch_antenna_processing(void *arg)
         }
         pilot_cnt += 2;
       }
-
-      nr_est_delay(frame_parms->ofdm_symbol_size, ul_ls_est, (c16_t *)pusch_vars->ul_ch_estimates_time[antenna], delay);
+      c16_t ch_estimates_time[frame_parms->ofdm_symbol_size] __attribute__((aligned(32)));
+      nr_est_delay(frame_parms->ofdm_symbol_size, ul_ls_est, ch_estimates_time, delay);
+      if (rdata->scope && antenna == 0) {
+        metadata mt = {.slot = -1, .frame = -1};
+        scopeData_t *tmp = rdata->scope;
+        tmp->copyData(tmp, gNBulDelay, ch_estimates_time, sizeof(c16_t), 1, frame_parms->ofdm_symbol_size, 0, &mt);
+      }
       int delay_idx = get_delay_idx(delay->est_delay, MAX_DELAY_COMP);
       c16_t *ul_delay_table = frame_parms->delay_table[delay_idx];
 
@@ -231,7 +260,13 @@ static void nr_pusch_antenna_processing(void *arg)
       }
 
       // Delay compensation
-      nr_est_delay(frame_parms->ofdm_symbol_size, ul_ls_est, (c16_t *)pusch_vars->ul_ch_estimates_time[antenna], delay);
+      c16_t ch_estimates_time[frame_parms->ofdm_symbol_size] __attribute__((aligned(32)));
+      nr_est_delay(frame_parms->ofdm_symbol_size, ul_ls_est, ch_estimates_time, delay);
+      if (rdata->scope && antenna == 0) {
+        metadata mt = {.slot = -1, .frame = -1};
+        scopeData_t *tmp = rdata->scope;
+        tmp->copyData(tmp, gNBulDelay, ch_estimates_time, sizeof(c16_t), 1, frame_parms->ofdm_symbol_size, 0, &mt);
+      }
       int delay_idx = get_delay_idx(-delay->est_delay, MAX_DELAY_COMP);
       c16_t *ul_delay_table = frame_parms->delay_table[delay_idx];
       for (int n = 0; n < nb_rb_pusch * NR_NB_SC_PER_RB; n++) {
@@ -531,6 +566,7 @@ int nr_pusch_channel_estimation(PHY_VARS_gNB *gNB,
     rdata->pusch_vars = &gNB->pusch_vars[ul_id];
     rdata->chest_freq = gNB->chest_freq;
     rdata->rxdataF = gNB->common_vars.rxdataF;
+    rdata->scope = gNB->scopeData;
     rdata->ans = &ans;
     // Call the nr_pusch_antenna_processing function
     if (job_id == num_jobs - 1) {

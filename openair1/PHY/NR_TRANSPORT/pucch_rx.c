@@ -1096,7 +1096,7 @@ void nr_decode_pucch2(PHY_VARS_gNB *gNB,
             *ch_ls_ptr++ = rdmrs_gold[i];
       }
     }
-    c16_t ch_temp[128] __attribute__((aligned(32))) = {0};
+    c16_t ch_temp[128] __attribute__((aligned(32)));
     delay_t delay = {0};
     nr_est_delay(128, ch_ls, ch_temp, &delay);
 

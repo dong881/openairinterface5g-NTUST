@@ -1121,7 +1121,6 @@ void NFAPI_NR_DMRS_TYPE1_linear_interp(NR_DL_FRAME_PARMS *frame_parms,
   }
 
   c16_t ch_estimates_time[frame_parms->ofdm_symbol_size] __attribute__((aligned(32)));
-  memset(ch_estimates_time, 0, sizeof(ch_estimates_time));
   nr_est_delay(frame_parms->ofdm_symbol_size, dl_ls_est, ch_estimates_time, delay);
   int delay_idx = get_delay_idx(delay->est_delay, MAX_DELAY_COMP);
   c16_t *dl_delay_table = frame_parms->delay_table[delay_idx];
@@ -1282,7 +1281,6 @@ void NFAPI_NR_DMRS_TYPE2_linear_interp(NR_DL_FRAME_PARMS *frame_parms,
   }
 
   c16_t ch_estimates_time[frame_parms->ofdm_symbol_size] __attribute__((aligned(32)));
-  memset(ch_estimates_time, 0, sizeof(ch_estimates_time));
   nr_est_delay(frame_parms->ofdm_symbol_size, dl_ls_est, ch_estimates_time, delay);
   int delay_idx = get_delay_idx(delay->est_delay, MAX_DELAY_COMP);
   c16_t *dl_delay_table = frame_parms->delay_table[delay_idx];

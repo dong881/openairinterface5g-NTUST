@@ -204,12 +204,10 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
     NR_gNB_PUSCH *pusch = &gNB->pusch_vars[ULSCH_id];
     pusch->ul_ch_estimates = (int32_t **)malloc16(n_buf * sizeof(int32_t *));
     pusch->ptrs_phase_per_slot = (int32_t **)malloc16(n_buf * sizeof(int32_t *));
-    pusch->ul_ch_estimates_time = (int32_t **)malloc16(n_buf * sizeof(int32_t *));
     pusch->rxdataF_comp = (int32_t **)malloc16(n_buf * sizeof(int32_t *));
     pusch->llr_layers = (int16_t **)malloc16(max_ul_mimo_layers * sizeof(int32_t *));
     for (int i = 0; i < n_buf; i++) {
       pusch->ul_ch_estimates[i] = (int32_t *)malloc16_clear(sizeof(int32_t) * fp->ofdm_symbol_size * fp->symbols_per_slot);
-      pusch->ul_ch_estimates_time[i] = (int32_t *)malloc16_clear(sizeof(int32_t) * fp->ofdm_symbol_size);
       pusch->ptrs_phase_per_slot[i] = (int32_t *)malloc16_clear(sizeof(int32_t) * fp->symbols_per_slot); // symbols per slot
       pusch->rxdataF_comp[i] = (int32_t *)malloc16_clear(sizeof(int32_t) * nb_re_pusch2 * fp->symbols_per_slot);
     }
@@ -279,14 +277,12 @@ void phy_free_nr_gNB(PHY_VARS_gNB *gNB)
       free_and_zero(pusch_vars->llr_layers[i]);
     for (int i = 0; i < n_buf; i++) {
       free_and_zero(pusch_vars->ul_ch_estimates[i]);
-      free_and_zero(pusch_vars->ul_ch_estimates_time[i]);
       free_and_zero(pusch_vars->ptrs_phase_per_slot[i]);
       free_and_zero(pusch_vars->rxdataF_comp[i]);
     }
     free_and_zero(pusch_vars->llr_layers);
     free_and_zero(pusch_vars->ul_ch_estimates);
     free_and_zero(pusch_vars->ptrs_phase_per_slot);
-    free_and_zero(pusch_vars->ul_ch_estimates_time);
     free_and_zero(pusch_vars->ul_valid_re_per_slot);
     free_and_zero(pusch_vars->rxdataF_comp);
 

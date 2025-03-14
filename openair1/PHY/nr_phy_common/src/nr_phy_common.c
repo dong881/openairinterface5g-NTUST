@@ -20,7 +20,6 @@
  */
 
 #include "nr_phy_common.h"
-
 #ifdef __aarch64__
 #define USE_128BIT
 #endif
@@ -363,7 +362,7 @@ void freq2time(uint16_t ofdm_symbol_size, int16_t *freq_signal, int16_t *time_si
 
 void nr_est_delay(int ofdm_symbol_size, const c16_t *ls_est, c16_t *ch_estimates_time, delay_t *delay)
 {
-  freq2time(ofdm_symbol_size, (int16_t *)ls_est, (int16_t *)ch_estimates_time);
+  idft(get_idft(ofdm_symbol_size), (int16_t *)ls_est, (int16_t *)ch_estimates_time, 1);
 
   int max_pos = delay->delay_max_pos;
   int max_val = delay->delay_max_val;

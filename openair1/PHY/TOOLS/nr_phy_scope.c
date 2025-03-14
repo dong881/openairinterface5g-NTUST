@@ -456,9 +456,8 @@ static void timeSignal (OAIgraph_t *graph, PHY_VARS_gNB *phy_vars_gnb, RU_t *phy
 */
 
 static void timeResponse (OAIgraph_t *graph, scopeData_t *p, int nb_UEs) {
-  const int len = p->gNB->frame_parms.ofdm_symbol_size;
-  if (!len)
-    // gnb not yet initialized, many race conditions in the scope
+  scopeGraphData_t *val = p->liveData[gNBulDelay];
+  if (!val || !val->dataSize)
     return;
 #ifdef WEBSRVSCOPE
   websrv_scopedata_msg_t *msg = NULL;
@@ -466,38 +465,25 @@ static void timeResponse (OAIgraph_t *graph, scopeData_t *p, int nb_UEs) {
   float *values = (float *)msg->data_xy;
 #else
   float *values, *time;
-  oai_xygraph_getbuff(graph, &time, &values, len, 0);
+  oai_xygraph_getbuff(graph, &time, &values, val->lineSz, 0);
 #endif
 
-  const int ant = 0; // display antenna 0 for each UE
+  // We display UEs randomly, with one buffer
+  c16_t *samples = (c16_t *)(val + 1);
+  for (int i = 0; i < val->lineSz; i++) {
+    values[i] = SquaredNorm(samples[i]);
+  }
 #ifdef WEBSRVSCOPE
   int uestart = nb_UEs - 1; // web scope shows one UE signal, that can be selected from GUI
+  msg->header.msgtype = SCOPEMSG_TYPE_DATA;
+  msg->header.chartid = graph->chartid;
+  msg->header.datasetid = graph->datasetid;
+  msg->header.msgseg = 0;
+  msg->header.update = 1;
+  websrv_scope_senddata(val->lineSz, 4, msg);
 #else
-  int uestart = 0; // xforms scope designed to display nb_UEs signals
+  oai_xygraph(graph, time, values, val->lineSz, 0, 10);
 #endif
-  for (int ue = uestart; ue < nb_UEs; ue++) {
-    if (p->gNB->pusch_vars &&
-        p->gNB->pusch_vars[ue].ul_ch_estimates_time &&
-        p->gNB->pusch_vars[ue].ul_ch_estimates_time[ant] ) {
-      scopeSample_t *data= (scopeSample_t *)p->gNB->pusch_vars[ue].ul_ch_estimates_time[ant];
-
-      if (data != NULL) {
-        for (int i=0; i<len; i++) {
-          values[i] = SquaredNorm(data[i]);
-        }
-#ifdef WEBSRVSCOPE
-        msg->header.msgtype = SCOPEMSG_TYPE_DATA;
-        msg->header.chartid = graph->chartid;
-        msg->header.datasetid = graph->datasetid;
-        msg->header.msgseg = 0;
-        msg->header.update = 1;
-        websrv_scope_senddata(len, 4, msg);
-#else
-        oai_xygraph(graph,time,values, len, ue, 10);
-#endif
-      }
-    }
-  }
 }
 
 static void gNBfreqWaterFall (OAIgraph_t *graph, scopeData_t *p, int nb_UEs) {
