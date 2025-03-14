@@ -656,7 +656,7 @@ retrieve_ldpc_enc_op(struct rte_bbdev_enc_op **ops,
       struct rte_bbdev_op_data *output = &ops[j]->ldpc_enc.output;
       struct rte_mbuf *m = output->data;
       uint16_t data_len = rte_pktmbuf_data_len(m) - output->offset;
-      uint8_t *out = nrLDPC_slot_encoding_parameters->TBs[h].segments[i].output;
+      uint8_t *out = nrLDPC_slot_encoding_parameters->TBs[h].output;
       const char *data = m->buf_addr + m->data_off;
       const char *end = data + data_len;
       while (data < end) {

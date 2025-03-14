@@ -265,15 +265,13 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
 
     TB_parameters->tbslbrm = rel15->maintenance_parms_v3.tbSizeLbrmBytes;
 
+    TB_parameters->output = &output[dlsch_offset >> 3];
     TB_parameters->segments = &segments[segments_offset];
 
-    size_t r_offset = 0;
     for (int r = 0; r < TB_parameters->C; r++) {
       nrLDPC_segment_encoding_parameters_t *segment_parameters = &TB_parameters->segments[r];
       segment_parameters->c = harq->c[r];
       segment_parameters->E = nr_get_E(TB_parameters->G, TB_parameters->C, TB_parameters->Qm, rel15->nrOfLayers, r);
-      segment_parameters->output = &output[dlsch_offset + r_offset];
-      r_offset += segment_parameters->E;
 
       reset_meas(&segment_parameters->ts_interleave);
       reset_meas(&segment_parameters->ts_rate_match);
@@ -282,11 +280,11 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
 
     segments_offset += TB_parameters->C;
 
-    /* output and its parts for each dlsch should be aligned on 64 bytes
-     * => dlsch_offset should remain a multiple of 64 with enough offset to fit each dlsch
+    /* output and its parts for each dlsch should be aligned on 64 bytes (or 8 * 64 bits)
+     * => dlsch_offset should remain a multiple of 8 * 64 with enough offset to fit each dlsch
      */
     const size_t dlsch_size = rel15->rbSize * NR_SYMBOLS_PER_SLOT * NR_NB_SC_PER_RB * rel15->qamModOrder[0] * rel15->nrOfLayers;
-    dlsch_offset += ceil_mod(dlsch_size, 64);
+    dlsch_offset += ceil_mod(dlsch_size, 8 * 64);
   }
 
   gNB->nrLDPC_coding_interface.nrLDPC_coding_encoder(&slot_parameters);

@@ -520,7 +520,7 @@ static int nrLDPC_prepare_TB_encoding(nrLDPC_slot_encoding_parameters_t *nrLDPC_
   impp.Kb = nrLDPC_TB_encoding_parameters->Kb;
   impp.Zc = nrLDPC_TB_encoding_parameters->Z;
   impp.BG = nrLDPC_TB_encoding_parameters->BG;
-  impp.output = nrLDPC_TB_encoding_parameters->segments->output; 
+  impp.output = nrLDPC_TB_encoding_parameters->output; 
   impp.K = nrLDPC_TB_encoding_parameters->K;
   impp.F = nrLDPC_TB_encoding_parameters->F;
 
