@@ -39,6 +39,11 @@
 #include "rrc_extern.h"
 #include "openair2/RRC/NR/rrc_gNB_NGAP.h"
 
+#ifdef E2_AGENT
+#include "openair2/RRC/NR/rrc_gNB_UE_context.h"
+#include "openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_rc_extern.h"
+#endif
+
 static void f1ap_write_drb_qos_param(const f1ap_qos_flow_level_qos_parameters_t *drb_qos_in, F1AP_QoSFlowLevelQoSParameters_t *asn1_qosparam)
 {
   int type = drb_qos_in->qos_characteristics.qos_type;
@@ -586,6 +591,11 @@ int CU_send_UE_CONTEXT_SETUP_REQUEST(sctp_assoc_t assoc_id, f1ap_ue_context_setu
     LOG_E(F1AP, "Failed to encode F1 UE CONTEXT SETUP REQUEST\n");
     return -1;
   }
+
+#ifdef E2_AGENT
+  rrc_gNB_ue_context_t *ue_context_p = rrc_gNB_get_ue_context(RC.nrrrc[0], f1ap_ue_context_setup_req->gNB_CU_ue_id);
+  signal_ue_id(&ue_context_p->ue_context, F1_NETWORK_INTERFACE_TYPE, 0);
+#endif
 
   // xer_fprint(stdout, &asn_DEF_F1AP_F1AP_PDU, (void *)pdu);
   // asn_encode_to_new_buffer_result_t res = { NULL, {0, NULL, NULL} };

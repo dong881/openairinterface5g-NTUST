@@ -42,6 +42,7 @@ void init_rc_subs_data(rc_subs_data_t *rc_subs_data)
   pthread_mutex_lock(&rc_mutex);
   // Initialize sequence array
   seq_arr_init(&rc_subs_data->rs1_param3, sizeof(ran_param_data_t));
+  seq_arr_init(&rc_subs_data->rs1_param4, sizeof(ran_param_data_t));
   seq_arr_init(&rc_subs_data->rs4_param202, sizeof(ran_param_data_t));
   pthread_mutex_unlock(&rc_mutex);
 }
@@ -63,6 +64,14 @@ void remove_rc_subs_data(rc_subs_data_t *rc_subs_data, uint32_t ric_req_id)
   if (data_rs1_param3 != NULL) {
     free_e2sm_rc_event_trigger(&data_rs1_param3->ev_tr);
     seq_arr_erase(&rc_subs_data->rs1_param3, elm_rs1_param3.it);
+  }
+
+  /* find the sequence element that matches RIC request ID */
+  elm_arr_t elm_rs1_param4 = find_if(&rc_subs_data->rs1_param4, (void *)&ric_req_id, eq_int);
+  ran_param_data_t *data_rs1_param4 = elm_rs1_param4.it;
+  if (data_rs1_param4 != NULL) {
+    free_e2sm_rc_event_trigger(&data_rs1_param4->ev_tr);
+    seq_arr_erase(&rc_subs_data->rs1_param4, elm_rs1_param4.it);
   }
 
   /* find the sequence element that matches RIC request ID */

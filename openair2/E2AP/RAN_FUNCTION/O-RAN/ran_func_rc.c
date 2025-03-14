@@ -26,6 +26,7 @@
 #include "../../flexric/src/sm/rc_sm/ie/ir/lst_ran_param.h"
 #include "../../flexric/src/sm/rc_sm/ie/ir/ran_param_list.h"
 #include "../../flexric/src/agent/e2_agent_api.h"
+#include "openair2/E2AP/flexric/src/lib/sm/enc/enc_ue_id.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -226,7 +227,7 @@ static seq_report_sty_t fill_report_style_1(const char *report_name)
 
   // Sequence of RAN Parameters Supported
   // [0 - 65535]
-  report_style.sz_seq_ran_param = 1;
+  report_style.sz_seq_ran_param = 2;
   report_style.ran_param = calloc_or_fail(report_style.sz_seq_ran_param, sizeof(seq_ran_param_3_t));
 
   // RAN Parameter ID
@@ -234,6 +235,7 @@ static seq_report_sty_t fill_report_style_1(const char *report_name)
   // 9.3.8
   // [1- 4294967295]
   report_style.ran_param[0].id = E2SM_RC_RS1_RRC_MESSAGE;
+  report_style.ran_param[1].id = E2SM_RC_RS1_UE_ID;
 
   // RAN Parameter Name
   // Mandatory
@@ -241,11 +243,14 @@ static seq_report_sty_t fill_report_style_1(const char *report_name)
   // [1-150] 
   const char ran_param_name_0[] = "RRC Message";
   report_style.ran_param[0].name = cp_str_to_ba(ran_param_name_0);
+  const char ran_param_name_1[] = "UE ID";
+  report_style.ran_param[1].name = cp_str_to_ba(ran_param_name_1);
 
   // RAN Parameter Definition
   // Optional
   // 9.3.51
   report_style.ran_param[0].def = NULL;
+  report_style.ran_param[1].def = NULL;
 
   return report_style;
 }
@@ -610,6 +615,79 @@ static void send_aper_ric_ind(const uint32_t ric_req_id, rc_ind_data_t* rc_ind_d
   printf("[E2 AGENT] Event for RIC request ID %d generated\n", ric_req_id);
 }
 
+static rc_ind_data_t* fill_ue_id(const gNB_RRC_UE_t *rrc_ue_context, const uint16_t cond_id)
+{
+  rc_ind_data_t* rc_ind = malloc_or_fail(sizeof(rc_ind_data_t));
+
+  // Generate Indication Header
+  rc_ind->hdr.format = FORMAT_1_E2SM_RC_IND_HDR;
+  rc_ind->hdr.frmt_1.ev_trigger_id = malloc_or_fail(sizeof(uint32_t));
+  *rc_ind->hdr.frmt_1.ev_trigger_id = cond_id;
+
+  // Generate Indication Message
+  rc_ind->msg.format = FORMAT_1_E2SM_RC_IND_MSG;
+
+  // Initialize RAN Parameter
+  rc_ind->msg.frmt_1.sz_seq_ran_param = 1;
+  rc_ind->msg.frmt_1.seq_ran_param = calloc_or_fail(rc_ind->msg.frmt_1.sz_seq_ran_param, sizeof(seq_ran_param_t));
+
+  // Fill the RAN Parameter details for UE ID
+  rc_ind->msg.frmt_1.seq_ran_param[0].ran_param_id = E2SM_RC_RS1_UE_ID;
+  rc_ind->msg.frmt_1.seq_ran_param[0].ran_param_val.type = ELEMENT_KEY_FLAG_FALSE_RAN_PARAMETER_VAL_TYPE;
+  rc_ind->msg.frmt_1.seq_ran_param[0].ran_param_val.flag_false = malloc_or_fail(sizeof(ran_parameter_value_t));
+  rc_ind->msg.frmt_1.seq_ran_param[0].ran_param_val.flag_false->type = OCTET_STRING_RAN_PARAMETER_VALUE;
+
+  const ngran_node_t node_type = get_e2_node_type();
+  ue_id_e2sm_t ue_id_data = fill_ue_id_data[node_type](rrc_ue_context, 0, 0);
+
+  UEID_t enc_ue_id_data = enc_ue_id_asn(&ue_id_data);
+
+  const enum asn_transfer_syntax syntax = ATS_ALIGNED_BASIC_PER;
+  asn_encode_to_new_buffer_result_t res = asn_encode_to_new_buffer(NULL, syntax, &asn_DEF_UEID, &enc_ue_id_data);
+  assert(res.buffer != NULL && res.result.encoded > 0 && "[E2 agent] Failed to encode UE ID.");
+  byte_array_t ba = {.buf = res.buffer, .len = res.result.encoded};
+
+  rc_ind->msg.frmt_1.seq_ran_param[0].ran_param_val.flag_false->octet_str_ran = copy_byte_array(ba);
+
+  // Call Process ID
+  rc_ind->proc_id = NULL;
+
+  free_ue_id_e2sm(&ue_id_data);
+  ASN_STRUCT_RESET(asn_DEF_UEID, &enc_ue_id_data);
+  free(res.buffer);
+
+  return rc_ind;
+}
+
+static void check_ue_id_cond(const gNB_RRC_UE_t *rrc_ue_context, const uint16_t class, const uint32_t msg_id, const uint32_t ric_req_id, const e2sm_rc_ev_trg_frmt_1_t *frmt_1)
+{
+  for (size_t i = 0; i < frmt_1->sz_msg_ev_trg; i++) {
+    msg_ev_trg_t *ev_item = &frmt_1->msg_ev_trg[i];
+    if ((ev_item->msg_type == RRC_MSG_MSG_TYPE_EV_TRG && ev_item->rrc_msg.type == NR_RRC_MESSAGE_ID && ev_item->rrc_msg.nr == class && ev_item->rrc_msg.rrc_msg_id == msg_id)  // rrcSetupComplete
+         || (ev_item->msg_type == NETWORK_INTERFACE_MSG_TYPE_EV_TRG && ev_item->net.ni_type == class)) {  // "F1 UE Context Setup Request", but in the subscription the class (F1) can only be specified which translates to any F1 msg
+      rc_ind_data_t* rc_ind_data = fill_ue_id(rrc_ue_context, ev_item->ev_trigger_cond_id);
+      send_aper_ric_ind(ric_req_id, rc_ind_data);
+    }
+  }
+}
+
+void signal_ue_id(const gNB_RRC_UE_t *rrc_ue_context, const uint16_t class, const uint32_t msg_id)
+{
+  pthread_mutex_lock(&rc_mutex);
+  if (rc_subs_data.rs1_param4.data == NULL) {
+    pthread_mutex_unlock(&rc_mutex);
+    return;
+  }
+
+  const size_t num_subs = seq_arr_size(&rc_subs_data.rs1_param4);
+  for (size_t sub_idx = 0; sub_idx < num_subs; sub_idx++) {
+    const ran_param_data_t data = *(const ran_param_data_t *)seq_arr_at(&rc_subs_data.rs1_param4, sub_idx);
+    check_ue_id_cond(rrc_ue_context, class, msg_id, data.ric_req_id, &data.ev_tr.frmt_1);
+  }
+
+  pthread_mutex_unlock(&rc_mutex);
+}
+
 static void check_rrc_state(const gNB_RRC_UE_t *rrc_ue_context, const rrc_state_e2sm_rc_e rrc_state, const uint32_t ric_req_id, const e2sm_rc_ev_trg_frmt_4_t *frmt_4)
 {
   for (size_t i = 0; i < frmt_4->sz_ue_info_chng; i++) {
@@ -716,6 +794,8 @@ static seq_arr_t *get_sa(const e2sm_rc_event_trigger_t *ev_tr, const uint32_t ra
     case FORMAT_1_E2SM_RC_EV_TRIGGER_FORMAT:
       if (ran_param_id == E2SM_RC_RS1_RRC_MESSAGE) {
         sa = &rc_subs_data.rs1_param3;
+      } else if (ran_param_id == E2SM_RC_RS1_UE_ID) {
+        sa = &rc_subs_data.rs1_param4;
       }
       break;
 

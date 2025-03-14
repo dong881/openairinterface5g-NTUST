@@ -1,4 +1,44 @@
+set(UE_ID_COMMON_E2SM_SRCS
+  ../flexric/src/sm/rc_sm/ie/asn/AMFPointer.c
+  ../flexric/src/sm/rc_sm/ie/asn/AMFRegionID.c
+  ../flexric/src/sm/rc_sm/ie/asn/AMFSetID.c
+  ../flexric/src/sm/rc_sm/ie/asn/AMF-UE-NGAP-ID.c
+  ../flexric/src/sm/rc_sm/ie/asn/ENB-ID.c
+  ../flexric/src/sm/rc_sm/ie/asn/ENB-UE-X2AP-ID-Extension.c
+  ../flexric/src/sm/rc_sm/ie/asn/ENB-UE-X2AP-ID.c
+  ../flexric/src/sm/rc_sm/ie/asn/GlobalENB-ID.c
+  ../flexric/src/sm/rc_sm/ie/asn/GlobalGNB-ID.c
+  ../flexric/src/sm/rc_sm/ie/asn/GlobalNgENB-ID.c
+  ../flexric/src/sm/rc_sm/ie/asn/GlobalNGRANNodeID.c
+  ../flexric/src/sm/rc_sm/ie/asn/GNB-CU-CP-UE-E1AP-ID.c
+  ../flexric/src/sm/rc_sm/ie/asn/GNB-CU-UE-F1AP-ID.c
+  ../flexric/src/sm/rc_sm/ie/asn/GNB-ID.c
+  ../flexric/src/sm/rc_sm/ie/asn/GUAMI.c
+  ../flexric/src/sm/rc_sm/ie/asn/GUMMEI.c
+  ../flexric/src/sm/rc_sm/ie/asn/MME-Code.c
+  ../flexric/src/sm/rc_sm/ie/asn/MME-Group-ID.c
+  ../flexric/src/sm/rc_sm/ie/asn/MME-UE-S1AP-ID.c
+  ../flexric/src/sm/rc_sm/ie/asn/NGENB-CU-UE-W1AP-ID.c
+  ../flexric/src/sm/rc_sm/ie/asn/NgENB-ID.c
+  ../flexric/src/sm/rc_sm/ie/asn/NG-RANnodeUEXnAPID.c
+  ../flexric/src/sm/rc_sm/ie/asn/PLMNIdentity.c
+  ../flexric/src/sm/rc_sm/ie/asn/RANUEID.c
+  ../flexric/src/sm/rc_sm/ie/asn/UEID-ENB.c
+  ../flexric/src/sm/rc_sm/ie/asn/UEID-EN-GNB.c
+  ../flexric/src/sm/rc_sm/ie/asn/UEID-GNB-CU-CP-E1AP-ID-Item.c
+  ../flexric/src/sm/rc_sm/ie/asn/UEID-GNB-CU-CP-E1AP-ID-List.c
+  ../flexric/src/sm/rc_sm/ie/asn/UEID-GNB-CU-CP-F1AP-ID-Item.c
+  ../flexric/src/sm/rc_sm/ie/asn/UEID-GNB-CU-F1AP-ID-List.c
+  ../flexric/src/sm/rc_sm/ie/asn/UEID-GNB-CU-UP.c
+  ../flexric/src/sm/rc_sm/ie/asn/UEID-GNB-DU.c
+  ../flexric/src/sm/rc_sm/ie/asn/UEID-GNB.c
+  ../flexric/src/sm/rc_sm/ie/asn/UEID.c
+  ../flexric/src/sm/rc_sm/ie/asn/UEID-NG-ENB-DU.c
+  ../flexric/src/sm/rc_sm/ie/asn/UEID-NG-ENB.c
+)
+
 add_library(e2_ran_func_cuup STATIC
+            ${UE_ID_COMMON_E2SM_SRCS}
             init_ran_func.c
             read_setup_ran.c
             O-RAN/ran_e2sm_ue_id.c
@@ -13,11 +53,12 @@ add_library(e2_ran_func_cuup STATIC
             ../flexric/test/rnd/fill_rnd_data_tc.c
             )
 
-target_link_libraries(e2_ran_func_cuup PUBLIC asn1_nr_rrc nr_rrc asn1_nr_rrc_hdrs e2_time_obj kpm_ric_info_common_obj 3gpp_derived_ie_obj e2sm_rc_ir_obj sm_common_ie_obj ds alg)
+target_link_libraries(e2_ran_func_cuup PUBLIC asn1_nr_rrc nr_rrc asn1_nr_rrc_hdrs e2_time_obj kpm_ric_info_common_obj 3gpp_derived_ie_obj e2sm_rc_ir_obj sm_common_ie_obj ds alg sm_common_enc_asn_obj_rc 3gpp_derived_ie_enc_asn_obj_rc)
 target_compile_definitions(e2_ran_func_cuup PUBLIC ${E2AP_VERSION}  ${KPM_VERSION}  NGRAN_GNB_CUUP)
 
 
 add_library(e2_ran_func_du_cucp_cuup STATIC
+            ${UE_ID_COMMON_E2SM_SRCS}
             init_ran_func.c
             read_setup_ran.c
             O-RAN/ran_e2sm_ue_id.c
@@ -36,7 +77,7 @@ add_library(e2_ran_func_du_cucp_cuup STATIC
             ../flexric/test/rnd/fill_rnd_data_tc.c
             )
 
-target_link_libraries(e2_ran_func_du_cucp_cuup PUBLIC asn1_nr_rrc nr_rrc asn1_nr_rrc_hdrs e2_time_obj kpm_ric_info_common_obj 3gpp_derived_ie_obj e2sm_rc_ir_obj sm_common_ie_obj ds)
+target_link_libraries(e2_ran_func_du_cucp_cuup PUBLIC asn1_nr_rrc nr_rrc asn1_nr_rrc_hdrs e2_time_obj kpm_ric_info_common_obj 3gpp_derived_ie_obj e2sm_rc_ir_obj sm_common_ie_obj ds sm_common_enc_asn_obj_rc 3gpp_derived_ie_enc_asn_obj_rc)
 target_compile_definitions(e2_ran_func_du_cucp_cuup PUBLIC ${E2AP_VERSION}  ${KPM_VERSION} NGRAN_GNB_DU NGRAN_GNB_CUCP NGRAN_GNB_CUUP)
 
 # Current implementation:
