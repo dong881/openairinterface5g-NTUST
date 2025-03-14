@@ -453,6 +453,9 @@ target_include_directories(f1ap PUBLIC F1AP_DIR)
 target_link_libraries(f1ap PUBLIC asn1_f1ap GTPV1U)
 target_link_libraries(f1ap PRIVATE ngap nr_rrc HASHTABLE f1ap_lib)
 target_include_directories(f1ap PRIVATE ${F1AP_DIR}/lib)
+if(E2_AGENT)
+  target_compile_definitions(f1ap PRIVATE E2_AGENT)
+endif()
 
 # LPP
 ##############
