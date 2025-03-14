@@ -23,8 +23,8 @@
 #define RAN_FUNC_SM_RAN_CTRL_EXTERN_AGENT_H
 
 #include "openair2/RRC/NR/nr_rrc_defs.h"
+#include "openair2/E2AP/flexric/src/sm/rc_sm/ie/ir/rrc_state.h"
 
-typedef enum { RC_SM_RRC_CONNECTED, RC_SM_RRC_INACTIVE, RC_SM_RRC_IDLE, RC_SM_RRC_ANY } rc_sm_rrc_state_e;
-void signal_rrc_state_changed_to(const gNB_RRC_UE_t *rrc_ue_context, const rc_sm_rrc_state_e rrc_state);
+void signal_rrc_state_changed_to(const gNB_RRC_UE_t *rrc_ue_context, const rrc_state_e2sm_rc_e rrc_state);
 
 #endif

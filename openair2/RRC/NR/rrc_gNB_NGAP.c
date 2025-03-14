@@ -550,7 +550,7 @@ int rrc_gNB_process_NGAP_INITIAL_CONTEXT_SETUP_REQ(MessageDef *msg_p, instance_t
   }
 
 #ifdef E2_AGENT
-  signal_rrc_state_changed_to(UE, RC_SM_RRC_CONNECTED);
+  signal_rrc_state_changed_to(UE, RRC_CONNECTED_RRC_STATE_E2SM_RC);
 #endif
 
   return 0;
@@ -1267,7 +1267,7 @@ int rrc_gNB_process_NGAP_UE_CONTEXT_RELEASE_COMMAND(MessageDef *msg_p, instance_
   gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
   UE->an_release = true;
 #ifdef E2_AGENT
-  signal_rrc_state_changed_to(UE, RC_SM_RRC_IDLE);
+  signal_rrc_state_changed_to(UE, RRC_IDLE_RRC_STATE_E2SM_RC);
 #endif
 
   /* a UE might not be associated to a CU-UP if it never requested a PDU
