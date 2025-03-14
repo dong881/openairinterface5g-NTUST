@@ -31,6 +31,7 @@ typedef struct ran_param_data {
 } ran_param_data_t;
 
 typedef struct {
+  seq_arr_t rs1_param3;   // E2SM_RC_RS1_RRC_MESSAGE
   seq_arr_t rs4_param202; // E2SM_RC_RS4_RRC_STATE_CHANGED_TO
 } rc_subs_data_t;
 
