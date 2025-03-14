@@ -266,6 +266,10 @@ int NB_UE_INST = 1;
 configmodule_interface_t *uniqCfg = NULL;
 int main(int argc, char **argv)
 {
+  stop = false;
+  __attribute__((unused)) struct sigaction oldaction;
+  sigaction(SIGINT, &sigint_action, &oldaction);
+
   FILE *csv_file = NULL;
   char *filename_csv = NULL;
   setbuf(stdout, NULL);
@@ -955,7 +959,7 @@ printf("%d\n", slot);
     fprintf(csv_file,"avg_round,eff_rate,eff_throughput,TBS\n");
   }
   //---------------
-  for (SNR = snr0; SNR < snr1; SNR += .2) {
+  for (SNR = snr0; SNR < snr1 && !stop; SNR += .2) {
 
     varArray_t *table_tx=initVarArray(1000,sizeof(double));
     reset_meas(&gNB->phy_proc_tx);
@@ -985,7 +989,7 @@ printf("%d\n", slot);
     n_false_positive = 0;
     if (n_trials== 1) num_rounds = 1;
 
-    for (trial = 0; trial < n_trials; trial++) {
+    for (trial = 0; trial < n_trials && !stop; trial++) {
 
       errors_bit = 0;
       //multipath channel
@@ -1016,7 +1020,7 @@ printf("%d\n", slot);
       memset(Sched_INFO, 0, sizeof(*Sched_INFO));
       Sched_INFO->sched_response_id = -1;
 
-      while (round < num_rounds && !UE_harq_process->decodeResult) {
+      while (round < num_rounds && !UE_harq_process->decodeResult && !stop) {
         round_trials[round]++;
 
         clear_nr_nfapi_information(RC.nrmac[0], 0, frame, slot, &Sched_INFO->DL_req, &Sched_INFO->TX_req, &Sched_INFO->UL_dci_req);

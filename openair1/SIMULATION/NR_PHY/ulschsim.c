@@ -99,6 +99,10 @@ nrUE_params_t *get_nrUE_params(void) {
 configmodule_interface_t *uniqCfg = NULL;
 int main(int argc, char **argv)
 {
+  stop = false;
+  __attribute__((unused)) struct sigaction oldaction;
+  sigaction(SIGINT, &sigint_action, &oldaction);
+
   int i;
   double SNR, snr0 = -2.0, snr1 = 2.0, SNR_lin;
   double snr_step = 0.1;
@@ -521,11 +525,11 @@ int main(int argc, char **argv)
   ///////////
   ////////////////////////////////////////////////////////////////////
 
-  for (SNR = snr0; SNR < snr1; SNR += snr_step) {
+  for (SNR = snr0; SNR < snr1 && !stop; SNR += snr_step) {
     n_errors = 0;
     n_false_positive = 0;
 
-    for (trial = 0; trial < n_trials; trial++) {
+    for (trial = 0; trial < n_trials && !stop; trial++) {
 
       errors_bit_uncoded = 0;
 

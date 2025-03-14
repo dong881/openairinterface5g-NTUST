@@ -100,6 +100,10 @@ configmodule_interface_t *uniqCfg = NULL;
 
 int main(int argc, char **argv)
 {
+  stop = false;
+  __attribute__((unused)) struct sigaction oldaction;
+  sigaction(SIGINT, &sigint_action, &oldaction);
+
   int i;
   double SNR, SNR_lin, snr0 = -2.0, snr1 = 2.0;
   double snr_step = 0.1;
@@ -519,11 +523,11 @@ int main(int argc, char **argv)
 	  nr_dlsch_encoding(gNB, &msgDataTx, frame, slot, frame_parms, output, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 	}
 
-	for (SNR = snr0; SNR < snr1; SNR += snr_step) {
+	for (SNR = snr0; SNR < snr1 && !stop; SNR += snr_step) {
 		n_errors = 0;
 		n_false_positive = 0;
 
-		for (trial = 0; trial < n_trials; trial++) {
+		for (trial = 0; trial < n_trials && !stop; trial++) {
 			for (i = 0; i < available_bits; i++) {
 #ifdef DEBUG_CODER
 				if ((i&0xf)==0)

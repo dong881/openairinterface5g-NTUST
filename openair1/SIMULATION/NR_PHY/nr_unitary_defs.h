@@ -36,6 +36,17 @@
 #include "NR_ServingCellConfigCommon.h"
 #include "NR_ServingCellConfig.h"
 
+// Define signal handler to attempt graceful termination
+extern bool stop;
+
+void sigint_handler(int arg);
+
+const struct sigaction sigint_action = {
+  .sa_handler = sigint_handler,
+  // restore handler to default upon entry to the signal handler
+  .sa_flags = SA_RESETHAND
+};
+
 int oai_exit=0;
 
 void exit_function(const char* file, const char* function, const int line, const char *s, const int assert) {

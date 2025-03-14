@@ -166,6 +166,10 @@ int NB_UE_INST = 1;
 configmodule_interface_t *uniqCfg = NULL;
 int main(int argc, char *argv[])
 {
+  stop = false;
+  __attribute__((unused)) struct sigaction oldaction;
+  sigaction(SIGINT, &sigint_action, &oldaction);
+
   FILE *csv_file = NULL;
   char *filename_csv = NULL;
   int i;
@@ -973,7 +977,7 @@ int main(int argc, char *argv[])
   //---------------
   int ret = 1;
   int srs_ret = do_SRS;
-  for (SNR = snr0; SNR <= snr1; SNR += snr_step) {
+  for (SNR = snr0; SNR <= snr1 && !stop; SNR += snr_step) {
 
     varArray_t *table_rx=initVarArray(1000,sizeof(double));
     int error_flag = 0;
@@ -1012,13 +1016,13 @@ int main(int argc, char *argv[])
     int64_t sum_srs_snr = 0;
     int srs_snr_count = 0;
 
-    for (trial = 0; trial < n_trials; trial++) {
+    for (trial = 0; trial < n_trials && !stop; trial++) {
 
       uint8_t round = 0;
       crc_status = 1;
       errors_decoding = 0;
 
-      while (round < max_rounds && crc_status) {
+      while (round < max_rounds && crc_status && !stop) {
 
         round_trials[round]++;
         rv_index = nr_get_rv(round % 4);

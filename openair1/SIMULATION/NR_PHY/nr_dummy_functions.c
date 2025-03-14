@@ -5,6 +5,16 @@
 #include "openair1/PHY/defs_nr_UE.h"
 #include "position_interface.h"
 
+// Define signal handler to attempt graceful termination
+bool stop = false;
+
+void sigint_handler(int arg) {
+  static const char msg[] = "\nCaught SIGINT, shutting down\nPress again CTRL+C to force shutdown\n";
+  __attribute__((unused)) int unused = write(STDOUT_FILENO, msg, sizeof(msg) - 1);
+
+  stop = true;
+}
+
 int oai_nfapi_dl_tti_req(nfapi_nr_dl_tti_request_t *dl_config_req) { return (0); }
 int oai_nfapi_tx_data_req(nfapi_nr_tx_data_request_t *tx_data_req) { return (0); }
 int oai_nfapi_ul_dci_req(nfapi_nr_ul_dci_request_t *ul_dci_req) { return (0); }
