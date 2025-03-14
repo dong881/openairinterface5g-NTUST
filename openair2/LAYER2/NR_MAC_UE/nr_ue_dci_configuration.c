@@ -415,6 +415,8 @@ void get_monitoring_period_offset(const NR_SearchSpace_t *ss, int *period, int *
 
 bool is_ss_monitor_occasion(const int frame, const int slot, const int slots_per_frame, const NR_SearchSpace_t *ss)
 {
+  if (!ss)
+    return false;
   const int duration = ss->duration ? *ss->duration : 1;
   bool monitor = false;
   int period, offset;
