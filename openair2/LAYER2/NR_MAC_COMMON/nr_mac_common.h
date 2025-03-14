@@ -290,33 +290,6 @@ bool set_ul_ptrs_values(NR_PTRS_UplinkConfig_t *ul_ptrs_config,
 @returns                   transformPrecoding value */
 long get_transformPrecoding(const NR_UE_UL_BWP_t *current_UL_BWP, nr_dci_format_t dci_format, uint8_t configuredGrant);
 
-uint8_t number_of_bits_set(uint8_t buf);
-
-void compute_rsrp_bitlen(struct NR_CSI_ReportConfig *csi_reportconfig,
-                         uint8_t nb_resources,
-                         nr_csi_report_t *csi_report);
-
-uint8_t compute_ri_bitlen(struct NR_CSI_ReportConfig *csi_reportconfig,
-                          nr_csi_report_t *csi_report);
-
-void compute_li_bitlen(struct NR_CSI_ReportConfig *csi_reportconfig,
-                       uint8_t ri_restriction,
-                       nr_csi_report_t *csi_report);
-
-void get_n1n2_o1o2_singlepanel(int *n1, int *n2, int *o1, int *o2,
-                               struct NR_CodebookConfig__codebookType__type1__subType__typeI_SinglePanel__nrOfAntennaPorts__moreThanTwo *morethantwo);
-
-void get_x1x2_bitlen_singlepanel(int n1, int n2, int o1, int o2,
-                                 int *x1, int *x2, int rank, int codebook_mode);
-
-void compute_pmi_bitlen(struct NR_CSI_ReportConfig *csi_reportconfig,
-                        uint8_t ri_restriction,
-                        nr_csi_report_t *csi_report);
-
-void compute_cqi_bitlen(struct NR_CSI_ReportConfig *csi_reportconfig,
-                        uint8_t ri_restriction,
-                        nr_csi_report_t *csi_report);
-
 void compute_csi_bitlen(const NR_CSI_MeasConfig_t *csi_MeasConfig, nr_csi_report_t *csi_report_template);
 
 uint16_t nr_get_csi_bitlen(nr_csi_report_t *csi_report);
