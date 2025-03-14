@@ -476,7 +476,7 @@ void read_rc_setup_sm(void* data)
   DevAssert(ret == 0);
 }
 
-static seq_ran_param_t fill_rrc_state_change_seq_ran(const rc_sm_rrc_state_e rrc_state)
+static seq_ran_param_t fill_rrc_state_change_seq_ran(const rrc_state_e2sm_rc_e rrc_state)
 {
   seq_ran_param_t seq_ran_param = {0};
 
@@ -490,7 +490,7 @@ static seq_ran_param_t fill_rrc_state_change_seq_ran(const rc_sm_rrc_state_e rrc
   return seq_ran_param;
 }
 
-static rc_ind_data_t* fill_ue_rrc_state_change(const gNB_RRC_UE_t *rrc_ue_context, const rc_sm_rrc_state_e rrc_state)
+static rc_ind_data_t* fill_ue_rrc_state_change(const gNB_RRC_UE_t *rrc_ue_context, const rrc_state_e2sm_rc_e rrc_state)
 {
   rc_ind_data_t* rc_ind = calloc(1, sizeof(rc_ind_data_t));
   assert(rc_ind != NULL && "Memory exhausted");
@@ -531,13 +531,13 @@ static void send_aper_ric_ind(const uint32_t ric_req_id, rc_ind_data_t* rc_ind_d
   printf("[E2 AGENT] Event for RIC request ID %d generated\n", ric_req_id);
 }
 
-static void check_rrc_state(const gNB_RRC_UE_t *rrc_ue_context, const rc_sm_rrc_state_e rrc_state, const uint32_t ric_req_id, const e2sm_rc_ev_trg_frmt_4_t *frmt_4)
+static void check_rrc_state(const gNB_RRC_UE_t *rrc_ue_context, const rrc_state_e2sm_rc_e rrc_state, const uint32_t ric_req_id, const e2sm_rc_ev_trg_frmt_4_t *frmt_4)
 {
   for (size_t i = 0; i < frmt_4->sz_ue_info_chng; i++) {
     const rrc_state_lst_t *rrc_elem = &frmt_4->ue_info_chng[i].rrc_state;
     for (size_t j = 0; j < rrc_elem->sz_rrc_state; j++) {
       const rrc_state_e2sm_rc_e ev_tr_rrc_state = rrc_elem->state_chng_to[j].state_chngd_to;
-      if (ev_tr_rrc_state == (rrc_state_e2sm_rc_e)rrc_state || ev_tr_rrc_state == ANY_RRC_STATE_E2SM_RC) {
+      if (ev_tr_rrc_state == rrc_state || ev_tr_rrc_state == ANY_RRC_STATE_E2SM_RC) {
         rc_ind_data_t* rc_ind_data = fill_ue_rrc_state_change(rrc_ue_context, rrc_state);
         send_aper_ric_ind(ric_req_id, rc_ind_data);
       }
@@ -545,7 +545,7 @@ static void check_rrc_state(const gNB_RRC_UE_t *rrc_ue_context, const rc_sm_rrc_
   }
 }
 
-void signal_rrc_state_changed_to(const gNB_RRC_UE_t *rrc_ue_context, const rc_sm_rrc_state_e rrc_state)
+void signal_rrc_state_changed_to(const gNB_RRC_UE_t *rrc_ue_context, const rrc_state_e2sm_rc_e rrc_state)
 {
   pthread_mutex_lock(&rc_mutex);
   if (rc_subs_data.rs4_param202.data == NULL) {
