@@ -79,7 +79,7 @@ void nr_ulsch_compute_llr(int32_t *rxdataF_comp,
  * Output:
  *   stream0_out: Output LLRs for 1st stream
  */
-void nr_ulsch_qpsk_qpsk(c16_t *stream0_in, c16_t *stream1_in, c16_t *stream0_out, c16_t *rho01, uint32_t length)
+void nr_ulsch_qpsk_qpsk(c16_t *stream0_in, c16_t *stream1_in, int16_t *stream0_out, c16_t *rho01, uint32_t length)
 {
 #ifdef USE_128BIT
   simde__m128i *rho01_128i = (simde__m128i *)rho01;
@@ -610,7 +610,7 @@ void nr_ulsch_qam16_qam16(c16_t *stream0_in,
                           c16_t *stream1_in,
                           c16_t *ch_mag,
                           c16_t *ch_mag_i,
-                          c16_t *stream0_out,
+                          int16_t *stream0_out,
                           c16_t *rho01,
                           uint32_t length)
 {
@@ -1076,7 +1076,7 @@ void nr_ulsch_qam64_qam64(c16_t *stream0_in,
                           c16_t *stream1_in,
                           c16_t *ch_mag,
                           c16_t *ch_mag_i,
-                          c16_t *stream0_out,
+                          int16_t *stream0_out,
                           c16_t *rho01,
                           uint32_t length)
 {
@@ -1415,15 +1415,13 @@ void nr_ulsch_qam64_qam64(c16_t *stream0_in,
     simde__m128i y2i = simde_mm_subs_epi16(logmax_num_re0, logmax_den_re0);
 
     // Map to output stream, difficult to do in SIMD since we have 6 16bit LLRs
-    int idx0 = 12 * i;
     for (int re = 0; re < 8; re++) {
-      stream0_out[idx0 + 0].r = ((short *)&y0r)[re];
-      stream0_out[idx0 + 0].i = ((short *)&y1r)[re];
-      stream0_out[idx0 + 1].r = ((short *)&y2r)[re];
-      stream0_out[idx0 + 1].i = ((short *)&y0i)[re];
-      stream0_out[idx0 + 2].r = ((short *)&y1i)[re];
-      stream0_out[idx0 + 2].i = ((short *)&y2i)[re];
-      idx0 += 3;
+      *stream0_out++ = ((short *)&y0r)[re];
+      *stream0_out++ = ((short *)&y1r)[re];
+      *stream0_out++ = ((short *)&y2r)[re];
+      *stream0_out++ = ((short *)&y0i)[re];
+      *stream0_out++ = ((short *)&y1i)[re];
+      *stream0_out++ = ((short *)&y2i)[re];
     }
   }
 #else
@@ -1763,36 +1761,39 @@ void nr_ulsch_qam64_qam64(c16_t *stream0_in,
     simde__m256i y2i = simde_mm256_subs_epi16(logmax_num_re0, logmax_den_re0);
 
     // Map to output stream, difficult to do in SIMD since we have 6 16bit LLRs
-    int idx0 = 24 * i;
     for (int re = 0; re < 16; re++) {
-      stream0_out[idx0 + 0].r = ((short *)&y0r)[re];
-      stream0_out[idx0 + 0].i = ((short *)&y1r)[re];
-      stream0_out[idx0 + 1].r = ((short *)&y2r)[re];
-      stream0_out[idx0 + 1].i = ((short *)&y0i)[re];
-      stream0_out[idx0 + 2].r = ((short *)&y1i)[re];
-      stream0_out[idx0 + 2].i = ((short *)&y2i)[re];
-      idx0 += 3;
+      *stream0_out++ = ((short *)&y0r)[re];
+      *stream0_out++ = ((short *)&y1r)[re];
+      *stream0_out++ = ((short *)&y2r)[re];
+      *stream0_out++ = ((short *)&y0i)[re];
+      *stream0_out++ = ((short *)&y1i)[re];
+      *stream0_out++ = ((short *)&y2i)[re];
     }
   }
 #endif
 }
 
-static void nr_ulsch_shift_llr(int16_t **llr_layers, uint32_t nb_re, uint32_t rxdataF_ext_offset, uint8_t mod_order, int shift)
+static void nr_ulsch_shift_llr(int16_t *llr_layer0,
+                               int16_t *llr_layer1,
+                               uint32_t nb_re,
+                               uint32_t rxdataF_ext_offset,
+                               uint8_t mod_order,
+                               int shift)
 {
-  simde__m128i *llr_layers0 = (simde__m128i *)&llr_layers[0][rxdataF_ext_offset * mod_order];
-  simde__m128i *llr_layers1 = (simde__m128i *)&llr_layers[1][rxdataF_ext_offset * mod_order];
+  simde__m128i *llr_layers0 = (simde__m128i *)llr_layer0;
+  simde__m128i *llr_layers1 = (simde__m128i *)llr_layer1;
 
   uint8_t mem_offset = ((16 - ((long)llr_layers0)) & 0xF) >> 2;
 
   if (mem_offset > 0) {
-    c16_t *llr_layers0_c16 = (c16_t *)&llr_layers[0][rxdataF_ext_offset * mod_order];
-    c16_t *llr_layers1_c16 = (c16_t *)&llr_layers[1][rxdataF_ext_offset * mod_order];
+    c16_t *llr_layers0_c16 = (c16_t *)llr_layer0;
+    c16_t *llr_layers1_c16 = (c16_t *)llr_layer1;
     for (int i = 0; i < mem_offset; i++) {
       llr_layers0_c16[i] = c16Shift(llr_layers0_c16[i], shift);
       llr_layers1_c16[i] = c16Shift(llr_layers1_c16[i], shift);
     }
-    llr_layers0 = (simde__m128i *)&llr_layers[0][rxdataF_ext_offset * mod_order + (mem_offset << 1)];
-    llr_layers1 = (simde__m128i *)&llr_layers[1][rxdataF_ext_offset * mod_order + (mem_offset << 1)];
+    llr_layers0 = (simde__m128i *)&llr_layer0[mem_offset * 2];
+    llr_layers1 = (simde__m128i *)&llr_layer1[mem_offset * 2];
   }
 
   for (int i = 0; i < nb_re >> 2; i++) {
@@ -1803,14 +1804,14 @@ static void nr_ulsch_shift_llr(int16_t **llr_layers, uint32_t nb_re, uint32_t rx
 
 void nr_ulsch_compute_ML_llr(NR_gNB_PUSCH *pusch_vars,
                              uint32_t symbol,
-                             c16_t* rxdataF_comp0,
-                             c16_t* rxdataF_comp1,
-                             c16_t* ul_ch_mag0,
-                             c16_t* ul_ch_mag1,
-                             c16_t* llr_layers0,
-                             c16_t* llr_layers1,
-                             c16_t* rho0,
-                             c16_t* rho1,
+                             c16_t *rxdataF_comp0,
+                             c16_t *rxdataF_comp1,
+                             c16_t *ul_ch_mag0,
+                             c16_t *ul_ch_mag1,
+                             int16_t *llr_layers0,
+                             int16_t *llr_layers1,
+                             c16_t *rho0,
+                             c16_t *rho1,
                              uint32_t nb_re,
                              uint8_t mod_order)
 {
@@ -1818,7 +1819,7 @@ void nr_ulsch_compute_ML_llr(NR_gNB_PUSCH *pusch_vars,
     case 2:
       nr_ulsch_qpsk_qpsk(rxdataF_comp0, rxdataF_comp1, llr_layers0, rho0, nb_re);
       nr_ulsch_qpsk_qpsk(rxdataF_comp1, rxdataF_comp0, llr_layers1, rho1, nb_re);
-      nr_ulsch_shift_llr(pusch_vars->llr_layers, nb_re, pusch_vars->llr_offset[symbol] >> 1, 2, 4);
+      nr_ulsch_shift_llr((int16_t *)llr_layers0, (int16_t *)llr_layers1, nb_re, pusch_vars->llr_offset[symbol] >> 1, 2, 4);
       break;
     case 4:
       nr_ulsch_qam16_qam16(rxdataF_comp0, rxdataF_comp1, ul_ch_mag0, ul_ch_mag1, llr_layers0, rho0, nb_re);

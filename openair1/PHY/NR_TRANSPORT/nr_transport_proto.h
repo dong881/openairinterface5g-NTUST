@@ -239,14 +239,14 @@ void reset_active_ulsch(PHY_VARS_gNB *gNB, int frame);
 
 void nr_ulsch_compute_ML_llr(NR_gNB_PUSCH *pusch_vars,
                              uint32_t symbol,
-                             c16_t* rxdataF_comp0,
-                             c16_t* rxdataF_comp1,
-                             c16_t* ul_ch_mag0,
-                             c16_t* ul_ch_mag1,
-                             c16_t* llr_layers0,
-                             c16_t* llr_layers1,
-                             c16_t* rho0,
-                             c16_t* rho1,
+                             c16_t *rxdataF_comp0,
+                             c16_t *rxdataF_comp1,
+                             c16_t *ul_ch_mag0,
+                             c16_t *ul_ch_mag1,
+                             int16_t *llr_layers0,
+                             int16_t *llr_layers1,
+                             c16_t *rho0,
+                             c16_t *rho1,
                              uint32_t nb_re,
                              uint8_t mod_order);
 

@@ -1030,8 +1030,8 @@ static void inner_rx(PHY_VARS_gNB *gNB,
   c16_t rxFext[nb_rx_ant][buffer_length] __attribute__((aligned(32)));
   c16_t chFext[nb_layer][nb_rx_ant][buffer_length] __attribute__((aligned(32)));
 
-  memset(rxFext, 0, sizeof(c16_t) * nb_rx_ant * buffer_length);
-  memset(chFext, 0, sizeof(c16_t) * nb_layer * nb_rx_ant* buffer_length);
+  memset(rxFext, 0, sizeof(rxFext));
+  memset(chFext, 0, sizeof(chFext));
   int dmrs_symbol;
   if (gNB->chest_time == 0)
     dmrs_symbol = dmrs_symbol_flag ? symbol : get_valid_dmrs_idx_for_channel_est(rel15_ul->ul_dmrs_symb_pos, symbol);
@@ -1059,10 +1059,10 @@ static void inner_rx(PHY_VARS_gNB *gNB,
   c16_t rxF_ch_magb  [nb_layer][buffer_length] __attribute__((aligned(32)));
   c16_t rxF_ch_magc  [nb_layer][buffer_length] __attribute__((aligned(32)));
 
-  memset(rho, 0, sizeof(c16_t) * nb_layer * nb_layer* buffer_length);
-  memset(rxF_ch_maga, 0, sizeof(c16_t) * nb_layer * buffer_length);
-  memset(rxF_ch_magb, 0, sizeof(c16_t) * nb_layer * buffer_length);
-  memset(rxF_ch_magc, 0, sizeof(c16_t) * nb_layer * buffer_length);
+  memset(rho, 0, sizeof(rho));
+  memset(rxF_ch_maga, 0, sizeof(rxF_ch_maga));
+  memset(rxF_ch_magb, 0, sizeof(rxF_ch_magb));
+  memset(rxF_ch_magc, 0, sizeof(rxF_ch_magc));
   for (int i = 0; i < nb_layer; i++)
     memset(&pusch_vars->rxdataF_comp[i*nb_rx_ant][symbol * buffer_length], 0, sizeof(int32_t) * buffer_length);
 
@@ -1105,12 +1105,12 @@ static void inner_rx(PHY_VARS_gNB *gNB,
     if (rel15_ul->qam_mod_order <= 6) {
       nr_ulsch_compute_ML_llr(pusch_vars,
                               symbol,
-                              (c16_t*)&pusch_vars->rxdataF_comp[0][symbol * buffer_length],
-                              (c16_t*)&pusch_vars->rxdataF_comp[nb_rx_ant][symbol * buffer_length],
+                              (c16_t *)&pusch_vars->rxdataF_comp[0][symbol * buffer_length],
+                              (c16_t *)&pusch_vars->rxdataF_comp[nb_rx_ant][symbol * buffer_length],
                               rxF_ch_maga[0],
                               rxF_ch_maga[1],
-                              (c16_t*)&llr[0][pusch_vars->llr_offset[symbol]],
-                              (c16_t*)&llr[1][pusch_vars->llr_offset[symbol]],
+                              llr[0],
+                              llr[1],
                               rho[0][1],
                               rho[1][0],
                               pusch_vars->ul_valid_re_per_slot[symbol],
@@ -1134,15 +1134,15 @@ static void inner_rx(PHY_VARS_gNB *gNB,
     }
   }
   if (nb_layer != 2 || rel15_ul->qam_mod_order > 6)
-    for (int aatx = 0; aatx < nb_layer; aatx++) 
-      nr_ulsch_compute_llr((int32_t*)&pusch_vars->rxdataF_comp[aatx * nb_rx_ant][symbol * buffer_length],
-                          (int32_t*)rxF_ch_maga[aatx],
-                          (int32_t*)rxF_ch_magb[aatx],
-                          (int32_t*)rxF_ch_magc[aatx],
-                          &llr[aatx][pusch_vars->llr_offset[symbol]],
-                          pusch_vars->ul_valid_re_per_slot[symbol],
-                          symbol,
-                          rel15_ul->qam_mod_order);
+    for (int aatx = 0; aatx < nb_layer; aatx++)
+      nr_ulsch_compute_llr((int32_t *)&pusch_vars->rxdataF_comp[aatx * nb_rx_ant][symbol * buffer_length],
+                           (int32_t *)rxF_ch_maga[aatx],
+                           (int32_t *)rxF_ch_magb[aatx],
+                           (int32_t *)rxF_ch_magc[aatx],
+                           llr[aatx],
+                           pusch_vars->ul_valid_re_per_slot[symbol],
+                           symbol,
+                           rel15_ul->qam_mod_order);
 }
 
 typedef struct puschSymbolProc_s {
@@ -1154,7 +1154,6 @@ typedef struct puschSymbolProc_s {
   int startSymbol;
   int numSymbols;
   int16_t *llr;
-  int16_t **llr_layers;
   int16_t *scramblingSequence;
   uint32_t nvar;
   int beam_nb;
@@ -1175,6 +1174,12 @@ static void nr_pusch_symbol_processing(void *arg)
     if (gNB->pusch_vars[ulsch_id].ul_valid_re_per_slot[symbol] == 0) 
       continue;
     int soffset = (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size;
+    int buffer_length = ceil_mod(pusch_vars->ul_valid_re_per_slot[symbol] * NR_NB_SC_PER_RB, 16);
+    int16_t llrs[rel15_ul->nrOfLayers][ceil_mod(buffer_length * rel15_ul->qam_mod_order, 64)];
+    int16_t *llrss[rel15_ul->nrOfLayers];
+    for (int l = 0; l < rel15_ul->nrOfLayers; l++)
+      llrss[l] = llrs[l];
+
     inner_rx(gNB,
              ulsch_id,
              slot,
@@ -1182,8 +1187,8 @@ static void nr_pusch_symbol_processing(void *arg)
              pusch_vars,
              rel15_ul,
              gNB->common_vars.rxdataF[rdata->beam_nb],
-             (c16_t**)gNB->pusch_vars[ulsch_id].ul_ch_estimates,
-             rdata->llr_layers,
+             (c16_t **)gNB->pusch_vars[ulsch_id].ul_ch_estimates,
+             llrss,
              soffset,
              gNB->pusch_vars[ulsch_id].ul_valid_re_per_slot[symbol],
              symbol,
@@ -1192,13 +1197,14 @@ static void nr_pusch_symbol_processing(void *arg)
 
     int nb_re_pusch = gNB->pusch_vars[ulsch_id].ul_valid_re_per_slot[symbol];
     // layer de-mapping
-    int16_t* llr_ptr = &rdata->llr_layers[0][pusch_vars->llr_offset[symbol]];
+    int16_t *llr_ptr = llrs[0];
     if (rel15_ul->nrOfLayers != 1) {
       llr_ptr = &rdata->llr[pusch_vars->llr_offset[symbol] * rel15_ul->nrOfLayers];
-      for (int i = 0; i < (nb_re_pusch); i++) 
-        for (int l = 0; l < rel15_ul->nrOfLayers; l++) 
-          for (int m = 0; m < rel15_ul->qam_mod_order; m++) 
-            llr_ptr[i*rel15_ul->nrOfLayers*rel15_ul->qam_mod_order+l*rel15_ul->qam_mod_order+m] = rdata->llr_layers[l][pusch_vars->llr_offset[symbol] + i*rel15_ul->qam_mod_order+m];
+      for (int i = 0; i < (nb_re_pusch); i++)
+        for (int l = 0; l < rel15_ul->nrOfLayers; l++)
+          for (int m = 0; m < rel15_ul->qam_mod_order; m++)
+            llr_ptr[i * rel15_ul->nrOfLayers * rel15_ul->qam_mod_order + l * rel15_ul->qam_mod_order + m] =
+                llrss[l][i * rel15_ul->qam_mod_order + m];
     }
     // unscrambling
     int16_t *llr16 = (int16_t*)&rdata->llr[pusch_vars->llr_offset[symbol] * rel15_ul->nrOfLayers];
@@ -1499,7 +1505,6 @@ int nr_rx_pusch_tp(PHY_VARS_gNB *gNB,
       rdata->numSymbols = task_index == loop_iter - 1 ? rel15_ul->nr_of_symbols - (loop_iter - 1) * numSymbols : numSymbols;
       rdata->ulsch_id = ulsch_id;
       rdata->llr = pusch_vars->llr;
-      rdata->llr_layers = pusch_vars->llr_layers;
       rdata->scramblingSequence = scramblingSequence;
       rdata->nvar = nvar;
       rdata->beam_nb = beam_nb;

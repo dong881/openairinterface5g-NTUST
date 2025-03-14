@@ -1326,13 +1326,6 @@ int main(int argc, char *argv[])
                 1,
                 1);
 
-          LOG_M("rxsigF0_llrlayers0.m",
-                "rxsF0_llrlayers0",
-                &pusch_vars->llr_layers[0][0],
-                (nb_symb_sch - 1) * NR_NB_SC_PER_RB * pusch_pdu->rb_size * mod_order,
-                1,
-                0);
-
           if (precod_nbr_layers == 2) {
 
             LOG_M("chestF3.m",
@@ -1348,13 +1341,6 @@ int main(int argc, char *argv[])
                   nb_symb_sch * (off + (NR_NB_SC_PER_RB * pusch_pdu->rb_size)),
                   1,
                   1);
-
-            LOG_M("rxsigF0_llrlayers1.m",
-                  "rxsF0_llrlayers1",
-                  &pusch_vars->llr_layers[1][0],
-                  (nb_symb_sch - 1) * NR_NB_SC_PER_RB * pusch_pdu->rb_size * mod_order,
-                  1,
-                  0);
           }
 
           if (precod_nbr_layers == 4) {
@@ -1396,24 +1382,6 @@ int main(int argc, char *argv[])
                   nb_symb_sch * (off + (NR_NB_SC_PER_RB * pusch_pdu->rb_size)),
                   1,
                   1);
-            LOG_M("rxsigF0_llrlayers1.m",
-                  "rxsF0_llrlayers1",
-                  &pusch_vars->llr_layers[1][0],
-                  (nb_symb_sch - 1) * NR_NB_SC_PER_RB * pusch_pdu->rb_size * mod_order,
-                  1,
-                  0);
-            LOG_M("rxsigF0_llrlayers2.m",
-                  "rxsF0_llrlayers2",
-                  &pusch_vars->llr_layers[2][0],
-                  (nb_symb_sch - 1) * NR_NB_SC_PER_RB * pusch_pdu->rb_size * mod_order,
-                  1,
-                  0);
-            LOG_M("rxsigF0_llrlayers3.m",
-                  "rxsF0_llrlayers3",
-                  &pusch_vars->llr_layers[3][0],
-                  (nb_symb_sch - 1) * NR_NB_SC_PER_RB * pusch_pdu->rb_size * mod_order,
-                  1,
-                  0);
           }
 
           LOG_M("rxsigF0_llr.m",

@@ -318,10 +318,6 @@ typedef struct {
   /// \brief llr values.
   /// - first index: ? [0..1179743] (hard coded)
   int16_t *llr;
-  /// \brief llr values per layer.
-  /// - first index: ? [0..3] (hard coded)
-  /// - first index: ? [0..1179743] (hard coded)
-  int16_t **llr_layers;
   // PTRS symbol index, to be updated every PTRS symbol within a slot.
   uint8_t ptrs_symbol_index;
   /// bit mask of PT-RS ofdm symbol indicies
