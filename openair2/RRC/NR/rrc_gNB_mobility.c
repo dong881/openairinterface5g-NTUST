@@ -36,6 +36,10 @@
 #include "openair3/SECU/key_nas_deriver.h"
 #include "openair2/RRC/NR/rrc_gNB_NGAP.h"
 
+#ifdef E2_AGENT
+#include "openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_rc_extern.h"
+#endif
+
 typedef enum { HO_CTX_BOTH, HO_CTX_SOURCE, HO_CTX_TARGET } ho_ctx_type_t;
 static nr_handover_context_t *alloc_ho_ctx(ho_ctx_type_t type)
 {
@@ -242,6 +246,12 @@ static void rrc_gNB_trigger_reconfiguration_for_handover(gNB_RRC_INST *rrc, gNB_
                        (unsigned char *const)rrc_reconf,
                        rrc_deliver_ue_ctxt_modif_req,
                        &data);
+#ifdef E2_AGENT
+  uint32_t message_id = NR_DL_DCCH_MessageType__c1_PR_rrcReconfiguration;
+  byte_array_t buffer_ba = {.len = rrc_reconf_len};
+  buffer_ba.buf = rrc_reconf;
+  signal_rrc_msg(DL_DCCH_NR_RRC_CLASS, message_id, buffer_ba);
+#endif
 }
 
 static void nr_rrc_f1_ho_acknowledge(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, uint8_t *rrc_reconf_buf, uint32_t rrc_reconf_len)

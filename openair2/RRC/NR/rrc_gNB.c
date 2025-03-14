@@ -97,6 +97,12 @@
 
 #ifdef E2_AGENT
 #include "openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_rc_extern.h"
+#define E2_AGENT_SIGNAL_DL_DCCH_RRC_MSG(BUF, LEN, ID)    \
+  do {                                                   \
+    byte_array_t buffer_ba = {.len = LEN};               \
+    buffer_ba.buf = (uint8_t *)BUF;                      \
+    signal_rrc_msg(DL_DCCH_NR_RRC_CLASS, ID, buffer_ba); \
+  } while (0)
 #endif
 
 mui_t rrc_gNB_mui = 0;
@@ -187,6 +193,7 @@ static void rrc_deliver_dl_rrc_message(void *deliver_pdu_data, ue_id_t ue_id, in
 void nr_rrc_transfer_protected_rrc_message(const gNB_RRC_INST *rrc,
                                            const gNB_RRC_UE_t *ue_p,
                                            uint8_t srb_id,
+                                           const uint32_t message_id,
                                            const uint8_t *buffer,
                                            int size)
 {
@@ -202,6 +209,10 @@ void nr_rrc_transfer_protected_rrc_message(const gNB_RRC_INST *rrc,
                        (unsigned char *const)buffer,
                        rrc_deliver_dl_rrc_message,
                        &data);
+
+#ifdef E2_AGENT
+  E2_AGENT_SIGNAL_DL_DCCH_RRC_MSG(buffer, size, message_id);
+#endif
 }
 
 ///---------------------------------------------------------------------------------------------------------------///
@@ -571,7 +582,8 @@ static void rrc_gNB_generate_dedicatedRRCReconfiguration(gNB_RRC_INST *rrc, gNB_
   DevAssert(size > 0 && size <= sizeof(buffer));
 
   LOG_UE_DL_EVENT(ue_p, "Generate RRCReconfiguration (bytes %d, xid %d)\n", size, xid);
-  nr_rrc_transfer_protected_rrc_message(rrc, ue_p, DL_SCH_LCID_DCCH, buffer, size);
+  const uint32_t msg_id = NR_DL_DCCH_MessageType__c1_PR_rrcReconfiguration;
+  nr_rrc_transfer_protected_rrc_message(rrc, ue_p, DL_SCH_LCID_DCCH, msg_id, buffer, size);
 }
 
 void rrc_gNB_modify_dedicatedRRCReconfiguration(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue_p)
@@ -680,7 +692,8 @@ void rrc_gNB_modify_dedicatedRRCReconfiguration(gNB_RRC_INST *rrc, gNB_RRC_UE_t 
     clear_nas_pdu(&ue_p->pduSession[i].param.nas_pdu);
 
   LOG_I(NR_RRC, "UE %d: Generate RRCReconfiguration (bytes %d)\n", ue_p->rrc_ue_id, size);
-  nr_rrc_transfer_protected_rrc_message(rrc, ue_p, DL_SCH_LCID_DCCH, buffer, size);
+  const uint32_t msg_id = NR_DL_DCCH_MessageType__c1_PR_rrcReconfiguration;
+  nr_rrc_transfer_protected_rrc_message(rrc, ue_p, DL_SCH_LCID_DCCH, msg_id, buffer, size);
 }
 
 //-----------------------------------------------------------------------------
@@ -732,7 +745,8 @@ void rrc_gNB_generate_dedicatedRRCReconfiguration_release(gNB_RRC_INST *rrc,
   }
 
   LOG_I(NR_RRC, "UE %d: Generate NR_RRCReconfiguration (bytes %d)\n", ue_p->rrc_ue_id, size);
-  nr_rrc_transfer_protected_rrc_message(rrc, ue_p, DL_SCH_LCID_DCCH, buffer, size);
+  const uint32_t msg_id = NR_DL_DCCH_MessageType__c1_PR_rrcReconfiguration;
+  nr_rrc_transfer_protected_rrc_message(rrc, ue_p, DL_SCH_LCID_DCCH, msg_id, buffer, size);
 }
 
 static void fill_security_info(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, security_information_t *secInfo)
@@ -887,6 +901,10 @@ static void rrc_gNB_generate_RRCReestablishment(rrc_gNB_ue_context_t *ue_context
   deliver_dl_rrc_message_data_t data = {.rrc = rrc, .dl_rrc = &dl_rrc, .assoc_id = ue_data.du_assoc_id};
   nr_pdcp_data_req_srb(ue_p->rrc_ue_id, DL_SCH_LCID_DCCH, rrc_gNB_mui++, size, (unsigned char *const)buffer, rrc_deliver_dl_rrc_message, &data);
 
+#ifdef E2_AGENT
+  E2_AGENT_SIGNAL_DL_DCCH_RRC_MSG(buffer, size, NR_DL_DCCH_MessageType__c1_PR_rrcReestablishment);
+#endif
+
   /* RRCReestablishment has been generated, let's enable ciphering now. */
   security_parameters.ciphering_algorithm = ue_p->ciphering_algorithm;
   /* SRBs */
@@ -987,7 +1005,8 @@ static void rrc_gNB_process_RRCReestablishmentComplete(gNB_RRC_INST *rrc, gNB_RR
         ue_p->rrc_ue_id,
         ue_p->rnti,
         size);
-  nr_rrc_transfer_protected_rrc_message(rrc, ue_p, DL_SCH_LCID_DCCH, buffer, size);
+  const uint32_t msg_id = NR_DL_DCCH_MessageType__c1_PR_rrcReconfiguration;
+  nr_rrc_transfer_protected_rrc_message(rrc, ue_p, DL_SCH_LCID_DCCH, msg_id, buffer, size);
 }
 //-----------------------------------------------------------------------------
 
@@ -1008,7 +1027,8 @@ int nr_rrc_reconfiguration_req(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue_p, const int 
   uint8_t buffer[NR_RRC_BUF_SIZE];
   int size = do_RRCReconfiguration(ue_p, buffer, NR_RRC_BUF_SIZE, xid, NULL, NULL, NULL, NULL, NULL, NULL, masterCellGroup);
 
-  nr_rrc_transfer_protected_rrc_message(rrc, ue_p, DL_SCH_LCID_DCCH, buffer, size);
+  const uint32_t msg_id = NR_DL_DCCH_MessageType__c1_PR_rrcReconfiguration;
+  nr_rrc_transfer_protected_rrc_message(rrc, ue_p, DL_SCH_LCID_DCCH, msg_id, buffer, size);
 
   return 0;
 }
@@ -1442,7 +1462,8 @@ void rrc_forward_ue_nas_message(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
   uint32_t length = do_NR_DLInformationTransfer(buffer, sizeof(buffer), xid, UE->nas_pdu.length, UE->nas_pdu.buffer);
   LOG_DUMPMSG(NR_RRC, DEBUG_RRC, buffer, length, "[MSG] RRC DL Information Transfer\n");
   rb_id_t srb_id = UE->Srb[2].Active ? DL_SCH_LCID_DCCH1 : DL_SCH_LCID_DCCH;
-  nr_rrc_transfer_protected_rrc_message(rrc, UE, srb_id, buffer, length);
+  const uint32_t msg_id = NR_DL_DCCH_MessageType__c1_PR_dlInformationTransfer;
+  nr_rrc_transfer_protected_rrc_message(rrc, UE, srb_id, msg_id, buffer, length);
   // no need to free UE->nas_pdu.buffer, do_NR_DLInformationTransfer() did that
   UE->nas_pdu.buffer = NULL;
   UE->nas_pdu.length = 0;
@@ -1698,7 +1719,8 @@ static void rrc_gNB_generate_UECapabilityEnquiry(gNB_RRC_INST *rrc, gNB_RRC_UE_t
 
   AssertFatal(!NODE_IS_DU(rrc->node_type), "illegal node type DU!\n");
 
-  nr_rrc_transfer_protected_rrc_message(rrc, ue, DL_SCH_LCID_DCCH, buffer, size);
+  const uint32_t msg_id = NR_DL_DCCH_MessageType__c1_PR_ueCapabilityEnquiry;
+  nr_rrc_transfer_protected_rrc_message(rrc, ue, DL_SCH_LCID_DCCH, msg_id, buffer, size);
 }
 
 static int rrc_gNB_decode_dcch(gNB_RRC_INST *rrc, const f1ap_ul_rrc_message_t *msg)
@@ -1732,6 +1754,13 @@ static int rrc_gNB_decode_dcch(gNB_RRC_INST *rrc, const f1ap_ul_rrc_message_t *m
   }
 
   if (ul_dcch_msg->message.present == NR_UL_DCCH_MessageType_PR_c1) {
+#ifdef E2_AGENT
+    // 38.331 Sec 6.2.1: message index of UL-DCCH-Message
+    const uint32_t rrc_msg_id = ul_dcch_msg->message.choice.c1->present;
+    byte_array_t buffer_ba = {.len = msg->rrc_container_length};
+    buffer_ba.buf = msg->rrc_container;
+    signal_rrc_msg(UL_DCCH_NR_RRC_CLASS, rrc_msg_id, buffer_ba);
+#endif
     switch (ul_dcch_msg->message.choice.c1->present) {
       case NR_UL_DCCH_MessageType__c1_PR_NOTHING:
         LOG_I(NR_RRC, "Received PR_NOTHING on UL-DCCH-Message\n");
@@ -2726,7 +2755,8 @@ void rrc_gNB_generate_SecurityModeCommand(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue_p)
   LOG_DUMPMSG(NR_RRC, DEBUG_RRC, (char *)buffer, size, "[MSG] RRC Security Mode Command\n");
   LOG_I(NR_RRC, "UE %u Logical Channel DL-DCCH, Generate SecurityModeCommand (bytes %d)\n", ue_p->rrc_ue_id, size);
 
-  nr_rrc_transfer_protected_rrc_message(rrc, ue_p, DL_SCH_LCID_DCCH, buffer, size);
+  const uint32_t msg_id = NR_DL_DCCH_MessageType__c1_PR_securityModeCommand;
+  nr_rrc_transfer_protected_rrc_message(rrc, ue_p, DL_SCH_LCID_DCCH, msg_id, buffer, size);
 }
 
 //-----------------------------------------------------------------------------
@@ -2751,6 +2781,10 @@ void rrc_gNB_generate_RRCRelease(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE)
   };
   deliver_ue_ctxt_release_data_t data = {.rrc = rrc, .release_cmd = &ue_context_release_cmd, .assoc_id = ue_data.du_assoc_id};
   nr_pdcp_data_req_srb(UE->rrc_ue_id, DL_SCH_LCID_DCCH, rrc_gNB_mui++, size, buffer, rrc_deliver_ue_ctxt_release_cmd, &data);
+
+#ifdef E2_AGENT
+  E2_AGENT_SIGNAL_DL_DCCH_RRC_MSG(buffer, size, NR_DL_DCCH_MessageType__c1_PR_rrcRelease);
+#endif
 }
 
 int rrc_gNB_generate_pcch_msg(sctp_assoc_t assoc_id, const NR_SIB1_t *sib1, uint32_t tmsi, uint8_t paging_drx)
