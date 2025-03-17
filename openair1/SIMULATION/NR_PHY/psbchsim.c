@@ -45,6 +45,7 @@
 #include "PHY/MODULATION/nr_modulation.h"
 #include "NR_SL-SSB-TimeAllocation-r16.h"
 #include "nr-uesoftmodem.h"
+#include "nr_unitary_defs.h"
 
 void e1_bearer_context_setup(const e1ap_bearer_setup_req_t *req)
 {
@@ -57,12 +58,6 @@ void e1_bearer_context_modif(const e1ap_bearer_mod_req_t *req)
 void e1_bearer_release_cmd(const e1ap_bearer_release_cmd_t *cmd)
 {
   abort();
-}
-void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
-{
-  const char *msg = s == NULL ? "no comment" : s;
-  printf("Exiting at: %s:%d %s(), %s\n", file, line, function, msg);
-  exit(-1);
 }
 int8_t nr_rrc_RA_succeeded(const module_id_t mod_id, const uint8_t gNB_index)
 {
@@ -83,7 +78,6 @@ instance_t CUuniqInstance = 0;
 openair0_config_t openair0_cfg[MAX_CARDS];
 
 RAN_CONTEXT_t RC;
-int oai_exit = 0;
 char *uecap_file;
 
 void nr_rrc_ue_generate_RRCSetupRequest(module_id_t module_id, const uint8_t gNB_index)
@@ -310,6 +304,10 @@ double cpuf;
 configmodule_interface_t *uniqCfg = NULL;
 int main(int argc, char **argv)
 {
+  stop = false;
+  __attribute__((unused)) struct sigaction oldaction;
+  sigaction(SIGINT, &sigint_action, &oldaction);
+
   int test_freqdomain_loopback = 0, test_slss_search = 0;
   int frame = 5, slot = 10, frame_tx = 0, slot_tx = 0;
   int loglvl = OAILOG_INFO;
@@ -581,8 +579,8 @@ int main(int argc, char **argv)
 
   phy_procedures_nrUE_SL_TX(UE_TX, &proc, &phy_data_tx);
 
-  for (SNR = snr0; SNR >= snr1; SNR -= 1) {
-    for (int trial = 0; trial < n_trials; trial++) {
+  for (SNR = snr0; SNR >= snr1 && !stop; SNR -= 1) {
+    for (int trial = 0; trial < n_trials && !stop; trial++) {
       for (int i = 0; i < frame_length_complex_samples; i++) {
         for (int aa = 0; aa < frame_parms->nb_antennas_tx; aa++) {
           struct complex16 *txdata_ptr = (struct complex16 *)&UE_TX->common_vars.txData[aa][i];

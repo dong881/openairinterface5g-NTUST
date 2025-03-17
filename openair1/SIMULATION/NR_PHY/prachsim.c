@@ -129,6 +129,10 @@ int NB_UE_INST = 1;
 configmodule_interface_t *uniqCfg = NULL;
 int main(int argc, char **argv){
 
+  stop = false;
+  __attribute__((unused)) struct sigaction oldaction;
+  sigaction(SIGINT, &sigint_action, &oldaction);
+
   get_softmodem_params()->sl_mode = 0;
   double sigma2, sigma2_dB = 0, SNR, snr0 = -2.0, snr1 = 0.0, ue_speed0 = 0.0, ue_speed1 = 0.0;
   double **s_re, **s_im, **r_re, **r_im, iqim = 0.0, delay_avg = 0, ue_speed = 0, fs=-1, bw;
@@ -716,15 +720,15 @@ int main(int argc, char **argv){
   uint16_t preamble_rx, preamble_energy;
 
 
-  for (SNR=snr0; SNR<snr1; SNR+=.1) {
-    for (ue_speed=ue_speed0; ue_speed<ue_speed1; ue_speed+=10) {
+  for (SNR = snr0; SNR < snr1 && !stop; SNR += .1) {
+    for (ue_speed = ue_speed0; ue_speed < ue_speed1 && !stop; ue_speed += 10) {
       delay_avg = 0.0;
       // max Doppler shift
       UE2gNB->max_Doppler = 1.9076e9*(ue_speed/3.6)/3e8;
       printf("n_frames %d SNR %f\n",n_frames,SNR);
       prach_errors=0;
 
-      for (trial=0; trial<n_frames; trial++) {
+      for (trial = 0; trial < n_frames && !stop; trial++) {
 
 	if (input_fd==NULL) {
           sigma2_dB = 10*log10((double)tx_lev) - SNR - 10*log10(N_RB_UL*12/N_ZC);

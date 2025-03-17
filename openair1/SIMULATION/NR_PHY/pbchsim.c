@@ -126,6 +126,10 @@ int nr_ue_pdcch_procedures(PHY_VARS_NR_UE *ue,
 configmodule_interface_t *uniqCfg = NULL;
 int main(int argc, char **argv)
 {
+  stop = false;
+  __attribute__((unused)) struct sigaction oldaction;
+  sigaction(SIGINT, &sigint_action, &oldaction);
+
   int i,aa,start_symbol;
   double sigma2, sigma2_dB=10,SNR,snr0=-2.0,snr1=2.0;
   double cfo=0;
@@ -623,12 +627,12 @@ int main(int argc, char **argv)
   printf("txlev %d (%f)\n",txlev,10*log10(txlev));*/
 
   
-  for (SNR=snr0; SNR<snr1; SNR+=.2) {
+  for (SNR = snr0; SNR < snr1 && !stop; SNR+=.2) {
 
     n_errors = 0;
     n_errors_payload = 0;
 
-    for (trial=0; trial<n_trials; trial++) {
+    for (trial = 0; trial < n_trials && !stop; trial++) {
 
       for (i=0; i<frame_length_complex_samples; i++) {
         for (aa=0; aa<frame_parms->nb_antennas_tx; aa++) {

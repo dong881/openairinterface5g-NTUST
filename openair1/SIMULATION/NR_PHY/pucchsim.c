@@ -95,6 +95,10 @@ nrUE_params_t *get_nrUE_params(void) {
 configmodule_interface_t *uniqCfg = NULL;
 int main(int argc, char **argv)
 {
+  stop = false;
+  __attribute__((unused)) struct sigaction oldaction;
+  sigaction(SIGINT, &sigint_action, &oldaction);
+
   int i;//,l;
   double sigma2, sigma2_dB=10,SNR,snr0=-2.0,snr1=2.0;
   double cfo=0;
@@ -546,12 +550,12 @@ int main(int argc, char **argv)
   pucch_GroupHopping_t PUCCH_GroupHopping = pucch_tx_pdu.group_hop_flag + (pucch_tx_pdu.sequence_hop_flag<<1);
   double tx_level_fp = 100.0;
   c16_t **rxdataF = gNB->common_vars.rxdataF[0];
-  for(SNR = snr0; SNR <= snr1; SNR += 1) {
+  for(SNR = snr0; SNR <= snr1 && !stop; SNR += 1) {
     ack_nack_errors=0;
     sr_errors = 0;
     n_errors = 0;
     c16_t **txdataF = gNB->common_vars.txdataF[0];
-    for (trial=0; trial<n_trials; trial++) {
+    for (trial = 0; trial < n_trials && !stop; trial++) {
       for (int aatx=0;aatx<1;aatx++)
         bzero(txdataF[aatx],frame_parms->ofdm_symbol_size*sizeof(int));
       if(format==0 && do_DTX==0){
