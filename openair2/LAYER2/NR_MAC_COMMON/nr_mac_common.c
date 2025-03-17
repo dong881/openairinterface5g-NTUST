@@ -1630,7 +1630,7 @@ uint16_t get_nr_prach_format_from_index(uint8_t index, uint32_t pointa, uint8_t 
 {
   uint8_t format2 = 0xff;
   uint16_t format;
-  if (pointa > 2016666) { // FR2
+  if (get_freq_range_from_arfcn(pointa) == FR2) {
     if (table_6_3_3_2_4_prachConfig_Index[index][1] != -1)
       format2 = (uint8_t)table_6_3_3_2_4_prachConfig_Index[index][1];
     format = ((uint8_t)table_6_3_3_2_4_prachConfig_Index[index][0]) | (format2 << 8);

@@ -92,7 +92,7 @@ static int16_t ssb_index_from_prach(module_id_t module_idP,
     msgacc = scc->uplinkConfigCommon->initialUplinkBWP->ext1->msgA_ConfigCommon_r16->choice.setup;
   const int ul_mu = scc->uplinkConfigCommon->frequencyInfoUL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing;
   const int mu = nr_get_prach_or_ul_mu(msgacc, rach_ConfigCommon, ul_mu);
-  frequency_range_t freq_range = scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencyPointA > 2016666 ? FR2 : FR1;
+  frequency_range_t freq_range = get_freq_range_from_arfcn(scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencyPointA);
   get_nr_prach_sched_from_info(cc->prach_info, config_index, frameP, slotP, mu, freq_range, &RA_sfn_index, cc->frame_type);
 
   uint8_t index = 0, slot_index = 0;
@@ -184,7 +184,7 @@ void find_SSB_and_RO_available(gNB_MAC_INST *nrmac)
   }
 
   // prach is scheduled according to configuration index and tables 6.3.3.2.2 to 6.3.3.2.4
-  frequency_range_t freq_range = scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencyPointA > 2016666 ? FR2 : FR1;
+  frequency_range_t freq_range = get_freq_range_from_arfcn(scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencyPointA);
   nr_prach_info_t prach_info =  get_nr_prach_occasion_info_from_index(config_index, freq_range, cc->frame_type);
 
   float num_ssb_per_RO = ssb_per_rach_occasion[cfg->prach_config.ssb_per_rach.value];	
@@ -380,7 +380,7 @@ void schedule_nr_prach(module_id_t module_idP, frame_t frameP, slot_t slotP)
     const int mu = nr_get_prach_or_ul_mu(msgacc, rach_ConfigCommon, ul_mu);
     // prach is scheduled according to configuration index and tables 6.3.3.2.2 to 6.3.3.2.4
     uint16_t RA_sfn_index = -1;
-    frequency_range_t freq_range = scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencyPointA > 2016666 ? FR2 : FR1;
+    frequency_range_t freq_range = get_freq_range_from_arfcn(scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencyPointA);
     if (get_nr_prach_sched_from_info(cc->prach_info, config_index, frameP, slotP, mu, freq_range, &RA_sfn_index, cc->frame_type)) {
       uint16_t format0 = cc->prach_info.format & 0xff; // first column of format from table
       uint16_t format1 = (cc->prach_info.format >> 8) & 0xff; // second column of format from table

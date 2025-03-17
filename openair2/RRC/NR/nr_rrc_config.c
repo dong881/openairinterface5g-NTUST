@@ -610,7 +610,7 @@ void set_dl_maxmimolayers(NR_PDSCH_ServingCellConfig_t *pdsch_servingcellconfig,
 
   NR_SCS_SpecificCarrier_t *scs_carrier = scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0];
   int band = *scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList.list.array[0];
-  const frequency_range_t freq_range = band < 257 ? FR1 : FR2;
+  const frequency_range_t freq_range = get_freq_range_from_band(band);
   const int scs = scs_carrier->subcarrierSpacing;
   const int bw_size = scs_carrier->carrierBandwidth;
 
@@ -918,7 +918,7 @@ void prepare_sim_uecap(NR_UE_NR_Capability_t *cap,
     *bandNRinfo->pusch_256QAM = NR_BandNR__pusch_256QAM_supported;
   }
   if (mcs_table_dl == 1) {
-    const frequency_range_t freq_range = band < 257 ? FR1 : FR2;
+    const frequency_range_t freq_range = get_freq_range_from_band(band);
     if (freq_range == FR2) {
       bandNRinfo->pdsch_256QAM_FR2 = calloc(1, sizeof(*bandNRinfo->pdsch_256QAM_FR2));
       *bandNRinfo->pdsch_256QAM_FR2 = NR_BandNR__pdsch_256QAM_FR2_supported;
@@ -1368,7 +1368,7 @@ static void set_dl_mcs_table(int scs,
   AssertFatal(bw_rb > 0,"Could not find scs-SpecificCarrierList element for scs %d", scs);
 
   bool supported = false;
-  const frequency_range_t freq_range = band > 256 ? FR2 : FR1;
+  const frequency_range_t freq_range = get_freq_range_from_band(band);
   if (freq_range == FR2) {
     for (int i = 0; i < cap->rf_Parameters.supportedBandListNR.list.count; i++) {
       NR_BandNR_t *bandNRinfo = cap->rf_Parameters.supportedBandListNR.list.array[i];
@@ -2511,7 +2511,7 @@ NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
         frequencyInfoDL->frequencyBandList.list.array[i];
   }
 
-  frequency_range_t frequency_range = band > 256 ? FR2 : FR1;
+  frequency_range_t frequency_range = get_freq_range_from_band(band);
   sib1->servingCellConfigCommon->downlinkConfigCommon.frequencyInfoDL.offsetToPointA = get_ssb_offset_to_pointA(*scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencySSB,
                                scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencyPointA,
                                scc->downlinkConfigCommon->initialDownlinkBWP->genericParameters.subcarrierSpacing,

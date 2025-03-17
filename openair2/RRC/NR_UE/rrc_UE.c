@@ -1614,7 +1614,7 @@ static void handle_measid_addmod(rrcPerNB_t *rrc, struct NR_MeasIdToAddModList *
             else if (obj_nr->refFreqCSI_RS)
               freq = *obj_nr->refFreqCSI_RS;
             AssertFatal(freq > 0, "Invalid ARFCN frequency for this measurement object\n");
-            if (freq > 2016666)
+            if (get_freq_range_from_arfcn(freq) == FR2)
               nr_timer_setup(&timers->T321, 16000, 10); // 16 seconds for FR2
             else
               nr_timer_setup(&timers->T321, 2000, 10); // 2 seconds for FR1

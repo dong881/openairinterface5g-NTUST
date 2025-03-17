@@ -304,7 +304,7 @@ static void config_common_ue(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommon_t
   if (frequencyInfoDL) { // NeedM for inter-freq handover
     mac->nr_band = *frequencyInfoDL->frequencyBandList.list.array[0];
     frame_type = get_frame_type(mac->nr_band, get_softmodem_params()->numerology);
-    mac->frequency_range = mac->nr_band < 256 ? FR1 : FR2;
+    mac->frequency_range = get_freq_range_from_band(mac->nr_band);
 
     int bw_index = get_supported_band_index(frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->subcarrierSpacing,
                                             mac->frequency_range,

@@ -321,7 +321,7 @@ void nr_init_frame_parms(nfapi_nr_config_request_scf_t* cfg, NR_DL_FRAME_PARMS *
   fp->get_samples_slot_timestamp = &get_samples_slot_timestamp;
   fp->get_slot_from_timestamp = &get_slot_from_timestamp;
   fp->samples_per_frame = 10 * fp->samples_per_subframe;
-  fp->freq_range = (fp->dl_CarrierFreq < 6e9) ? FR1 : FR2;
+  fp->freq_range = get_freq_range_from_freq(fp->dl_CarrierFreq);
 
   fp->Ncp = Ncp;
 
@@ -405,7 +405,7 @@ int nr_init_frame_parms_ue(NR_DL_FRAME_PARMS *fp,
   fp->get_samples_per_slot = &get_samples_per_slot;
   fp->get_samples_slot_timestamp = &get_samples_slot_timestamp;
   fp->samples_per_frame = 10 * fp->samples_per_subframe;
-  fp->freq_range = (fp->dl_CarrierFreq < 6e9) ? FR1 : FR2;
+  fp->freq_range = get_freq_range_from_freq(fp->dl_CarrierFreq);
 
   uint8_t sco = 0;
   if (((fp->freq_range == FR1) && (config->ssb_table.ssb_subcarrier_offset < 24)) ||
@@ -439,7 +439,9 @@ void nr_init_frame_parms_ue_sa(NR_DL_FRAME_PARMS *frame_parms, uint64_t downlink
   frame_parms->numerology_index = mu;
   frame_parms->dl_CarrierFreq = downlink_frequency;
   frame_parms->ul_CarrierFreq = downlink_frequency + delta_duplex;
-  frame_parms->freq_range = (frame_parms->dl_CarrierFreq < 6e9)? FR1 : FR2;
+  if (get_softmodem_params()->sl_mode == 0) {
+    frame_parms->freq_range = get_freq_range_from_freq(frame_parms->dl_CarrierFreq);
+  }
   frame_parms->N_RB_UL = frame_parms->N_RB_DL;
 
   frame_parms->nr_band = nr_band;
@@ -570,7 +572,7 @@ int nr_init_frame_parms_ue_sl(NR_DL_FRAME_PARMS *fp,
   fp->get_samples_per_slot = &get_samples_per_slot;
   fp->get_samples_slot_timestamp = &get_samples_slot_timestamp;
   fp->samples_per_frame = 10 * fp->samples_per_subframe;
-  fp->freq_range = (fp->sl_CarrierFreq < 6e9) ? FR1 : FR2;
+  fp->freq_range = get_freq_range_from_freq(fp->sl_CarrierFreq);
 
   // ssb_offset_pointa points to the first RE where Sidelink-PSBCH starts
   fp->ssb_start_subcarrier = config->sl_bwp_config.sl_ssb_offset_point_a;

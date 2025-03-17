@@ -481,7 +481,7 @@ int main(int argc, char **argv){
   gNB->gNB_config.prach_config.num_prach_fd_occasions_list = (nfapi_nr_num_prach_fd_occasions_t *) malloc(num_prach_fd_occasions*sizeof(nfapi_nr_num_prach_fd_occasions_t));
 
   gNB->proc.slot_rx = slot;
-  frequency_range_t freq_range = absoluteFrequencyPointA > 2016666 ? FR2 : FR1;
+  frequency_range_t freq_range = get_freq_range_from_arfcn(absoluteFrequencyPointA);
   nr_prach_info_t prach_info = get_nr_prach_occasion_info_from_index(config_index, freq_range, frame_parms->frame_type);
   int ret = get_nr_prach_sched_from_info(prach_info,
                                          config_index,

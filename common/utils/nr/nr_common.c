@@ -1441,3 +1441,32 @@ unsigned short get_m_srs(int c_srs, int b_srs) {
 unsigned short get_N_b_srs(int c_srs, int b_srs) {
   return srs_bandwidth_config[c_srs][b_srs][1];
 }
+
+frequency_range_t get_freq_range_from_freq(uint64_t freq)
+{
+  // 3GPP TS 38.101-1 Version 19.0.0 Table 5.1-1: Definition of frequency ranges
+  if (freq >= 410000000 && freq <= 7125000000)
+    return FR1;
+
+  if (freq >= 24250000000 && freq <= 71000000000)
+    return FR2;
+
+  AssertFatal(false, "Undefined Frequency Range for frequency %ld Hz\n", freq);
+}
+
+frequency_range_t get_freq_range_from_arfcn(uint32_t arfcn)
+{
+  // 3GPP TS 38.101-1 Version 19.0.0 Table 5.1-1: Definition of frequency ranges
+  if (arfcn >= 82000 && arfcn <= 875000)
+    return FR1;
+
+  if (arfcn >= 2016667 && arfcn <= 2795832)
+    return FR2;
+
+  AssertFatal(false, "Undefined Frequency Range for ARFCN %d\n", arfcn);
+}
+
+frequency_range_t get_freq_range_from_band(uint16_t band)
+{
+  return band <= 256 ? FR1 : FR2;
+}

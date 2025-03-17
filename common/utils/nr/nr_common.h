@@ -299,6 +299,10 @@ unsigned int get_prach_K(int prach_sequence_length, int prach_fmt_id, int pusch_
 
 int get_slot_idx_in_period(const int slot, const frame_structure_t *fs);
 
+frequency_range_t get_freq_range_from_freq(uint64_t freq);
+frequency_range_t get_freq_range_from_arfcn(uint32_t arfcn);
+frequency_range_t get_freq_range_from_band(uint16_t band);
+
 #define CEILIDIV(a,b) ((a+b-1)/b)
 #define ROUNDIDIV(a,b) (((a<<1)+b)/(b<<1))
 
