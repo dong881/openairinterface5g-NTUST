@@ -65,8 +65,8 @@ pipeline {
               message += " - ~BUILD-ONLY (execute only build stages)\n"
               message += " - ~4G-LTE (perform 4G tests)\n"
               message += " - ~5G-NR (perform 5G tests)\n"
-              message += " - ~CI (perform both 4G and 5G tests)\n\n"
-              message += " - ~nrUE (perform only 5G-UE related tests including physims excluding LDPC tests)\n"
+              message += " - ~CI (perform both 4G and 5G tests)\n"
+              message += " - ~nrUE (perform only 5G-UE related tests including physims excluding LDPC tests)\n\n"
               message += "Not performing CI due to lack of labels"
               addGitLabMRComment comment: message
               error('Not performing CI due to lack of labels')
