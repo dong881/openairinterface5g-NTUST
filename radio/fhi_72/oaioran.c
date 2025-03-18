@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include "xran_fh_o_du.h"
 #include "xran_compression.h"
+#include "armral_bfp_compression.h"
 
 #if defined(__arm__) || defined(__aarch64__)
 #else
@@ -215,12 +216,14 @@ static int read_prach_data(ru_info_t *ru, int frame, int slot)
             }
           }
         } else if (ru_conf->compMeth_PRACH == XRAN_COMPMETHOD_BLKFLOAT) {
-          struct xranlib_decompress_request bfp_decom_req = {};
-          struct xranlib_decompress_response bfp_decom_rsp = {};
 
           int16_t local_dst[12 * 2 * N_SC_PER_PRB] __attribute__((aligned(64)));
 
+#if defined(__i386__) || defined(__x86_64__)
+          struct xranlib_decompress_request bfp_decom_req = {};
+          struct xranlib_decompress_response bfp_decom_rsp = {};
           int payload_len = (3 * ru_conf->iqWidth_PRACH + 1) * 12; // 12 = closest number of PRBs to 139 REs
+
           bfp_decom_req.data_in = (int8_t *)src;
           bfp_decom_req.numRBs = 12; // closest number of PRBs to 139 REs
           bfp_decom_req.len = payload_len;
@@ -230,6 +233,11 @@ static int read_prach_data(ru_info_t *ru, int frame, int slot)
           bfp_decom_rsp.data_out = (int16_t *)local_dst;
           bfp_decom_rsp.len = 0;
           xranlib_decompress_avx512(&bfp_decom_req, &bfp_decom_rsp);
+#elif defined(__arm__) || defined(__aarch64__)
+          armral_bfp_decompression(ru_conf->iqWidth_PRACH, 12, (int8_t *)src, (int16_t *)local_dst);
+#else
+          AssertFatal(1 == 0, "BFP decompression not supported on this architecture");
+#endif
           // note: this is hardwired for 139 point PRACH sequence, kbar=2
           if (sym_idx == 0) //
             for (idx = 0; idx < (139 * 2); idx++)
@@ -380,8 +388,6 @@ int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot)
 
         uint32_t idxElm = 0;
         uint8_t *src = (uint8_t *)ptr;
-        int16_t payload_len = 0;
-
 
         LOG_D(HW, "pRbMap->nPrbElm %d\n", pRbMap->nPrbElm);
         for (idxElm = 0; idxElm < pRbMap->nPrbElm; idxElm++) {
@@ -412,10 +418,12 @@ int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot)
             memcpy((void *)dst2, (void *)local_dst, neg_len * 4);
             memcpy((void *)dst1, (void *)&local_dst[neg_len], pos_len * 4);
           } else if (pRbElm->compMethod == XRAN_COMPMETHOD_BLKFLOAT) {
+#if defined(__i386__) || defined(__x86_64__)
             struct xranlib_decompress_request bfp_decom_req = {};
             struct xranlib_decompress_response bfp_decom_rsp = {};
 
-            payload_len = (3 * pRbElm->iqWidth + 1) * pRbElm->nRBSize;
+            int16_t payload_len = (3 * pRbElm->iqWidth + 1) * pRbElm->nRBSize;
+
             bfp_decom_req.data_in = (int8_t *)src;
             bfp_decom_req.numRBs = pRbElm->nRBSize;
             bfp_decom_req.len = payload_len;
@@ -426,6 +434,11 @@ int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot)
             bfp_decom_rsp.len = 0;
 
             xranlib_decompress_avx512(&bfp_decom_req, &bfp_decom_rsp);
+#elif defined(__arm__) || defined(__aarch64__)
+            armral_bfp_decompression(pRbElm->iqWidth, pRbElm->nRBSize, (int8_t *)src, (int16_t *)local_dst);
+#else
+            AssertFatal(1 == 0, "BFP compression not supported on this architecture");
+#endif
             memcpy((void *)dst2, (void *)local_dst, neg_len * 4);
             memcpy((void *)dst1, (void *)&local_dst[neg_len], pos_len * 4);
             outcnt++;
@@ -552,9 +565,12 @@ int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp)
               for (idx = 0; idx < (pos_len + neg_len) * 2; idx++)
                 ((uint16_t *)dst16)[idx] = htons(((uint16_t *)local_src)[idx]);
             } else if (p_prbMapElm->compMethod == XRAN_COMPMETHOD_BLKFLOAT) {
+              payload_len = (3 * p_prbMapElm->iqWidth + 1) * p_prbMapElm->nRBSize;
+
+#if defined(__i386__) || defined(__x86_64__)
               struct xranlib_compress_request bfp_com_req = {};
               struct xranlib_compress_response bfp_com_rsp = {};
-              payload_len = (3 * p_prbMapElm->iqWidth + 1) * p_prbMapElm->nRBSize;
+
               bfp_com_req.data_in = (int16_t *)local_src;
               bfp_com_req.numRBs = p_prbMapElm->nRBSize;
               bfp_com_req.len = payload_len;
@@ -565,6 +581,11 @@ int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp)
               bfp_com_rsp.len = 0;
 
               xranlib_compress_avx512(&bfp_com_req, &bfp_com_rsp);
+#elif defined(__arm__) || defined(__aarch64__)
+              armral_bfp_compression(p_prbMapElm->iqWidth, p_prbMapElm->nRBSize, (int16_t *)local_src, (int8_t *)dst);
+#else
+              AssertFatal(1 == 0, "BFP compression not supported on this architecture");
+#endif
 
             } else {
               printf("p_prbMapElm->compMethod == %d is not supported\n", p_prbMapElm->compMethod);
