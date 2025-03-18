@@ -45,10 +45,11 @@
 		<eNB_serverId>0</eNB_serverId>
 	</testCase>
 
-<!--	<testCase id="000010">-->
-<!--		<class>Push_Local_Registry</class>-->
-<!--		<desc>Push Images to Local Registry</desc>-->
-<!--		<svr_id>0</svr_id>-->
-<!--	</testCase>-->
+        <testCase id="000010">
+                <class>Push_Local_Registry</class>
+                <desc>Push Images to Local Registry</desc>
+                <svr_id>0</svr_id>
+                <tag_prefix>arm_</tag_prefix>
+        </testCase>
 
 </testCaseList>
