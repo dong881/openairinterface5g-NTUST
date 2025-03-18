@@ -806,8 +806,8 @@ sctp_eNB_read_from_socket(
     }
 
     if (!(flags & MSG_EOR)) {
-      SCTP_ERROR("fatal: partial SCTP messages are not handled\n");
-      exit_fun("fatal: partial SCTP messages are not handled" );
+      SCTP_ERROR("partial SCTP message received, discarding message\n");
+      return;
     }
 
     if (flags & MSG_NOTIFICATION) {
