@@ -141,6 +141,29 @@ int trigger_reestab(char *buf, int debug, telnet_printfunc_t prnt)
   return 0;
 }
 
+extern nr_rrc_du_container_t *get_du_for_ue(gNB_RRC_INST *rrc, uint32_t ue_id);
+
+/** @brief Get connected DU by the UE ID */
+int fetch_du_by_ue_id(char *buf, int debug, telnet_printfunc_t prnt)
+{
+  if (!RC.nrrrc)
+    ERROR_MSG_RET("no RRC present, cannot list counts\n");
+
+  ue_id_t ue_id = 1;
+  if (buf) {
+    ue_id = strtol(buf, NULL, 10);
+  }
+  nr_rrc_du_container_t *du = get_du_for_ue(RC.nrrrc[0], ue_id);
+
+  if (du) {
+    prnt("gNB_DU_id %d is connected to ue_id %ld\n", du->setup_req->gNB_DU_id, ue_id);
+    return 0;
+  } else {
+    ERROR_MSG_RET("No DU connected\n");
+    return -1;
+  }
+}
+
 extern void nr_HO_F1_trigger_telnet(gNB_RRC_INST *rrc, uint32_t rrc_ue_id);
 /**
  * @brief Trigger F1 handover for UE
@@ -199,6 +222,7 @@ static telnetshell_cmddef_t cicmds[] = {
     {"force_ue_release", "[rnti(hex,opt)]", force_ue_release},
     {"force_ul_failure", "[rnti(hex,opt)]", force_ul_failure},
     {"trigger_f1_ho", "[rrc_ue_id(int,opt)]", rrc_gNB_trigger_f1_ho},
+    {"fetch_du_by_ue_id", "[rrc_ue_id(int,opt)]", fetch_du_by_ue_id},
     {"", "", NULL},
 };
 
