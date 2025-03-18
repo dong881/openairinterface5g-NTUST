@@ -171,7 +171,6 @@ int init_nr_ue_signal(PHY_VARS_NR_UE *ue, int nb_connected_gNB)
   NR_DL_FRAME_PARMS *const fp            = &ue->frame_parms;
   NR_UE_COMMON *const common_vars        = &ue->common_vars;
   NR_UE_PRACH **const prach_vars         = ue->prach_vars;
-  NR_UE_SRS **const srs_vars             = ue->srs_vars;
 
   LOG_I(PHY, "Initializing UE vars for gNB TXant %u, UE RXant %u\n", fp->nb_antennas_tx, fp->nb_antennas_rx);
 
@@ -257,8 +256,6 @@ int init_nr_ue_signal(PHY_VARS_NR_UE *ue, int nb_connected_gNB)
   // DLSCH
   for (int gNB_id = 0; gNB_id < ue->n_connected_gNB; gNB_id++) {
     prach_vars[gNB_id] = malloc16_clear(sizeof(NR_UE_PRACH));
-    srs_vars[gNB_id] = malloc16_clear(sizeof(NR_UE_SRS));
-    srs_vars[gNB_id]->active = false;
 
     // ceil((NB_RB*8(max allocation per RB)*2(QPSK))/32)
     ue->nr_csi_info = malloc16_clear(sizeof(nr_csi_info_t));
@@ -317,8 +314,6 @@ void term_nr_ue_signal(PHY_VARS_NR_UE *ue, int nb_connected_gNB)
     free_and_zero(ue->nr_csi_info);
 
     free_and_zero(ue->nr_srs_info);
-
-    free_and_zero(ue->srs_vars[gNB_id]);
 
     free_and_zero(ue->prach_vars[gNB_id]);
   }
@@ -487,7 +482,6 @@ void clean_UE_harq(PHY_VARS_NR_UE *UE)
   for (int harq_pid = 0; harq_pid < NR_MAX_ULSCH_HARQ_PROCESSES; harq_pid++) {
     NR_UL_UE_HARQ_t *ul_harq_process = &UE->ul_harq_processes[harq_pid];
     ul_harq_process->tx_status = NEW_TRANSMISSION_HARQ;
-    ul_harq_process->ULstatus = SCH_IDLE;
     ul_harq_process->round = 0;
   }
 }

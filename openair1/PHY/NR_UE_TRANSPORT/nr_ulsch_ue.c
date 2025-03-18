@@ -471,7 +471,7 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
 
   int harq_pid = phy_data->ulsch.pusch_pdu.pusch_data.harq_process_id;
 
-  if (UE->ul_harq_processes[harq_pid].ULstatus != ACTIVE)
+  if (phy_data->ulsch.status != ACTIVE)
     return;
 
   start_meas_nr_ue_phy(UE, PUSCH_PROC_STATS);
@@ -542,8 +542,6 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
   /////////////////////////ULSCH coding/////////////////////////
 
   if (nr_ulsch_encoding(UE, &phy_data->ulsch, frame, slot, G, 1, ULSCH_ids) == -1) {
-    NR_UL_UE_HARQ_t *harq_process_ulsch = &UE->ul_harq_processes[harq_pid];
-    harq_process_ulsch->ULstatus = SCH_IDLE;
     stop_meas_nr_ue_phy(UE, PUSCH_PROC_STATS);
     return;
   }
@@ -820,12 +818,7 @@ void nr_ue_ulsch_procedures(PHY_VARS_NR_UE *UE,
     } // symbol loop
   } // port loop
 
-  NR_UL_UE_HARQ_t *harq_process_ulsch = NULL;
-  harq_process_ulsch = &UE->ul_harq_processes[harq_pid];
-  harq_process_ulsch->ULstatus = SCH_IDLE;
-
   stop_meas_nr_ue_phy(UE, PUSCH_PROC_STATS);
-
 }
 
 uint8_t nr_ue_pusch_common_procedures(PHY_VARS_NR_UE *UE,

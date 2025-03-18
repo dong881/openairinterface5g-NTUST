@@ -518,7 +518,7 @@ static void nr_ue_scheduled_response_ul(PHY_VARS_NR_UE *phy, fapi_nr_ul_config_r
                  pdu->pusch_config_pdu.tx_request_body.pdu_length);
         }
 
-        harq_process_ul_ue->ULstatus = ACTIVE;
+        phy_data->ulsch.status = ACTIVE;
         pdu->pdu_type = FAPI_NR_UL_CONFIG_TYPE_DONE; // not handle it any more
       } break;
 
@@ -549,8 +549,8 @@ static void nr_ue_scheduled_response_ul(PHY_VARS_NR_UE *phy, fapi_nr_ul_config_r
 
       case FAPI_NR_UL_CONFIG_TYPE_SRS:
         // srs config pdu
-        phy->srs_vars[0]->srs_config_pdu = pdu->srs_config_pdu;
-        phy->srs_vars[0]->active = true;
+        phy_data->srs_vars.srs_config_pdu = pdu->srs_config_pdu;
+        phy_data->srs_vars.active = true;
         pdu->pdu_type = FAPI_NR_UL_CONFIG_TYPE_DONE; // not handle it any more
         break;
 

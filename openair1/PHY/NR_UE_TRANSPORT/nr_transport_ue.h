@@ -46,8 +46,6 @@ typedef enum {
 typedef struct {
   /// HARQ tx status
   harq_result_t tx_status;
-  /// Status Flag indicating for this ULSCH (idle,active,disabled)
-  SCH_status_t ULstatus;
   /// Last TPC command
   uint8_t TPC;
   /// Length of ACK information (bits)
@@ -87,6 +85,7 @@ typedef struct {
 } NR_UL_UE_HARQ_t;
 
 typedef struct {
+  SCH_status_t status;
   /// NDAPI struct for UE
   nfapi_nr_ue_pusch_pdu_t pusch_pdu;
   // UL number of harq processes

@@ -82,6 +82,7 @@
 /// suppress compiler warning for unused arguments
 #define UNUSED(x) (void)x;
 #define NUM_DL_ACTORS 4
+#define NUM_UL_ACTORS 2
 
 // Set the number of barriers for processSlotTX to 512. This value has to be at least 483 for NTN where
 // DL-to-UL offset is up to 483. The selected value is also half of the frame range so that
@@ -401,7 +402,6 @@ typedef struct PHY_VARS_NR_UE_s {
   nr_synch_request_t synch_request;
 
   NR_UE_PRACH     *prach_vars[NUMBER_OF_CONNECTED_gNB_MAX];
-  NR_UE_SRS       *srs_vars[NUMBER_OF_CONNECTED_gNB_MAX];
   NR_UE_PRS       *prs_vars[NR_MAX_PRS_COMB_SIZE];
   uint8_t          prs_active_gNBs;
   NR_DL_UE_HARQ_t  dl_harq_processes[2][NR_MAX_DLSCH_HARQ_PROCESSES];
@@ -514,7 +514,7 @@ typedef struct PHY_VARS_NR_UE_s {
   sl_nr_ue_phy_params_t SL_UE_PHY_PARAMS;
   Actor_t sync_actor;
   Actor_t dl_actors[NUM_DL_ACTORS];
-  Actor_t ul_actor;
+  Actor_t ul_actors[NUM_UL_ACTORS];
   ntn_config_message_t* ntn_config_message;
   pthread_t main_thread;
   pthread_t stat_thread;
@@ -571,6 +571,7 @@ typedef struct {
 typedef struct nr_phy_data_tx_s {
   NR_UE_ULSCH_t ulsch;
   NR_UE_PUCCH pucch_vars;
+  NR_UE_SRS srs_vars;
 
   // Sidelink Rx action decided by MAC
   sl_nr_tx_config_type_enum_t sl_tx_action;
@@ -597,7 +598,7 @@ typedef struct nr_rxtx_thread_data_s {
   PHY_VARS_NR_UE    *UE;
   int writeBlockSize;
   nr_phy_data_t phy_data;
-  dynamic_barrier_t *next_barrier;
+  dynamic_barrier_t* next_barrier;
 } nr_rxtx_thread_data_t;
 
 typedef struct LDPCDecode_ue_s {

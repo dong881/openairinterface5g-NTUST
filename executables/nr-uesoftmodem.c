@@ -508,7 +508,9 @@ int main(int argc, char **argv)
         for (int i = 0; i < NUM_DL_ACTORS; i++) {
           init_actor(&UE[CC_id]->dl_actors[i], "DL_", -1);
         }
-        init_actor(&UE[CC_id]->ul_actor, "UL_", -1);
+        for (int i = 0; i < NUM_UL_ACTORS; i++) {
+          init_actor(&UE[CC_id]->ul_actors[i], "UL_", -1);
+        }
         init_nr_ue_vars(UE[CC_id], inst);
 
         if (UE[CC_id]->sl_mode) {
@@ -578,7 +580,9 @@ int main(int argc, char **argv)
     for (int CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
       PHY_VARS_NR_UE *phy_vars = PHY_vars_UE_g[0][CC_id];
       if (phy_vars) {
-        shutdown_actor(&phy_vars->ul_actor);
+        for (int i = 0; i < NUM_UL_ACTORS; i++) {
+          shutdown_actor(&phy_vars->ul_actors[i]);
+        }
         for (int i = 0; i < NUM_DL_ACTORS; i++) {
           shutdown_actor(&phy_vars->dl_actors[i]);
         }
