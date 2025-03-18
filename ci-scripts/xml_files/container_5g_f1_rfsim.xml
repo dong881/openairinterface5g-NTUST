@@ -49,9 +49,11 @@
  040025
  000031
  030021
+ 040027
  040025
  000031
  020022
+ 040026
  100021
  222222
         </TestCaseRequestedList>
@@ -222,6 +224,22 @@
                 <desc>Trigger Handover</desc>
                 <node>cacofonix</node>
                 <command>echo ci trigger_f1_ho | nc 192.168.71.150 9090</command>
+                <command_fail>yes</command_fail>
+        </testCase>
+
+        <testCase id="040026">
+                <class>Custom_Command</class>
+                <desc>UE (1) connected to DU-PCI 0?</desc>
+                <node>cacofonix</node>
+                <command>echo ci fetch_du_by_ue_id 1 | nc 192.168.71.150 9090 | grep "3584"</command>
+                <command_fail>yes</command_fail>
+        </testCase>
+
+        <testCase id="040027">
+                <class>Custom_Command</class>
+                <desc>UE (1) connected to DU-PCI 1?</desc>
+                <node>cacofonix</node>
+                <command>echo ci fetch_du_by_ue_id 1 | nc 192.168.71.150 9090 | grep "3585"</command>
                 <command_fail>yes</command_fail>
         </testCase>
 
