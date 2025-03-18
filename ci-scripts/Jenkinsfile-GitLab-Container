@@ -153,6 +153,28 @@ pipeline {
             }
           }
         }
+        stage ("Ubuntu-ARM-Image-Builder") {
+          steps {
+            script {
+              triggerSlaveJob ('RAN-Ubuntu-ARM-Image-Builder', 'Ubuntu-ARM-Image-Builder')
+            }
+          }
+          post {
+            always {
+              script {
+                // Using a unique variable name for each test stage to avoid overwriting on a global variable
+                // due to parallel-time concurrency
+                ubuntuArmBuildStatus = finalizeSlaveJob('RAN-Ubuntu-ARM-Image-Builder')
+              }
+            }
+            failure {
+              script {
+                currentBuild.result = 'FAILURE'
+                failingStages += ubuntuArmBuildStatus
+              }
+            }
+          }
+        }
         stage ("RHEL-Cluster-Image-Builder") {
           steps {
             script {

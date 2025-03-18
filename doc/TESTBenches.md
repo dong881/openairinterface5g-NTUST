@@ -25,6 +25,7 @@
 | aerial2       | 172.21.16.131   | CI-Aerial2-Usage      | gNB (PNF/Nvidia CUBB + VNF) | Foxconn RU, _Nvidia Aerial SDK integrated_   |
 | cacofonix     | 172.21.16.150   | CI-Cacofonix-Usage    | gNB (n78, FHI7.2)  |                                                       |
 | matix         | 172.21.19.58    | CI-Matix-Usage        | gNB (n77)          | N310                                                  |
+| gracehopper1-oai | --           | Gracehopper1          | build, gNB/Aerial  | _Nvidia Aerial SDK integrated_                        |
 
 Note: The available resources, and their current usage, is indicated here:
 - [Lockable resources of jenkins-oai](https://jenkins-oai.eurecom.fr/lockable-resources/):
@@ -122,6 +123,15 @@ information on how the images are built.
     - target image from `Dockerfile.lteUE.ubuntu22`
     - target image from `Dockerfile.lteRU.ubuntu22`
   - build unit tests from `ci-scripts/docker/Dockerfile.unittest.ubuntu22`, and run them
+- [RAN-Ubuntu-ARM-Image-Builder](https://jenkins-oai.eurecom.fr/job/RAN-Ubuntu-ARM-Image-Builder/)
+  ~BUILD-ONLY ~4G-LTE ~5G-NR
+  - gracehopper1-oai: ARM Ubuntu 22 image build using docker
+  - base image from `Dockerfile.base.ubuntu22`
+  - build image from `Dockerfile.build.ubuntu22`, followed by
+    - target image from `Dockerfile.gNB.ubuntu22`
+    - target image from `Dockerfile.nr-cuup.ubuntu22`
+    - target image from `Dockerfile.nrUE.ubuntu22`
+    - target image from `Dockerfile.gNB.aerial.ubuntu22`
 
 #### Image Test pipelines
 
