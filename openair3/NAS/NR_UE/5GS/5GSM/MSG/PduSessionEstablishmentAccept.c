@@ -94,7 +94,7 @@ int decode_pdu_session_establishment_accept_msg(pdu_session_establishment_accept
   {
     qos_rules->rule[0] = decode_qos_rule(curPtr);
     rules_tot_len += get_len_qos_rule(&qos_rules->rule[0]);
-    curPtr += rules_tot_len;
+    curPtr += get_len_qos_rule(&qos_rules->rule[0]);
   }
   // Session-AMBR (M)
   psea_msg->sess_ambr.length = *curPtr++;

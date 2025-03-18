@@ -1062,7 +1062,7 @@ static void process_pdu_session_addr(pdu_session_establishment_accept_msg_t *msg
 {
   uint8_t *addr = msg->pdu_addr_ie.pdu_addr_oct;
 
-  switch (msg->pdu_addr_ie.pdu_type) {
+  switch (msg->pdu_type) {
     case PDU_SESSION_TYPE_IPV4: {
       char ip[20];
       capture_ipv4_addr(&addr[0], ip, sizeof(ip));
