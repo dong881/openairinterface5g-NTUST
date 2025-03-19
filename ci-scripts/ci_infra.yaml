@@ -63,24 +63,27 @@ adb_ue_2:
 
 oc-cn5g:
   Host: avra
-  Namespace: "oaicicd-core-for-ci-ran"
-  CNPath: "/opt/oai-cn5g-fed-develop-2025-jan"
   NetworkScript: echo "inet 172.21.6.102"
   RunIperf3Server: False
+  Deploy: "! scripts/oc-cn5g-deploy.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-ci-ran"
+  Undeploy: "! scripts/oc-cn5g-undeploy.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-ci-ran"
+  LogCollect: "! scripts/oc-cn5g-logcollect.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-ci-ran %%log_dir%%"
 
 oc-cn5g-20897:
   Host: cacofonix
-  Namespace: "oaicicd-core-for-fhi72"
-  CNPath: "/opt/oai-cn5g-fed-develop-2025-jan"
   NetworkScript: echo "inet 172.21.6.105"
   RunIperf3Server: False
+  Deploy: "! scripts/oc-cn5g-deploy.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-fhi72"
+  Undeploy: "! scripts/oc-cn5g-undeploy.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-fhi72"
+  LogCollect: "! scripts/oc-cn5g-logcollect.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-fhi72 %%log_dir%%"
 
 oc-cn5g-20897-aerial2:
   Host: aerial2
-  Namespace: "oaicicd-core-for-nvidia-aerial"
-  CNPath: "/opt/oai-cn5g-fed-develop-2025-jan"
   NetworkScript: echo "inet 172.21.6.105"
   RunIperf3Server: False
+  Deploy: "! scripts/oc-cn5g-deploy.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-nvidia-aerial"
+  Undeploy: "! scripts/oc-cn5g-undeploy.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-nvidia-aerial"
+  LogCollect: "! scripts/oc-cn5g-logcollect.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-nvidia-aerial %%log_dir%%"
 
 matix-cn5g:
   Host: matix

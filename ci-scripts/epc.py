@@ -293,20 +293,7 @@ class EPCManagement():
 						html_cell += '(' + res4.group('date') + ')'
 					html_cell += '\n'
 		elif re.match('OC-OAI-CN5G', self.Type, re.IGNORECASE):
-			cn = cls_module.Module_UE(self.cnID)
-			succeeded, report = OC.OC_deploy_CN(mySSH, self.OCUserName, self.OCPassword, cn.getNamespace(), cn.getCNPath())
-			if not succeeded:
-				HTML.CreateHtmlTestRow('N/A', 'KO', report)
-				HTML.CreateHtmlTabFooter(False)
-				mySSH.close()
-				logging.error("OC OAI CN5G: CN deployment failed!")
-				return False
-			for line in report.stdout.split('\n')[1:]:
-				columns = line.strip().split()
-				name = columns[0]
-				status = columns[2]
-				html_cell += status + '    ' + name
-				html_cell += '\n'
+			raise NotImplemented("use cls_corenetwork.py")
 		else:
 			logging.error('This option should not occur!')
 		mySSH.close()
@@ -334,9 +321,7 @@ class EPCManagement():
 				logging.error('no container with name oai-amf found, could not retrieve AMF IP address')
 			mySSH.close()
 		elif re.match('OC-OAI-CN5G', self.Type, re.IGNORECASE):
-			mySSH = SSH.SSHConnection()
-			mySSH.open(self.IPAddress, self.UserName, self.Password)
-			response=mySSH.command3('oc pods ls -f name=oai-amf', 10)
+			raise NotImplemented("use cls_corenetwork.py")
 
 	def TerminateHSS(self, HTML):
 		mySSH = SSH.SSHConnection()
@@ -479,15 +464,7 @@ class EPCManagement():
 			mySSH.copyin(f'{self.SourceCodePath}/logs/test_logs_CN.zip','test_logs_CN.zip')
 			logging.debug(message)
 		elif re.match('OC-OAI-CN5G', self.Type, re.IGNORECASE):
-			cn = cls_module.Module_UE(self.cnID)
-			succeeded, report = OC.OC_undeploy_CN(mySSH, self.OCUserName, self.OCPassword, cn.getNamespace(), cn.getCNPath())
-			if not succeeded:
-				HTML.CreateHtmlTestRow('N/A', 'KO', report)
-				HTML.CreateHtmlTabFooter(False)
-				logging.error("OC OAI CN5G: CN undeployment failed!")
-				return False
-			else:
-				message = report.stdout
+			raise NotImplemented("use cls_corenetwork.py")
 		else:
 			logging.error('This should not happen!')
 		mySSH.close()
@@ -737,7 +714,7 @@ class EPCManagement():
 		elif re.match('OAICN5G', self.Type, re.IGNORECASE):
 			logging.debug('LogCollect is bypassed for that variant')
 		elif re.match('OC-OAI-CN5G', self.Type, re.IGNORECASE):
-			logging.debug('LogCollect is bypassed for that variant')
+			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OAI', self.Type, re.IGNORECASE) or re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
 			mySSH.command('zip hss.log.zip hss*.log', '\$', 60)
 			mySSH.command('echo ' + self.Password + ' | sudo -S rm hss*.log', '\$', 5)
@@ -777,9 +754,7 @@ class EPCManagement():
 			mySSH.command('zip mme.log.zip oai-amf.log oai-nrf.log oai-cn5g*.pcap','\$', 30)
 			mySSH.command('mv mme.log.zip ' + self.SourceCodePath + '/scripts','\$', 30)
 		elif re.match('OC-OAI-CN5G', self.Type, re.IGNORECASE):
-			mySSH.run('cd ' + self.SourceCodePath + '/logs')
-			mySSH.run('zip mme.log.zip oai-amf.log oai-nrf.log oai-cn5g*.pcap')
-			mySSH.run('mv mme.log.zip ' + self.SourceCodePath + '/scripts')
+			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OAI', self.Type, re.IGNORECASE) or re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
 			mySSH.command('zip mme.log.zip mme*.log', '\$', 60)
 			mySSH.command('echo ' + self.Password + ' | sudo -S rm mme*.log', '\$', 5)
@@ -814,9 +789,7 @@ class EPCManagement():
 			mySSH.command('zip spgw.log.zip oai-smf.log oai-spgwu.log','\$', 30)
 			mySSH.command('mv spgw.log.zip ' + self.SourceCodePath + '/scripts','\$', 30)
 		elif re.match('OC-OAI-CN5G', self.Type, re.IGNORECASE):
-			mySSH.command('cd ' + self.SourceCodePath + '/logs','\$', 5)
-			mySSH.command('zip spgw.log.zip oai-smf.log oai-spgwu.log','\$', 30)
-			mySSH.command('mv spgw.log.zip ' + self.SourceCodePath + '/scripts','\$', 30)
+			raise NotImplemented("use cls_corenetwork.py")
 		elif re.match('OAI', self.Type, re.IGNORECASE) or re.match('OAI-Rel14-CUPS', self.Type, re.IGNORECASE):
 			mySSH.command('zip spgw.log.zip spgw*.log', '\$', 60)
 			mySSH.command('echo ' + self.Password + ' | sudo -S rm spgw*.log', '\$', 5)

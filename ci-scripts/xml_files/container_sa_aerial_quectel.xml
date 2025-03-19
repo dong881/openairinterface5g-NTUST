@@ -42,7 +42,7 @@
         </TestCaseRequestedList>
         <TestCaseExclusionList></TestCaseExclusionList>
         <testCase id="555000">
-                <class>Initialize_5GCN</class>
+                <class>DeployCoreNetwork</class>
                 <desc>Initialize 5G Core</desc>
                 <cn_id>oc-cn5g-20897-aerial2</cn_id>
         </testCase>
@@ -89,7 +89,8 @@
                 <class>Ping</class>
                 <desc>Ping: 100pings in 20sec</desc>
                 <id>up2-aerial</id>
-                <ping_args>-c 100 -i 0.2 172.21.6.104</ping_args>
+                <svr_id>oc-cn5g-20897-aerial2</svr_id>
+                <ping_args>-c 100 -i 0.2 %cn_ip%</ping_args>
                 <ping_packetloss_threshold>5</ping_packetloss_threshold>
         </testCase>
 
@@ -140,7 +141,7 @@
         </testCase>
 
         <testCase id="000555">
-                <class>Terminate_5GCN</class>
+                <class>UndeployCoreNetwork</class>
                 <always_exec>true</always_exec>
                 <desc>Terminate 5G Core</desc>
                 <cn_id>oc-cn5g-20897-aerial2</cn_id>
