@@ -700,6 +700,7 @@ elif re.match('^TesteNB$', mode, re.IGNORECASE) or re.match('^TestUE$', mode, re
 			HTML.desc=CiTestObj.desc
 			action = test.findtext('class')
 			if (CheckClassValidity(xml_class_list, action, id) == False):
+				task_set_succeeded = False
 				continue
 			CiTestObj.ShowTestID()
 			if not task_set_succeeded and not always_exec:
