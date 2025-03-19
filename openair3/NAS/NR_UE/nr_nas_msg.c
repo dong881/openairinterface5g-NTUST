@@ -520,7 +520,7 @@ static FGMMCapability set_fgmm_capability(nr_ue_nas_t *nas)
   cap.restrict_ec = 0;
   cap.lpp = 1;
   cap.ho_attach = 1;
-  cap.s1_mode = 1;
+  cap.s1_mode = 0;
 
   if (cap.length == 1)
     return cap; // Send minimum length only, 1 octet
