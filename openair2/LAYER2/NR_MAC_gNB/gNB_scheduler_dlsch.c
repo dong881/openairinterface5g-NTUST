@@ -1032,9 +1032,9 @@ void nr_schedule_ue_spec(module_id_t module_id,
           harq->round,
           nr_get_rv(harq->round % 4),
           harq->ndi,
-          pucch->timing_indicator,
-          pucch->frame,
-          pucch->ul_slot,
+          pucch ? pucch->timing_indicator : 0,
+          pucch ? pucch->frame : 0,
+          pucch ? pucch->ul_slot : 0,
           sched_pdsch->pucch_allocation,
           sched_ctrl->tpc1);
 
@@ -1222,7 +1222,7 @@ void nr_schedule_ue_spec(module_id_t module_id,
           dci_payload.ndi,
           dci_payload.rv,
           dci_payload.tpc,
-          pucch->timing_indicator);
+          pucch ? pucch->timing_indicator : 0);
 
     const int rnti_type = TYPE_C_RNTI_;
     fill_dci_pdu_rel15(&UE->sc_info,
