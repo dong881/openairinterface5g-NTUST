@@ -374,6 +374,17 @@ class OaiCiTest():
 		# if has pattern %cn_ip%, replace with cn IP address, else we assume the IP is present
 		if re.search('%cn_ip%', self.ping_args):
 			self.ping_args = re.sub('%cn_ip%', cn.getIP(), self.ping_args)
+		else:
+			# verify we would have the right IP
+			m = re.search(r'[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+', self.ping_args)
+			if not m:
+				raise Exception(f"no IP address in {self.ping_args}")
+			ip = m.group(0)
+			cnip = cn.getIP()
+			if ip != cnip:
+				raise Exception(f"IP mismatch: options specify {ip} but core has {cnip}")
+			else:
+				logging.warning(f"\u001B[1mIP {ip} in iperf options matches CN IP {cnip}\u001B[0m")
 		interface = f'-I {ue.getIFName()}' if ue.getIFName() else ''
 		ping_cmd = f'{ue.getCmdPrefix()} ping {interface} {self.ping_args} 2>&1 | tee /tmp/{ping_log_file}'
 		cmd = cls_cmd.getConnection(ue.getHost())

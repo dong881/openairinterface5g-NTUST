@@ -88,6 +88,8 @@
                 <desc>Ping ext-dn from all NR-UEs</desc>
                 <id>rfsim5g_ue rfsim5g_ue2 rfsim5g_ue3</id>
                 <nodes>cacofonix cacofonix cacofonix</nodes>
+                <svr_id>rfsim5g_5gc_fixed_ip</svr_id>
+                <svr_node>cacofonix</svr_node>
                 <ping_args> -c 20 12.1.1.1 -i0.25</ping_args>
                 <ping_packetloss_threshold>5</ping_packetloss_threshold>
         </testCase>

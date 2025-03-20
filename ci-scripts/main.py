@@ -243,6 +243,8 @@ def ExecuteActionWithParam(action):
 		CiTestObj.ping_packetloss_threshold = test.findtext('ping_packetloss_threshold')
 		CiTestObj.ue_ids = test.findtext('id').split(' ')
 		CiTestObj.svr_id = test.findtext('svr_id') or None
+		if test.findtext('svr_node'):
+			CiTestObj.svr_node = test.findtext('svr_node') if not force_local else 'localhost'
 		if force_local:
 			# Change all execution targets to localhost
 			CiTestObj.nodes = ['localhost'] * len(CiTestObj.ue_ids)

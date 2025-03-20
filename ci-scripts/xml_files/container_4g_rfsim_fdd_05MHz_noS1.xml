@@ -87,6 +87,8 @@
                 <desc>Ping Traffic-Gen from LTE-UE</desc>
                 <id>rfsim4g_ue</id>
                 <nodes>cacofonix</nodes>
+                <svr_id>rfsim4g_enb_nos1</svr_id>
+                <svr_node>cacofonix</svr_node>
                 <ping_args> -c 20 10.0.1.1</ping_args>
                 <ping_packetloss_threshold>5</ping_packetloss_threshold>
         </testCase>
@@ -96,6 +98,8 @@
                 <desc>Ping LTE-UE from eNB</desc>
                 <id>rfsim4g_enb_nos1</id>
                 <nodes>cacofonix</nodes>
+                <svr_id>rfsim4g_ue</svr_id>
+                <svr_node>cacofonix</svr_node>
                 <ping_args> -c 20 10.0.1.2</ping_args>
                 <ping_packetloss_threshold>5</ping_packetloss_threshold>
         </testCase>

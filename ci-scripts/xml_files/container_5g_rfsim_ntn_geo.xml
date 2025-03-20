@@ -81,6 +81,8 @@
                 <desc>Ping ext-dn from NR-UE</desc>
                 <id>rfsim5g_ue</id>
                 <nodes>cacofonix</nodes>
+                <svr_id>rfsim5g_ext_dn</svr_id>
+                <svr_node>cacofonix</svr_node>
                 <ping_args>-c 20 -i 0.25 192.168.72.135</ping_args>
                 <ping_packetloss_threshold>5</ping_packetloss_threshold>
         </testCase>
@@ -90,6 +92,8 @@
                 <desc>Ping NR-UE from ext-dn</desc>
                 <id>rfsim5g_ext_dn</id>
                 <nodes>cacofonix</nodes>
+                <svr_id>rfsim5g_ue</svr_id>
+                <svr_node>cacofonix</svr_node>
                 <ping_args>-c 20 -i 0.25 12.1.1.2</ping_args>
                 <ping_packetloss_threshold>5</ping_packetloss_threshold>
         </testCase>
