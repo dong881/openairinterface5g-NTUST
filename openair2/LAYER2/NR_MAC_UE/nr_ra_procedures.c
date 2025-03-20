@@ -498,7 +498,7 @@ static void configure_prach_occasions(NR_UE_MAC_INST_t *mac, int scs)
           sl *= 2;
           // if only 1 slot per subframe (or 60kHz slot) in case of 30 or 120kHz it's the odd one
           // as defined in 5.3.2 of 211
-          if (prach_slots_in_sf == 1)
+          if (((prach_info.format & 0xff) > 3) && prach_slots_in_sf == 1)
             add_slot = 1;
         }
         int slot = sl + add_slot;
