@@ -63,7 +63,7 @@ void SetDefault(configmodule_interface_t *cfg, paramdef_t *param)
       *param->i8ptr = param->defintval;
       break;
     case TYPE_UINT8:
-      *param->i8ptr = param->defuintval;
+      *param->u8ptr = param->defuintval;
       break;
     case TYPE_INT16:
       *param->i16ptr = param->defintval;
@@ -120,8 +120,11 @@ void SetNonDefault(configmodule_interface_t *cfg, const YAML::Node &node, paramd
       sprintf(*param->strptr, "%s", setting.c_str());
       break;
     }
+    case TYPE_INT8:
+      *param->i8ptr = node[optname].as<int8_t>();
+      break;
     case TYPE_UINT8:
-      *param->i8ptr = node[optname].as<uint8_t>();
+      *param->u8ptr = node[optname].as<uint8_t>();
       break;
     case TYPE_INT16:
       *param->i16ptr = node[optname].as<int16_t>();
