@@ -501,7 +501,7 @@ class OaiCiTest():
 			t = iperf_time * 2.5
 			cmd_ue.run(f'rm /tmp/{client_filename}', reportNonZero=False, silent=True)
 			if runIperf3Server:
-				cmd_svr.run(f'{svr.getCmdPrefix()} nohup timeout -vk3 {t} iperf3 -s -B {svrIP} -p {port} -1 {jsonReport} &', timeout=t)
+				cmd_svr.run(f'{svr.getCmdPrefix()} timeout -vk3 {t} iperf3 -s -B {svrIP} -p {port} -1 {jsonReport} >> /dev/null &', timeout=t)
 			cmd_ue.run(f'{ue.getCmdPrefix()} timeout -vk3 {t} {iperf_ue} -B {ueIP} -c {svrIP} -p {port} {iperf_opt} {jsonReport} {serverReport} -O 5 >> /tmp/{client_filename}', timeout=t)
 			# note: copy iperf3 log to the current directory for log analysis and log collection
 			dest_filename = f'{logPath}/{client_filename}'
