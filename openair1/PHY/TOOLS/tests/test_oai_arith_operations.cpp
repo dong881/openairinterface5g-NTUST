@@ -2,12 +2,11 @@
 #include <simde/x86/avx2.h>
 #include <cstdint>
 
-// Deklaration der zu testenden Funktionen
 extern "C" {
-  void simde_mm_separate_real_imag_parts(simde__m128i *out_re, simde__m128i *out_im, simde__m128i in0, simde__m128i in1);
-  void simde_mm256_separate_real_imag_parts(simde__m256i *out_re, simde__m256i *out_im, simde__m256i in0, simde__m256i in1);
-  void simde_mm256_separate_vectors(simde__m256i combined, simde__m128i *re, simde__m128i *im);
-  void simde_mm256_combine_vectors(simde__m128i re, simde__m128i im, simde__m256i *combined);
+  void oai_mm_separate_real_imag_parts(simde__m128i *out_re, simde__m128i *out_im, simde__m128i in0, simde__m128i in1);
+  void oai_mm256_separate_real_imag_parts(simde__m256i *out_re, simde__m256i *out_im, simde__m256i in0, simde__m256i in1);
+  void oai_mm256_separate_vectors(simde__m256i combined, simde__m128i *re, simde__m128i *im);
+  void oai_mm256_combine_vectors(simde__m128i re, simde__m128i im, simde__m256i *combined);
 }
 
 TEST(separate_real_imag_parts, 128) {
@@ -20,7 +19,7 @@ TEST(separate_real_imag_parts, 128) {
   simde__m128i out_re, out_im;
 
   // Call function to test
-  simde_mm_separate_real_imag_parts(&out_re, &out_im, in0, in1);
+  oai_mm_separate_real_imag_parts(&out_re, &out_im, in0, in1);
 
   // Store the results for comparison
   int16_t re_result[8], im_result[8];
@@ -47,7 +46,7 @@ TEST(separate_real_imag_parts, 256) {
   simde__m256i out_re, out_im;
 
   // Call function to test
-  simde_mm256_separate_real_imag_parts(&out_re, &out_im, in0, in1);
+  oai_mm256_separate_real_imag_parts(&out_re, &out_im, in0, in1);
 
   // Store the results for comparison
   int16_t re_result[16], im_result[16];
@@ -73,7 +72,7 @@ TEST(complex_vectors, separate) {
     simde__m128i re, im;
 
     // Call function to test
-    simde_mm256_separate_vectors(combined, &re, &im);
+    oai_mm256_separate_vectors(combined, &re, &im);
 
     // Store the results for comparison
     int16_t re_result[8], im_result[8];
@@ -100,7 +99,7 @@ TEST(complex_vectors, combine) {
     simde__m256i c;
 
     // Call function to test
-    simde_mm256_combine_vectors(re, im, &c);
+    oai_mm256_combine_vectors(re, im, &c);
 
     // Store the results for comparison
     int16_t c_result[16];

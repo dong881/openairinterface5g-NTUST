@@ -200,7 +200,7 @@ void qam64_qam16_avx2(short *stream0_in,
 
     // Get rho
     simde__m256i xmm0, xmm2, xmm3, xmm4, xmm5, xmm6, xmm7, xmm8;
-    simde_mm256_separate_real_imag_parts(&xmm2, &xmm3, rho01_256i[i], rho01_256i[i+1]);
+    oai_mm256_separate_real_imag_parts(&xmm2, &xmm3, rho01_256i[i], rho01_256i[i+1]);
 
     const simde__m256i rho_rpi = simde_mm256_adds_epi16(xmm2, xmm3); // rho = Re(rho) + Im(rho)
     const simde__m256i rho_rmi = simde_mm256_subs_epi16(xmm2, xmm3); // rho* = Re(rho) - Im(rho)
@@ -263,7 +263,7 @@ void qam64_qam16_avx2(short *stream0_in,
 
     // Rearrange interfering MF output
     simde__m256i y1r, y1i;
-    simde_mm256_separate_real_imag_parts(&y1r, &y1i, stream1_256i_in[i], stream1_256i_in[i+1]);
+    oai_mm256_separate_real_imag_parts(&y1r, &y1i, stream1_256i_in[i], stream1_256i_in[i+1]);
 
     // Psi_r calculation from rho_rpi or rho_rmi
     xmm0 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(0));// ZERO for abs_pi16
@@ -529,9 +529,9 @@ void qam64_qam16_avx2(short *stream0_in,
     simde__m256i psi_i_m7_m7 = simde_mm256_abs_epi16(xmm2);
 
     simde__m256i y0r, y0i;
-    simde_mm256_separate_real_imag_parts(&y0r, &y0i, stream0_256i_in[i], stream0_256i_in[i+1]);
-    simde_mm256_separate_real_imag_parts(&ch_mag_des, NULL, ch_mag_256i[i], ch_mag_256i[i+1]);
-    simde_mm256_separate_real_imag_parts(&ch_mag_int, NULL, ch_mag_256i_i[i], ch_mag_256i_i[i+1]);
+    oai_mm256_separate_real_imag_parts(&y0r, &y0i, stream0_256i_in[i], stream0_256i_in[i+1]);
+    oai_mm256_separate_real_imag_parts(&ch_mag_des, NULL, ch_mag_256i[i], ch_mag_256i[i+1]);
+    oai_mm256_separate_real_imag_parts(&ch_mag_int, NULL, ch_mag_256i_i[i], ch_mag_256i_i[i+1]);
 
     y0r_one_over_sqrt_21   = simde_mm256_mulhi_epi16(y0r, ONE_OVER_SQRT_42);
     y0r_three_over_sqrt_21 = simde_mm256_mulhi_epi16(y0r, THREE_OVER_SQRT_42);
@@ -1682,7 +1682,7 @@ void qam64_qam64_avx2(int32_t *stream0_in,
 
     // Get rho
     simde__m256i xmm2, xmm3, xmm4, xmm5, xmm6, xmm7, xmm8;
-    simde_mm256_separate_real_imag_parts(&xmm2, &xmm3, rho01_256i[i], rho01_256i[i+1]);
+    oai_mm256_separate_real_imag_parts(&xmm2, &xmm3, rho01_256i[i], rho01_256i[i+1]);
 
     simde__m256i rho_rpi = simde_mm256_adds_epi16(xmm2, xmm3); // rho = Re(rho) + Im(rho)
     simde__m256i rho_rmi = simde_mm256_subs_epi16(xmm2, xmm3); // rho* = Re(rho) - Im(rho)
@@ -1745,7 +1745,7 @@ void qam64_qam64_avx2(int32_t *stream0_in,
 
     // Rearrange interfering MF output
     simde__m256i y1r, y1i, xmm0;
-    simde_mm256_separate_real_imag_parts(&y1r, &y1i, stream1_256i_in[i], stream1_256i_in[i+1]);
+    oai_mm256_separate_real_imag_parts(&y1r, &y1i, stream1_256i_in[i], stream1_256i_in[i+1]);
 
     // Psi_r calculation from rho_rpi or rho_rmi
     xmm0 = simde_mm256_broadcastw_epi16(simde_mm_set1_epi16(0));// ZERO for abs_pi16
@@ -2013,14 +2013,14 @@ void qam64_qam64_avx2(int32_t *stream0_in,
 
     // Rearrange desired MF output
     simde__m256i y0r, y0i;
-    simde_mm256_separate_real_imag_parts(&y0r, &y0i, stream0_256i_in[i], stream0_256i_in[i+1]);
+    oai_mm256_separate_real_imag_parts(&y0r, &y0i, stream0_256i_in[i], stream0_256i_in[i+1]);
 
     // Rearrange desired channel magnitudes
     // [|h|^2(1),|h|^2(1),|h|^2(2),|h|^2(2),...,,|h|^2(7),|h|^2(7)]*(2/sqrt(10))
-    simde_mm256_separate_real_imag_parts(&ch_mag_des, NULL, ch_mag_256i[i], ch_mag_256i[i+1]);
+    oai_mm256_separate_real_imag_parts(&ch_mag_des, NULL, ch_mag_256i[i], ch_mag_256i[i+1]);
 
     // Rearrange interfering channel magnitudes
-    simde_mm256_separate_real_imag_parts(&ch_mag_int, NULL, ch_mag_256i_i[i], ch_mag_256i_i[i+1]);
+    oai_mm256_separate_real_imag_parts(&ch_mag_int, NULL, ch_mag_256i_i[i], ch_mag_256i_i[i+1]);
 
     y0r_one_over_sqrt_21   = simde_mm256_mulhi_epi16(y0r, ONE_OVER_SQRT_42);
     y0r_three_over_sqrt_21 = simde_mm256_mulhi_epi16(y0r, THREE_OVER_SQRT_42);

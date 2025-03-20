@@ -28,11 +28,11 @@ add_dependencies(tests test_vector_op)
 add_test(NAME test_vector_op
   COMMAND test_vector_op)
 
-add_executable(test_simde_operations test_simde_operations.cpp ../simde_operations.c)
-target_link_libraries(test_simde_operations PRIVATE GTest::gtest LOG minimal_lib)
-add_dependencies(tests test_simde_operations)
-add_test(NAME test_simde_operations
-  COMMAND ./test_simde_operations)
+add_executable(test_oai_arith_operations test_oai_arith_operations.cpp ../oai_arith_operations.c)
+target_link_libraries(test_oai_arith_operations PRIVATE GTest::gtest LOG minimal_lib)
+add_dependencies(tests test_oai_arith_operations)
+add_test(NAME test_oai_arith_operations
+  COMMAND ./test_oai_arith_operations)
 
 add_executable(test_sse_intrinsics test_sse_intrinsics.cpp)
 target_link_libraries(test_sse_intrinsics PRIVATE GTest::gtest LOG minimal_lib)
