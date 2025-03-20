@@ -1059,10 +1059,10 @@ section](.#build-oai-gnb)) to see if it resolves the problem.
 # Operation with multiple RUs
 
 It is possible to connect up to 4 RUs to one DU at the same time and operate
-them as a (single) distributed antenna (array). This works since all RUs and
-the DU are synchronized onto a common clock using PTP. The assumed
-configuration is that with N RUs each having an M×M configuration, we
-effectively reach an (N×M)×(N×M) configuration.
+them either with a single antenna array or a distributed antenna array.  This
+works since all RUs and the DU are synchronized onto a common clock using PTP.
+The assumed configuration is that with N RUs each having an M×M configuration,
+we effectively reach an (N×M)×(N×M) configuration.
 
 Some caveats:
 - Since it's a distributed antenna, this implies that this setup will deploy a
