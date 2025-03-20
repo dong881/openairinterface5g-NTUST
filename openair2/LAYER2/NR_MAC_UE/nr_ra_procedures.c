@@ -624,9 +624,12 @@ static void ra_preamble_msga_transmission(RA_config_t *ra, int scs)
 
   prach_resources->ra_preamble_rx_target_power = get_ra_preamble_rx_target_power(ra, scs);
 
-  ra->ra_rnti = nr_get_ra_rnti(ra->sched_ro_info.start_symbol, ra->sched_ro_info.slot, ra->sched_ro_info.fdm, 0);
+  // 3GPP TS 38.321 Section 5.1.3 says t_id for RA-RNTI depends on mu as specified in clause 5.3.2 in TS 38.211
+  // so mu = 0 for prach format < 4.
+  const int slot = ((ra->sched_ro_info.format & 0xff) < 4) ? ra->sched_ro_info.slot >> scs : ra->sched_ro_info.slot;
+  ra->ra_rnti = nr_get_ra_rnti(ra->sched_ro_info.start_symbol, slot, ra->sched_ro_info.fdm, 0);
   if (ra->ra_type == RA_2_STEP)
-    ra->MsgB_rnti = nr_get_MsgB_rnti(ra->sched_ro_info.start_symbol, ra->sched_ro_info.slot, ra->sched_ro_info.fdm, 0);
+    ra->MsgB_rnti = nr_get_MsgB_rnti(ra->sched_ro_info.start_symbol, slot, ra->sched_ro_info.fdm, 0);
 }
 
 // 38.321 Section 5.1.2 Random Access Resource selection
