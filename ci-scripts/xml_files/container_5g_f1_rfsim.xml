@@ -170,15 +170,6 @@
                 <ping_packetloss_threshold>80</ping_packetloss_threshold>
         </testCase>
 
-        <testCase id="020023">
-                <class>Ping</class>
-                <desc>Ping ext-dn from all NR-UEs</desc>
-                <id>rfsim5g_ue</id>
-                <nodes>cacofonix</nodes>
-                <ping_args> -c 5 192.168.72.135 -i0.5 -w25</ping_args>
-                <ping_packetloss_threshold>80</ping_packetloss_threshold>
-        </testCase>
-
         <testCase id="040002">
                 <class>Custom_Command</class>
                 <desc>Verify Reestablishment</desc>

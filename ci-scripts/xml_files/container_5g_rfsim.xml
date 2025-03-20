@@ -48,7 +48,7 @@
  020005
  444444
  333333
- 020006
+ 020005
  100001
  222222
         </TestCaseRequestedList>
@@ -173,15 +173,6 @@
         </testCase>
 
         <testCase id="020005">
-                <class>Ping</class>
-                <desc>Ping ext-dn from both UEs</desc>
-                <id>rfsim5g_ue rfsim5g_ue2</id>
-                <nodes>cacofonix cacofonix</nodes>
-                <ping_args>-c 20 -i 0.25 192.168.72.135</ping_args>
-                <ping_packetloss_threshold>5</ping_packetloss_threshold>
-        </testCase>
-
-        <testCase id="020006">
                 <class>Ping</class>
                 <desc>Ping ext-dn from both UEs</desc>
                 <id>rfsim5g_ue rfsim5g_ue2</id>
