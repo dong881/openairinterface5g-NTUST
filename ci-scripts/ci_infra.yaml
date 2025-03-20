@@ -93,12 +93,6 @@ porcepix-cn4g:
   NetworkScript: docker exec prod-trf-gen ip a show dev eth0
   CmdPrefix: docker exec prod-trf-gen
 
-porcepix-cn5g:
-  Host: porcepix
-  NetworkScript: docker exec prod-trf-gen ip a show dev eth0
-  CmdPrefix: docker exec prod-trf-gen
-  RunIperf3Server: False
-
 nano-cn4g:
   Host: nano
   NetworkScript: docker exec prod-trf-gen ip a show dev eth0
