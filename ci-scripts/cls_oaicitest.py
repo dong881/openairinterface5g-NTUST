@@ -433,9 +433,7 @@ class OaiCiTest():
 			logPath = f'{os.getcwd()}/../cmake_targets/log/{ymlPath[-1]}'
 			local.run(f'mkdir -p {logPath}', silent=True)
 		ues = [cls_module.Module_UE(ue_id, server_name, infra_file) for ue_id, server_name in zip(self.ue_ids, self.nodes)]
-		logging.debug(ues)
 		cn = cls_corenetwork.CoreNetwork(self.svr_id, self.svr_node, filename=infra_file)
-		logging.debug(cn)
 		with concurrent.futures.ThreadPoolExecutor(max_workers=64) as executor:
 			futures = [executor.submit(self.Ping_common, cn, ue, logPath) for ue in ues]
 			results = [f.result() for f in futures]
@@ -514,9 +512,7 @@ class OaiCiTest():
 			logPath = f'{os.getcwd()}/../cmake_targets/log/{ymlPath[-1]}'
 			local.run(f'mkdir -p {logPath}', silent=True)
 		ues = [cls_module.Module_UE(ue_id, server_name, infra_file) for ue_id, server_name in zip(self.ue_ids, self.nodes)]
-		logging.debug(ues)
 		cn = cls_corenetwork.CoreNetwork(self.svr_id, self.svr_node, filename=infra_file)
-		logging.debug(cn)
 		with concurrent.futures.ThreadPoolExecutor(max_workers=64) as executor:
 			futures = [executor.submit(self.Iperf_Module, cn, ue, i, len(ues), logPath) for i, ue in enumerate(ues)]
 			results = [f.result() for f in futures]
