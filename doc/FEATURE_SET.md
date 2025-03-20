@@ -139,6 +139,7 @@ These modes of operation are supported:
   - evaluation of CQI report
 - MAC scheduling of SR reception
 - Intra-frequency handover
+- Initial support for RedCap
 
 ## gNB RLC
 
@@ -185,6 +186,7 @@ These modes of operation are supported:
   - Interface with NGAP for the interactions with the AMF
   - Interface with F1AP for CU/DU split deployment option
   - Periodic RRC measurements of serving cell (no A/B events)
+- Initial support for RedCap
 
 ## gNB X2AP
 
