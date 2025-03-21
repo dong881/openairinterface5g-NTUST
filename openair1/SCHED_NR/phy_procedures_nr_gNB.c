@@ -316,7 +316,7 @@ static int nr_ulsch_procedures(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, boo
   NR_DL_FRAME_PARMS *frame_parms = &gNB->frame_parms;
 
   int nb_pusch = 0;
-  for (uint8_t ULSCH_id = 0; ULSCH_id < gNB->max_nb_pusch; ULSCH_id++) {
+  for (int ULSCH_id = 0; ULSCH_id < gNB->max_nb_pusch; ULSCH_id++) {
     if (ulsch_to_decode[ULSCH_id]) {
       nb_pusch++;
     }
@@ -329,7 +329,7 @@ static int nr_ulsch_procedures(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx, boo
   uint8_t ULSCH_ids[nb_pusch];
   uint32_t G[nb_pusch];
   int pusch_id = 0;
-  for (uint8_t ULSCH_id = 0; ULSCH_id < gNB->max_nb_pusch; ULSCH_id++) {
+  for (int ULSCH_id = 0; ULSCH_id < gNB->max_nb_pusch; ULSCH_id++) {
 
     if (ulsch_to_decode[ULSCH_id]) {
 
