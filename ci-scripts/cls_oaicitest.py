@@ -52,7 +52,7 @@ import cls_cmd
 # Helper functions used here and in other classes
 #-----------------------------------------------------------
 def Iperf_ComputeModifiedBW(idx, ue_num, profile, args):
-	result = re.search('-b\s*(?P<iperf_bandwidth>[0-9\.]+)(?P<unit>[KMG])', str(args))
+	result = re.search(r'-b\s*(?P<iperf_bandwidth>[0-9\.]+)(?P<unit>[KMG])', str(args))
 	if result is None:
 		raise ValueError(f'requested iperf bandwidth not found in iperf options "{args}"')
 	iperf_bandwidth = float(result.group('iperf_bandwidth'))
@@ -78,7 +78,7 @@ def Iperf_ComputeModifiedBW(idx, ue_num, profile, args):
 	return iperf_bandwidth_new, args_new
 
 def Iperf_ComputeTime(args):
-	result = re.search('-t\s*(?P<iperf_time>\d+)', str(args))
+	result = re.search(r'-t\s*(?P<iperf_time>\d+)', str(args))
 	if result is None:
 		raise Exception('Iperf time not found!')
 	return int(result.group('iperf_time'))
@@ -372,7 +372,7 @@ class OaiCiTest():
 		if not svrIP:
 			return (False, f"CN {cn.getName()} has no IP address")
 		ping_log_file = f'ping_{self.testCase_id}_{ue.getName()}.log'
-		ping_time = re.findall("-c *(\d+)",str(self.ping_args))
+		ping_time = re.findall(r"-c *(\d+)",str(self.ping_args))
 		local_ping_log_file = f'{logPath}/{ping_log_file}'
 		if re.search('%cn_ip%', self.ping_args) or re.search(r'[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+', self.ping_args):
 			raise Exception(f"ping_args should not have IP address: {self.ping_args}")
@@ -391,12 +391,12 @@ class OaiCiTest():
 
 		with open(local_ping_log_file, 'r') as f:
 			ping_output = "".join(f.readlines())
-		result = re.search(', (?P<packetloss>[0-9\.]+)% packet loss, time [0-9\.]+ms', ping_output)
+		result = re.search(r', (?P<packetloss>[0-9\.]+)% packet loss, time [0-9\.]+ms', ping_output)
 		if result is None:
 			message = ue_header + ': Packet Loss Not Found!'
 			return (False, message)
 		packetloss = result.group('packetloss')
-		result = re.search('rtt min\/avg\/max\/mdev = (?P<rtt_min>[0-9\.]+)\/(?P<rtt_avg>[0-9\.]+)\/(?P<rtt_max>[0-9\.]+)\/[0-9\.]+ ms', ping_output)
+		result = re.search(r'rtt min\/avg\/max\/mdev = (?P<rtt_min>[0-9\.]+)\/(?P<rtt_avg>[0-9\.]+)\/(?P<rtt_max>[0-9\.]+)\/[0-9\.]+ ms', ping_output)
 		if result is None:
 			message = ue_header + ': Ping RTT_Min RTT_Avg RTT_Max Not Found!'
 			return (False, message)
@@ -678,7 +678,7 @@ class OaiCiTest():
 				result = re.search('TRIED TO PUSH MBMS DATA', str(line))
 				if result is not None:
 					mbms_messages += 1
-			result = re.search("MIB Information => ([a-zA-Z]{1,10}), ([a-zA-Z]{1,10}), NidCell (?P<nidcell>\d{1,3}), N_RB_DL (?P<n_rb_dl>\d{1,3}), PHICH DURATION (?P<phich_duration>\d), PHICH RESOURCE (?P<phich_resource>.{1,4}), TX_ANT (?P<tx_ant>\d)", str(line))
+			result = re.search(r"MIB Information => ([a-zA-Z]{1,10}), ([a-zA-Z]{1,10}), NidCell (?P<nidcell>\d{1,3}), N_RB_DL (?P<n_rb_dl>\d{1,3}), PHICH DURATION (?P<phich_duration>\d), PHICH RESOURCE (?P<phich_resource>.{1,4}), TX_ANT (?P<tx_ant>\d)", str(line))
 			if result is not None and (not mib_found):
 				try:
 					mibMsg = "MIB Information: " + result.group(1) + ', ' + result.group(2)
@@ -711,7 +711,7 @@ class OaiCiTest():
 					frequency_found = True
 				except Exception as e:
 					logging.error(f'\033[91m UE did not find PBCH\033[0m')
-			result = re.search("PLMN MCC (?P<mcc>\d{1,3}), MNC (?P<mnc>\d{1,3}), TAC", str(line))
+			result = re.search(r"PLMN MCC (?P<mcc>\d{1,3}), MNC (?P<mnc>\d{1,3}), TAC", str(line))
 			if result is not None and (not plmn_found):
 				try:
 					mibMsg = f"PLMN MCC = {result.group('mcc')} MNC = {result.group('mnc')}"
@@ -720,7 +720,7 @@ class OaiCiTest():
 					plmn_found = True
 				except Exception as e:
 					logging.error(f'\033[91m PLMN not found \033[0m')
-			result = re.search("Found (?P<operator>[\w,\s]{1,15}) \(name from internal table\)", str(line))
+			result = re.search(r"Found (?P<operator>[\w,\s]{1,15}) \(name from internal table\)", str(line))
 			if result is not None:
 				try:
 					mibMsg = f"The operator is: {result.group('operator')}"
@@ -736,7 +736,7 @@ class OaiCiTest():
 					logging.debug(f'\033[94m{mibMsg}\033[0m')
 				except Exception as e:
 					logging.error(f'\033[91m SIB5 InterFreqCarrierFreq element not found \033[0m')
-			result = re.search("DL Carrier Frequency/ARFCN : \-*(?P<carrier_frequency>\d{1,15}/\d{1,4})", str(line))
+			result = re.search(r"DL Carrier Frequency/ARFCN : \-*(?P<carrier_frequency>\d{1,15}/\d{1,4})", str(line))
 			if result is not None:
 				try:
 					freq = result.group('carrier_frequency')
@@ -746,7 +746,7 @@ class OaiCiTest():
 					logging.debug(f'\033[94m    DL Carrier Frequency is:  {freq}\033[0m')
 				except Exception as e:
 					logging.error(f'\033[91m    DL Carrier Frequency not found \033[0m')
-			result = re.search("AllowedMeasBandwidth : (?P<allowed_bandwidth>\d{1,7})", str(line))
+			result = re.search(r"AllowedMeasBandwidth : (?P<allowed_bandwidth>\d{1,7})", str(line))
 			if result is not None:
 				try:
 					prb = result.group('allowed_bandwidth')
