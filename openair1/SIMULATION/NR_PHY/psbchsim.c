@@ -177,14 +177,17 @@ static void configure_NR_UE(PHY_VARS_NR_UE *UE, int mu, int N_RB)
   config.cell_config.frame_duplex_type = TDD;
   config.carrier_config.dl_grid_size[mu] = N_RB;
   config.carrier_config.ul_grid_size[mu] = N_RB;
-  config.carrier_config.dl_frequency = 0;
-  config.carrier_config.uplink_frequency = 0;
+  config.carrier_config.dl_frequency = 3300000;
+  config.carrier_config.uplink_frequency = 3300000;
 
   int band;
   if (mu == 1)
     band = 78;
-  if (mu == 0)
+  if (mu == 0) {
     band = 34;
+    config.carrier_config.dl_frequency = 2010000;
+    config.carrier_config.uplink_frequency = 2010000;
+  }
   nr_init_frame_parms_ue(fp, &config, band);
   fp->ofdm_offset_divisor = 8;
   nr_dump_frame_parms(fp);
