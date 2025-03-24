@@ -1337,7 +1337,6 @@ add_library(L2_LTE_NR
   ${L2_RRC_SRC}
   ${MAC_SRC}
   ${ENB_APP_SRC}
-  ${MCE_APP_SRC}
 )
 
 target_link_libraries(L2_LTE_NR PRIVATE f1ap s1ap nr_rrc)
