@@ -322,7 +322,7 @@ int nr_rlc_get_available_tx_space(const int ue_id, const logical_chan_id_t chann
   return ret;
 }
 
-int rlc_module_init(int enb_flag)
+int nr_rlc_module_init(int gnb_flag)
 {
   static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
   static int inited = 0;
@@ -330,20 +330,22 @@ int rlc_module_init(int enb_flag)
 
   if (pthread_mutex_lock(&lock)) abort();
 
-  if (enb_flag == 1 && inited) {
+  if (gnb_flag == 1 && inited) {
     LOG_E(RLC, "%s:%d:%s: fatal, inited already 1\n", __FILE__, __LINE__, __FUNCTION__);
     exit(1);
   }
 
-  if (enb_flag == 0 && inited_ue) {
+  if (gnb_flag == 0 && inited_ue) {
     LOG_E(RLC, "%s:%d:%s: fatal, inited_ue already 1\n", __FILE__, __LINE__, __FUNCTION__);
     exit(1);
   }
 
-  if (enb_flag == 1) inited = 1;
-  if (enb_flag == 0) inited_ue = 1;
+  if (gnb_flag == 1)
+    inited = 1;
+  if (gnb_flag == 0)
+    inited_ue = 1;
 
-  nr_rlc_ue_manager = new_nr_rlc_ue_manager(enb_flag);
+  nr_rlc_ue_manager = new_nr_rlc_ue_manager(gnb_flag);
 
   if (pthread_mutex_unlock(&lock)) abort();
 
@@ -358,7 +360,6 @@ static void deliver_sdu(void *_ue, nr_rlc_entity_t *entity, char *buf, int size)
   protocol_ctxt_t ctx;
   uint8_t *memblock;
   int i;
-  int is_enb;
 
   /* is it SRB? */
   for (i = 0; i < sizeofArray(ue->srb); i++) {
@@ -391,21 +392,21 @@ rb_found:
   ctx.eNB_index = 0;
   ctx.brOption = 0;
 
-  is_enb = nr_rlc_manager_get_enb_flag(nr_rlc_ue_manager);
+  int is_gnb = nr_rlc_manager_get_gnb_flag(nr_rlc_ue_manager);
 
   /* used fields? */
   ctx.module_id = 0;
   /* CU (PDCP, RRC, SDAP) use a different ID than RNTI, so below set the CU UE
    * ID if in gNB, else use RNTI normally */
   ctx.rntiMaybeUEid = ue->ue_id;
-  if (is_enb) {
+  if (is_gnb) {
     f1_ue_data_t ue_data = du_get_f1_ue_data(ue->ue_id);
     ctx.rntiMaybeUEid = ue_data.secondary_ue;
   }
 
-  ctx.enb_flag = is_enb;
+  ctx.enb_flag = is_gnb;
 
-  if (is_enb) {
+  if (is_gnb) {
     T(T_ENB_RLC_UL,
       T_INT(0 /*ctxt_pP->module_id*/),
       T_INT(ue->ue_id), T_INT(rb_id), T_INT(size));
@@ -465,7 +466,6 @@ static void successful_delivery(void *_ue, nr_rlc_entity_t *entity, int sdu_id)
 #if 0
   MessageDef *msg;
 #endif
-  int is_enb;
 
   /* is it SRB? */
   for (i = 0; i < 2; i++) {
@@ -498,8 +498,8 @@ rb_found:
   if (is_srb == 0)
     return;
 
-  is_enb = nr_rlc_manager_get_enb_flag(nr_rlc_ue_manager);
-  if (!is_enb)
+  int is_gnb = nr_rlc_manager_get_gnb_flag(nr_rlc_ue_manager);
+  if (!is_gnb)
     return;
 
 #if 0
