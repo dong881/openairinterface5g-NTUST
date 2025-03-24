@@ -2051,17 +2051,7 @@ static void nr_generate_Msg4_MsgB(module_id_t module_idP,
       uint8_t buffer[CCCH_SDU_SIZE];
       uint8_t mac_subheader_len = sizeof(NR_MAC_SUBHEADER_SHORT);
       // Get RLC data on the SRB (RRCSetup, RRCReestablishment)
-      mac_sdu_length = mac_rlc_data_req(module_idP,
-                                        ra->rnti,
-                                        module_idP,
-                                        frameP,
-                                        ENB_FLAG_YES,
-                                        MBMS_FLAG_NO,
-                                        lcid,
-                                        CCCH_SDU_SIZE,
-                                        (char *)buffer,
-                                        0,
-                                        0);
+      mac_sdu_length = nr_mac_rlc_data_req(module_idP, ra->rnti, true, lcid, CCCH_SDU_SIZE, (char *)buffer);
 
       if (mac_sdu_length < 256) {
         ((NR_MAC_SUBHEADER_SHORT *)&buf[mac_pdu_length])->R = 0;
