@@ -52,9 +52,9 @@ typedef struct nr_rlc_ue_t {
 /* manager functions                                                   */
 /***********************************************************************/
 
-nr_rlc_ue_manager_t *new_nr_rlc_ue_manager(int enb_flag);
+nr_rlc_ue_manager_t *new_nr_rlc_ue_manager(int gnb_flag);
 
-int nr_rlc_manager_get_enb_flag(nr_rlc_ue_manager_t *m);
+int nr_rlc_manager_get_gnb_flag(nr_rlc_ue_manager_t *m);
 
 void nr_rlc_manager_lock(nr_rlc_ue_manager_t *m);
 void nr_rlc_manager_unlock(nr_rlc_ue_manager_t *m);

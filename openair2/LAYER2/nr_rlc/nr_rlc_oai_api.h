@@ -41,6 +41,7 @@
 struct NR_RLC_Config;
 struct NR_LogicalChannelConfig;
 
+int nr_rlc_module_init(int gnb_flag);
 void nr_mac_rlc_data_ind(const module_id_t  module_idP,
                          const uint16_t ue_id,
                          const bool gnb_flagP,

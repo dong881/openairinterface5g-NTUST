@@ -31,10 +31,10 @@ typedef struct {
   pthread_mutex_t lock;
   nr_rlc_ue_t     **ue_list;
   int             ue_count;
-  int             enb_flag;
+  int             gnb_flag;
 } nr_rlc_ue_manager_internal_t;
 
-nr_rlc_ue_manager_t *new_nr_rlc_ue_manager(int enb_flag)
+nr_rlc_ue_manager_t *new_nr_rlc_ue_manager(int gnb_flag)
 {
   nr_rlc_ue_manager_internal_t *ret;
 
@@ -45,15 +45,15 @@ nr_rlc_ue_manager_t *new_nr_rlc_ue_manager(int enb_flag)
   }
 
   if (pthread_mutex_init(&ret->lock, NULL)) abort();
-  ret->enb_flag = enb_flag;
+  ret->gnb_flag = gnb_flag;
 
   return ret;
 }
 
-int nr_rlc_manager_get_enb_flag(nr_rlc_ue_manager_t *_m)
+int nr_rlc_manager_get_gnb_flag(nr_rlc_ue_manager_t *_m)
 {
   nr_rlc_ue_manager_internal_t *m = _m;
-  return m->enb_flag;
+  return m->gnb_flag;
 }
 
 void nr_rlc_manager_lock(nr_rlc_ue_manager_t *_m)
