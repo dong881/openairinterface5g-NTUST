@@ -4,28 +4,25 @@
 
 ## Machines
 
-| Machine       | IP address      | Lockable Resource     | Function           | Connected devices                                     |
-| ------------- | --------------- | --------------------- | ------------------ | ----------------------------------------------------- |
-| asterix       | 172.21.16.127   | CI-Asterix-Usage      | *unused*           | 172.21.19.14                                          |
-| obelix        | 172.21.16.128   | CI-Obelix-Usage       | eNB (n40, n78), nrUE | 172.21.19.13, X300 (192.168.60.2)                   |
-| porcepix      | 172.21.16.136   | CI-Porcepix           | Executor, EPC, 5GC | --                                                    |
-| up2           | 172.21.19.68    | CI-UP2-Usage          | COTS UE            | Quectel RM520N                                        |
-| nepes         | 172.21.16.137   | CI-Nepes              | gNB (n78), EPC/5GC | B200mini (30C51EB)                                    |
-| ofqot         | 172.21.16.109   | CI-Ofqot              | gNB (n78)          | B200mini (30C51D4)                                    |
-| idefix        | 172.21.16.135   | CI-Idefix             | COTS UE            | Quectel RM500Q                                        |
-| caracal       | 172.21.16.132   | CI-Caracal            | gNB/phytest        | N300 (192.168.10.2)                                   |
-| amariue       | 172.21.16.144   | CI-Amarisoft-UE-Usage | nrUE               | Amarisoft UE simulator                                |
-| nano          | 172.21.18.48    | CI-Nano-Legacy-EPC    | Executor, EPC, adb | 2x COTS (adb)                                         |
-| hutch         | 172.21.18.46    | CI-Hutch-Legacy-FDD-eNB | eNB (B7)           | B200mini (30C5239)                                  |
-| starsky       | 172.21.18.45    | CI-Starsky-Legacy-TDD-eNB       | eNB (B40)  | b200mini (30A3E3C)                                  |
-| carabe        | 172.21.18.47    | CI-Carabe-Legacy-FDD-OAI-LTE-UE | UE (B7UE)  | B200mini (30AE8C9)                                  |
-| nokiabox      | 172.21.19.39    | _None_                | gNB (Nokia), 5GC   | _Nokia RF integrated_                                 |
-| avra          | 172.21.16.124   | CI-Avra-Usage         | gNB (n78)          | AW2S Jaguar (192.168.80.239)                          |
-| orion         | 172.21.16.134   | CI-Orion-Build-Sanity-Check-Deploy-Test, CI-Orion-DsTester-Deploy-Test | Build | |
-| aerial2       | 172.21.16.131   | CI-Aerial2-Usage      | gNB (PNF/Nvidia CUBB + VNF) | Foxconn RU, _Nvidia Aerial SDK integrated_   |
-| cacofonix     | 172.21.16.150   | CI-Cacofonix-Usage    | gNB (n78, FHI7.2)  |                                                       |
-| matix         | 172.21.19.58    | CI-Matix-Usage        | gNB (n77)          | N310                                                  |
-| gracehopper1-oai | --           | Gracehopper1          | build, gNB/Aerial  | _Nvidia Aerial SDK integrated_                        |
+| Machine       | Lockable Resource     | Function             | Connected devices                                     |
+| ------------- | --------------------- | -------------------- | ----------------------------------------------------- |
+| obelix        | Obelix                | eNB (n40, n78), nrUE | 172.21.19.13, X300 (192.168.60.2)                     |
+| porcepix      | Porcepix              | Executor, EPC, 5GC   | --                                                    |
+| up2           | UP2                   | COTS UE              | Quectel RM520N                                        |
+| nepes         | Nepes                 | gNB (n78), EPC/5GC   | B200mini (30C51EB)                                    |
+| ofqot         | Ofqot                 | gNB (n78)            | B200mini (30C51D4)                                    |
+| idefix        | Idefix                | COTS UE              | Quectel RM500Q                                        |
+| caracal       | Caracal               | gNB/phytest, OAI UE  | N300 (192.168.10.2), _AMD T2 card_                    |
+| amariue       | Amarisoft-UE          | nrUE                 | Amarisoft UE simulator                                |
+| nano          | Nano_EPC/Nano_5G_COTS_UE | Executor, EPC, adb | 2x COTS (adb)                                        |
+| hutch         | Hutch                 | eNB (B7)             | B200mini (30C5239)                                    |
+| starsky       | Starsky               | eNB (B40)            | b200mini (30A3E3C)                                    |
+| carabe        | Carabe                | UE (B7UE)            | B200mini (30AE8C9)                                    |
+| avra          | Avra                  | gNB (n78)            | AW2S Jaguar (192.168.80.239)                          |
+| aerial2       | Aerial2               | gNB (PNF/Nvidia CUBB + VNF) | Foxconn RU, _Nvidia Aerial SDK integrated_     |
+| cacofonix     | Cacofonix             | gNB (n78, FHI7.2)    | --                                                    |
+| matix         | Matix                 | gNB (n77)            | N310                                                  |
+| gracehopper1-oai | Gracehopper1       | build, gNB/Aerial    | _Nvidia Aerial SDK integrated_                        |
 
 Note: The available resources, and their current usage, is indicated here:
 - [Lockable resources of jenkins-oai](https://jenkins-oai.eurecom.fr/lockable-resources/):
@@ -107,6 +104,8 @@ information on how the images are built.
     - target image from `Dockerfile.nr-cuup.rhel9`
     - target image from `Dockerfile.lteUE.rhel9`
     - target image from `Dockerfile.nrUE.rhel9`
+  - build image from `Dockerfile.build.fhi72.rhel9`, followed by
+    - target image from `Dockerfile.gNB.fhi72.rhel9`
   - build image from `Dockerfile.phySim.rhel9` (creates as direct target physical simulator
     image)
   - build image from `Dockerfile.clang.rhel9` (compilation only, artifacts not used currently)
@@ -122,6 +121,9 @@ information on how the images are built.
     - target image from `Dockerfile.nrUE.ubuntu22`
     - target image from `Dockerfile.lteUE.ubuntu22`
     - target image from `Dockerfile.lteRU.ubuntu22`
+    - target image from `Dockerfile.gNB.aerial.ubuntu22`
+  - build image from `Dockerfile.build.fhi72.ubuntu22`, followed by
+    - target image from `Dockerfile.gNB.fhi72.ubuntu22`
   - build unit tests from `ci-scripts/docker/Dockerfile.unittest.ubuntu22`, and run them
 - [RAN-Ubuntu-ARM-Image-Builder](https://jenkins-oai.eurecom.fr/job/RAN-Ubuntu-ARM-Image-Builder/)
   ~BUILD-ONLY ~4G-LTE ~5G-NR
@@ -137,7 +139,7 @@ information on how the images are built.
 
 - [OAI-CN5G-COTS-UE-Test](https://jenkins-oai.eurecom.fr/job/OAI-CN5G-COTS-UE-Test/)
   ~5G-NR
-  - using 5GC bench (resources `CI-Cetautomatix-OC-oaicicd-session`, `CI-Dogmatix-CN5G-gNB`): Attach/Detach of UE with multiple PDU sessions
+  - using 5GC bench (resources `Cetautomatix`, `Dogmatix`): Attach/Detach of UE with multiple PDU sessions
 - [OAI-FLEXRIC-RAN-Integration-Test](https://jenkins-oai.eurecom.fr/job/OAI-FLEXRIC-RAN-Integration-Test/) ~5G-NR ~nrUE
   - selfix (gNB, nrUE, OAI 5GC, FlexRIC)
   - uses RFsimulator, tests FlexRIC/E2 interface and xApps
@@ -171,7 +173,7 @@ information on how the images are built.
   - basic NSA test
 - [RAN-PhySim-Cluster](https://jenkins-oai.eurecom.fr/job/RAN-PhySim-Cluster/)
   ~4G-LTE ~5G-NR ~nrUE
-  - cluster (`Asterix-OC-oaicicd-session` resource), tests in OpenShift Cluster
+  - cluster (`RAN_OC` resource), tests in OpenShift Cluster
   - unitary simulators (`nr_dlsim`, etc.)
   - see [`./physical-simulators.md`](./physical-simulators.md) for an overview
 - [RAN-RF-Sim-Test-4G](https://jenkins-oai.eurecom.fr/job/RAN-RF-Sim-Test-4G/)
