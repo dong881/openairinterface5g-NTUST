@@ -37,7 +37,7 @@
 #include "NR_MAC_COMMON/nr_mac.h"
 #include "LAYER2/NR_MAC_UE/mac_proto.h"
 #include <executables/softmodem-common.h>
-#include "openair2/LAYER2/RLC/rlc.h"
+#include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
 
 int16_t get_prach_tx_power(NR_UE_MAC_INST_t *mac)
 {
@@ -1105,17 +1105,12 @@ static uint8_t *fill_msg3_pdu_from_rlc(NR_UE_MAC_INST_t *mac, uint8_t *pdu, int 
   // regular Msg3/MsgA_PUSCH with PDU coming from higher layers
   *(NR_MAC_SUBHEADER_FIXED *)pdu = (NR_MAC_SUBHEADER_FIXED){.LCID = UL_SCH_LCID_CCCH_48_BITS};
   pdu += sizeof(NR_MAC_SUBHEADER_FIXED);
-  tbs_size_t len = mac_rlc_data_req(mac->ue_id,
-                                    mac->ue_id,
-                                    0,
-                                    0,
-                                    ENB_FLAG_NO,
-                                    MBMS_FLAG_NO,
-                                    0, // SRB0 for messages sent in MSG3
-                                    TBS_max - sizeof(NR_MAC_SUBHEADER_FIXED), /* size of mac_ce above */
-                                    (char *)pdu,
-                                    0,
-                                    0);
+  tbs_size_t len = nr_mac_rlc_data_req(mac->ue_id,
+                                       mac->ue_id,
+                                       false,
+                                       0, // SRB0 for messages sent in MSG3
+                                       TBS_max - sizeof(NR_MAC_SUBHEADER_FIXED), /* size of mac_ce above */
+                                       (char *)pdu);
   AssertFatal(len > 0, "no data for Msg3/MsgA_PUSCH\n");
   // UE Contention Resolution Identity
   // Store the first 48 bits belonging to the uplink CCCH SDU within Msg3 to determine whether or not the

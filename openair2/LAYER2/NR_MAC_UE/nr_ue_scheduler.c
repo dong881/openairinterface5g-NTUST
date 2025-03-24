@@ -48,6 +48,7 @@
 
 #include <executables/softmodem-common.h>
 #include "LAYER2/RLC/rlc.h"
+#include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "RRC/NR_UE/L2_interface_ue.h"
 
 //#define SRS_DEBUG
@@ -2589,17 +2590,12 @@ static bool fill_mac_sdu(NR_UE_MAC_INST_t *mac,
                                                 &target);
   header_sz = bytes_requested < 256 ? sizeof(NR_MAC_SUBHEADER_SHORT) : sizeof(NR_MAC_SUBHEADER_LONG);
 
-  uint16_t sdu_length = mac_rlc_data_req(mac->ue_id,
-                                         mac->ue_id,
-                                         gNB_index,
-                                         frame,
-                                         ENB_FLAG_NO,
-                                         MBMS_FLAG_NO,
-                                         lcid,
-                                         bytes_requested,
-                                         (char *)mac_ce_p->cur_ptr + header_sz,
-                                         0,
-                                         0);
+  uint16_t sdu_length = nr_mac_rlc_data_req(mac->ue_id,
+                                            mac->ue_id,
+                                            false,
+                                            lcid,
+                                            bytes_requested,
+                                            (char *)mac_ce_p->cur_ptr + header_sz);
 
   AssertFatal(bytes_requested >= sdu_length,
               "LCID = 0x%02x RLC has segmented %d bytes but MAC has max %li remaining bytes\n",

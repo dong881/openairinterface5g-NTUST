@@ -192,17 +192,12 @@ void nr_mac_rlc_data_ind(const module_id_t  module_idP,
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 }
 
-tbs_size_t mac_rlc_data_req(const module_id_t  module_idP,
-                            const uint16_t ue_id,
-                            const eNB_index_t eNB_index,
-                            const frame_t frameP,
-                            const eNB_flag_t enb_flagP,
-                            const MBMS_flag_t MBMS_flagP,
-                            const logical_chan_id_t channel_idP,
-                            const tb_size_t tb_sizeP,
-                            char *buffer_pP,
-                            const uint32_t sourceL2Id,
-                            const uint32_t destinationL2Id)
+tbs_size_t nr_mac_rlc_data_req(const module_id_t  module_idP,
+                               const uint16_t ue_id,
+                               const bool gnb_flagP,
+                               const logical_chan_id_t channel_idP,
+                               const tb_size_t tb_sizeP,
+                               char *buffer_pP)
 {
   int ret;
   int maxsize;
@@ -223,7 +218,7 @@ tbs_size_t mac_rlc_data_req(const module_id_t  module_idP,
 
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 
-  if (enb_flagP)
+  if (gnb_flagP)
     T(T_ENB_RLC_MAC_DL, T_INT(module_idP), T_INT(ue_id),
       T_INT(channel_idP), T_INT(ret));
 
