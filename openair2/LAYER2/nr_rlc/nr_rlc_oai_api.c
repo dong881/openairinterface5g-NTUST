@@ -162,26 +162,15 @@ void nr_rlc_release_entity(int ue_id, logical_chan_id_t channel_id)
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 }
 
-void mac_rlc_data_ind(const module_id_t  module_idP,
-                      const uint16_t ue_id,
-                      const eNB_index_t eNB_index,
-                      const frame_t frameP,
-                      const eNB_flag_t enb_flagP,
-                      const MBMS_flag_t MBMS_flagP,
-                      const logical_chan_id_t channel_idP,
-                      char *buffer_pP,
-                      const tb_size_t tb_sizeP,
-                      num_tb_t num_tbP,
-                      crc_t *crcs_pP)
+void nr_mac_rlc_data_ind(const module_id_t  module_idP,
+                         const uint16_t ue_id,
+                         const bool gnb_flagP,
+                         const logical_chan_id_t channel_idP,
+                         char *buffer_pP,
+                         const tb_size_t tb_sizeP)
 {
-  if (eNB_index != 0 || /*enb_flagP != 1 ||*/ MBMS_flagP != 0) {
-    LOG_E(RLC, "%s:%d:%s: fatal\n", __FILE__, __LINE__, __FUNCTION__);
-    exit(1);
-  }
-
-  if (enb_flagP)
-    T(T_ENB_RLC_MAC_UL, T_INT(module_idP), T_INT(ue_id),
-      T_INT(channel_idP), T_INT(tb_sizeP));
+  if (gnb_flagP)
+    T(T_ENB_RLC_MAC_UL, T_INT(module_idP), T_INT(ue_id), T_INT(channel_idP), T_INT(tb_sizeP));
 
   nr_rlc_manager_lock(nr_rlc_ue_manager);
   nr_rlc_ue_t *ue = nr_rlc_manager_get_ue(nr_rlc_ue_manager, ue_id);

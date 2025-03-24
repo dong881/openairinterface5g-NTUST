@@ -35,7 +35,6 @@
 #include "utils.h"
 #include <openair2/UTIL/OPT/opt.h>
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
-#include "LAYER2/RLC/rlc.h"
 
 //#define SRS_IND_DEBUG
 
@@ -354,17 +353,7 @@ static int nr_process_mac_pdu(instance_t module_idP,
         }
 
         if (prepare_initial_ul_rrc_message(RC.nrmac[module_idP], UE)) {
-          mac_rlc_data_ind(module_idP,
-                           UE->rnti,
-                           module_idP,
-                           frameP,
-                           ENB_FLAG_YES,
-                           MBMS_FLAG_NO,
-                           0,
-                           (char *)(pduP + mac_subheader_len),
-                           mac_len,
-                           1,
-                           NULL);
+          nr_mac_rlc_data_ind(module_idP, UE->rnti, true, 0, (char *)(pduP + mac_subheader_len), mac_len);
         } else {
           LOG_E(NR_MAC, "prepare_initial_ul_rrc_message() returned false, cannot forward CCCH message\n");
         }
@@ -379,17 +368,7 @@ static int nr_process_mac_pdu(instance_t module_idP,
                     slot,
                     lcid);
 
-        mac_rlc_data_ind(module_idP,
-                         UE->rnti,
-                         module_idP,
-                         frameP,
-                         ENB_FLAG_YES,
-                         MBMS_FLAG_NO,
-                         lcid,
-                         (char *)(pduP + mac_subheader_len),
-                         mac_len,
-                         1,
-                         NULL);
+        nr_mac_rlc_data_ind(module_idP, UE->rnti, true, lcid, (char *)(pduP + mac_subheader_len), mac_len);
 
         UE->mac_stats.ul.total_sdu_bytes += mac_len;
         UE->mac_stats.ul.lc_bytes[lcid] += mac_len;
@@ -407,17 +386,7 @@ static int nr_process_mac_pdu(instance_t module_idP,
               mac_len);
         UE->mac_stats.ul.lc_bytes[lcid] += mac_len;
 
-        mac_rlc_data_ind(module_idP,
-                         UE->rnti,
-                         module_idP,
-                         frameP,
-                         ENB_FLAG_YES,
-                         MBMS_FLAG_NO,
-                         lcid,
-                         (char *)(pduP + mac_subheader_len),
-                         mac_len,
-                         1,
-                         NULL);
+        nr_mac_rlc_data_ind(module_idP, UE->rnti, true, lcid, (char *)(pduP + mac_subheader_len), mac_len);
 
         sdus += 1;
         /* Updated estimated buffer when receiving data */
