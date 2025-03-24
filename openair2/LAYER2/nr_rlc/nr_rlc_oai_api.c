@@ -944,18 +944,6 @@ void nr_rlc_add_drb(int ue_id, int drb_id, const NR_RLC_BearerConfig_t *rlc_Bear
   LOG_I(RLC, "Added DRB to UE %d\n", ue_id);
 }
 
-/* Dummy function due to dependency from LTE libraries */
-rlc_op_status_t rrc_rlc_config_asn1_req (const protocol_ctxt_t   * const ctxt_pP,
-    const LTE_SRB_ToAddModList_t   * const srb2add_listP,
-    const LTE_DRB_ToAddModList_t   * const drb2add_listP,
-    const LTE_DRB_ToReleaseList_t  * const drb2release_listP,
-    const LTE_PMCH_InfoList_r9_t * const pmch_InfoList_r9_pP,
-    const uint32_t sourceL2Id,
-    const uint32_t destinationL2Id)
-{
-  return 0;
-}
-
 struct srb0_data {
   int ue_id;
   void *data;
