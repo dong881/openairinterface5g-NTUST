@@ -561,12 +561,6 @@ static void set_node_type() {
   node_type = get_node_type();
 }
 
-/* hack: dummy function needed due to LTE dependencies */
-void pdcp_layer_init(void)
-{
-  abort();
-}
-
 void nr_pdcp_layer_init(void)
 {
   /* hack: be sure to initialize only once */
@@ -944,30 +938,9 @@ void nr_pdcp_add_drbs(eNB_flag_t enb_flag,
     LOG_W(PDCP, "nr_pdcp_add_drbs() with void list\n");
 }
 
-/* Dummy function due to dependency from LTE libraries */
-bool rrc_pdcp_config_asn1_req(const protocol_ctxt_t *const  ctxt_pP,
-                              LTE_SRB_ToAddModList_t  *const srb2add_list,
-                              LTE_DRB_ToAddModList_t  *const drb2add_list,
-                              LTE_DRB_ToReleaseList_t *const drb2release_list,
-                              const uint8_t                   security_modeP,
-                              uint8_t                  *const kRRCenc,
-                              uint8_t                  *const kRRCint,
-                              uint8_t                  *const kUPenc,
-                              LTE_PMCH_InfoList_r9_t  *pmch_InfoList_r9,
-                              rb_id_t                 *const defaultDRB)
-{
-  return 0;
-}
-
 uint64_t get_pdcp_optmask(void)
 {
   return pdcp_optmask;
-}
-
-/* hack: dummy function needed due to LTE dependencies */
-bool pdcp_remove_UE(const protocol_ctxt_t *const ctxt_pP)
-{
-  abort();
 }
 
 void nr_pdcp_remove_UE(ue_id_t ue_id)
@@ -975,19 +948,6 @@ void nr_pdcp_remove_UE(ue_id_t ue_id)
   nr_pdcp_manager_lock(nr_pdcp_ue_manager);
   nr_pdcp_manager_remove_ue(nr_pdcp_ue_manager, ue_id);
   nr_pdcp_manager_unlock(nr_pdcp_ue_manager);
-}
-
-/* hack: dummy function needed due to LTE dependencies */
-void pdcp_config_set_security(const protocol_ctxt_t *const ctxt_pP,
-                                 pdcp_t *const pdcp_pP,
-                                 const rb_id_t rb_id,
-                                 const uint16_t lc_idP,
-                                 const uint8_t security_modeP,
-                                 uint8_t *const kRRCenc_pP,
-                                 uint8_t *const kRRCint_pP,
-                                 uint8_t *const kUPenc_pP)
-{
-  abort();
 }
 
 void nr_pdcp_config_set_security(ue_id_t ue_id,
@@ -1299,28 +1259,6 @@ bool cu_f1u_data_req(protocol_ctxt_t  *ctxt_pP,
     /* what to do in case of failure? for the moment: nothing */
   }
   return ret;
-}
-
-/* hack: dummy function needed due to LTE dependencies */
-bool pdcp_data_req(protocol_ctxt_t  *ctxt_pP,
-                   const srb_flag_t     srb_flagP,
-                   const rb_id_t        rb_idP,
-                   const mui_t          muiP,
-                   const confirm_t      confirmP,
-                   const sdu_size_t     sdu_buffer_sizeP,
-                   unsigned char *const sdu_buffer_pP,
-                   const pdcp_transmission_mode_t modeP,
-                   const uint32_t *const sourceL2Id,
-                   const uint32_t *const destinationL2Id)
-{
-  abort();
-  return false;
-}
-
-//Dummy function needed due to LTE dependencies
-void
-pdcp_mbms_run ( const protocol_ctxt_t *const  ctxt_pP){
-  /* nothing to do */
 }
 
 void nr_pdcp_tick(int frame, int subframe)
