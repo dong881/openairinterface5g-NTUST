@@ -162,7 +162,7 @@ class Module_UE:
 
 	def getIP(self):
 		output = self._command(self.cmd_dict["getNetwork"], silent=True)
-		result = re.search('inet (?P<ip>[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)', output.stdout)
+		result = re.search(r'inet (?P<ip>[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)', output.stdout)
 		if result and result.group('ip'):
 			ip = result.group('ip')
 			return ip
@@ -170,7 +170,7 @@ class Module_UE:
 
 	def checkMTU(self):
 		output = self._command(self.cmd_dict["getNetwork"], silent=True)
-		result = re.search('mtu (?P<mtu>[0-9]+)', output.stdout)
+		result = re.search(r'mtu (?P<mtu>[0-9]+)', output.stdout)
 		if result and result.group('mtu') and int(result.group('mtu')) == self.MTU:
 			logging.debug(f'\u001B[1mUE Module {self.module_name} NIC MTU is {self.MTU} as expected\u001B[0m')
 			return True
