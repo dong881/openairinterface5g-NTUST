@@ -33,7 +33,7 @@
 #include "LAYER2/NR_MAC_COMMON/nr_mac_common.h"
 #include "executables/nr-softmodem.h"
 #include "LAYER2/NR_MAC_COMMON/nr_mac.h"
-#include "LAYER2/RLC/rlc.h"
+#include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "executables/softmodem-common.h"
 #include "common/utils/nr/nr_common.h"
 
@@ -129,16 +129,7 @@ void nr_preprocessor_phytest(module_id_t module_id, frame_t frame, slot_t slot)
   const uint16_t rnti = UE->rnti;
   /* update sched_ctrl->num_total_bytes so that postprocessor schedules data,
    * if available */
-  sched_ctrl->rlc_status[lcid] = mac_rlc_status_ind(module_id,
-                                                    rnti,
-                                                    module_id,
-                                                    frame,
-                                                    slot,
-                                                    ENB_FLAG_YES,
-                                                    MBMS_FLAG_NO,
-                                                    lcid,
-                                                    0,
-                                                    0);
+  sched_ctrl->rlc_status[lcid] = nr_mac_rlc_status_ind(rnti, frame, lcid);
   sched_ctrl->num_total_bytes += sched_ctrl->rlc_status[lcid].bytes_in_buffer;
 
   int CCEIndex = get_cce_index(mac,

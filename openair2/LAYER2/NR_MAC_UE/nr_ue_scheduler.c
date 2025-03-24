@@ -47,7 +47,6 @@
 #include "utils.h"
 
 #include <executables/softmodem-common.h>
-#include "LAYER2/RLC/rlc.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "RRC/NR_UE/L2_interface_ue.h"
 
@@ -1269,8 +1268,7 @@ static void nr_update_rlc_buffers_status(NR_UE_MAC_INST_t *mac, frame_t frameP, 
     nr_lcordered_info_t *lc_info = mac->lc_ordered_list.array[i];
     int lcid = lc_info->lcid;
     NR_LC_SCHEDULING_INFO *lc_sched_info = get_scheduling_info_from_lcid(mac, lcid);
-    mac_rlc_status_resp_t rlc_status =
-        mac_rlc_status_ind(mac->ue_id, mac->ue_id, gNB_index, frameP, slotP, ENB_FLAG_NO, MBMS_FLAG_NO, lcid, 0, 0);
+    mac_rlc_status_resp_t rlc_status = nr_mac_rlc_status_ind(mac->ue_id, frameP, lcid);
 
     if (rlc_status.bytes_in_buffer > 0) {
       LOG_D(NR_MAC,
