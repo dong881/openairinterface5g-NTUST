@@ -38,7 +38,6 @@
 #include "nr_rlc/nr_rlc_oai_api.h"
 #include "RRC/NR_UE/rrc_proto.h"
 #include <pthread.h>
-#include "openair2/LAYER2/RLC/rlc.h"
 static NR_UE_MAC_INST_t *nr_ue_mac_inst; 
 
 void send_srb0_rrc(int ue_id, const uint8_t *sdu, sdu_size_t sdu_len, void *data)
@@ -141,7 +140,7 @@ NR_UE_MAC_INST_t *nr_l2_init_ue(int nb_inst)
       ue_init_config_request(mac, get_slots_per_frame_from_scs(get_softmodem_params()->numerology));
   }
 
-  int rc = rlc_module_init(0);
+  int rc = nr_rlc_module_init(0);
   AssertFatal(rc == 0, "Could not initialize RLC layer\n");
 
   for (int j = 0; j < nb_inst; j++) {

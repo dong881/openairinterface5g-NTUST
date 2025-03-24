@@ -75,7 +75,7 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include <openair2/LAYER2/NR_MAC_UE/mac_proto.h>
 #include <openair2/NR_UE_PHY_INTERFACE/NR_IF_Module.h>
 #include <openair1/SCHED_NR_UE/fapi_nr_ue_l1.h>
-
+#include "nr_rlc/nr_rlc_oai_api.h"
 /* Callbacks, globals and object handlers */
 
 //#include "stats.h"
@@ -313,7 +313,7 @@ static void init_pdcp(int ue_id)
   // was always set. further refactoring could take it out
   pdcp_initmask = pdcp_initmask | UE_NAS_USE_TUN_BIT;
 
-  if (get_softmodem_params()->nsa && rlc_module_init(0) != 0) {
+  if (get_softmodem_params()->nsa && nr_rlc_module_init(0) != 0) {
     LOG_I(RLC, "Problem at RLC initiation \n");
   }
   nr_pdcp_layer_init();
