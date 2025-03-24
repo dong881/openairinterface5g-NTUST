@@ -225,16 +225,7 @@ tbs_size_t nr_mac_rlc_data_req(const module_id_t  module_idP,
   return ret;
 }
 
-mac_rlc_status_resp_t mac_rlc_status_ind(const module_id_t module_idP,
-                                         const uint16_t ue_id,
-                                         const eNB_index_t eNB_index,
-                                         const frame_t frameP,
-                                         const sub_frame_t subframeP,
-                                         const eNB_flag_t enb_flagP,
-                                         const MBMS_flag_t MBMS_flagP,
-                                         const logical_chan_id_t channel_idP,
-                                         const uint32_t sourceL2Id,
-                                         const uint32_t destinationL2Id)
+mac_rlc_status_resp_t nr_mac_rlc_status_ind(const uint16_t ue_id, const frame_t frame, const logical_chan_id_t channel_idP)
 {
   mac_rlc_status_resp_t ret;
 
@@ -250,12 +241,10 @@ mac_rlc_status_resp_t mac_rlc_status_ind(const module_id_t module_idP,
      * more than enough.
      */
     // Fix me: temproary reduction meanwhile cpu cost of this computation is optimized
-    buf_stat = rb->buffer_status(rb, 1000*1000);
-    ret.bytes_in_buffer = buf_stat.status_size
-                        + buf_stat.retx_size
-                        + buf_stat.tx_size;
+    buf_stat = rb->buffer_status(rb, 1000 * 1000);
+    ret.bytes_in_buffer = buf_stat.status_size + buf_stat.retx_size + buf_stat.tx_size;
   } else {
-    if (!(frameP%128) || channel_idP == 0) //to suppress this warning message
+    if (!(frame % 128) || channel_idP == 0) //to suppress this warning message
       LOG_W(RLC, "Radio Bearer (channel ID %d) is NULL for UE %d\n", channel_idP, ue_id);
     ret.bytes_in_buffer = 0;
   }
