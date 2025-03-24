@@ -54,7 +54,7 @@
 #include "oai_asn1.h"
 #include "common/utils/LOG/log.h"
 #include "common/utils/LOG/vcd_signal_dumper.h"
-#include "openair2/LAYER2/RLC/rlc.h"
+#include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
 
 // #define DEBUG_MIB
 // #define ENABLE_MAC_PAYLOAD_DEBUG 1
@@ -3613,17 +3613,7 @@ void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_i
 
         if (mac_len > 0) {
           LOG_DDUMP(NR_MAC, (void *)pduP, mac_subheader_len + mac_len, LOG_DUMP_CHAR, "DL_SCH_LCID_CCCH (e.g. RRCSetup) payload: ");
-          mac_rlc_data_ind(mac->ue_id,
-                           mac->ue_id,
-                           gNB_index,
-                           frameP,
-                           ENB_FLAG_NO,
-                           MBMS_FLAG_NO,
-                           0,
-                           (char *)(pduP + mac_subheader_len),
-                           mac_len,
-                           1,
-                           NULL);
+          nr_mac_rlc_data_ind(mac->ue_id, mac->ue_id, false, rx_lcid, (char *)(pduP + mac_subheader_len), mac_len);
         }
         break;
       case DL_SCH_LCID_TCI_STATE_ACT_UE_SPEC_PDSCH:
@@ -3738,18 +3728,7 @@ void nr_ue_process_mac_pdu(NR_UE_MAC_INST_t *mac, nr_downlink_indication_t *dl_i
         if (!get_mac_len(pduP, pdu_len, &mac_len, &mac_subheader_len))
           return;
         LOG_D(NR_MAC, "%4d.%2d : DLSCH -> LCID %d %d bytes\n", frameP, slot, rx_lcid, mac_len);
-
-        mac_rlc_data_ind(mac->ue_id,
-                         mac->ue_id,
-                         gNB_index,
-                         frameP,
-                         ENB_FLAG_NO,
-                         MBMS_FLAG_NO,
-                         rx_lcid,
-                         (char *)(pduP + mac_subheader_len),
-                         mac_len,
-                         1,
-                         NULL);
+        nr_mac_rlc_data_ind(mac->ue_id, mac->ue_id, false, rx_lcid, (char *)(pduP + mac_subheader_len), mac_len);
         break;
       default:
         LOG_W(MAC, "unknown lcid %02x\n", rx_lcid);
