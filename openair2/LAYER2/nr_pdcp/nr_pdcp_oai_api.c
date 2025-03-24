@@ -64,7 +64,7 @@
 #include "openair2/SDAP/nr_sdap/nr_sdap.h"
 #include "pdcp.h"
 #include "pdcp_messages_types.h"
-#include "rlc.h"
+#include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "utils.h"
 
 #define TODO do { \
@@ -127,7 +127,6 @@ nr_pdcp_entity_t *nr_pdcp_get_rb(nr_pdcp_ue_t *ue, int rb_id, bool srb_flag)
 typedef struct {
   protocol_ctxt_t ctxt_pP;
   srb_flag_t      srb_flagP;
-  MBMS_flag_t     MBMS_flagP;
   rb_id_t         rb_idP;
   mui_t           muiP;
   confirm_t       confirmP;
@@ -159,16 +158,12 @@ static void *rlc_data_req_thread(void *_)
     i = q.start;
     if (pthread_mutex_unlock(&q.m) != 0) abort();
 
-    rlc_data_req(&q.q[i].ctxt_pP,
-                 q.q[i].srb_flagP,
-                 q.q[i].MBMS_flagP,
-                 q.q[i].rb_idP,
-                 q.q[i].muiP,
-                 q.q[i].confirmP,
-                 q.q[i].sdu_sizeP,
-                 q.q[i].sdu_pP,
-                 NULL,
-                 NULL);
+    nr_rlc_data_req(&q.q[i].ctxt_pP,
+                    q.q[i].srb_flagP,
+                    q.q[i].rb_idP,
+                    q.q[i].muiP,
+                    q.q[i].sdu_sizeP,
+                    q.q[i].sdu_pP);
 
     if (pthread_mutex_lock(&q.m) != 0) abort();
 
@@ -195,7 +190,6 @@ static void init_nr_rlc_data_req_queue(void)
 
 static void enqueue_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
                                  const srb_flag_t srb_flagP,
-                                 const MBMS_flag_t MBMS_flagP,
                                  const rb_id_t rb_idP,
                                  const mui_t muiP,
                                  confirm_t confirmP,
@@ -219,7 +213,6 @@ static void enqueue_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
 
   q.q[i].ctxt_pP    = *ctxt_pP;
   q.q[i].srb_flagP  = srb_flagP;
-  q.q[i].MBMS_flagP = MBMS_flagP;
   q.q[i].rb_idP     = rb_idP;
   q.q[i].muiP       = muiP;
   q.q[i].confirmP   = confirmP;
@@ -232,7 +225,6 @@ static void enqueue_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
 
 void du_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
                      const srb_flag_t srb_flagP,
-                     const MBMS_flag_t MBMS_flagP,
                      const rb_id_t rb_idP,
                      const mui_t muiP,
                      confirm_t confirmP,
@@ -241,7 +233,6 @@ void du_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
 {
   enqueue_rlc_data_req(ctxt_pP,
                        srb_flagP,
-                       MBMS_flagP,
                        rb_idP, muiP,
                        confirmP,
                        sdu_sizeP,
@@ -259,7 +250,6 @@ void du_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
 typedef struct {
   protocol_ctxt_t ctxt_pP;
   srb_flag_t      srb_flagP;
-  MBMS_flag_t     MBMS_flagP;
   rb_id_t         rb_id;
   sdu_size_t      sdu_buffer_size;
   uint8_t *sdu_buffer;
@@ -279,7 +269,6 @@ static pdcp_data_ind_queue pq;
 
 static void do_pdcp_data_ind(const protocol_ctxt_t *const ctxt_pP,
                              const srb_flag_t srb_flagP,
-                             const MBMS_flag_t MBMS_flagP,
                              const rb_id_t rb_id,
                              const sdu_size_t sdu_buffer_size,
                              uint8_t *const sdu_buffer)
@@ -329,7 +318,6 @@ static void *pdcp_data_ind_thread(void *_)
 
     do_pdcp_data_ind(&pq.q[i].ctxt_pP,
                      pq.q[i].srb_flagP,
-                     pq.q[i].MBMS_flagP,
                      pq.q[i].rb_id,
                      pq.q[i].sdu_buffer_size,
                      pq.q[i].sdu_buffer);
@@ -359,7 +347,6 @@ static void init_nr_pdcp_data_ind_queue(void)
 
 static void enqueue_pdcp_data_ind(const protocol_ctxt_t *const ctxt_pP,
                                   const srb_flag_t srb_flagP,
-                                  const MBMS_flag_t MBMS_flagP,
                                   const rb_id_t rb_id,
                                   const sdu_size_t sdu_buffer_size,
                                   uint8_t *const sdu_buffer)
@@ -381,7 +368,6 @@ static void enqueue_pdcp_data_ind(const protocol_ctxt_t *const ctxt_pP,
 
   pq.q[i].ctxt_pP         = *ctxt_pP;
   pq.q[i].srb_flagP       = srb_flagP;
-  pq.q[i].MBMS_flagP      = MBMS_flagP;
   pq.q[i].rb_id           = rb_id;
   pq.q[i].sdu_buffer_size = sdu_buffer_size;
   pq.q[i].sdu_buffer      = sdu_buffer;
@@ -392,19 +378,11 @@ static void enqueue_pdcp_data_ind(const protocol_ctxt_t *const ctxt_pP,
 
 bool nr_pdcp_data_ind(const protocol_ctxt_t *const ctxt_pP,
                       const srb_flag_t srb_flagP,
-                      const MBMS_flag_t MBMS_flagP,
                       const rb_id_t rb_id,
                       const sdu_size_t sdu_buffer_size,
-                      uint8_t *const sdu_buffer,
-                      const uint32_t *const srcID,
-                      const uint32_t *const dstID)
+                      uint8_t *const sdu_buffer)
 {
-  enqueue_pdcp_data_ind(ctxt_pP,
-                        srb_flagP,
-                        MBMS_flagP,
-                        rb_id,
-                        sdu_buffer_size,
-                        sdu_buffer);
+  enqueue_pdcp_data_ind(ctxt_pP, srb_flagP, rb_id, sdu_buffer_size, sdu_buffer);
   return true;
 }
 
@@ -717,7 +695,7 @@ static void deliver_pdu_drb_ue(void *deliver_pdu_data, ue_id_t ue_id, int rb_id,
   uint8_t *memblock = malloc16(size);
   memcpy(memblock, buf, size);
   LOG_D(PDCP, "%s(): (drb %d) calling rlc_data_req size %d UE %ld/%04lx\n", __func__, rb_id, size, ctxt.rntiMaybeUEid, ctxt.rntiMaybeUEid);
-  enqueue_rlc_data_req(&ctxt, 0, MBMS_FLAG_NO, rb_id, sdu_id, 0, size, memblock);
+  enqueue_rlc_data_req(&ctxt, 0, rb_id, sdu_id, 0, size, memblock);
 }
 
 static void deliver_pdu_drb_gnb(void *deliver_pdu_data, ue_id_t ue_id, int rb_id,
@@ -735,7 +713,7 @@ static void deliver_pdu_drb_gnb(void *deliver_pdu_data, ue_id_t ue_id, int rb_id
     uint8_t *memblock = malloc16(size);
     memcpy(memblock, buf, size);
     LOG_D(PDCP, "%s(): (drb %d) calling rlc_data_req size %d\n", __func__, rb_id, size);
-    enqueue_rlc_data_req(&ctxt, 0, MBMS_FLAG_NO, rb_id, sdu_id, 0, size, memblock);
+    enqueue_rlc_data_req(&ctxt, 0, rb_id, sdu_id, 0, size, memblock);
   }
 }
 
@@ -794,7 +772,7 @@ void deliver_pdu_srb_rlc(void *deliver_pdu_data, ue_id_t ue_id, int srb_id,
   protocol_ctxt_t ctxt = { .enb_flag = 1, .rntiMaybeUEid = ue_id };
   uint8_t *memblock = malloc16(size);
   memcpy(memblock, buf, size);
-  enqueue_rlc_data_req(&ctxt, 1, MBMS_FLAG_NO, srb_id, sdu_id, 0, size, memblock);
+  enqueue_rlc_data_req(&ctxt, 1, srb_id, sdu_id, 0, size, memblock);
 }
 
 void add_srb(int is_gnb,
@@ -1315,7 +1293,7 @@ bool cu_f1u_data_req(protocol_ctxt_t  *ctxt_pP,
     exit(1);
   }
   memcpy(memblock, sdu_buffer, sdu_buffer_size);
-  int ret = nr_pdcp_data_ind(ctxt_pP, srb_flagP, false, rb_id, sdu_buffer_size, memblock, NULL, NULL);
+  int ret = nr_pdcp_data_ind(ctxt_pP, srb_flagP, rb_id, sdu_buffer_size, memblock);
   if (!ret) {
     LOG_E(RLC, "%s:%d:%s: ERROR: pdcp_data_ind failed\n", __FILE__, __LINE__, __FUNCTION__);
     /* what to do in case of failure? for the moment: nothing */
