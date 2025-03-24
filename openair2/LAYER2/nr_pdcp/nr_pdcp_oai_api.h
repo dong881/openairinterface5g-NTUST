@@ -39,7 +39,6 @@ uint64_t nr_pdcp_module_init(uint64_t _pdcp_optmask, int id);
 
 void du_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
                      const srb_flag_t srb_flagP,
-                     const MBMS_flag_t MBMS_flagP,
                      const rb_id_t rb_idP,
                      const mui_t muiP,
                      confirm_t confirmP,
@@ -48,12 +47,9 @@ void du_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
 
 bool nr_pdcp_data_ind(const protocol_ctxt_t *const ctxt_pP,
                       const srb_flag_t srb_flagP,
-                      const MBMS_flag_t MBMS_flagP,
                       const rb_id_t rb_id,
                       const sdu_size_t sdu_buffer_size,
-                      uint8_t *const sdu_buffer,
-                      const uint32_t *const srcID,
-                      const uint32_t *const dstID);
+                      uint8_t *const sdu_buffer);
 
 void nr_pdcp_add_drbs(eNB_flag_t enb_flag,
                       ue_id_t UEid,
