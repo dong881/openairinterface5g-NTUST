@@ -259,23 +259,18 @@ mac_rlc_status_resp_t nr_mac_rlc_status_ind(const uint16_t ue_id, const frame_t 
   return ret;
 }
 
-rlc_op_status_t rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
-                             const srb_flag_t srb_flagP,
-                             const MBMS_flag_t MBMS_flagP,
-                             const rb_id_t rb_idP,
-                             const mui_t muiP,
-                             confirm_t confirmP,
-                             sdu_size_t sdu_sizeP,
-                             uint8_t *sdu_pP,
-                             const uint32_t *const sourceL2Id,
-                             const uint32_t *const destinationL2Id)
+rlc_op_status_t nr_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
+                                const srb_flag_t srb_flagP,
+                                const rb_id_t rb_idP,
+                                const mui_t muiP,
+                                sdu_size_t sdu_sizeP,
+                                uint8_t *sdu_pP)
 {
   int ue_id = ctxt_pP->rntiMaybeUEid;
   nr_rlc_ue_t *ue;
   nr_rlc_entity_t *rb;
 
-  LOG_D(RLC, "UE %d srb_flag %d rb_id %ld mui %d confirm %d sdu_size %d MBMS_flag %d\n",
-        ue_id, srb_flagP, rb_idP, muiP, confirmP, sdu_sizeP, MBMS_flagP);
+  LOG_D(RLC, "UE %d srb_flag %d rb_id %ld mui %d sdu_size %d\n", ue_id, srb_flagP, rb_idP, muiP, sdu_sizeP);
 
   if (ctxt_pP->enb_flag)
     T(T_ENB_RLC_DL, T_INT(ctxt_pP->module_id), T_INT(ctxt_pP->rntiMaybeUEid), T_INT(rb_idP), T_INT(sdu_sizeP));
@@ -455,7 +450,7 @@ rb_found:
   }
   memcpy(memblock, buf, size);
   LOG_D(PDCP, "Calling PDCP layer from RLC in %s\n", __FUNCTION__);
-  if (!nr_pdcp_data_ind(&ctx, is_srb, 0, rb_id, size, memblock, NULL, NULL)) {
+  if (!nr_pdcp_data_ind(&ctx, is_srb, rb_id, size, memblock)) {
     LOG_E(RLC, "%s:%d:%s: ERROR: pdcp_data_ind failed\n", __FILE__, __LINE__, __FUNCTION__);
     /* what to do in case of failure? for the moment: nothing */
   }
