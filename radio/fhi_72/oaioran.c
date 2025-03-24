@@ -44,7 +44,7 @@
 #endif
 
 // Declare variable useful for the send buffer function
-volatile uint8_t first_call_set = 0;
+volatile bool first_call_set = false;
 
 int xran_is_prach_slot(uint8_t PortId, uint32_t subframe_id, uint32_t slot_id);
 #include "common/utils/LOG/log.h"
@@ -154,8 +154,8 @@ void oai_xran_fh_rx_callback(void *pCallbackTag, xran_status_t status)
 int oai_physide_dl_tti_call_back(void *param)
 {
   if (!first_call_set)
-    printf("first_call set from phy cb first_call_set=%p\n", &first_call_set);
-  first_call_set = 1;
+    LOG_I(HW, "first_call set from phy cb\n");
+  first_call_set = true;
   return 0;
 }
 
