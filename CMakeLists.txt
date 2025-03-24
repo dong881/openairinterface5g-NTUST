@@ -1334,8 +1334,8 @@ if(E2_AGENT)
 endif()
 
 add_library(L2_LTE_NR
-  ${L2_RRC_SRC}
-  ${MAC_SRC}
+  # temporary solution until 4G/5G code completely untangled (as evidenced by deletion of the following file)
+  ${MAC_DIR}/dummy_functions.c
   ${ENB_APP_SRC}
 )
 
