@@ -259,59 +259,6 @@ mac_rlc_status_resp_t nr_mac_rlc_status_ind(const uint16_t ue_id, const frame_t 
   return ret;
 }
 
-rlc_buffer_occupancy_t mac_rlc_get_buffer_occupancy_ind(const module_id_t module_idP,
-                                                        const uint16_t ue_id,
-                                                        const eNB_index_t eNB_index,
-                                                        const frame_t frameP,
-                                                        const sub_frame_t subframeP,
-                                                        const eNB_flag_t enb_flagP,
-                                                        const logical_chan_id_t channel_idP)
-{
-  rlc_buffer_occupancy_t ret;
-
-  if (enb_flagP) {
-    LOG_E(RLC, "Tx mac_rlc_get_buffer_occupancy_ind function is not implemented for eNB LcId=%u\n", channel_idP);
-    exit(1);
-  }
-
-  /* TODO: handle time a bit more properly */
-  lock_nr_rlc_current_time();
-  if (nr_rlc_current_time_last_frame != frameP ||
-      nr_rlc_current_time_last_subframe != subframeP) {
-    nr_rlc_current_time++;
-    nr_rlc_current_time_last_frame = frameP;
-    nr_rlc_current_time_last_subframe = subframeP;
-  }
-  unlock_nr_rlc_current_time();
-
-  nr_rlc_manager_lock(nr_rlc_ue_manager);
-  nr_rlc_ue_t *ue = nr_rlc_manager_get_ue(nr_rlc_ue_manager, ue_id);
-  nr_rlc_entity_t *rb = get_rlc_entity_from_lcid(ue, channel_idP);
-
-  if (rb != NULL) {
-    nr_rlc_entity_buffer_status_t buf_stat;
-    rb->set_time(rb, get_nr_rlc_current_time());
-    /* 38.321 deals with BSR values up to 81338368 bytes, after what it
-     * reports '> 81338368' (table 6.1.3.1-2). Passing 100000000 is thus
-     * more than enough.
-     */
-    // Fixme : Laurent reduced size for CPU saving
-    // Fix me: temproary reduction meanwhile cpu cost of this computation is optimized
-    buf_stat = rb->buffer_status(rb, 1000*1000);
-    ret = buf_stat.status_size
-        + buf_stat.retx_size
-        + buf_stat.tx_size;
-  } else {
-    if (!(frameP%128)) //to suppress this warning message
-      LOG_W(RLC, "Radio Bearer (channel ID %d) is NULL for UE %d\n", channel_idP, ue_id);
-    ret = 0;
-  }
-
-  nr_rlc_manager_unlock(nr_rlc_ue_manager);
-
-  return ret;
-}
-
 rlc_op_status_t rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
                              const srb_flag_t srb_flagP,
                              const MBMS_flag_t MBMS_flagP,
@@ -406,10 +353,6 @@ int rlc_module_init(int enb_flag)
   if (pthread_mutex_unlock(&lock)) abort();
 
   return 0;
-}
-
-void rlc_util_print_hex_octets(comp_name_t componentP, unsigned char *dataP, const signed long sizeP)
-{
 }
 
 static void deliver_sdu(void *_ue, nr_rlc_entity_t *entity, char *buf, int size)
@@ -957,61 +900,6 @@ bool nr_rlc_activate_srb0(int ue_id,
   return true;
 }
 
-rlc_op_status_t rrc_rlc_config_req(const protocol_ctxt_t* const ctxt_pP,
-                                   const srb_flag_t srb_flagP,
-                                   const MBMS_flag_t mbms_flagP,
-                                   const config_action_t actionP,
-                                   const rb_id_t rb_idP)
-{
-  if (mbms_flagP) {
-    LOG_E(RLC, "%s:%d:%s: todo (MBMS NOT supported)\n", __FILE__, __LINE__, __FUNCTION__);
-    exit(1);
-  }
-  if (actionP != CONFIG_ACTION_REMOVE) {
-    LOG_E(RLC, "%s:%d:%s: todo (only CONFIG_ACTION_REMOVE supported)\n", __FILE__, __LINE__, __FUNCTION__);
-    exit(1);
-  }
-  if (ctxt_pP->module_id) {
-    LOG_E(RLC, "%s:%d:%s: todo (only module_id 0 supported)\n", __FILE__, __LINE__, __FUNCTION__);
-    exit(1);
-  }
-  if ((srb_flagP && !(rb_idP >= 1 && rb_idP <= 2)) ||
-      (!srb_flagP && !(rb_idP >= 1 && rb_idP <= MAX_DRBS_PER_UE))) {
-    LOG_E(RLC, "%s:%d:%s: bad rb_id (%ld) (is_srb %d)\n", __FILE__, __LINE__, __FUNCTION__, rb_idP, srb_flagP);
-    exit(1);
-  }
-  nr_rlc_manager_lock(nr_rlc_ue_manager);
-  LOG_D(RLC, "%s:%d:%s: remove rb %ld (is_srb %d) for UE %lx\n", __FILE__, __LINE__, __FUNCTION__, rb_idP, srb_flagP, ctxt_pP->rntiMaybeUEid);
-  nr_rlc_ue_t *ue = nr_rlc_manager_get_ue(nr_rlc_ue_manager, ctxt_pP->rntiMaybeUEid);
-  if (srb_flagP) {
-    if (ue->srb[rb_idP-1] != NULL) {
-      ue->srb[rb_idP-1]->delete_entity(ue->srb[rb_idP-1]);
-      ue->srb[rb_idP-1] = NULL;
-    } else
-      LOG_W(RLC, "removing non allocated SRB %ld, do nothing\n", rb_idP);
-  } else {
-    if (ue->drb[rb_idP-1] != NULL) {
-      ue->drb[rb_idP-1]->delete_entity(ue->drb[rb_idP-1]);
-      ue->drb[rb_idP-1] = NULL;
-    } else
-      LOG_W(RLC, "removing non allocated DRB %ld, do nothing\n", rb_idP);
-  }
-  /* remove UE if it has no more RB configured */
-  int i;
-  for (i = 0; i < 2; i++)
-    if (ue->srb[i] != NULL)
-      break;
-  if (i == 2) {
-    for (i = 0; i < MAX_DRBS_PER_UE; i++)
-      if (ue->drb[i] != NULL)
-        break;
-    if (i == MAX_DRBS_PER_UE)
-      nr_rlc_manager_remove_ue(nr_rlc_ue_manager, ctxt_pP->rntiMaybeUEid);
-  }
-  nr_rlc_manager_unlock(nr_rlc_ue_manager);
-  return RLC_OP_STATUS_OK;
-}
-
 void nr_rlc_remove_ue(int ue_id)
 {
   LOG_W(RLC, "Remove UE %d\n", ue_id);
@@ -1083,16 +971,6 @@ void nr_rlc_tick(int frame, int subframe)
     nr_rlc_current_time++;
   }
   unlock_nr_rlc_current_time();
-}
-
-/* This is a hack, to compile the gNB.
- * TODO: remove it. The solution is to cleanup CMakeLists.txt
- */
-void rlc_tick(int a, int b)
-{
-  LOG_E(RLC, "%s:%d:%s: this code should not be reached\n",
-        __FILE__, __LINE__, __FUNCTION__);
-  exit(1);
 }
 
 void nr_rlc_activate_avg_time_to_tx(const int ue_id,
