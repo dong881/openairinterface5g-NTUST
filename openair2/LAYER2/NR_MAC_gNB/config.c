@@ -767,6 +767,52 @@ static void initialize_beam_information(NR_beam_info_t *beam_info, int mu, int s
   }
 }
 
+static void config_sched_ctrlCommon(gNB_MAC_INST *nr_mac)
+{
+  const NR_MIB_t *mib = nr_mac->common_channels[0].mib->message.choice.mib;
+  NR_ServingCellConfigCommon_t *scc = nr_mac->common_channels[0].ServingCellConfigCommon;
+
+  NR_UE_sched_ctrl_t *sched_ctrlCommon = calloc_or_fail(1, sizeof(*sched_ctrlCommon));
+  nr_mac->sched_ctrlCommon = sched_ctrlCommon;
+  sched_ctrlCommon->search_space = calloc_or_fail(1, sizeof(*sched_ctrlCommon->search_space));
+  sched_ctrlCommon->coreset = calloc_or_fail(1, sizeof(*sched_ctrlCommon->coreset));
+
+  NR_SubcarrierSpacing_t scs = *scc->ssbSubcarrierSpacing;
+  const long band = *scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList.list.array[0];
+  uint16_t ssb_start_symbol = get_ssb_start_symbol(band, scs, 0);
+
+  int8_t ssb_period = *scc->ssb_periodicityServingCell;
+  uint8_t ssb_frame_periodicity = 1;
+  if (ssb_period > 1)
+    ssb_frame_periodicity = 1 << (ssb_period - 1);
+
+  const int8_t numb_slots_frame = nr_mac->frame_structure.numb_slots_frame;
+  frequency_range_t frequency_range = scc->ssb_PositionsInBurst->present == 3 ? FR2 : FR1;
+  const int prb_offset = frequency_range == FR1 ? nr_mac->ssb_OffsetPointA >> scs : nr_mac->ssb_OffsetPointA >> (scs - 2);
+
+  NR_Type0_PDCCH_CSS_config_t type0_PDCCH_CSS_config = {0};
+  get_type0_PDCCH_CSS_config_parameters(&type0_PDCCH_CSS_config,
+                                        0,
+                                        mib,
+                                        numb_slots_frame,
+                                        nr_mac->ssb_SubcarrierOffset,
+                                        ssb_start_symbol,
+                                        scs,
+                                        frequency_range,
+                                        band,
+                                        0,
+                                        ssb_frame_periodicity,
+                                        prb_offset);
+
+  fill_searchSpaceZero(sched_ctrlCommon->search_space, numb_slots_frame, &type0_PDCCH_CSS_config);
+
+  fill_coresetZero(sched_ctrlCommon->coreset, &type0_PDCCH_CSS_config);
+  nr_mac->cset0_bwp_start = type0_PDCCH_CSS_config.cset_start_rb;
+  nr_mac->cset0_bwp_size = type0_PDCCH_CSS_config.num_rbs;
+  sched_ctrlCommon->sched_pdcch =
+      set_pdcch_structure(NULL, sched_ctrlCommon->search_space, sched_ctrlCommon->coreset, scc, NULL, &type0_PDCCH_CSS_config);
+}
+
 void nr_mac_config_scc(gNB_MAC_INST *nrmac, NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config)
 {
   DevAssert(nrmac != NULL);
@@ -820,6 +866,9 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, NR_ServingCellConfigCommon_t *scc, c
 
   nr_fill_sched_osi(nrmac, scc->downlinkConfigCommon->initialDownlinkBWP->pdcch_ConfigCommon);
   NR_SCHED_UNLOCK(&nrmac->sched_lock);
+
+  if (IS_SA_MODE(get_softmodem_params()))
+    config_sched_ctrlCommon(nrmac);
 }
 
 void nr_fill_sched_osi(gNB_MAC_INST *nrmac, const struct NR_SetupRelease_PDCCH_ConfigCommon *pdcch_ConfigCommon)
