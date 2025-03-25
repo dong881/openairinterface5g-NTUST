@@ -52,16 +52,16 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
         myArgv = argvs.pop(1)	# 0th is this file's name
 
 	    #--help
-        if re.match('^\-\-help$', myArgv, re.IGNORECASE):
+        if re.match(r'^\-\-help$', myArgv, re.IGNORECASE):
             HELP.GenericHelp(CONST.Version)
             sys.exit(0)
-        if re.match('^\-\-local$', myArgv, re.IGNORECASE):
+        if re.match(r'^\-\-local$', myArgv, re.IGNORECASE):
             force_local = True
 
 
 	    #--apply=<filename> as parameters file, to replace inline parameters
-        elif re.match('^\-\-Apply=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-Apply=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-Apply=(.+)$', myArgv, re.IGNORECASE):
+            matchReg = re.match(r'^\-\-Apply=(.+)$', myArgv, re.IGNORECASE)
             py_params_file = matchReg.group(1)
             with open(py_params_file,'r') as file:
           	# The FullLoader parameter handles the conversion from YAML
@@ -71,14 +71,14 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
 	    		#AssignParams(py_params) #to be uncommented once validated
 
 	    #consider inline parameters
-        elif re.match('^\-\-mode=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-mode=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-mode=(.+)$', myArgv, re.IGNORECASE):
+            matchReg = re.match(r'^\-\-mode=(.+)$', myArgv, re.IGNORECASE)
             mode = matchReg.group(1)
-        elif re.match('^\-\-eNBRepository=(.+)$|^\-\-ranRepository(.+)$', myArgv, re.IGNORECASE):
-            if re.match('^\-\-eNBRepository=(.+)$', myArgv, re.IGNORECASE):
-                matchReg = re.match('^\-\-eNBRepository=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-eNBRepository=(.+)$|^\-\-ranRepository(.+)$', myArgv, re.IGNORECASE):
+            if re.match(r'^\-\-eNBRepository=(.+)$', myArgv, re.IGNORECASE):
+                matchReg = re.match(r'^\-\-eNBRepository=(.+)$', myArgv, re.IGNORECASE)
             else:
-                matchReg = re.match('^\-\-ranRepository=(.+)$', myArgv, re.IGNORECASE)
+                matchReg = re.match(r'^\-\-ranRepository=(.+)$', myArgv, re.IGNORECASE)
             CiTestObj.ranRepository = matchReg.group(1)
             RAN.ranRepository=matchReg.group(1)
             HTML.ranRepository=matchReg.group(1)
@@ -86,11 +86,11 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
             SCA.ranRepository=matchReg.group(1)
             PHYSIM.ranRepository=matchReg.group(1)
             CLUSTER.ranRepository=matchReg.group(1)
-        elif re.match('^\-\-eNB_AllowMerge=(.+)$|^\-\-ranAllowMerge=(.+)$', myArgv, re.IGNORECASE):
-            if re.match('^\-\-eNB_AllowMerge=(.+)$', myArgv, re.IGNORECASE):
-                matchReg = re.match('^\-\-eNB_AllowMerge=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-eNB_AllowMerge=(.+)$|^\-\-ranAllowMerge=(.+)$', myArgv, re.IGNORECASE):
+            if re.match(r'^\-\-eNB_AllowMerge=(.+)$', myArgv, re.IGNORECASE):
+                matchReg = re.match(r'^\-\-eNB_AllowMerge=(.+)$', myArgv, re.IGNORECASE)
             else:
-                matchReg = re.match('^\-\-ranAllowMerge=(.+)$', myArgv, re.IGNORECASE)
+                matchReg = re.match(r'^\-\-ranAllowMerge=(.+)$', myArgv, re.IGNORECASE)
             doMerge = matchReg.group(1)
             if ((doMerge == 'true') or (doMerge == 'True')):
                 CiTestObj.ranAllowMerge = True
@@ -100,11 +100,11 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
                 SCA.ranAllowMerge=True
                 PHYSIM.ranAllowMerge=True
                 CLUSTER.ranAllowMerge=True
-        elif re.match('^\-\-eNBBranch=(.+)$|^\-\-ranBranch=(.+)$', myArgv, re.IGNORECASE):
-            if re.match('^\-\-eNBBranch=(.+)$', myArgv, re.IGNORECASE):
-                matchReg = re.match('^\-\-eNBBranch=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-eNBBranch=(.+)$|^\-\-ranBranch=(.+)$', myArgv, re.IGNORECASE):
+            if re.match(r'^\-\-eNBBranch=(.+)$', myArgv, re.IGNORECASE):
+                matchReg = re.match(r'^\-\-eNBBranch=(.+)$', myArgv, re.IGNORECASE)
             else:
-                matchReg = re.match('^\-\-ranBranch=(.+)$', myArgv, re.IGNORECASE)
+                matchReg = re.match(r'^\-\-ranBranch=(.+)$', myArgv, re.IGNORECASE)
             CiTestObj.ranBranch = matchReg.group(1)
             RAN.ranBranch=matchReg.group(1)
             HTML.ranBranch=matchReg.group(1)
@@ -112,11 +112,11 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
             SCA.ranBranch=matchReg.group(1)
             PHYSIM.ranBranch=matchReg.group(1)
             CLUSTER.ranBranch=matchReg.group(1)
-        elif re.match('^\-\-eNBCommitID=(.*)$|^\-\-ranCommitID=(.*)$', myArgv, re.IGNORECASE):
-            if re.match('^\-\-eNBCommitID=(.*)$', myArgv, re.IGNORECASE):
-                matchReg = re.match('^\-\-eNBCommitID=(.*)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-eNBCommitID=(.*)$|^\-\-ranCommitID=(.*)$', myArgv, re.IGNORECASE):
+            if re.match(r'^\-\-eNBCommitID=(.*)$', myArgv, re.IGNORECASE):
+                matchReg = re.match(r'^\-\-eNBCommitID=(.*)$', myArgv, re.IGNORECASE)
             else:
-                matchReg = re.match('^\-\-ranCommitID=(.*)$', myArgv, re.IGNORECASE)
+                matchReg = re.match(r'^\-\-ranCommitID=(.*)$', myArgv, re.IGNORECASE)
             CiTestObj.ranCommitID = matchReg.group(1)
             RAN.ranCommitID=matchReg.group(1)
             HTML.ranCommitID=matchReg.group(1)
@@ -124,11 +124,11 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
             SCA.ranCommitID=matchReg.group(1)
             PHYSIM.ranCommitID=matchReg.group(1)
             CLUSTER.ranCommitID=matchReg.group(1)
-        elif re.match('^\-\-eNBTargetBranch=(.*)$|^\-\-ranTargetBranch=(.*)$', myArgv, re.IGNORECASE):
-            if re.match('^\-\-eNBTargetBranch=(.*)$', myArgv, re.IGNORECASE):
-                matchReg = re.match('^\-\-eNBTargetBranch=(.*)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-eNBTargetBranch=(.*)$|^\-\-ranTargetBranch=(.*)$', myArgv, re.IGNORECASE):
+            if re.match(r'^\-\-eNBTargetBranch=(.*)$', myArgv, re.IGNORECASE):
+                matchReg = re.match(r'^\-\-eNBTargetBranch=(.*)$', myArgv, re.IGNORECASE)
             else:
-                matchReg = re.match('^\-\-ranTargetBranch=(.*)$', myArgv, re.IGNORECASE)
+                matchReg = re.match(r'^\-\-ranTargetBranch=(.*)$', myArgv, re.IGNORECASE)
             CiTestObj.ranTargetBranch = matchReg.group(1)
             RAN.ranTargetBranch=matchReg.group(1)
             HTML.ranTargetBranch=matchReg.group(1)
@@ -136,127 +136,127 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
             SCA.ranTargetBranch=matchReg.group(1)
             PHYSIM.ranTargetBranch=matchReg.group(1)
             CLUSTER.ranTargetBranch=matchReg.group(1)
-        elif re.match('^\-\-eNBIPAddress=(.+)$|^\-\-eNB[1-2]IPAddress=(.+)$', myArgv, re.IGNORECASE):
-            if re.match('^\-\-eNBIPAddress=(.+)$', myArgv, re.IGNORECASE):
-                matchReg = re.match('^\-\-eNBIPAddress=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-eNBIPAddress=(.+)$|^\-\-eNB[1-2]IPAddress=(.+)$', myArgv, re.IGNORECASE):
+            if re.match(r'^\-\-eNBIPAddress=(.+)$', myArgv, re.IGNORECASE):
+                matchReg = re.match(r'^\-\-eNBIPAddress=(.+)$', myArgv, re.IGNORECASE)
                 RAN.eNBIPAddress=matchReg.group(1)
                 CONTAINERS.eNBIPAddress=matchReg.group(1)
                 SCA.eNBIPAddress=matchReg.group(1)
                 PHYSIM.eNBIPAddress=matchReg.group(1)
                 CLUSTER.eNBIPAddress=matchReg.group(1)
-            elif re.match('^\-\-eNB1IPAddress=(.+)$', myArgv, re.IGNORECASE):
-                matchReg = re.match('^\-\-eNB1IPAddress=(.+)$', myArgv, re.IGNORECASE)
+            elif re.match(r'^\-\-eNB1IPAddress=(.+)$', myArgv, re.IGNORECASE):
+                matchReg = re.match(r'^\-\-eNB1IPAddress=(.+)$', myArgv, re.IGNORECASE)
                 RAN.eNB1IPAddress=matchReg.group(1)
                 CONTAINERS.eNB1IPAddress=matchReg.group(1)
-            elif re.match('^\-\-eNB2IPAddress=(.+)$', myArgv, re.IGNORECASE):
-                matchReg = re.match('^\-\-eNB2IPAddress=(.+)$', myArgv, re.IGNORECASE)
+            elif re.match(r'^\-\-eNB2IPAddress=(.+)$', myArgv, re.IGNORECASE):
+                matchReg = re.match(r'^\-\-eNB2IPAddress=(.+)$', myArgv, re.IGNORECASE)
                 RAN.eNB2IPAddress=matchReg.group(1)
                 CONTAINERS.eNB2IPAddress=matchReg.group(1)
-        elif re.match('^\-\-eNBUserName=(.+)$|^\-\-eNB[1-2]UserName=(.+)$', myArgv, re.IGNORECASE):
-            if re.match('^\-\-eNBUserName=(.+)$', myArgv, re.IGNORECASE):
-                matchReg = re.match('^\-\-eNBUserName=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-eNBUserName=(.+)$|^\-\-eNB[1-2]UserName=(.+)$', myArgv, re.IGNORECASE):
+            if re.match(r'^\-\-eNBUserName=(.+)$', myArgv, re.IGNORECASE):
+                matchReg = re.match(r'^\-\-eNBUserName=(.+)$', myArgv, re.IGNORECASE)
                 RAN.eNBUserName=matchReg.group(1)
                 CONTAINERS.eNBUserName=matchReg.group(1)
                 SCA.eNBUserName=matchReg.group(1)
                 PHYSIM.eNBUserName=matchReg.group(1)
                 CLUSTER.eNBUserName=matchReg.group(1)
-            elif re.match('^\-\-eNB1UserName=(.+)$', myArgv, re.IGNORECASE):
-                matchReg = re.match('^\-\-eNB1UserName=(.+)$', myArgv, re.IGNORECASE)
+            elif re.match(r'^\-\-eNB1UserName=(.+)$', myArgv, re.IGNORECASE):
+                matchReg = re.match(r'^\-\-eNB1UserName=(.+)$', myArgv, re.IGNORECASE)
                 RAN.eNB1UserName=matchReg.group(1)
                 CONTAINERS.eNB1UserName=matchReg.group(1)
-            elif re.match('^\-\-eNB2UserName=(.+)$', myArgv, re.IGNORECASE):
-                matchReg = re.match('^\-\-eNB2UserName=(.+)$', myArgv, re.IGNORECASE)
+            elif re.match(r'^\-\-eNB2UserName=(.+)$', myArgv, re.IGNORECASE):
+                matchReg = re.match(r'^\-\-eNB2UserName=(.+)$', myArgv, re.IGNORECASE)
                 RAN.eNB2UserName=matchReg.group(1)
                 CONTAINERS.eNB2UserName=matchReg.group(1)
-        elif re.match('^\-\-eNBPassword=(.+)$|^\-\-eNB[1-2]Password=(.+)$', myArgv, re.IGNORECASE):
-            if re.match('^\-\-eNBPassword=(.+)$', myArgv, re.IGNORECASE):
-                matchReg = re.match('^\-\-eNBPassword=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-eNBPassword=(.+)$|^\-\-eNB[1-2]Password=(.+)$', myArgv, re.IGNORECASE):
+            if re.match(r'^\-\-eNBPassword=(.+)$', myArgv, re.IGNORECASE):
+                matchReg = re.match(r'^\-\-eNBPassword=(.+)$', myArgv, re.IGNORECASE)
                 RAN.eNBPassword=matchReg.group(1)
                 CONTAINERS.eNBPassword=matchReg.group(1)
                 SCA.eNBPassword=matchReg.group(1)
                 PHYSIM.eNBPassword=matchReg.group(1)
                 CLUSTER.eNBPassword=matchReg.group(1)
-            elif re.match('^\-\-eNB1Password=(.+)$', myArgv, re.IGNORECASE):
-                matchReg = re.match('^\-\-eNB1Password=(.+)$', myArgv, re.IGNORECASE)
+            elif re.match(r'^\-\-eNB1Password=(.+)$', myArgv, re.IGNORECASE):
+                matchReg = re.match(r'^\-\-eNB1Password=(.+)$', myArgv, re.IGNORECASE)
                 RAN.eNB1Password=matchReg.group(1)
                 CONTAINERS.eNB1Password=matchReg.group(1)
-            elif re.match('^\-\-eNB2Password=(.+)$', myArgv, re.IGNORECASE):
-                matchReg = re.match('^\-\-eNB2Password=(.+)$', myArgv, re.IGNORECASE)
+            elif re.match(r'^\-\-eNB2Password=(.+)$', myArgv, re.IGNORECASE):
+                matchReg = re.match(r'^\-\-eNB2Password=(.+)$', myArgv, re.IGNORECASE)
                 RAN.eNB2Password=matchReg.group(1)
                 CONTAINERS.eNB2Password=matchReg.group(1)
-        elif re.match('^\-\-eNBSourceCodePath=(.+)$|^\-\-eNB[1-2]SourceCodePath=(.+)$', myArgv, re.IGNORECASE):
-            if re.match('^\-\-eNBSourceCodePath=(.+)$', myArgv, re.IGNORECASE):
-                matchReg = re.match('^\-\-eNBSourceCodePath=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-eNBSourceCodePath=(.+)$|^\-\-eNB[1-2]SourceCodePath=(.+)$', myArgv, re.IGNORECASE):
+            if re.match(r'^\-\-eNBSourceCodePath=(.+)$', myArgv, re.IGNORECASE):
+                matchReg = re.match(r'^\-\-eNBSourceCodePath=(.+)$', myArgv, re.IGNORECASE)
                 RAN.eNBSourceCodePath=matchReg.group(1)
                 CONTAINERS.eNBSourceCodePath=matchReg.group(1)
                 SCA.eNBSourceCodePath=matchReg.group(1)
                 PHYSIM.eNBSourceCodePath=matchReg.group(1)
                 CLUSTER.eNBSourceCodePath=matchReg.group(1)
-            elif re.match('^\-\-eNB1SourceCodePath=(.+)$', myArgv, re.IGNORECASE):
-                matchReg = re.match('^\-\-eNB1SourceCodePath=(.+)$', myArgv, re.IGNORECASE)
+            elif re.match(r'^\-\-eNB1SourceCodePath=(.+)$', myArgv, re.IGNORECASE):
+                matchReg = re.match(r'^\-\-eNB1SourceCodePath=(.+)$', myArgv, re.IGNORECASE)
                 RAN.eNB1SourceCodePath=matchReg.group(1)
                 CONTAINERS.eNB1SourceCodePath=matchReg.group(1)
-            elif re.match('^\-\-eNB2SourceCodePath=(.+)$', myArgv, re.IGNORECASE):
-                matchReg = re.match('^\-\-eNB2SourceCodePath=(.+)$', myArgv, re.IGNORECASE)
+            elif re.match(r'^\-\-eNB2SourceCodePath=(.+)$', myArgv, re.IGNORECASE):
+                matchReg = re.match(r'^\-\-eNB2SourceCodePath=(.+)$', myArgv, re.IGNORECASE)
                 RAN.eNB2SourceCodePath=matchReg.group(1)
                 CONTAINERS.eNB2SourceCodePath=matchReg.group(1)
-        elif re.match('^\-\-EPCIPAddress=(.+)$', myArgv, re.IGNORECASE):
+        elif re.match(r'^\-\-EPCIPAddress=(.+)$', myArgv, re.IGNORECASE):
             print("parameter --EPCIPAddress ignored")
-        elif re.match('^\-\-EPCUserName=(.+)$', myArgv, re.IGNORECASE):
+        elif re.match(r'^\-\-EPCUserName=(.+)$', myArgv, re.IGNORECASE):
             print("parameter --EPCUserName ignored")
-        elif re.match('^\-\-EPCPassword=(.+)$', myArgv, re.IGNORECASE):
+        elif re.match(r'^\-\-EPCPassword=(.+)$', myArgv, re.IGNORECASE):
             print("parameter --EPCPassword ignored")
-        elif re.match('^\-\-EPCSourceCodePath=(.+)$', myArgv, re.IGNORECASE):
+        elif re.match(r'^\-\-EPCSourceCodePath=(.+)$', myArgv, re.IGNORECASE):
             print("parameter --EPCSourceCodePath ignored")
-        elif re.match('^\-\-EPCType=(.+)$', myArgv, re.IGNORECASE):
+        elif re.match(r'^\-\-EPCType=(.+)$', myArgv, re.IGNORECASE):
             print("parameter --EPCType ignored")
-        elif re.match('^\-\-EPCContainerPrefix=(.+)$', myArgv, re.IGNORECASE):
+        elif re.match(r'^\-\-EPCContainerPrefix=(.+)$', myArgv, re.IGNORECASE):
             print("parameter --EPCContainerPrefix ignored")
-        elif re.match('^\-\-XMLTestFile=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-XMLTestFile=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-XMLTestFile=(.+)$', myArgv, re.IGNORECASE):
+            matchReg = re.match(r'^\-\-XMLTestFile=(.+)$', myArgv, re.IGNORECASE)
             CiTestObj.testXMLfiles.append(matchReg.group(1))
             HTML.testXMLfiles.append(matchReg.group(1))
             HTML.nbTestXMLfiles=HTML.nbTestXMLfiles+1
-        elif re.match('^\-\-UEIPAddress=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-UEIPAddress=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-UEIPAddress=(.+)$', myArgv, re.IGNORECASE): # cleanup
+            matchReg = re.match(r'^\-\-UEIPAddress=(.+)$', myArgv, re.IGNORECASE)
             CiTestObj.UEIPAddress = matchReg.group(1)
-        elif re.match('^\-\-UEUserName=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-UEUserName=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-UEUserName=(.+)$', myArgv, re.IGNORECASE):
+            matchReg = re.match(r'^\-\-UEUserName=(.+)$', myArgv, re.IGNORECASE)
             CiTestObj.UEUserName = matchReg.group(1)
-        elif re.match('^\-\-UEPassword=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-UEPassword=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-UEPassword=(.+)$', myArgv, re.IGNORECASE):
+            matchReg = re.match(r'^\-\-UEPassword=(.+)$', myArgv, re.IGNORECASE)
             CiTestObj.UEPassword = matchReg.group(1)
-        elif re.match('^\-\-UESourceCodePath=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-UESourceCodePath=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-UESourceCodePath=(.+)$', myArgv, re.IGNORECASE):
+            matchReg = re.match(r'^\-\-UESourceCodePath=(.+)$', myArgv, re.IGNORECASE)
             CiTestObj.UESourceCodePath = matchReg.group(1)
-        elif re.match('^\-\-finalStatus=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-finalStatus=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-finalStatus=(.+)$', myArgv, re.IGNORECASE):
+            matchReg = re.match(r'^\-\-finalStatus=(.+)$', myArgv, re.IGNORECASE)
             finalStatus = matchReg.group(1)
             if ((finalStatus == 'true') or (finalStatus == 'True')):
                 CiTestObj.finalStatus = True
-        elif re.match('^\-\-OCUserName=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-OCUserName=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-OCUserName=(.+)$', myArgv, re.IGNORECASE):
+            matchReg = re.match(r'^\-\-OCUserName=(.+)$', myArgv, re.IGNORECASE)
             PHYSIM.OCUserName = matchReg.group(1)
             CLUSTER.OCUserName = matchReg.group(1)
-        elif re.match('^\-\-OCPassword=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-OCPassword=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-OCPassword=(.+)$', myArgv, re.IGNORECASE):
+            matchReg = re.match(r'^\-\-OCPassword=(.+)$', myArgv, re.IGNORECASE)
             PHYSIM.OCPassword = matchReg.group(1)
             CLUSTER.OCPassword = matchReg.group(1)
-        elif re.match('^\-\-OCProjectName=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-OCProjectName=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-OCProjectName=(.+)$', myArgv, re.IGNORECASE):
+            matchReg = re.match(r'^\-\-OCProjectName=(.+)$', myArgv, re.IGNORECASE)
             PHYSIM.OCProjectName = matchReg.group(1)
             CLUSTER.OCProjectName = matchReg.group(1)
-        elif re.match('^\-\-OCUrl=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-OCUrl=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-OCUrl=(.+)$', myArgv, re.IGNORECASE):
+            matchReg = re.match(r'^\-\-OCUrl=(.+)$', myArgv, re.IGNORECASE)
             CLUSTER.OCUrl = matchReg.group(1)
-        elif re.match('^\-\-OCRegistry=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-OCRegistry=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-OCRegistry=(.+)$', myArgv, re.IGNORECASE):
+            matchReg = re.match(r'^\-\-OCRegistry=(.+)$', myArgv, re.IGNORECASE)
             CLUSTER.OCRegistry = matchReg.group(1)
-        elif re.match('^\-\-BuildId=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-BuildId=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-BuildId=(.+)$', myArgv, re.IGNORECASE):
+            matchReg = re.match(r'^\-\-BuildId=(.+)$', myArgv, re.IGNORECASE)
             RAN.BuildId = matchReg.group(1)
-        elif re.match('^\-\-FlexRicTag=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match('^\-\-FlexRicTag=(.+)$', myArgv, re.IGNORECASE)
+        elif re.match(r'^\-\-FlexRicTag=(.+)$', myArgv, re.IGNORECASE):
+            matchReg = re.match(r'^\-\-FlexRicTag=(.+)$', myArgv, re.IGNORECASE)
             CONTAINERS.flexricTag = matchReg.group(1)
         else:
             HELP.GenericHelp(CONST.Version)
