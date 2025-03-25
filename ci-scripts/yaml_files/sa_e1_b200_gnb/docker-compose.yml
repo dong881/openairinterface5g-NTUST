@@ -9,7 +9,7 @@ services:
         environment:
             USE_ADDITIONAL_OPTIONS: --telnetsrv --telnetsrv.listenport 9090 --telnetsrv.shrmod ci
                                     --log_config.global_log_options level,nocolor,time,line_num,function
-                                    --security.drb_integrity yes
+                                    --security.drb_integrity no
         volumes:
             - ../../conf_files/gnb-cucp.sa.f1.quectel.conf:/opt/oai-gnb/etc/gnb.conf
         # for performance reasons, we use host mode: in bridge mode, we have
