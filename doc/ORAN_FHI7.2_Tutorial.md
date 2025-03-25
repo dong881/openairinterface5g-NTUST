@@ -72,6 +72,7 @@ tested any RU without S-plane. Radio units we are testing/integrating:
 |LiteON RU        |01.00.08/02.00.03     |
 |Benetel 650      |RAN650-1v1.0.4-dda1bf5|
 |Benetel 550 CAT-A|RAN550-1v1.0.4-605a25a|
+|Foxconn RPQN     |v3.1.15q.551_rc10     |
 
 Tested libxran releases:
 
@@ -670,6 +671,40 @@ The RU configuration is stored in `/etc/rumanager.conf`. The required modificati
 8. `rx_gain_correction` -> tested with `-903` (please be careful to not fry the RU)
 
 At this stage, RU must be rebooted so the changes apply.
+
+### Foxconn RPQN RU
+
+**Version v3.1.15q.551_rc10**
+
+The OAI configuration file [`gnb.sa.band78.273prb.fhi72.4X4-foxconn.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi72.4X4-foxconn.conf) corresponds to:
+- TDD pattern `DDDSU`, 2.5ms
+- Bandwidth 100MHz
+- MTU 8000
+
+#### RU configuration
+
+After switching on or rebooting the RU, the `/home/root/test/init_rrh_config_enable_cuplane` script should be run.
+
+The RU configuration file is located in `/home/root/test/RRHconfig_xran.xml`. The required modifications:
+1.  `RRH_DST_MAC_ADDR`
+2.  `RRH_SRC_MAC_ADDR`
+3.  `RRH_EAXC_ID_TYPE1`
+4.  `RRH_EAXC_ID_TYPE3`
+5.  `RRH_CMPR_HDR_PRESENT` -> `0`
+6.  `RRH_C_PLANE_VLAN_TAG`
+7.  `RRH_U_PLANE_VLAN_TAG`
+8.  `RRH_LO_FREQUENCY_KHZ` -> `3750000, 0`
+9.  `RRH_DISABLE_USING_CAL_TABLES` -> `YES`
+10. `RRH_TX_ATTENUATION` -> must be larger than 10dB
+11. `RRH_RX_ATTENUATION` -> must be lower than 30dB
+
+RU must be rebooted so the changes apply.
+
+**Note**
+
+- The RU was tested with the `2024.w30` tag of OAI.
+- The measured throughput was **520 Mbps DL** and **40 Mbps UL**.
+- With newer OAI versions, throughput degrades. This issue is currently under investigation.
 
 ## Configure Network Interfaces and DPDK VFs
 
