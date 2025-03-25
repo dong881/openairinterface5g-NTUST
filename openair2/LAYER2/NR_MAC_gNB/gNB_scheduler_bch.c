@@ -354,29 +354,9 @@ static uint32_t schedule_control_sib1(module_id_t module_id,
                                       uint16_t num_total_bytes)
 {
   gNB_MAC_INST *gNB_mac = RC.nrmac[module_id];
+  AssertFatal(gNB_mac->sched_ctrlCommon, "sched_ctrlCommon is NULL\n");
   NR_COMMON_channels_t *cc = &gNB_mac->common_channels[CC_id];
-  NR_ServingCellConfigCommon_t *scc = cc->ServingCellConfigCommon;
   uint16_t *vrb_map = cc->vrb_map[beam];
-
-  if (gNB_mac->sched_ctrlCommon == NULL){
-    LOG_D(NR_MAC,"schedule_control_common: Filling nr_mac->sched_ctrlCommon\n");
-    gNB_mac->sched_ctrlCommon = calloc(1,sizeof(*gNB_mac->sched_ctrlCommon));
-    gNB_mac->sched_ctrlCommon->search_space = calloc(1,sizeof(*gNB_mac->sched_ctrlCommon->search_space));
-    gNB_mac->sched_ctrlCommon->coreset = calloc(1,sizeof(*gNB_mac->sched_ctrlCommon->coreset));
-    fill_searchSpaceZero(gNB_mac->sched_ctrlCommon->search_space,
-                         gNB_mac->frame_structure.numb_slots_frame,
-                         type0_PDCCH_CSS_config);
-    fill_coresetZero(gNB_mac->sched_ctrlCommon->coreset, type0_PDCCH_CSS_config);
-    gNB_mac->cset0_bwp_start = type0_PDCCH_CSS_config->cset_start_rb;
-    gNB_mac->cset0_bwp_size = type0_PDCCH_CSS_config->num_rbs;
-    gNB_mac->sched_ctrlCommon->sched_pdcch = set_pdcch_structure(NULL,
-                                                                 gNB_mac->sched_ctrlCommon->search_space,
-                                                                 gNB_mac->sched_ctrlCommon->coreset,
-                                                                 scc,
-                                                                 NULL,
-                                                                 type0_PDCCH_CSS_config);
-  }
-
   NR_sched_pdsch_t *pdsch = &gNB_mac->sched_ctrlCommon->sched_pdsch;
   pdsch->time_domain_allocation = time_domain_allocation;
   pdsch->dmrs_parms = *dmrs_parms;
