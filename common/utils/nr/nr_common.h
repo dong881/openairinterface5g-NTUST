@@ -130,6 +130,11 @@ typedef enum frequency_range_e {
   FR2
 } frequency_range_t;
 
+typedef enum {
+  pusch_dmrs_type1 = 0,
+  pusch_dmrs_type2 = 1
+} pusch_dmrs_type_t;
+
 #define MAX_NUM_SLOTS_ALLOWED 80 // up to numerology 3 (120 KHz SCS) is supported
 enum slot_type { TDD_NR_DOWNLINK_SLOT, TDD_NR_UPLINK_SLOT, TDD_NR_MIXED_SLOT };
 
@@ -301,6 +306,17 @@ int get_slot_idx_in_period(const int slot, const frame_structure_t *fs);
 frequency_range_t get_freq_range_from_freq(uint64_t freq);
 frequency_range_t get_freq_range_from_arfcn(uint32_t arfcn);
 frequency_range_t get_freq_range_from_band(uint16_t band);
+
+/**
+ * @brief Calculates the scaling factor for the ratio of PUSCH EPRE to DMRS EPRE.
+ *
+ * @param num_cdm_groups_no_data The number of CDM groups without data.
+ * @param dmrs_type The DMRS type.
+ * @return The calculated beta scaling factor for the ratio of PUSCH EPRE to DMRS EPRE.
+ *
+ * @note The values are derived from TS 38.214 Table 6.2.2-1.
+ */
+float get_beta_dmrs_pusch(int num_cdm_groups_no_data, pusch_dmrs_type_t dmrs_type);
 
 #define CEILIDIV(a,b) ((a+b-1)/b)
 #define ROUNDIDIV(a,b) (((a<<1)+b)/(b<<1))

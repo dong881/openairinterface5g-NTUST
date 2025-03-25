@@ -19,6 +19,7 @@
  *      contact@openairinterface.org
  */
 
+#include "nr_common.h"
 #include <string.h>
 
 #include "nr_ul_estimation.h"
@@ -480,6 +481,9 @@ int nr_pusch_channel_estimation(PHY_VARS_gNB *gNB,
                                          pusch_pdu->scid,
                                          Ns,
                                          symbol);
+    pusch_dmrs_type_t dmrs_type = pusch_pdu->dmrs_config_type == NFAPI_NR_DMRS_TYPE1 ? pusch_dmrs_type1 : pusch_dmrs_type2;
+    float beta_dmrs_pusch = get_beta_dmrs_pusch(pusch_pdu->num_dmrs_cdm_grps_no_data, dmrs_type);
+    int16_t dmrs_scaling = (1 / beta_dmrs_pusch) * (1 << 14);
     nr_pusch_dmrs_rx(gNB,
                      Ns,
                      gold,
@@ -488,7 +492,8 @@ int nr_pusch_channel_estimation(PHY_VARS_gNB *gNB,
                      0,
                      nb_rb_pusch,
                      (pusch_pdu->bwp_start + pusch_pdu->rb_start) * NR_NB_SC_PER_RB,
-                     pusch_pdu->dmrs_config_type);
+                     pusch_pdu->dmrs_config_type,
+                     dmrs_scaling);
   } else { // if transform precoding or SC-FDMA is enabled in Uplink
     // NR_SC_FDMA supports type1 DMRS so only 6 DMRS REs per RB possible
     const int index = get_index_for_dmrs_lowpapr_seq(nb_rb_pusch * (NR_NB_SC_PER_RB / 2));

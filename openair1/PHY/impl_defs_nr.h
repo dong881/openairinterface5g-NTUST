@@ -344,12 +344,6 @@ typedef enum {
 * DESCRIPTION      :  configuration for PUSCH
 *
 ************************************************************************/
-
-typedef enum {
-  pusch_dmrs_type1 = 0,
-  pusch_dmrs_type2 = 1
-} pusch_dmrs_type_t;
-
 typedef enum {
   txConfig_codebook = 1,
   txConfig_nonCodebook = 2

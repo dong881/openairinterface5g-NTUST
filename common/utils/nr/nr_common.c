@@ -36,6 +36,7 @@
 #include "common/utils/LOG/log.h"
 #include "nr_common.h"
 #include <limits.h>
+#include <math.h>
 
 #define C_SRS_NUMBER (64)
 #define B_SRS_NUMBER (4)
@@ -1426,4 +1427,16 @@ frequency_range_t get_freq_range_from_arfcn(uint32_t arfcn)
 frequency_range_t get_freq_range_from_band(uint16_t band)
 {
   return band <= 256 ? FR1 : FR2;
+}
+
+float get_beta_dmrs_pusch(int num_cdm_groups_no_data, pusch_dmrs_type_t dmrs_type)
+{
+  float beta_dmrs_pusch = 1.0;
+  if (num_cdm_groups_no_data == 2) {
+    beta_dmrs_pusch = powf(10.0, 3.0 / 20.0);
+  } else if (num_cdm_groups_no_data == 3) {
+    if (dmrs_type == pusch_dmrs_type2)
+      beta_dmrs_pusch = powf(10.0, 4.77 / 20.0);
+  }
+  return beta_dmrs_pusch;
 }

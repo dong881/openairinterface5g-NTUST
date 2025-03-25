@@ -36,7 +36,8 @@ int nr_pusch_dmrs_rx(PHY_VARS_gNB *gNB,
                      unsigned char lp,
                      unsigned short nb_pusch_rb,
                      uint32_t re_offset,
-                     uint8_t dmrs_type);
+                     uint8_t dmrs_type,
+                     int16_t dmrs_scaling);
 
 void nr_generate_csi_rs(const NR_DL_FRAME_PARMS *frame_parms,
                         int32_t **dataF,

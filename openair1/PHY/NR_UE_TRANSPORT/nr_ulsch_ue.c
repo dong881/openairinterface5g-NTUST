@@ -392,13 +392,15 @@ static void dmrs_amp_mult(const uint32_t dmrs_port,
                           const c16_t *mod_dmrs,
                           c16_t *mod_dmrs_out,
                           const uint32_t n_dmrs,
-                          const pusch_dmrs_type_t dmrs_type)
+                          const pusch_dmrs_type_t dmrs_type,
+                          const unsigned int num_cdm_groups_no_data)
 {
+  float beta_dmrs_pusch = get_beta_dmrs_pusch(num_cdm_groups_no_data, dmrs_type);
   /* short array that hold amplitude for k_prime = 0 and k_prime = 1 */
   int32_t alpha_dmrs[2] __attribute((aligned(16)));
   for (int_fast8_t i = 0; i < sizeofArray(alpha_dmrs); i++) {
     const int32_t a = Wf[i] * Wt * AMP;
-    alpha_dmrs[i] = a;
+    alpha_dmrs[i] = a * beta_dmrs_pusch;
   }
 
   /* multiply amplitude with complex DMRS vector */
@@ -440,9 +442,9 @@ static void map_symbols(const nr_phy_pxsch_params_t p,
       c16_t mod_dmrs[ALNARS_16_4(n_dmrs)] __attribute((aligned(16)));
       if (p.transform_precoding == transformPrecoder_disabled) {
         nr_modulation(gold, n_dmrs * 2, DMRS_MOD_ORDER, (int16_t *)mod_dmrs);
-        dmrs_amp_mult(p.dmrs_port, p.Wt, p.Wf, mod_dmrs, mod_dmrs_amp, n_dmrs, p.dmrs_type);
+        dmrs_amp_mult(p.dmrs_port, p.Wt, p.Wf, mod_dmrs, mod_dmrs_amp, n_dmrs, p.dmrs_type, p.num_cdm_no_data);
       } else {
-        dmrs_amp_mult(p.dmrs_port, p.Wt, p.Wf, dmrs_seq, mod_dmrs_amp, n_dmrs, p.dmrs_type);
+        dmrs_amp_mult(p.dmrs_port, p.Wt, p.Wf, dmrs_seq, mod_dmrs_amp, n_dmrs, p.dmrs_type, p.num_cdm_no_data);
       }
     } else if ((p.pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS) && ptrs_symbol) {
       AssertFatal(p.transform_precoding == transformPrecoder_disabled, "PTRS NOT SUPPORTED IF TRANSFORM PRECODING IS ENABLED\n");
