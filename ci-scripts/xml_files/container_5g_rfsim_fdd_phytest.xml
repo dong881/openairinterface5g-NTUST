@@ -83,7 +83,7 @@
                 <nodes>cacofonix</nodes>
                 <svr_id>rfsim5g_gnb_nos1</svr_id>
                 <svr_node>cacofonix</svr_node>
-                <ping_args>-c20 -i0.2 10.0.1.1</ping_args>
+                <ping_args>-c20 -i0.2</ping_args>
                 <ping_packetloss_threshold>0</ping_packetloss_threshold>
         </testCase>
 
@@ -94,7 +94,7 @@
                 <nodes>cacofonix</nodes>
                 <svr_id>rfsim5g_ue</svr_id>
                 <svr_node>cacofonix</svr_node>
-                <ping_args>-c20 -i0.2 10.0.1.2</ping_args>
+                <ping_args>-c20 -i0.2</ping_args>
                 <ping_packetloss_threshold>0</ping_packetloss_threshold>
         </testCase>
 

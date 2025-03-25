@@ -136,7 +136,7 @@
                 <nodes>carabe carabe</nodes>
                 <svr_id>oai_ext_dn</svr_id>
                 <svr_node>carabe</svr_node>
-                <ping_args>-c 20 192.168.70.135</ping_args>
+                <ping_args>-c 20</ping_args>
                 <ping_packetloss_threshold>5</ping_packetloss_threshold>
         </testCase>
 

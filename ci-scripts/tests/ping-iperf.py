@@ -25,7 +25,7 @@ class TestPingIperf(unittest.TestCase):
 		self.cont = cls_containerize.Containerize()
 
 	def test_ping(self):
-		self.ci.ping_args = "-c3 127.0.0.1"
+		self.ci.ping_args = "-c3"
 		self.ci.ping_packetloss_threshold = "0"
 		self.ci.svr_id = "test"
 		infra_file = "tests/config/infra_ping_iperf.yaml"

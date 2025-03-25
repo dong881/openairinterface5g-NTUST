@@ -128,7 +128,7 @@
     <desc>Ping: 20pings in 20sec</desc>
     <id>oai_ue_caracal</id>
     <svr_id>oc-cn5g</svr_id>
-    <ping_args>-c 20 %cn_ip%</ping_args>
+    <ping_args>-c 20</ping_args>
     <ping_packetloss_threshold>1</ping_packetloss_threshold>
     <ping_rttavg_threshold>25</ping_rttavg_threshold>
   </testCase>
@@ -138,7 +138,7 @@
     <desc>Ping: 100pings in 20sec</desc>
     <id>oai_ue_caracal</id>
     <svr_id>oc-cn5g</svr_id>
-    <ping_args>-c 100 -i 0.2 %cn_ip%</ping_args>
+    <ping_args>-c 100 -i 0.2</ping_args>
     <ping_packetloss_threshold>1</ping_packetloss_threshold>
     <ping_rttavg_threshold>30</ping_rttavg_threshold>
   </testCase>

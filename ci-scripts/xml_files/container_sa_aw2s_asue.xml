@@ -226,7 +226,7 @@
     <desc>Ping: 50 pings in 10sec, multi-ue</desc>
     <id>amarisoft_ue_1 amarisoft_ue_2 amarisoft_ue_3 amarisoft_ue_4 amarisoft_ue_5 amarisoft_ue_6 amarisoft_ue_7 amarisoft_ue_8 amarisoft_ue_9 amarisoft_ue_10 amarisoft_ue_11 amarisoft_ue_12 amarisoft_ue_13 amarisoft_ue_14 amarisoft_ue_15</id>
     <svr_id>oc-cn5g</svr_id>
-    <ping_args>-c 50 -i 0.2 %cn_ip%</ping_args>
+    <ping_args>-c 50 -i 0.2</ping_args>
     <ping_packetloss_threshold>5</ping_packetloss_threshold>
     <ping_rttavg_threshold>25</ping_rttavg_threshold>
   </testCase>
@@ -242,7 +242,7 @@
     <desc>Ping: 50pings in 10sec, multi-ue</desc>
     <id>amarisoft_ue_16</id>
     <svr_id>oc-cn5g</svr_id>
-    <ping_args>-c 50 -i 0.2 %cn_ip%</ping_args>
+    <ping_args>-c 50 -i 0.2</ping_args>
     <ping_packetloss_threshold>5</ping_packetloss_threshold>
     <ping_rttavg_threshold>30</ping_rttavg_threshold>
   </testCase>
