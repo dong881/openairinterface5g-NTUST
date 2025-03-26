@@ -51,8 +51,7 @@ static void *time_server_thread(void *ts)
   int *socket_fds = NULL;
   int client_count = 0;
 
-  polls = calloc(2, sizeof(struct pollfd));
-  DevAssert(polls != NULL);
+  polls = calloc_or_fail(2, sizeof(struct pollfd));
 
   while (!time_server->exit) {
     /* polls[0] is to receive ticks */
@@ -69,7 +68,7 @@ static void *time_server_thread(void *ts)
     }
 
     int ret = poll(polls, client_count + 2, -1);
-    DevAssert(ret >= 1 || (ret == -1 && errno == EINTR));
+    AssertFatal(ret >= 1 || (ret == -1 && errno == EINTR), "poll() failed\n");
 
     if (time_server->exit)
       break;
@@ -77,7 +76,7 @@ static void *time_server_thread(void *ts)
     /* check tick */
     if (polls[0].revents) {
       /* do not accept errors */
-      DevAssert(polls[0].revents == POLLIN);
+      AssertFatal(polls[0].revents == POLLIN, "poll() failed\n");
       uint64_t ticks;
       int ret = read(time_server->tick_fd, &ticks, 8);
       DevAssert(ret == 8);
@@ -107,7 +106,7 @@ static void *time_server_thread(void *ts)
             socket_fds = realloc(socket_fds, sizeof(int) * client_count);
           }
           polls = realloc(polls, sizeof(struct pollfd) * (client_count + 2));
-          DevAssert(polls != NULL);
+          AssertFatal(polls != NULL, "realloc() failed\n");
         }
         ticks -= count;
       }
@@ -116,18 +115,18 @@ static void *time_server_thread(void *ts)
     /* check new client */
     if (polls[1].revents) {
       /* do not accept errors */
-      DevAssert(polls[1].revents == POLLIN);
+      AssertFatal(polls[1].revents == POLLIN, "poll() failed\n");
 
       int new_socket = accept(time_server->server_socket, NULL, NULL);
-      DevAssert(new_socket != -1);
+      AssertFatal(new_socket != -1, "accept() failed: %s\n", strerror(errno));
 
       /* add client */
       client_count++;
       socket_fds = realloc(socket_fds, sizeof(int) * client_count);
-      DevAssert(socket_fds != NULL);
+      AssertFatal(socket_fds != NULL, "realloc() failed\n");
       socket_fds[client_count - 1] = new_socket;
       polls = realloc(polls, sizeof(struct pollfd) * (client_count + 2));
-      DevAssert(polls != NULL);
+      AssertFatal(polls != NULL, "realloc() failed\n");
       continue;
     }
 
@@ -151,12 +150,12 @@ static void *time_server_thread(void *ts)
       } else {
         memmove(&socket_fds[i + 1], &socket_fds[i + 2], sizeof(int) * (client_count - i - 1));
         socket_fds = realloc(socket_fds, sizeof(int) * client_count);
-        DevAssert(socket_fds != NULL);
+        AssertFatal(socket_fds != NULL, "realloco() failed\n");
       }
       if (client_count)
         memmove(&polls[i + 2 + 1], &polls[i + 2 + 2], sizeof(struct pollfd) * (client_count - i - 1));
       polls = realloc(polls, sizeof(struct pollfd) * (client_count + 2));
-      DevAssert(polls != NULL);
+      AssertFatal(polls != NULL, "realloc() failed\n");
     }
   }
 
@@ -180,31 +179,30 @@ time_server_t *new_time_server(const char *ip,
   time_server_private_t *ts;
   int ret;
 
-  ts = calloc(1, sizeof(*ts));
-  DevAssert(ts != NULL);
+  ts = calloc_or_fail(1, sizeof(*ts));
 
   ts->server_socket = socket(AF_INET, SOCK_STREAM, 0);
-  DevAssert(ts->server_socket != -1);
+  AssertFatal(ts->server_socket != -1, "socket() failed: %s\n", strerror(errno));
 
   int v = 1;
   ret = setsockopt(ts->server_socket, SOL_SOCKET, SO_REUSEADDR, &v, sizeof(v));
-  DevAssert(ret == 0);
+  AssertFatal(ret == 0, "setsockopt() failed: %s\n", strerror(errno));
   v = 1;
   ret = setsockopt(ts->server_socket, IPPROTO_TCP, TCP_NODELAY, &v, sizeof(v));
-  DevAssert(ret == 0);
+  AssertFatal(ret == 0, "setsockopt() failed: %s\n", strerror(errno));
   ts->tick_fd = eventfd(0, 0);
-  DevAssert(ts->tick_fd != -1);
+  AssertFatal(ts->tick_fd != -1, "eventfd() failed: %s\n", strerror(errno));
 
   struct sockaddr_in ip_addr;
   ip_addr.sin_family = AF_INET;
   ip_addr.sin_port = htons(port);
   ret = inet_aton(ip, &ip_addr.sin_addr);
-  DevAssert(ret != 0);
+  AssertFatal(ret != 0, "inet_aton() failed: %s\n", strerror(errno));
   ret = bind(ts->server_socket, (struct sockaddr *)&ip_addr, sizeof(ip_addr));
-  DevAssert(ret == 0);
+  AssertFatal(ret == 0, "bind() failed: %s\n", strerror(errno));
 
   ret = listen(ts->server_socket, 10); /* 10: arbitrary value */
-  DevAssert(ret == 0);
+  AssertFatal(ret == 0, "listen() failed: %s\n", strerror(errno));
 
   ts->callback = callback;
   ts->callback_data = callback_data;

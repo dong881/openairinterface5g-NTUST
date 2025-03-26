@@ -55,16 +55,16 @@ static int connect_to_server(time_client_private_t *time_client)
   /* try forever (or exit requested) until we succeed */
   while (1) {
     sock = socket(AF_INET, SOCK_STREAM, 0);
-    DevAssert(sock != -1);
+    AssertFatal(sock != -1, "socket() failed: %s\n", strerror(errno));
     int v = 1;
     r = setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &v, sizeof(v));
-    DevAssert(r == 0);
+    AssertFatal(r == 0, "setsockopt() failed: %s\n", strerror(errno));
     /* unblock socket */
     opts = fcntl(sock, F_GETFL);
-    DevAssert(opts >= 0);
+    AssertFatal(opts >= 0, "fcntl() failed: %s\n", strerror(errno));
     opts |= O_NONBLOCK;
     r = fcntl(sock, F_SETFL, opts);
-    DevAssert(r == 0);
+    AssertFatal(r == 0, "fctnl() failed: %s\n", strerror(errno));
     if (connect(sock, (struct sockaddr *)&time_client->server_ip, sizeof(time_client->server_ip)) == 0)
       break;
     if (errno == EINPROGRESS) {
@@ -74,7 +74,7 @@ static int connect_to_server(time_client_private_t *time_client)
       fds[1].fd = time_client->exit_fd;
       fds[1].events = POLLIN;
       r = poll(fds, 2, -1);
-      DevAssert(r >= 0);
+      AssertFatal(r >= 0, "poll() failed: %s\n", strerror(errno));
       /* do we need to exit? */
       if (fds[1].revents) {
         shutdown(sock, SHUT_RDWR);
@@ -87,7 +87,9 @@ static int connect_to_server(time_client_private_t *time_client)
         int so_error;
         socklen_t so_error_len = sizeof(so_error);
         r = getsockopt(sock, SOL_SOCKET, SO_ERROR, &so_error, &so_error_len);
-        DevAssert(r == 0 && so_error_len == sizeof(so_error));
+        AssertFatal(r == 0 && so_error_len == sizeof(so_error),
+                    "getsockopt() failed (r = %d) or so_error_len (= %d) is not %ld\n",
+                    r, so_error_len, sizeof(so_error));
         if (so_error == 0)
           /* success */
           break;
@@ -98,13 +100,13 @@ static int connect_to_server(time_client_private_t *time_client)
     sock = -1;
     char server_address[256];
     const char *ret = inet_ntop(AF_INET, &time_client->server_ip.sin_addr, server_address, sizeof(server_address));
-    DevAssert(ret != NULL);
+    AssertFatal(ret != NULL, "inet_ntop() failed: %s\n", strerror(errno));
     LOG_W(UTIL, "time client: connection to %s:%d failed, try again in 1s\n", server_address, time_client->server_port);
     /* sleep 1s (or exit requested) */
     fds[0].fd = time_client->exit_fd;
     fds[0].events = POLLIN;
     r = poll(fds, 1, 1000);
-    DevAssert(r >= 0);
+    AssertFatal(r >= 0, "poll() failed: %s\n", strerror(errno));
     /* exit requested? */
     if (fds[0].revents) {
       shutdown(sock, SHUT_RDWR);
@@ -117,7 +119,7 @@ static int connect_to_server(time_client_private_t *time_client)
     /* reblock socket */
     opts &= ~O_NONBLOCK;
     r = fcntl(sock, F_SETFL, opts);
-    DevAssert(r == 0);
+    AssertFatal(r == 0, "fcntl() failed: %s\n", strerror(errno));
   }
   return sock;
 }
@@ -142,7 +144,7 @@ static void *time_client_thread(void *tc)
     polls[1].events = POLLIN;
 
     ret = poll(polls, 2, -1);
-    DevAssert(ret >= 0);
+    AssertFatal(ret >= 0, "poll() failed: %s\n", strerror(errno));
 
     /* whatever is in revents for exit_fd means exit */
     if (polls[1].revents)
@@ -160,7 +162,7 @@ reconnect:
     }
 
     /* here we only accept POLLIN */
-    DevAssert(polls[0].revents == POLLIN);
+    AssertFatal(polls[0].revents == POLLIN, "poll() did not return expected POLLIN\n");
 
     /* get the ticks from server */
     uint8_t tick_count;
@@ -196,14 +198,13 @@ time_client_t *new_time_client(const char *server_ip,
   time_client_private_t *tc;
   int ret;
 
-  tc = calloc(1, sizeof(*tc));
-  DevAssert(tc != NULL);
+  tc = calloc_or_fail(1, sizeof(*tc));
 
   tc->exit_fd = eventfd(0, 0);
-  DevAssert(tc->exit_fd != -1);
+  AssertFatal(tc->exit_fd != -1, "eventfd() failed: %s\n", strerror(errno));
 
   ret = inet_aton(server_ip, &tc->server_ip.sin_addr);
-  DevAssert(ret != 0);
+  AssertFatal(ret != 0, "inet_aton() failed: %s\n", strerror(errno));
   tc->server_ip.sin_family = AF_INET;
   tc->server_ip.sin_port = htons(server_port);
   tc->server_port = server_port;

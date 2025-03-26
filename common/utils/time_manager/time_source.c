@@ -28,6 +28,7 @@
 
 #include "common/utils/assertions.h"
 #include "common/utils/system.h"
+#include "common/utils/utils.h"
 
 typedef void (*callback_function_t)(void *callback_data);
 typedef void * callback_data_t;
@@ -190,16 +191,14 @@ time_source_t *new_time_source(time_source_type_t type)
 
   switch (type) {
     case TIME_SOURCE_REALTIME: {
-      time_source_realtime_t *ts = calloc(1, sizeof(*ts));
-      DevAssert(ts != NULL);
+      time_source_realtime_t *ts = calloc_or_fail(1, sizeof(*ts));
       thread_function = time_source_realtime_thread;
       thread_function_name = "time source realtime";
       ret = ts;
       break;
     }
     case TIME_SOURCE_IQ_SAMPLES: {
-      time_source_iq_t *ts = calloc(1, sizeof(*ts));
-      DevAssert(ts != NULL);
+      time_source_iq_t *ts = calloc_or_fail(1, sizeof(*ts));
       thread_function = time_source_iq_samples_thread;
       terminate_function = time_source_iq_samples_terminate;
       thread_function_name = "time source iq samples";
