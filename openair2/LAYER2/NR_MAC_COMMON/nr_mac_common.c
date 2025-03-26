@@ -30,7 +30,8 @@
 
  */
 
-#include "LAYER2/NR_MAC_gNB/mac_proto.h"
+#include "nr_mac.h"
+#include "nr_mac_common.h"
 #include "common/utils/nr/nr_common.h"
 #include <limits.h>
 #include <executables/softmodem-common.h>
@@ -2431,6 +2432,19 @@ uint8_t get_pusch_nb_antenna_ports(NR_PUSCH_Config_t *pusch_Config,
   return n_antenna_port;
 }
 
+static int binomial(int n, int k)
+{
+  if (k > n - k)
+    k = n - k;
+  int c = 1;
+  for (int i = 1; i <= k; i++, n--) {
+    if (c / i > UINT_MAX/n) // return 0 on overflow
+      return 0;
+    c = c / i * n + c % i * n / i;
+  }
+  return c;
+}
+
 // #define DEBUG_SRS_RESOURCE_IND
 uint8_t compute_srs_resource_indicator(long *maxMIMO_Layers,
                                        NR_PUSCH_Config_t *pusch_Config,
@@ -3421,21 +3435,6 @@ uint8_t get_pusch_mcs_table(long *mcs_Table,
   return (0 + (is_tp * 3));
 }
 
-
-int binomial(int n, int k) {
-  int c = 1, i;
-
-  if (k > n-k) 
-    k = n-k;
-
-  for (i = 1; i <= k; i++, n--) {
-    if (c/i > UINT_MAX/n) // return 0 on overflow
-      return 0;
-
-    c = c / i * n + c % i * n / i;
-  }
-  return c;
-}
 
 /* extract PTRS values from RC and validate it based upon 38.214 5.1.6.3 */
 bool set_dl_ptrs_values(NR_PTRS_DownlinkConfig_t *ptrs_config,

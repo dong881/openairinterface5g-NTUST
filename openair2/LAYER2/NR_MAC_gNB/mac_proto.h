@@ -337,8 +337,6 @@ int nr_write_ce_dlsch_pdu(module_id_t module_idP,
                           unsigned char drx_cmd,
                           unsigned char *ue_cont_res_id);
 
-int binomial(int n, int k);
-
 /* \brief Function to indicate a received SDU on ULSCH.
 @param Mod_id Instance ID of gNB
 @param CC_id Component carrier index
