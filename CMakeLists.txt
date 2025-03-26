@@ -1885,14 +1885,14 @@ add_executable(nr-uesoftmodem
   ${OPENAIR2_DIR}/LAYER2/NR_MAC_COMMON/nr_mac_common.c
   ${OPENAIR2_DIR}/LAYER2/NR_MAC_COMMON/nr_mac_common_tdd.c
   ${OPENAIR1_DIR}/PHY/TOOLS/phy_scope_interface.c
+  ${NFAPI_USER_DIR}/nfapi.c
   ${PHY_INTERFACE_DIR}/queue_t.c
   )
 
 target_link_libraries(nr-uesoftmodem PRIVATE
   -Wl,--start-group
   nr_rrc SECURITY UTIL HASHTABLE SCHED_RU_LIB SCHED_NR_UE_LIB
-  PHY_COMMON PHY_NR_COMMON PHY_NR_UE NR_L2_UE MAC_NR_COMMON NFAPI_LIB NFAPI_PNF_LIB
-  NFAPI_USER_LIB MISC_NFAPI_NR_LIB
+  PHY_COMMON PHY_NR_COMMON PHY_NR_UE NR_L2_UE MAC_NR_COMMON NFAPI_LIB
   ITTI SIMU shlib_loader
   -Wl,--end-group z dl)
 

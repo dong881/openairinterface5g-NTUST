@@ -41,7 +41,6 @@
 #include "NR_BCCH-BCH-Message.h"
 #include "NR_ServingCellConfigCommon.h"
 
-#include "LAYER2/NR_MAC_gNB/mac_proto.h"
 #include "SCHED_NR/phy_frame_config_nr.h"
 
 #include "NR_MIB.h"
