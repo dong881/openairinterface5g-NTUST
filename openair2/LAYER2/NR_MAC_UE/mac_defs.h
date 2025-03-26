@@ -649,9 +649,9 @@ static inline double GET_COMPLETE_TIME_ADVANCE_MS(const ntn_timing_advance_compo
   return ntn_ta->N_common_ta_adj + ntn_ta->N_UE_TA_adj;
 }
 
-static inline long GET_DURATION_RX_TO_TX(const ntn_timing_advance_componets_t *ntn_ta)
+static inline long GET_DURATION_RX_TO_TX(const ntn_timing_advance_componets_t *ntn_ta, int scs)
 {
-  return NR_UE_CAPABILITY_SLOT_RX_TO_TX + ntn_ta->cell_specific_k_offset;
+  return NR_UE_CAPABILITY_SLOT_RX_TO_TX + (ntn_ta->cell_specific_k_offset << scs);
 }
 
 /*@}*/

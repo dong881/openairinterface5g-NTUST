@@ -285,6 +285,13 @@ void configure_ntn_ta(module_id_t module_id, ntn_timing_advance_componets_t *ntn
       ntn_ta->ntn_ta_commondrift = *ntn_Config_r17->ta_Info_r17->ta_CommonDrift_r17 * 0.2e-3;
   }
   ntn_ta->ntn_params_changed = true;
+
+  LOG_D(NR_MAC,
+        "SIB19 Rxd. k_offset:%ld, N_Common_Ta:%f,drift:%f,N_UE_TA:%f \n",
+        ntn_ta->cell_specific_k_offset,
+        ntn_ta->N_common_ta_adj,
+        ntn_ta->ntn_ta_commondrift,
+        ntn_ta->N_UE_TA_adj);
 }
 
 static void config_common_ue(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommon_t *scc, int cc_idP)

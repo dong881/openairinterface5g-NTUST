@@ -1037,9 +1037,11 @@ void nr_ue_aperiodic_srs_scheduling(NR_UE_MAC_INST_t *mac, long resource_trigger
     return;
   }
 
-  AssertFatal(slot_offset > GET_DURATION_RX_TO_TX(&mac->ntn_ta),
+  int scs = mac->current_UL_BWP->scs;
+  AssertFatal(slot_offset > GET_DURATION_RX_TO_TX(&mac->ntn_ta, scs),
               "Slot offset between DCI and aperiodic SRS (%d) needs to be higher than DURATION_RX_TO_TX (%ld)\n",
-              slot_offset, GET_DURATION_RX_TO_TX(&mac->ntn_ta));
+              slot_offset,
+              GET_DURATION_RX_TO_TX(&mac->ntn_ta, scs));
   int n_slots_frame = mac->frame_structure.numb_slots_frame;
   int sched_slot = (slot + slot_offset) % n_slots_frame;
   if (!is_ul_slot(sched_slot, &mac->frame_structure)) {
@@ -1563,23 +1565,24 @@ int nr_ue_pusch_scheduler(const NR_UE_MAC_INST_t *mac,
         AssertFatal(1 == 0, "Invalid numerology %i\n", mu);
     }
 
-    AssertFatal((k2 + delta) > GET_DURATION_RX_TO_TX(&mac->ntn_ta),
-                "Slot offset (%ld) for Msg3 needs to be higher than DURATION_RX_TO_TX (%ld). Please set min_rxtxtime at least to %ld in gNB config file or gNBs.[0].min_rxtxtime=%ld via command line.\n",
+    AssertFatal((k2 + delta) > GET_DURATION_RX_TO_TX(&mac->ntn_ta, mu),
+                "Slot offset (%ld) for Msg3 needs to be higher than DURATION_RX_TO_TX (%ld). Please set min_rxtxtime at least to "
+                "%ld in gNB config file or gNBs.[0].min_rxtxtime=%ld via command line.\n",
                 k2,
-                GET_DURATION_RX_TO_TX(&mac->ntn_ta),
-                GET_DURATION_RX_TO_TX(&mac->ntn_ta),
-                GET_DURATION_RX_TO_TX(&mac->ntn_ta));
+                GET_DURATION_RX_TO_TX(&mac->ntn_ta, mu),
+                GET_DURATION_RX_TO_TX(&mac->ntn_ta, mu),
+                GET_DURATION_RX_TO_TX(&mac->ntn_ta, mu));
 
     *slot_tx = (current_slot + k2 + delta) % slots_per_frame;
     *frame_tx = (current_frame + (current_slot + k2 + delta) / slots_per_frame) % MAX_FRAME_NUMBER;
   } else {
-
-    AssertFatal(k2 > GET_DURATION_RX_TO_TX(&mac->ntn_ta),
-                "Slot offset K2 (%ld) needs to be higher than DURATION_RX_TO_TX (%ld). Please set min_rxtxtime at least to %ld in gNB config file or gNBs.[0].min_rxtxtime=%ld via command line.\n",
+    AssertFatal(k2 > GET_DURATION_RX_TO_TX(&mac->ntn_ta, mu),
+                "Slot offset K2 (%ld) needs to be higher than DURATION_RX_TO_TX (%ld). Please set min_rxtxtime at least to %ld in "
+                "gNB config file or gNBs.[0].min_rxtxtime=%ld via command line.\n",
                 k2,
-                GET_DURATION_RX_TO_TX(&mac->ntn_ta),
-                GET_DURATION_RX_TO_TX(&mac->ntn_ta),
-                GET_DURATION_RX_TO_TX(&mac->ntn_ta));
+                GET_DURATION_RX_TO_TX(&mac->ntn_ta, mu),
+                GET_DURATION_RX_TO_TX(&mac->ntn_ta, mu),
+                GET_DURATION_RX_TO_TX(&mac->ntn_ta, mu));
 
     if (k2 < 0) { // This can happen when a false DCI is received
       LOG_W(PHY, "%d.%d. Received k2 %ld\n", current_frame, current_slot, k2);
@@ -2203,7 +2206,7 @@ static void nr_ue_prach_scheduler(NR_UE_MAC_INST_t *mac, frame_t frameP, slot_t 
           add_slots++;
         }
         nr_timer_setup(&ra->response_window_timer,
-                       ra->response_window_setup_time + add_slots + GET_DURATION_RX_TO_TX(&mac->ntn_ta),
+                       ra->response_window_setup_time + add_slots + GET_DURATION_RX_TO_TX(&mac->ntn_ta, mac->current_DL_BWP->scs),
                        1);
         nr_timer_start(&ra->response_window_timer);
       } else if (ra->ra_type == RA_2_STEP) {
