@@ -60,6 +60,38 @@ static void tick(void *unused)
     x2ap_tick();
 }
 
+#define TIME_SOURCE "time_source"
+#define MODE "mode"
+#define SERVER_IP "server_ip"
+#define SERVER_PORT "server_port"
+
+static paramdef_t config_parameters[] = {
+  {TIME_SOURCE, "time source", 0, .strptr = NULL, .defstrval = NULL, TYPE_STRING, 0},
+  {MODE, "time mode", 0, .strptr = NULL, .defstrval = NULL, TYPE_STRING, 0},
+  {SERVER_IP, "server ip", 0, .strptr = NULL, .defstrval = NULL, TYPE_STRING, 0},
+  {SERVER_PORT, "server port", 0, .iptr = NULL, .defintval = -1, TYPE_INT, 0},
+};
+
+static char *get_param_str(char *name)
+{
+  int idx = config_paramidx_fromname(config_parameters, sizeofArray(config_parameters), name);
+
+  char *param;
+  if (config_parameters[idx].strptr != NULL)
+    param = *config_parameters[idx].strptr;
+  else
+    param = NULL;
+
+  return param;
+}
+
+static int get_param_int(char *name)
+{
+  int idx = config_paramidx_fromname(config_parameters, sizeofArray(config_parameters), name);
+
+  return *config_parameters[idx].iptr;
+}
+
 void time_manager_start(time_manager_client_t client_type,
                         time_manager_mode_t running_mode)
 {
@@ -112,24 +144,12 @@ void time_manager_start(time_manager_client_t client_type,
   }
 
   /* get values from configuration */
-  paramdef_t config_parameters[] = {
-      {"time_source", "time source", 0, .strptr = NULL, .defstrval = NULL, TYPE_STRING, 0},
-      {"mode", "time mode", 0, .strptr = NULL, .defstrval = NULL, TYPE_STRING, 0},
-      {"server_ip", "server ip", 0, .strptr = NULL, .defstrval = NULL, TYPE_STRING, 0},
-      {"server_port", "server port", 0, .iptr = NULL, .defintval = -1, TYPE_INT, 0},
-  };
   int ret = config_get(config_get_if(), config_parameters, sizeofArray(config_parameters), "time_management");
   if (ret >= 0) {
-#define TIME_SOURCE_IDX 0
-#define MODE_IDX        1
-#define SERVER_IP_IDX   2
-#define SERVER_PORT_IDX 3
     char *param;
+
     /* time source */
-    if (config_parameters[TIME_SOURCE_IDX].strptr != NULL)
-      param = *config_parameters[TIME_SOURCE_IDX].strptr;
-    else
-      param = NULL;
+    param = get_param_str(TIME_SOURCE);
     if (param != NULL) {
       if (!strcmp(param, "realtime")) {
         time_source_type = TIME_SOURCE_REALTIME;
@@ -141,10 +161,7 @@ void time_manager_start(time_manager_client_t client_type,
     }
 
     /* mode */
-    if (config_parameters[MODE_IDX].strptr != NULL)
-      param = *config_parameters[MODE_IDX].strptr;
-    else
-      param = NULL;
+    param = get_param_str(MODE);
     if (param != NULL) {
       if (!strcmp(param, "standalone")) {
         has_time_server = false;
@@ -161,16 +178,13 @@ void time_manager_start(time_manager_client_t client_type,
     }
 
     /* server ip */
-    if (config_parameters[SERVER_IP_IDX].strptr != NULL)
-      param = *config_parameters[SERVER_IP_IDX].strptr;
-    else
-      param = NULL;
+    param = get_param_str(SERVER_IP);
     if (param != NULL) {
       server_ip = param;
     }
 
     /* server port */
-    int port = *config_parameters[SERVER_PORT_IDX].iptr;
+    int port = get_param_int(SERVER_PORT);
     if (port != -1) {
       server_port = port;
     }
