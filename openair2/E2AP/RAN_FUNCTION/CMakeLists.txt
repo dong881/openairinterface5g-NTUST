@@ -6,13 +6,14 @@ add_library(e2_ran_func_cuup STATIC
             O-RAN/ran_func_kpm_subs.c
             O-RAN/ran_func_rc.c
             O-RAN/ran_func_rc_subs.c
+            ../flexric/src/sm/rc_sm/ie/rc_data_ie.c
             CUSTOMIZED/ran_func_gtp.c    # GTP SM not yet implemented in CU-UP
             CUSTOMIZED/ran_func_pdcp.c
             CUSTOMIZED/ran_func_tc.c     # currently, not implemented; therefore, filling rnd data
             ../flexric/test/rnd/fill_rnd_data_tc.c
             )
 
-target_link_libraries(e2_ran_func_cuup PUBLIC asn1_nr_rrc nr_rrc asn1_nr_rrc_hdrs e2_time_obj kpm_ric_info_common_obj 3gpp_derived_ie_obj sm_common_ie_obj ds)
+target_link_libraries(e2_ran_func_cuup PUBLIC asn1_nr_rrc nr_rrc asn1_nr_rrc_hdrs e2_time_obj kpm_ric_info_common_obj 3gpp_derived_ie_obj e2sm_rc_ir_obj sm_common_ie_obj ds alg)
 target_compile_definitions(e2_ran_func_cuup PUBLIC ${E2AP_VERSION}  ${KPM_VERSION}  NGRAN_GNB_CUUP)
 
 
