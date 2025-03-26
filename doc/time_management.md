@@ -201,7 +201,7 @@ API is described afterwards.
 
 ### Server
 
-- opaque tyoe: `time_server_t`
+- opaque type: `time_server_t`
 - create a server:
   ```
     time_server_t *new_time_server(const char *ip,
