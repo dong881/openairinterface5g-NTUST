@@ -114,9 +114,12 @@
   </testCase>
 
   <testCase id="200002">
-    <class>IdleSleep</class>
-    <desc>Sleep</desc>
-    <idle_sleep_time_in_sec>10</idle_sleep_time_in_sec>
+    <class>Ping</class>
+    <desc>Ping: 20pings</desc>
+    <id>idefix</id>
+    <svr_id>sabox-nepes</svr_id>
+    <ping_args>-c 20 -i0.5 -w25</ping_args>
+    <ping_packetloss_threshold>80</ping_packetloss_threshold>
   </testCase>
 
 
