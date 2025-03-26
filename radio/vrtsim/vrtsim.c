@@ -55,17 +55,17 @@ typedef enum { ROLE_SERVER = 1, ROLE_CLIENT } role;
 #define ROLE_CLIENT_STRING "client"
 #define ROLE_SERVER_STRING "server"
 
-#define SHM_RADIO_SECTION "shm_radio"
+#define VRTSIM_SECTION "vrtsim"
 #define TIME_SCALE_HLP \
   "sample time scale. 1.0 means realtime. Values > 1 mean faster than realtime. Values < 1 mean slower than realtime\n"
 
 // clang-format off
-#define SHM_RADIO_PARAMS_DESC \
+#define VRTSIM_PARAMS_DESC \
   { \
-     {"channel_name", "shared memory channel name\n",  0, .strptr = &channel_name,               .defstrval = "shm_radio_channel", TYPE_STRING, 0}, \
+     {"channel_name", "shared memory channel name\n",  0, .strptr = &channel_name,               .defstrval = "vrtsim_channel", TYPE_STRING, 0}, \
      {"role",         "either client or server\n",     0, .strptr = &role,                       .defstrval = ROLE_CLIENT_STRING,  TYPE_STRING, 0}, \
-     {"timescale",    TIME_SCALE_HLP,                  0, .dblptr = &shm_radio_state->timescale, .defdblval = 1.0,                 TYPE_DOUBLE, 0}, \
-     {"chanmod",      "Enable channel modelling",      0, .iptr = &shm_radio_state->chanmod,     .defintval = 0,                   TYPE_INT,    0}, \
+     {"timescale",    TIME_SCALE_HLP,                  0, .dblptr = &vrtsim_state->timescale, .defdblval = 1.0,                 TYPE_DOUBLE, 0}, \
+     {"chanmod",      "Enable channel modelling",      0, .iptr = &vrtsim_state->chanmod,     .defintval = 0,                   TYPE_INT,    0}, \
   };
 // clang-format on
 
@@ -110,7 +110,7 @@ typedef struct {
   int rx_num_channels;
   channel_desc_t *channel_desc;
   Actor_t *channel_modelling_actors;
-} shm_radio_state_t;
+} vrtsim_state_t;
 
 static void histogram_add(histogram_t *histogram, double diff)
 {
@@ -123,7 +123,7 @@ static void histogram_add(histogram_t *histogram, double diff)
 
 static void histogram_print(histogram_t *histogram)
 {
-  LOG_I(HW, "SHM_RADIO: TX budget histogram: %d samples\n", histogram->num_samples);
+  LOG_I(HW, "VRTSIM: TX budget histogram: %d samples\n", histogram->num_samples);
   float bin_size = histogram->range / sizeofArray(histogram->diff);
   float bin_start = 0;
   for (int i = 0; i < sizeofArray(histogram->diff); i++) {
@@ -140,46 +140,46 @@ static void histogram_merge(histogram_t *dest, histogram_t *src)
   dest->num_samples += src->num_samples;
 }
 
-static void load_channel_model(shm_radio_state_t *shm_radio_state)
+static void load_channel_model(vrtsim_state_t *vrtsim_state)
 {
-  load_channellist(shm_radio_state->tx_num_channels,
-                   shm_radio_state->peer_info.num_rx_antennas,
-                   shm_radio_state->sample_rate,
-                   shm_radio_state->rx_freq,
-                   shm_radio_state->tx_bw);
-  char *model_name = shm_radio_state->role == ROLE_CLIENT ? "client_tx_channel_model" : "server_tx_channel_model";
-  shm_radio_state->channel_desc = find_channel_desc_fromname(model_name);
-  random_channel(shm_radio_state->channel_desc, 0);
-  AssertFatal(shm_radio_state->channel_desc != NULL, "Could not find channel model %s\n", model_name);
+  load_channellist(vrtsim_state->tx_num_channels,
+                   vrtsim_state->peer_info.num_rx_antennas,
+                   vrtsim_state->sample_rate,
+                   vrtsim_state->rx_freq,
+                   vrtsim_state->tx_bw);
+  char *model_name = vrtsim_state->role == ROLE_CLIENT ? "client_tx_channel_model" : "server_tx_channel_model";
+  vrtsim_state->channel_desc = find_channel_desc_fromname(model_name);
+  random_channel(vrtsim_state->channel_desc, 0);
+  AssertFatal(vrtsim_state->channel_desc != NULL, "Could not find channel model %s\n", model_name);
 }
 
-static void shm_radio_readconfig(shm_radio_state_t *shm_radio_state)
+static void vrtsim_readconfig(vrtsim_state_t *vrtsim_state)
 {
   char *channel_name = NULL;
   char *role = NULL;
-  paramdef_t shm_radio_params[] = SHM_RADIO_PARAMS_DESC;
-  int ret = config_get(config_get_if(), shm_radio_params, sizeofArray(shm_radio_params), SHM_RADIO_SECTION);
+  paramdef_t vrtsim_params[] = VRTSIM_PARAMS_DESC;
+  int ret = config_get(config_get_if(), vrtsim_params, sizeofArray(vrtsim_params), VRTSIM_SECTION);
   AssertFatal(ret >= 0, "configuration couldn't be performed\n");
-  strncpy(shm_radio_state->channel_name, channel_name, sizeof(shm_radio_state->channel_name) - 1);
+  strncpy(vrtsim_state->channel_name, channel_name, sizeof(vrtsim_state->channel_name) - 1);
   if (strncmp(role, ROLE_CLIENT_STRING, strlen(ROLE_CLIENT_STRING)) == 0) {
-    shm_radio_state->role = ROLE_CLIENT;
+    vrtsim_state->role = ROLE_CLIENT;
   } else if (strncmp(role, ROLE_SERVER_STRING, strlen(ROLE_SERVER_STRING)) == 0) {
-    shm_radio_state->role = ROLE_SERVER;
+    vrtsim_state->role = ROLE_SERVER;
   } else {
     AssertFatal(false, "Invalid role configuration\n");
   }
 }
 
-static void *shm_radio_timing_job(void *arg)
+static void *vrtsim_timing_job(void *arg)
 {
-  shm_radio_state_t *shm_radio_state = arg;
+  vrtsim_state_t *vrtsim_state = arg;
   struct timespec timestamp;
   if (clock_gettime(CLOCK_REALTIME, &timestamp)) {
     LOG_E(UTIL, "clock_gettime failed\n");
     exit(1);
   }
   double leftover_samples = 0;
-  while (shm_radio_state->run_timing_thread) {
+  while (vrtsim_state->run_timing_thread) {
     struct timespec current_time;
     if (clock_gettime(CLOCK_REALTIME, &current_time)) {
       LOG_E(UTIL, "clock_gettime failed\n");
@@ -187,7 +187,7 @@ static void *shm_radio_timing_job(void *arg)
     }
     uint64_t diff = (current_time.tv_sec - timestamp.tv_sec) * 1000000000 + (current_time.tv_nsec - timestamp.tv_nsec);
     timestamp = current_time;
-    double samples_to_produce = shm_radio_state->sample_rate * shm_radio_state->timescale * diff / 1e9;
+    double samples_to_produce = vrtsim_state->sample_rate * vrtsim_state->timescale * diff / 1e9;
 
     // Attempt to correct compounding rounding error
     leftover_samples += samples_to_produce - (uint64_t)samples_to_produce;
@@ -195,7 +195,7 @@ static void *shm_radio_timing_job(void *arg)
       samples_to_produce += 1;
       leftover_samples -= 1;
     }
-    shm_td_iq_channel_produce_samples(shm_radio_state->channel, samples_to_produce);
+    shm_td_iq_channel_produce_samples(vrtsim_state->channel, samples_to_produce);
     usleep(1);
   }
   return 0;
@@ -222,7 +222,7 @@ static peer_info_t server_exchange_peer_info(peer_info_t peer_info)
 
   // Bind the socket to a file path
   struct sockaddr_un addr = {.sun_family = AF_UNIX};
-  strncpy(addr.sun_path, "/tmp/shm_radio_socket", sizeof(addr.sun_path) - 1);
+  strncpy(addr.sun_path, "/tmp/vrtsim_socket", sizeof(addr.sun_path) - 1);
   unlink(addr.sun_path); // Ensure the path does not already exist
   int ret = bind(server_fd, (struct sockaddr *)&addr, sizeof(addr));
   AssertFatal(ret == 0, "bind() failed: errno: %d, %s\n", errno, strerror(errno));
@@ -273,7 +273,7 @@ static peer_info_t client_exchange_peer_info(peer_info_t peer_info)
 
   // Connect to the server
   struct sockaddr_un addr = {.sun_family = AF_UNIX};
-  strncpy(addr.sun_path, "/tmp/shm_radio_socket", sizeof(addr.sun_path) - 1);
+  strncpy(addr.sun_path, "/tmp/vrtsim_socket", sizeof(addr.sun_path) - 1);
   int ret = -1;
   int tries = 0;
   while (ret != 0 && tries < 10) {
@@ -298,70 +298,70 @@ static peer_info_t client_exchange_peer_info(peer_info_t peer_info)
   return peer_info_received;
 }
 
-static int shm_radio_connect(openair0_device *device)
+static int vrtsim_connect(openair0_device *device)
 {
-  shm_radio_state_t *shm_radio_state = (shm_radio_state_t *)device->priv;
+  vrtsim_state_t *vrtsim_state = (vrtsim_state_t *)device->priv;
   // Exchange peer info
   peer_info_t peer_info = {.num_rx_antennas = device->openair0_cfg[0].rx_num_channels};
-  if (shm_radio_state->role == ROLE_SERVER) {
-    shm_radio_state->peer_info = server_exchange_peer_info(peer_info);
+  if (vrtsim_state->role == ROLE_SERVER) {
+    vrtsim_state->peer_info = server_exchange_peer_info(peer_info);
   } else {
-    shm_radio_state->peer_info = client_exchange_peer_info(peer_info);
+    vrtsim_state->peer_info = client_exchange_peer_info(peer_info);
   }
 
   // Handle channel modelling after number of RX antennas are known
   int num_tx_stats = 1;
-  if (shm_radio_state->chanmod) {
-    shm_radio_state->channel_modelling_actors = calloc_or_fail(shm_radio_state->peer_info.num_rx_antennas, sizeof(Actor_t));
-    for (int i = 0; i < shm_radio_state->peer_info.num_rx_antennas; i++) {
-      init_actor(&shm_radio_state->channel_modelling_actors[i], "chanmod", -1);
+  if (vrtsim_state->chanmod) {
+    vrtsim_state->channel_modelling_actors = calloc_or_fail(vrtsim_state->peer_info.num_rx_antennas, sizeof(Actor_t));
+    for (int i = 0; i < vrtsim_state->peer_info.num_rx_antennas; i++) {
+      init_actor(&vrtsim_state->channel_modelling_actors[i], "chanmod", -1);
     }
-    load_channel_model(shm_radio_state);
-    num_tx_stats = shm_radio_state->peer_info.num_rx_antennas;
+    load_channel_model(vrtsim_state);
+    num_tx_stats = vrtsim_state->peer_info.num_rx_antennas;
   }
-  shm_radio_state->tx_timing = calloc_or_fail(num_tx_stats, sizeof(tx_timing_t));
+  vrtsim_state->tx_timing = calloc_or_fail(num_tx_stats, sizeof(tx_timing_t));
   for (int i = 0; i < num_tx_stats; i++) {
-    shm_radio_state->tx_timing[i].tx_histogram.min_samples = 100;
+    vrtsim_state->tx_timing[i].tx_histogram.min_samples = 100;
     // Set the histogram range to 3000uS. Anything above that is not interesting
-    shm_radio_state->tx_timing[i].tx_histogram.range = 3000.0;
+    vrtsim_state->tx_timing[i].tx_histogram.range = 3000.0;
   }
 
   // Setup a shared memory channel
-  if (shm_radio_state->role == ROLE_SERVER) {
-    shm_radio_state->channel = shm_td_iq_channel_create(shm_radio_state->channel_name,
-                                                        shm_radio_state->peer_info.num_rx_antennas,
-                                                        device->openair0_cfg[0].rx_num_channels);
-    shm_radio_state->run_timing_thread = true;
-    while (!shm_td_iq_channel_is_connected(shm_radio_state->channel)) {
+  if (vrtsim_state->role == ROLE_SERVER) {
+    vrtsim_state->channel = shm_td_iq_channel_create(vrtsim_state->channel_name,
+                                                     vrtsim_state->peer_info.num_rx_antennas,
+                                                     device->openair0_cfg[0].rx_num_channels);
+    vrtsim_state->run_timing_thread = true;
+    while (!shm_td_iq_channel_is_connected(vrtsim_state->channel)) {
       LOG_I(HW, "Waiting for client\n");
       sleep(1);
     }
-    int ret = pthread_create(&shm_radio_state->timing_thread, NULL, shm_radio_timing_job, shm_radio_state);
+    int ret = pthread_create(&vrtsim_state->timing_thread, NULL, vrtsim_timing_job, vrtsim_state);
     AssertFatal(ret == 0, "pthread_create() failed: errno: %d, %s\n", errno, strerror(errno));
   } else {
-    shm_radio_state->channel = shm_td_iq_channel_connect(shm_radio_state->channel_name, 10);
+    vrtsim_state->channel = shm_td_iq_channel_connect(vrtsim_state->channel_name, 10);
   }
 
   return 0;
 }
 
-static int shm_radio_write_internal(shm_radio_state_t *shm_radio_state,
-                                    openair0_timestamp timestamp,
-                                    c16_t *samples,
-                                    int nsamps,
-                                    int aarx,
-                                    int flags,
-                                    int stats_index)
+static int vrtsim_write_internal(vrtsim_state_t *vrtsim_state,
+                                 openair0_timestamp timestamp,
+                                 c16_t *samples,
+                                 int nsamps,
+                                 int aarx,
+                                 int flags,
+                                 int stats_index)
 {
-  tx_timing_t *tx_timing = &shm_radio_state->tx_timing[stats_index];
+  tx_timing_t *tx_timing = &vrtsim_state->tx_timing[stats_index];
 
-  uint64_t sample = shm_td_iq_channel_get_current_sample(shm_radio_state->channel);
+  uint64_t sample = shm_td_iq_channel_get_current_sample(vrtsim_state->channel);
   int64_t diff = timestamp - sample;
-  double budget = diff / (shm_radio_state->sample_rate / 1e6);
+  double budget = diff / (vrtsim_state->sample_rate / 1e6);
   tx_timing->average_tx_budget = .05 * budget + .95 * tx_timing->average_tx_budget;
   histogram_add(&tx_timing->tx_histogram, budget);
 
-  int ret = shm_td_iq_channel_tx(shm_radio_state->channel, timestamp, nsamps, aarx, (sample_t *)samples);
+  int ret = shm_td_iq_channel_tx(vrtsim_state->channel, timestamp, nsamps, aarx, (sample_t *)samples);
 
   if (ret == CHANNEL_ERROR_TOO_LATE) {
     tx_timing->tx_samples_late += nsamps;
@@ -374,7 +374,7 @@ static int shm_radio_write_internal(shm_radio_state_t *shm_radio_state,
 }
 
 typedef struct {
-  shm_radio_state_t *shm_radio_state;
+  vrtsim_state_t *vrtsim_state;
   openair0_timestamp timestamp;
   c16_t *samples[4];
   int nsamps;
@@ -396,7 +396,7 @@ static void perform_channel_modelling(void *arg)
   // Apply noise from global settings
   get_noise_vector((float *)samples, nsamps * 2);
 
-  channel_desc_t *channel_desc = channel_modelling_args->shm_radio_state->channel_desc;
+  channel_desc_t *channel_desc = channel_modelling_args->vrtsim_state->channel_desc;
   const float pathloss_linear = powf(10, channel_desc->path_loss_dB / 20.0);
 
   // Convert channel impulse response to float + apply pathloss
@@ -446,26 +446,26 @@ static void perform_channel_modelling(void *arg)
   }
 #endif
 
-  shm_radio_write_internal(channel_modelling_args->shm_radio_state,
-                           channel_modelling_args->timestamp,
-                           samples_out,
-                           channel_modelling_args->nsamps,
-                           aarx,
-                           channel_modelling_args->flags,
-                           aarx);
+  vrtsim_write_internal(channel_modelling_args->vrtsim_state,
+                        channel_modelling_args->timestamp,
+                        samples_out,
+                        channel_modelling_args->nsamps,
+                        aarx,
+                        channel_modelling_args->flags,
+                        aarx);
 }
 
-static int shm_radio_write_with_chanmod(shm_radio_state_t *shm_radio_state,
-                                        openair0_timestamp timestamp,
-                                        void **samplesVoid,
-                                        int nsamps,
-                                        int nbAnt,
-                                        int flags)
+static int vrtsim_write_with_chanmod(vrtsim_state_t *vrtsim_state,
+                                     openair0_timestamp timestamp,
+                                     void **samplesVoid,
+                                     int nsamps,
+                                     int nbAnt,
+                                     int flags)
 {
-  for (int aarx = 0; aarx < shm_radio_state->peer_info.num_rx_antennas; aarx++) {
+  for (int aarx = 0; aarx < vrtsim_state->peer_info.num_rx_antennas; aarx++) {
     notifiedFIFO_elt_t *task = newNotifiedFIFO_elt(sizeof(channel_modelling_args_t), 0, NULL, perform_channel_modelling);
     channel_modelling_args_t *args = (channel_modelling_args_t *)NotifiedFifoData(task);
-    args->shm_radio_state = shm_radio_state;
+    args->vrtsim_state = vrtsim_state;
     args->timestamp = timestamp;
     args->nsamps = nsamps;
     args->nbAnt = nbAnt;
@@ -474,128 +474,121 @@ static int shm_radio_write_with_chanmod(shm_radio_state_t *shm_radio_state,
     for (int i = 0; i < nbAnt; i++) {
       args->samples[i] = samplesVoid[i];
     }
-    pushNotifiedFIFO(&shm_radio_state->channel_modelling_actors[aarx].fifo, task);
+    pushNotifiedFIFO(&vrtsim_state->channel_modelling_actors[aarx].fifo, task);
   }
   return nsamps;
 }
 
-static int shm_radio_write(openair0_device *device,
-                           openair0_timestamp timestamp,
-                           void **samplesVoid,
-                           int nsamps,
-                           int nbAnt,
-                           int flags)
+static int vrtsim_write(openair0_device *device, openair0_timestamp timestamp, void **samplesVoid, int nsamps, int nbAnt, int flags)
 {
   timestamp -= device->openair0_cfg->command_line_sample_advance;
-  shm_radio_state_t *shm_radio_state = (shm_radio_state_t *)device->priv;
-  return shm_radio_state->chanmod
-             ? shm_radio_write_with_chanmod(shm_radio_state, timestamp, samplesVoid, nsamps, nbAnt, flags)
-             : shm_radio_write_internal(shm_radio_state, timestamp, (c16_t *)samplesVoid[0], nsamps, 0, flags, 0);
+  vrtsim_state_t *vrtsim_state = (vrtsim_state_t *)device->priv;
+  return vrtsim_state->chanmod ? vrtsim_write_with_chanmod(vrtsim_state, timestamp, samplesVoid, nsamps, nbAnt, flags)
+                               : vrtsim_write_internal(vrtsim_state, timestamp, (c16_t *)samplesVoid[0], nsamps, 0, flags, 0);
 }
 
-static int shm_radio_read(openair0_device *device, openair0_timestamp *ptimestamp, void **samplesVoid, int nsamps, int nbAnt)
+static int vrtsim_read(openair0_device *device, openair0_timestamp *ptimestamp, void **samplesVoid, int nsamps, int nbAnt)
 {
-  shm_radio_state_t *shm_radio_state = (shm_radio_state_t *)device->priv;
-  shm_td_iq_channel_wait(shm_radio_state->channel, shm_radio_state->last_received_sample + nsamps);
-  int ret = shm_td_iq_channel_rx(shm_radio_state->channel, shm_radio_state->last_received_sample, nsamps, 0, samplesVoid[0]);
+  vrtsim_state_t *vrtsim_state = (vrtsim_state_t *)device->priv;
+  shm_td_iq_channel_wait(vrtsim_state->channel, vrtsim_state->last_received_sample + nsamps);
+  int ret = shm_td_iq_channel_rx(vrtsim_state->channel, vrtsim_state->last_received_sample, nsamps, 0, samplesVoid[0]);
   if (ret == CHANNEL_ERROR_TOO_LATE) {
-    shm_radio_state->rx_samples_late += nsamps;
+    vrtsim_state->rx_samples_late += nsamps;
   } else if (ret == CHANNEL_ERROR_TOO_EARLY) {
-    shm_radio_state->rx_early += 1;
+    vrtsim_state->rx_early += 1;
   }
-  shm_radio_state->rx_samples_total += nsamps;
-  *ptimestamp = shm_radio_state->last_received_sample;
-  shm_radio_state->last_received_sample += nsamps;
+  vrtsim_state->rx_samples_total += nsamps;
+  *ptimestamp = vrtsim_state->last_received_sample;
+  vrtsim_state->last_received_sample += nsamps;
   return nsamps;
 }
 
-static void shm_radio_end(openair0_device *device)
+static void vrtsim_end(openair0_device *device)
 {
-  shm_radio_state_t *shm_radio_state = (shm_radio_state_t *)device->priv;
-  if (shm_radio_state->role == ROLE_SERVER) {
-    shm_radio_state->run_timing_thread = false;
-    int ret = pthread_join(shm_radio_state->timing_thread, NULL);
+  vrtsim_state_t *vrtsim_state = (vrtsim_state_t *)device->priv;
+  if (vrtsim_state->role == ROLE_SERVER) {
+    vrtsim_state->run_timing_thread = false;
+    int ret = pthread_join(vrtsim_state->timing_thread, NULL);
     AssertFatal(ret == 0, "pthread_join() failed: errno: %d, %s\n", errno, strerror(errno));
   }
 
-  tx_timing_t *tx_timing = shm_radio_state->tx_timing;
-  if (shm_radio_state->chanmod) {
-    for (int i = 0; i < shm_radio_state->peer_info.num_rx_antennas; i++) {
-      shutdown_actor(&shm_radio_state->channel_modelling_actors[i]);
+  tx_timing_t *tx_timing = vrtsim_state->tx_timing;
+  if (vrtsim_state->chanmod) {
+    for (int i = 0; i < vrtsim_state->peer_info.num_rx_antennas; i++) {
+      shutdown_actor(&vrtsim_state->channel_modelling_actors[i]);
     }
-    free(shm_radio_state->channel_modelling_actors);
-    for (int i = 1; i < shm_radio_state->peer_info.num_rx_antennas; i++) {
+    free(vrtsim_state->channel_modelling_actors);
+    for (int i = 1; i < vrtsim_state->peer_info.num_rx_antennas; i++) {
       histogram_merge(&tx_timing->tx_histogram, &tx_timing[i].tx_histogram);
       tx_timing->tx_early += tx_timing[i].tx_early;
       tx_timing->tx_samples_late += tx_timing[i].tx_samples_late;
       tx_timing->average_tx_budget += tx_timing[i].average_tx_budget;
       tx_timing->tx_samples_total += tx_timing[i].tx_samples_total;
     }
-    tx_timing->average_tx_budget /= shm_radio_state->peer_info.num_rx_antennas;
+    tx_timing->average_tx_budget /= vrtsim_state->peer_info.num_rx_antennas;
   }
   // produce 1 second of extra samples so threads can finish
-  shm_td_iq_channel_produce_samples(shm_radio_state->channel, shm_radio_state->sample_rate);
+  shm_td_iq_channel_produce_samples(vrtsim_state->channel, vrtsim_state->sample_rate);
   sleep(1);
-  shm_td_iq_channel_destroy(shm_radio_state->channel);
+  shm_td_iq_channel_destroy(vrtsim_state->channel);
 
   LOG_I(HW,
-        "SHM_RADIO: Realtime issues: TX %.2f%%, RX %.2f%%\n",
+        "VRTSIM: Realtime issues: TX %.2f%%, RX %.2f%%\n",
         tx_timing->tx_samples_late / (float)tx_timing->tx_samples_total * 100,
-        shm_radio_state->rx_samples_late / (float)shm_radio_state->rx_samples_total * 100);
+        vrtsim_state->rx_samples_late / (float)vrtsim_state->rx_samples_total * 100);
   LOG_I(HW,
-        "SHM_RADIO: Read/write too early (suspected radio implementaton error) TX: %lu, RX: %lu\n",
+        "VRTSIM: Read/write too early (suspected radio implementaton error) TX: %lu, RX: %lu\n",
         tx_timing->tx_early,
-        shm_radio_state->rx_early);
-  LOG_I(HW, "SHM_RADIO: Average TX budget %.3lf uS\n", tx_timing->average_tx_budget);
+        vrtsim_state->rx_early);
+  LOG_I(HW, "VRTSIM: Average TX budget %.3lf uS\n", tx_timing->average_tx_budget);
   histogram_print(&tx_timing->tx_histogram);
-  free(shm_radio_state->tx_timing);
+  free(vrtsim_state->tx_timing);
 }
 
-static int shm_radio_stub(openair0_device *device)
+static int vrtsim_stub(openair0_device *device)
 {
   return 0;
 }
-static int shm_radio_stub2(openair0_device *device, openair0_config_t *openair0_cfg)
+static int vrtsim_stub2(openair0_device *device, openair0_config_t *openair0_cfg)
 {
   return 0;
 }
 
-static int shm_radio_set_freq(openair0_device *device, openair0_config_t *openair0_cfg)
+static int vrtsim_set_freq(openair0_device *device, openair0_config_t *openair0_cfg)
 {
-  shm_radio_state_t *s = device->priv;
+  vrtsim_state_t *s = device->priv;
   s->rx_freq = openair0_cfg->rx_freq[0];
   return 0;
 }
 
 __attribute__((__visibility__("default"))) int device_init(openair0_device *device, openair0_config_t *openair0_cfg)
 {
-  shm_radio_state_t *shm_radio_state = calloc_or_fail(1, sizeof(shm_radio_state_t));
-  shm_radio_readconfig(shm_radio_state);
+  vrtsim_state_t *vrtsim_state = calloc_or_fail(1, sizeof(vrtsim_state_t));
+  vrtsim_readconfig(vrtsim_state);
   LOG_I(HW,
         "Running as %s\n",
-        shm_radio_state->role == ROLE_SERVER ? "server: waiting for client to connect"
-                                             : "client: will connect to a shm_radio server");
-  device->trx_start_func = shm_radio_connect;
-  device->trx_reset_stats_func = shm_radio_stub;
-  device->trx_end_func = shm_radio_end;
-  device->trx_stop_func = shm_radio_stub;
-  device->trx_set_freq_func = shm_radio_set_freq;
-  device->trx_set_gains_func = shm_radio_stub2;
-  device->trx_write_func = shm_radio_write;
-  device->trx_read_func = shm_radio_read;
+        vrtsim_state->role == ROLE_SERVER ? "server: waiting for client to connect" : "client: will connect to a vrtsim server");
+  device->trx_start_func = vrtsim_connect;
+  device->trx_reset_stats_func = vrtsim_stub;
+  device->trx_end_func = vrtsim_end;
+  device->trx_stop_func = vrtsim_stub;
+  device->trx_set_freq_func = vrtsim_set_freq;
+  device->trx_set_gains_func = vrtsim_stub2;
+  device->trx_write_func = vrtsim_write;
+  device->trx_read_func = vrtsim_read;
 
   device->type = RFSIMULATOR;
   device->openair0_cfg = &openair0_cfg[0];
-  device->priv = shm_radio_state;
-  device->trx_write_init = shm_radio_stub;
-  shm_radio_state->last_received_sample = 0;
-  shm_radio_state->sample_rate = openair0_cfg->sample_rate;
-  shm_radio_state->rx_freq = openair0_cfg->rx_freq[0];
-  shm_radio_state->tx_bw = openair0_cfg->tx_bw;
-  shm_radio_state->tx_num_channels = openair0_cfg->tx_num_channels;
-  shm_radio_state->rx_num_channels = openair0_cfg->rx_num_channels;
+  device->priv = vrtsim_state;
+  device->trx_write_init = vrtsim_stub;
+  vrtsim_state->last_received_sample = 0;
+  vrtsim_state->sample_rate = openair0_cfg->sample_rate;
+  vrtsim_state->rx_freq = openair0_cfg->rx_freq[0];
+  vrtsim_state->tx_bw = openair0_cfg->tx_bw;
+  vrtsim_state->tx_num_channels = openair0_cfg->tx_num_channels;
+  vrtsim_state->rx_num_channels = openair0_cfg->rx_num_channels;
 
-  if (shm_radio_state->chanmod) {
+  if (vrtsim_state->chanmod) {
     init_channelmod();
     int noise_power_dBFS = get_noise_power_dBFS();
     int16_t noise_power = noise_power_dBFS == INVALID_DBFS_VALUE ? 0 : (int16_t)(32767.0 / powf(10.0, .05 * -noise_power_dBFS));

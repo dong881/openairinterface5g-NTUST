@@ -13,13 +13,13 @@ interface.
 
 # Usage
 
-On the UE and gNB: use `device.name shm_radio` command line argument.
+On the UE and gNB: use `device.name vrtsim` command line argument.
 
-Additionally on gNB use `shm_radio.role server` and optionally
-`shm_radio.timescale <timescale>` to set the timescale. Timescale 1.0
+Additionally on gNB use `vrtsim.role server` and optionally
+`vrtsim.timescale <timescale>` to set the timescale. Timescale 1.0
 is the default and means realtime.
 
-Channel modelling can be enabled by adding `shm_radio.chanmod 1` to the
+Channel modelling can be enabled by adding `vrtsim.chanmod 1` to the
 command line and should work the same as channel modelling in rfsimulator,
 see rfsimulator [documentation](../rfsimulator/README.md), provided that your
 CPU is fast enough.
