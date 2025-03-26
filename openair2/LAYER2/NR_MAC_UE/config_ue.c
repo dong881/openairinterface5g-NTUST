@@ -34,7 +34,6 @@
 #define SPEED_OF_LIGHT 299792458
 
 #include "mac_defs.h"
-#include <NR_MAC_gNB/mac_proto.h>
 #include "NR_MAC_UE/mac_proto.h"
 #include "NR_MAC-CellGroupConfig.h"
 #include "LAYER2/NR_MAC_COMMON/nr_mac_common.h"
