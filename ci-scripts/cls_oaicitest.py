@@ -561,10 +561,10 @@ class OaiCiTest():
 		svr = cls_module.Module_UE(self.svr_id,self.svr_node, infra_file)
 		ueIP = ue.getIP()
 		if not ueIP:
-			return (False, f"UE {ue.getName()} has no IP address")
+			return False
 		svrIP = svr.getIP()
 		if not svrIP:
-			return (False, f"Iperf server {ue.getName()} has no IP address")
+			return False
 		server_filename = f'iperf_server_{self.testCase_id}_{ue.getName()}.log'
 		ymlPath = CONTAINERS.yamlPath[0].split('/')
 		logPath = f'{os.getcwd()}/../cmake_targets/log/{ymlPath[-1]}'
