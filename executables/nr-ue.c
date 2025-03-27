@@ -1214,7 +1214,7 @@ void init_NR_UE(int nb_inst, char *uecap_file, char *reconfig_file, char *rbconf
     NR_UE_MAC_INST_t *mac = get_mac_inst(i);
     mac->if_module = nr_ue_if_module_init(i);
     AssertFatal(mac->if_module, "can not initialize IF module\n");
-    if (!IS_SA_MODE(get_softmodem_params()) || !get_softmodem_params()->sl_mode) {
+    if (!IS_SA_MODE(get_softmodem_params()) && !get_softmodem_params()->sl_mode) {
       init_nsa_message(&rrc_inst[i], reconfig_file, rbconfig_file);
       nr_rlc_activate_srb0(mac_inst[i].crnti, NULL, send_srb0_rrc);
     }
