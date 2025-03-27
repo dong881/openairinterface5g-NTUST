@@ -2460,17 +2460,6 @@ NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
 
   asn1cSeqAdd(&sib1->si_SchedulingInfo->schedulingInfoList.list,schedulingInfo);*/
 
-  const NR_FreqBandIndicatorNR_t band = *scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList.list.array[0];
-  if (is_ntn_band(band)) {
-    sib1->nonCriticalExtension = CALLOC(1, sizeof(struct NR_SIB1_v1610_IEs));
-    sib1->nonCriticalExtension->nonCriticalExtension = CALLOC(1, sizeof(struct NR_SIB1_v1630_IEs));
-    sib1->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension = CALLOC(1, sizeof(struct NR_SIB1_v1700_IEs));
-    // If cell provides NTN access, set cellBarredNTN to notBarred.
-    struct NR_SIB1_v1700_IEs *sib1_v1700 = sib1->nonCriticalExtension->nonCriticalExtension->nonCriticalExtension;
-    sib1_v1700->cellBarredNTN_r17 = CALLOC(1, sizeof(long));
-    *sib1_v1700->cellBarredNTN_r17 = NR_SIB1_v1700_IEs__cellBarredNTN_r17_notBarred;
-  }
-
   // servingCellConfigCommon
   asn1cCalloc(sib1->servingCellConfigCommon, ServCellCom);
   NR_BWP_DownlinkCommon_t *initialDownlinkBWP = &ServCellCom->downlinkConfigCommon.initialDownlinkBWP;
@@ -2485,6 +2474,7 @@ NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
         frequencyInfoDL->frequencyBandList.list.array[i];
   }
 
+  const NR_FreqBandIndicatorNR_t band = *frequencyInfoDL->frequencyBandList.list.array[0];
   frequency_range_t frequency_range = get_freq_range_from_band(band);
   sib1->servingCellConfigCommon->downlinkConfigCommon.frequencyInfoDL.offsetToPointA = get_ssb_offset_to_pointA(*scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencySSB,
                                scc->downlinkConfigCommon->frequencyInfoDL->absoluteFrequencyPointA,
@@ -2712,6 +2702,12 @@ NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
       asn1cSeqAdd(&si_schedulinginfo2_r17->sib_MappingInfo_r17.list, sib_type_info);
       asn1cSeqAdd(&sib_v17_scheduling_info->schedulingInfoList2_r17.list, si_schedulinginfo2_r17);
       sib1_1700->si_SchedulingInfo_v1700 = sib_v17_scheduling_info;
+
+      if (is_ntn_band(band)) {
+        // If cell provides NTN access, set cellBarredNTN to notBarred.
+        sib1_1700->cellBarredNTN_r17 = CALLOC(1, sizeof(long));
+        *sib1_1700->cellBarredNTN_r17 = NR_SIB1_v1700_IEs__cellBarredNTN_r17_notBarred;
+      }
     }
   }
 
