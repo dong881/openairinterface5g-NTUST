@@ -621,26 +621,21 @@ int websrv_callback_get_softmodemcmd(const struct _u_request *request, struct _u
       snprintf(confstr, sizeof(confstr), "Confirm %s ?", modulestruct->cmd[j].cmdname);
       acmd = json_pack("{s:s,s:s}", "name", modulestruct->cmd[j].cmdname, "confirm", confstr);
     } else if (modulestruct->cmd[j].cmdflags & TELNETSRV_CMDFLAG_NEEDPARAM) {
-      char *question[] = {NULL,NULL};
-      char *helpcp = NULL;
+      char *question[] = {NULL, NULL};
       json_t *jQ1=NULL, *jQ2=NULL;
       json_t *jQs = json_array();
-      if (modulestruct->cmd[j].helpstr != NULL) {
-        helpcp = strdup(modulestruct->cmd[j].helpstr);
-        int ns=sscanf(helpcp,"<%m[^<>]> <%m[^<>]>",&question[0],&question[1]);
-        if (ns == 0) {
-		  LOG_W(UTIL, "[websrv] Cannot find parameters for command %s %s\n", modulestruct->module, modulestruct->cmd[j].cmdname);
-		  continue;		
-		}  
-        jQ1=json_pack("{s:s,s:s,s:s}", "display",question[0], "pname", "P0", "type", "string");
-        json_array_append_new(jQs, jQ1);
-        if (ns >1) {
-            jQ2=json_pack("{s:s,s:s,s:s}","display", (question[1] == NULL) ? "" : question[1], "pname",  "P1" , "type", "string");
-            json_array_append_new(jQs, jQ2);
-	    }
+      int ns = sscanf(modulestruct->cmd[j].helpstr, "<%m[^<>]> <%m[^<>]>", &question[0], &question[1]);
+      if (ns == 0) {
+        LOG_W(UTIL, "[websrv] Cannot find parameters for command %s %s\n", modulestruct->module, modulestruct->cmd[j].cmdname);
+        continue;
+      }
+      jQ1 = json_pack("{s:s,s:s,s:s}", "display", question[0], "pname", "P0", "type", "string");
+      json_array_append_new(jQs, jQ1);
+      if (ns > 1) {
+        jQ2 = json_pack("{s:s,s:s,s:s}", "display", (question[1] == NULL) ? "" : question[1], "pname", "P1", "type", "string");
+        json_array_append_new(jQs, jQ2);
       }
       acmd = json_pack("{s:s,s:o}", "name", modulestruct->cmd[j].cmdname, "question", jQs);
-      free(helpcp);
       free(question[0]);
       free(question[1]);
     } else {
