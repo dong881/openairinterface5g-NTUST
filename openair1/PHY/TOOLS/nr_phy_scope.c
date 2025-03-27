@@ -474,7 +474,6 @@ static void timeResponse (OAIgraph_t *graph, scopeData_t *p, int nb_UEs) {
     values[i] = SquaredNorm(samples[i]);
   }
 #ifdef WEBSRVSCOPE
-  int uestart = nb_UEs - 1; // web scope shows one UE signal, that can be selected from GUI
   msg->header.msgtype = SCOPEMSG_TYPE_DATA;
   msg->header.chartid = graph->chartid;
   msg->header.datasetid = graph->datasetid;
