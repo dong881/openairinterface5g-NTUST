@@ -638,7 +638,20 @@ unsigned int get_delta_f_RA_long(const unsigned int format)
 // the column 5, (SFN_nbr is a bitmap where we set bit to '1' in the position of the subframe where the RACH can be sent.
 // E.g. in row 4, and column 5 we have set value 512 ('1000000000') which means RACH can be sent at subframe 9.
 // E.g. in row 20 and column 5 we have set value 66  ('0001000010') which means RACH can be sent at subframe 1 or 6
-static const int64_t table_6_3_3_2_2_prachConfig_Index[256][9] = {
+
+typedef struct {
+  uint8_t format;
+  uint8_t format2;
+  int x;
+  int y;
+  uint64_t s_map;
+  uint32_t start_symbol;
+  uint32_t N_RA_slot;
+  uint32_t N_t_slot;
+  uint32_t N_dur;
+} nr_prach_info_3gpp_fr1_t;
+
+static const nr_prach_info_3gpp_fr1_t table_6_3_3_2_2_prachConfig_Index[256] = {
     // format,   format,       x,          y,        SFN_nbr,   star_symb,   slots_sfn,    occ_slot,  duration
     {0, -1, 16, 1, 2, 0, 1, 1, 0}, // (subframe number)           1
     {0, -1, 16, 1, 16, 0, 1, 1, 0}, // (subframe number)           4
@@ -898,7 +911,7 @@ static const int64_t table_6_3_3_2_2_prachConfig_Index[256][9] = {
     {0xc2, -1, 1, 0, 682, 0, 2, 2, 6} // (subframe number)           1,3,5,7,9
 };
 // Table 6.3.3.2-3: Random access configurations for FR1 and unpaired spectrum
-static const int64_t table_6_3_3_2_3_prachConfig_Index[256][9] = {
+static const nr_prach_info_3gpp_fr1_t table_6_3_3_2_3_prachConfig_Index[256] = {
     // format,     format,      x,         y,     SFN_nbr,   star_symb,   slots_sfn,  occ_slot,  duration
     {0, -1, 16, 1, 512, 0, 1, 1, 0}, // (subrame number 9)
     {0, -1, 8, 1, 512, 0, 1, 1, 0}, // (subrame number 9)
@@ -1157,8 +1170,22 @@ static const int64_t table_6_3_3_2_3_prachConfig_Index[256][9] = {
     {0xa3, 0xb3, 1, 0, 682, 0, 1, 2, 6}, // (subrame number 1,3,5,7,9)
     {0xa3, 0xb3, 1, 0, 1023, 2, 1, 2, 6} // (subrame number 0,1,2,3,4,5,6,7,8,9)
 };
+
+typedef struct {
+  uint8_t format;
+  uint8_t format2;
+  int x;
+  int y;
+  int y2;
+  uint64_t s_map;
+  uint32_t start_symbol;
+  uint32_t N_RA_slot;
+  uint32_t N_t_slot;
+  uint32_t N_dur;
+} nr_prach_info_3gpp_fr2_t;
+
 // Table 6.3.3.2-4: Random access configurations for FR2 and unpaired spectrum
-static const int64_t table_6_3_3_2_4_prachConfig_Index[256][10] = {
+static const nr_prach_info_3gpp_fr2_t table_6_3_3_2_4_prachConfig_Index[256] = {
     // format,      format,       x,          y,           y,              SFN_nbr,       star_symb,   slots_sfn,  occ_slot,
     // duration
     {0xa1, -1, 16, 1, -1, 567489872400, 0, 2, 6, 2}, // (subframe number :4,9,14,19,24,29,34,39)
@@ -1424,13 +1451,13 @@ int get_format0(uint8_t index, uint8_t unpaired, frequency_range_t frequency_ran
   int format = 0;
   if (unpaired) {
     if (frequency_range==FR1)
-      format = table_6_3_3_2_3_prachConfig_Index[index][0];
+      format = table_6_3_3_2_3_prachConfig_Index[index].format;
     else
-      format = table_6_3_3_2_4_prachConfig_Index[index][0];
+      format = table_6_3_3_2_4_prachConfig_Index[index].format;
   }
   else {
     if (frequency_range==FR1)
-      format = table_6_3_3_2_2_prachConfig_Index[index][0];
+      format = table_6_3_3_2_2_prachConfig_Index[index].format;
     else
       AssertFatal(0==1,"no paired spectrum for FR2\n");
   }
@@ -1551,22 +1578,20 @@ void set_monitoring_periodicity_offset(NR_SearchSpace_t *ss,
 
 nr_prach_info_t get_nr_prach_occasion_info_from_index(uint8_t index, frequency_range_t freq_range, uint8_t unpaired)
 {
-  uint8_t format2 = 0xff;
-  nr_prach_info_t info;
+  nr_prach_info_t info = {};
   if (freq_range == FR2) {
-    info.x = table_6_3_3_2_4_prachConfig_Index[index][2];
-    info.y = table_6_3_3_2_4_prachConfig_Index[index][3];
-    info.y2 = table_6_3_3_2_4_prachConfig_Index[index][4];
-    info.s_map = table_6_3_3_2_4_prachConfig_Index[index][5];
-    info.N_RA_sfn += count_bits64(info.s_map);
-    info.N_RA_slot = table_6_3_3_2_4_prachConfig_Index[index][7];
+    const nr_prach_info_3gpp_fr2_t *tmp = table_6_3_3_2_4_prachConfig_Index + index;
+    info.x = tmp->x;
+    info.y = tmp->y;
+    info.y2 = tmp->y2;
+    info.s_map = tmp->s_map;
+    info.N_RA_sfn = count_bits64(info.s_map);
+    info.N_RA_slot = tmp->N_RA_slot;
     info.max_association_period = 160 / (info.x * 10);
-    info.start_symbol = table_6_3_3_2_4_prachConfig_Index[index][6];
-    info.N_t_slot = table_6_3_3_2_4_prachConfig_Index[index][8];
-    info.N_dur = table_6_3_3_2_4_prachConfig_Index[index][9];
-    if (table_6_3_3_2_4_prachConfig_Index[index][1] != -1)
-      format2 = (uint8_t)table_6_3_3_2_4_prachConfig_Index[index][1];
-    info.format = ((uint8_t)table_6_3_3_2_4_prachConfig_Index[index][0]) | (format2 << 8);
+    info.start_symbol = tmp->start_symbol;
+    info.N_t_slot = tmp->N_t_slot;
+    info.N_dur = tmp->N_dur;
+    info.format = tmp->format | (tmp->format2 << 8);
     LOG_D(NR_MAC,
           "PRACH info from index %d frame_type %u start_symbol %u N_t_slot %u N_dur %u N_RA_sfn = %u\n",
           index,
@@ -1577,77 +1602,42 @@ nr_prach_info_t get_nr_prach_occasion_info_from_index(uint8_t index, frequency_r
           info.N_RA_sfn);
     return info;
   }
+  const nr_prach_info_3gpp_fr1_t *tmp =
+      unpaired ? /* FR1 TDD*/ table_6_3_3_2_3_prachConfig_Index + index : /* FR1 FDD */ table_6_3_3_2_2_prachConfig_Index + index;
 
-  if (unpaired) { // FR1 TDD
-    info.x = table_6_3_3_2_3_prachConfig_Index[index][2];
-    info.y = table_6_3_3_2_3_prachConfig_Index[index][3];
-    info.y2 = -1;
-    info.s_map = table_6_3_3_2_3_prachConfig_Index[index][4];
-    info.N_RA_sfn += count_bits64(info.s_map);
-    info.N_RA_slot = table_6_3_3_2_3_prachConfig_Index[index][6];
-    info.max_association_period = 160 / (info.x * 10);
-    info.start_symbol = table_6_3_3_2_3_prachConfig_Index[index][5];
-    info.N_t_slot = table_6_3_3_2_3_prachConfig_Index[index][7];
-    info.N_dur = table_6_3_3_2_3_prachConfig_Index[index][8];
-    if (table_6_3_3_2_3_prachConfig_Index[index][1] != -1)
-      format2 = (uint8_t)table_6_3_3_2_3_prachConfig_Index[index][1];
-    info.format = ((uint8_t)table_6_3_3_2_3_prachConfig_Index[index][0]) | (format2 << 8);
-    LOG_D(NR_MAC,
-          "PRACH info from index %d (col %lu) frame_type %u start_symbol %u N_t_slot %u N_dur %u N_RA_sfn = %u\n",
-          index,
-          table_6_3_3_2_3_prachConfig_Index[index][6],
-          unpaired,
-          info.start_symbol,
-          info.N_t_slot,
-          info.N_dur,
-          info.N_RA_sfn);
-    return info;
-  }
-
-  // FR1 FDD
-  info.x = table_6_3_3_2_2_prachConfig_Index[index][2];
-  info.y = table_6_3_3_2_2_prachConfig_Index[index][3];
+  info.x = tmp->x;
+  info.y = tmp->y;
   info.y2 = -1;
-  info.s_map = table_6_3_3_2_2_prachConfig_Index[index][4];
-  info.N_RA_sfn += count_bits64(info.s_map);
-  info.N_RA_slot = table_6_3_3_2_2_prachConfig_Index[index][6];
+  info.s_map = tmp->s_map;
+  info.N_RA_sfn = count_bits64(info.s_map);
+  info.N_RA_slot = tmp->N_RA_slot;
   info.max_association_period = 160 / (info.x * 10);
-  info.start_symbol = table_6_3_3_2_2_prachConfig_Index[index][5];
-  info.N_t_slot = table_6_3_3_2_2_prachConfig_Index[index][7];
-  info.N_dur = table_6_3_3_2_2_prachConfig_Index[index][8];
-  if (table_6_3_3_2_2_prachConfig_Index[index][1] != -1)
-    format2 = (uint8_t)table_6_3_3_2_2_prachConfig_Index[index][1];
-  info.format = ((uint8_t)table_6_3_3_2_2_prachConfig_Index[index][0]) | (format2 << 8);
+  info.start_symbol = tmp->start_symbol;
+  info.N_t_slot = tmp->N_t_slot;
+  info.N_dur = tmp->N_dur;
+  info.format = tmp->format | (tmp->format2 << 8);
   LOG_D(NR_MAC,
-        "PRACH info from index %d frame_type %u start_symbol %u N_t_slot %u N_dur %u \n",
+        "PRACH info from index %d (col %u) frame_type %u start_symbol %u N_t_slot %u N_dur %u N_RA_sfn = %u\n",
         index,
+        tmp->start_symbol,
         unpaired,
         info.start_symbol,
         info.N_t_slot,
-        info.N_dur);
+        info.N_dur,
+        info.N_RA_sfn);
   return info;
 }
 
 uint16_t get_nr_prach_format_from_index(uint8_t index, uint32_t pointa, uint8_t unpaired)
 {
-  uint8_t format2 = 0xff;
-  uint16_t format;
   if (get_freq_range_from_arfcn(pointa) == FR2) {
-    if (table_6_3_3_2_4_prachConfig_Index[index][1] != -1)
-      format2 = (uint8_t)table_6_3_3_2_4_prachConfig_Index[index][1];
-    format = ((uint8_t)table_6_3_3_2_4_prachConfig_Index[index][0]) | (format2 << 8);
+    const nr_prach_info_3gpp_fr2_t *tmp = table_6_3_3_2_4_prachConfig_Index + index;
+    return tmp->format | (tmp->format2 << 8);
   } else {
-    if (unpaired) {
-      if (table_6_3_3_2_3_prachConfig_Index[index][1] != -1)
-        format2 = (uint8_t)table_6_3_3_2_3_prachConfig_Index[index][1];
-      format = ((uint8_t)table_6_3_3_2_3_prachConfig_Index[index][0]) | (format2 << 8);
-    } else {
-      if (table_6_3_3_2_2_prachConfig_Index[index][1] != -1)
-        format2 = (uint8_t)table_6_3_3_2_2_prachConfig_Index[index][1];
-      format = ((uint8_t)table_6_3_3_2_2_prachConfig_Index[index][0]) | (format2 << 8);
-    }
+    const nr_prach_info_3gpp_fr1_t *tmp =
+        unpaired ? /* FR1 TDD*/ table_6_3_3_2_3_prachConfig_Index + index : /* FR1 FDD */ table_6_3_3_2_2_prachConfig_Index + index;
+    return tmp->format | (tmp->format2 << 8);
   }
-  return format;
 }
 
 bool get_nr_prach_sched_from_info(nr_prach_info_t info,
