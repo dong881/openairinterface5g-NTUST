@@ -24,21 +24,13 @@
 
 #include <stdint.h>
 
-typedef enum {
-  TIME_MANAGER_GNB_MONOLITHIC,
-  TIME_MANAGER_GNB_CU,
-  TIME_MANAGER_GNB_DU,
-  TIME_MANAGER_UE,
-  TIME_MANAGER_SIMULATOR,
-} time_manager_client_t;
+#include "time_source.h"
 
-typedef enum {
-  TIME_MANAGER_REALTIME,
-  TIME_MANAGER_IQ_SAMPLES
-} time_manager_mode_t;
+typedef void (*time_manager_tick_function_t)(void);
 
-void time_manager_start(time_manager_client_t client_type,
-                        time_manager_mode_t running_mode);
+void time_manager_start(time_manager_tick_function_t *tick_functions,
+                        int tick_functions_count,
+                        time_source_type_t time_source);
 void time_manager_iq_samples(uint64_t iq_samples_count,
                              uint64_t iq_samples_per_second);
 void time_manager_finish(void);

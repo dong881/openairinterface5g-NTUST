@@ -143,7 +143,12 @@ int main(int argc, char **argv)
 
   // start time manager with some reasonable default for the running mode
   // (may be overwritten in configuration file or command line)
-  time_manager_start(TIME_MANAGER_GNB_CU, TIME_MANAGER_REALTIME);
+  void nr_pdcp_ms_tick(void);
+  time_manager_tick_function_t tick_functions[] = {
+    nr_pdcp_ms_tick
+  };
+  int tick_functions_count = 1;
+  time_manager_start(tick_functions, tick_functions_count, TIME_SOURCE_REALTIME);
 
   // strdup to put the sring in the core file for post mortem identification
   LOG_I(HW, "Version: %s\n", strdup(OAI_PACKAGE_VERSION));

@@ -253,8 +253,9 @@ in `time_manager.c`, together with some global variables (so that there is no
 need to pass objects around, to limit risks of misuse).
 
 Each program (for example: gnb, ue, cu, du) calls the `time_manager_start()`
-function, passing the kind of program it is. Based on this type and the
-configuration, `time_manager_start()` initializes what is needed.
+function, passing the callback functions to be called when a tick is generated
+(several callbacks can be passed) and a default time source. Based on this,
+`time_manager_start()` initializes what is needed.
 
 The function `time_manager_iq_samples()` is to be called by programs that
 read IQ samples. It is called unconditionally. It may do nothing if the
@@ -268,8 +269,9 @@ Here comes the API.
 
 - init the time manager:
   ```
-    void time_manager_start(time_manager_client_t client_type,
-                            time_manager_mode_t running_mode)
+    void time_manager_start(time_manager_tick_function_t *tick_functions,
+                            int tick_functions_count,
+                            time_source_type_t time_source);
   ```
   (for valid values of `client_type` and `running_mode`  see in
   `time_manager.h`)

@@ -464,11 +464,18 @@ int main(int argc, char **argv)
 
   // start time manager with some reasonable default for the running mode
   // (may be overwritten in configuration file or command line)
-  time_manager_start(TIME_MANAGER_UE,
+  void nr_pdcp_ms_tick(void);
+  void nr_rlc_ms_tick(void);
+  time_manager_tick_function_t tick_functions[] = {
+    nr_pdcp_ms_tick,
+    nr_rlc_ms_tick
+  };
+  int tick_functions_count = 2;
+  time_manager_start(tick_functions, tick_functions_count,
                      // iq_samples time source for rfsim,
                      // realtime time source if not
-                     IS_SOFTMODEM_RFSIM ? TIME_MANAGER_IQ_SAMPLES
-                                        : TIME_MANAGER_REALTIME);
+                     IS_SOFTMODEM_RFSIM ? TIME_SOURCE_IQ_SAMPLES
+                                        : TIME_SOURCE_REALTIME);
 
   if (!get_softmodem_params()->nsa && get_softmodem_params()->emulate_l1)
     start_oai_nrue_threads();

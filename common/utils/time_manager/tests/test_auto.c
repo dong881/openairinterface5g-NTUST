@@ -41,12 +41,6 @@ void exit_function(const char *file, const char *function, const int line, const
     exit(1);
 }
 
-int is_x2ap_enabled(void)
-{
-  /* we want x2ap ticks */
-  return 1;
-}
-
 static int rlc_tick_count = 0;
 static int pdcp_tick_count = 0;
 static int x2ap_tick_count = 0;
@@ -69,7 +63,13 @@ void x2ap_ms_tick(void)
 /* return 1 if ok, 0 if error */
 static int standalone_realtime(void)
 {
-  time_manager_start(TIME_MANAGER_GNB_MONOLITHIC, TIME_MANAGER_REALTIME);
+  time_manager_tick_function_t tick_functions[] = {
+    nr_pdcp_ms_tick,
+    nr_rlc_ms_tick,
+    x2ap_ms_tick
+  };
+  int tick_functions_count = sizeofArray(tick_functions);
+  time_manager_start(tick_functions, tick_functions_count, TIME_SOURCE_REALTIME);
 
   sleep(1);
 
@@ -90,7 +90,13 @@ static int standalone_realtime(void)
 /* return 1 if ok, 0 if error */
 static int standalone_iq_samples(void)
 {
-  time_manager_start(TIME_MANAGER_GNB_MONOLITHIC, TIME_MANAGER_IQ_SAMPLES);
+  time_manager_tick_function_t tick_functions[] = {
+    nr_pdcp_ms_tick,
+    nr_rlc_ms_tick,
+    x2ap_ms_tick
+  };
+  int tick_functions_count = sizeofArray(tick_functions);
+  time_manager_start(tick_functions, tick_functions_count, TIME_SOURCE_IQ_SAMPLES);
 
   /* let's pretend we have 2000 samples per second */
   for (int i = 0; i < 1000; i++) {
@@ -168,8 +174,14 @@ static int client_server(char *program_name, bool iq_samples_time_source)
 /* return 1 if ok, 0 if error */
 static int run_sub_client_server(bool iq_samples_time_source)
 {
-  /* second argument doesn't matter, overwritten by args of execl in client_server() */
-  time_manager_start(TIME_MANAGER_GNB_MONOLITHIC, TIME_MANAGER_REALTIME);
+  time_manager_tick_function_t tick_functions[] = {
+    nr_pdcp_ms_tick,
+    nr_rlc_ms_tick,
+    x2ap_ms_tick
+  };
+  int tick_functions_count = sizeofArray(tick_functions);
+  /* last argument doesn't matter, overwritten by args of execl in client_server() */
+  time_manager_start(tick_functions, tick_functions_count, TIME_SOURCE_REALTIME);
 
   if (iq_samples_time_source) {
     /* 'iq_samples_time_source' is true only for server

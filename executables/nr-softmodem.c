@@ -631,15 +631,35 @@ int main( int argc, char **argv ) {
 
   // start time manager with some reasonable default for the running mode
   // (may be overwritten in configuration file or command line)
-  time_manager_start(NODE_IS_MONOLITHIC(node_type) ? TIME_MANAGER_GNB_MONOLITHIC
-                     : NODE_IS_CU(node_type)       ? TIME_MANAGER_GNB_CU
-                                                   : TIME_MANAGER_GNB_DU,
+  void nr_pdcp_ms_tick(void);
+  void x2ap_ms_tick();
+  void nr_rlc_ms_tick(void);
+  time_manager_tick_function_t tick_functions[3];
+  int tick_functions_count = 0;
+  if (NODE_IS_MONOLITHIC(node_type)) {
+    /* monolithic */
+    tick_functions[tick_functions_count++] = nr_pdcp_ms_tick;
+    tick_functions[tick_functions_count++] = nr_rlc_ms_tick;
+    /* x2ap is enabled when in NSA mode */
+    if (get_softmodem_params()->nsa)
+      tick_functions[tick_functions_count++] = x2ap_ms_tick;
+  } else if (NODE_IS_CU(node_type)) {
+     /* CU */
+    tick_functions[tick_functions_count++] = nr_pdcp_ms_tick;
+    /* x2ap is enabled when in NSA mode */
+    if (get_softmodem_params()->nsa)
+      tick_functions[tick_functions_count++] = x2ap_ms_tick;
+  } else {
+     /* DU */
+    tick_functions[tick_functions_count++] = nr_rlc_ms_tick;
+  }
+  time_manager_start(tick_functions, tick_functions_count,
                      // iq_samples time source for monolithic/du with rfsim,
                      // realtime time source for other cases
                      IS_SOFTMODEM_RFSIM
                      && (NODE_IS_MONOLITHIC(node_type) || NODE_IS_DU(node_type))
-                         ? TIME_MANAGER_IQ_SAMPLES
-                         : TIME_MANAGER_REALTIME);
+                         ? TIME_SOURCE_IQ_SAMPLES
+                         : TIME_SOURCE_REALTIME);
 
   // start the main threads
   number_of_cards = 1;

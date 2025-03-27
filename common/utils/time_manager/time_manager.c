@@ -19,9 +19,6 @@
  *      contact@openairinterface.org
  */
 
-#define _GNU_SOURCE
-#include <dlfcn.h>
-
 #include "time_manager.h"
 
 #include "time_source.h"
@@ -37,27 +34,17 @@ static time_source_t *time_source = NULL;
 static time_server_t *time_server = NULL;
 static time_client_t *time_client = NULL;
 
-/* available tick functions in the executable
- * found at startup time of the program using dlsym()
- */
-static void (*pdcp_tick)(void) = NULL;
-static void (*rlc_tick)(void) = NULL;
-static void (*x2ap_tick)(void) = NULL;
+/* tick functions registered at initialization of the time manager */
+static time_manager_tick_function_t *tick_functions;
+static int tick_functions_count;
 
 /* tick callback, called by time_source every 'millisecond' (can be
  * actual millisecond or simulated millisecond)
  */
 static void tick(void *unused)
 {
-  /* call x2ap_tick, pdcp_tick, rlc_tick (if they exist) */
-  if (pdcp_tick != NULL)
-    pdcp_tick();
-
-  if (rlc_tick != NULL)
-    rlc_tick();
-
-  if (x2ap_tick != NULL)
-    x2ap_tick();
+  for (int i = 0; i < tick_functions_count; i++)
+    tick_functions[i]();
 }
 
 #define TIME_SOURCE "time_source"
@@ -92,10 +79,10 @@ static int get_param_int(char *name)
   return *config_parameters[idx].iptr;
 }
 
-void time_manager_start(time_manager_client_t client_type,
-                        time_manager_mode_t running_mode)
+void time_manager_start(time_manager_tick_function_t *_tick_functions,
+                        int _tick_functions_count,
+                        time_source_type_t time_source_type)
 {
-  time_source_type_t time_source_type = -1;
   bool has_time_server = false;
   bool has_time_client = false;
   char *default_server_ip = "127.0.0.1";
@@ -103,47 +90,11 @@ void time_manager_start(time_manager_client_t client_type,
   char *server_ip = NULL;
   int server_port = -1;
 
-  /* retrieve, if applicable, available tick functions in the program */
-  if (client_type == TIME_MANAGER_GNB_MONOLITHIC
-      || client_type == TIME_MANAGER_GNB_CU
-      || client_type == TIME_MANAGER_UE)
-    pdcp_tick = dlsym(RTLD_DEFAULT, "nr_pdcp_ms_tick");
+  tick_functions_count = _tick_functions_count;
+  tick_functions = calloc_or_fail(tick_functions_count, sizeof(*tick_functions));
+  memcpy(tick_functions, _tick_functions, tick_functions_count * sizeof(*tick_functions));
 
-  if (client_type == TIME_MANAGER_GNB_MONOLITHIC
-      || client_type == TIME_MANAGER_GNB_DU
-      || client_type == TIME_MANAGER_UE)
-    rlc_tick = dlsym(RTLD_DEFAULT, "nr_rlc_ms_tick");
-
-  /* let's also retrieve is_x2ap_enabled() with dlsym to not force the
-   * application to define it (this logic may be changed if wanted)
-   */
-  int (*is_x2ap_enabled)(void) = dlsym(RTLD_DEFAULT, "is_x2ap_enabled");
-  if ((client_type == TIME_MANAGER_GNB_MONOLITHIC
-       || client_type == TIME_MANAGER_GNB_CU)
-      && is_x2ap_enabled != NULL && is_x2ap_enabled())
-    x2ap_tick = dlsym(RTLD_DEFAULT, "x2ap_ms_tick");
-
-  /* get default configuration */
-  switch (client_type) {
-    case TIME_MANAGER_GNB_MONOLITHIC:
-    case TIME_MANAGER_GNB_DU:
-    case TIME_MANAGER_UE:
-      switch (running_mode) {
-        case TIME_MANAGER_REALTIME:
-          time_source_type = TIME_SOURCE_REALTIME;
-          break;
-        case TIME_MANAGER_IQ_SAMPLES:
-          time_source_type = TIME_SOURCE_IQ_SAMPLES;
-          break;
-      }
-      break;
-    case TIME_MANAGER_GNB_CU:
-    case TIME_MANAGER_SIMULATOR:
-      time_source_type = TIME_SOURCE_REALTIME;
-      break;
-  }
-
-  /* get values from configuration */
+  /* retrieve configuration */
   int ret = config_get(config_get_if(), config_parameters, sizeofArray(config_parameters), "time_management");
   if (ret >= 0) {
     char *param;
@@ -209,23 +160,19 @@ void time_manager_start(time_manager_client_t client_type,
 
   if (has_time_client) {
     time_client = new_time_client(server_ip, server_port, tick, NULL);
+    /* for the log below, there is no time source, we want to print 'server' as time source */
+    time_source_type = 2;
   }
 
   LOG_I(UTIL,
         "time manager configuration: [time source: %s] [mode: %s] [server IP: %s} [server port: %d]%s\n",
-        (char *[]){"reatime", "iq_samples"}[time_source_type],
+        (char *[]){"reatime", "iq_samples", "server"}[time_source_type],
         has_time_server   ? "server"
         : has_time_client ? "client"
                           : "standalone",
         server_ip,
         server_port,
         has_time_server || has_time_client ? "" : " (server IP/port not used)");
-
-  LOG_I(UTIL,
-        "time manager: pdcp tick: %s, rlc tick: %s, x2ap tick: %s\n",
-        pdcp_tick == NULL ? "not activated" : "activated",
-        rlc_tick == NULL ? "not activated" : "activated",
-        x2ap_tick == NULL ? "not activated" : "activated");
 }
 
 void time_manager_iq_samples(uint64_t iq_samples_count,
@@ -251,4 +198,8 @@ void time_manager_finish(void)
     free_time_client(time_client);
     time_client = NULL;
   }
+
+  free(tick_functions);
+  tick_functions = NULL;
+  tick_functions_count = 0;
 }
