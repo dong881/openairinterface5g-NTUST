@@ -292,42 +292,33 @@ static inline void nr_polar_deinterleaver(uint8_t *input, uint8_t *output, uint1
  * De-interleaving of coded bits implementation
  * TS 138.212: Section 5.4.1.3 - Interleaving of coded bits
  */
-static inline void nr_polar_rm_deinterleaving_lut(uint16_t *out, const int E)
+static inline void nr_polar_rm_deinterleaving_lut(uint16_t *out, const uint E)
 {
-  int16_t in[E];
-  for (uint i = 0; i < E; i++)
-    in[i] = i;
-  int T = ceil((sqrt(8 * E + 1) - 1) / 2);
-  int v_tab[T][T];
-  memset(v_tab, 0, sizeof(v_tab));
-  uint k = 0;
-  for (int i = 0; i < T; i++) {
-    for (int j = 0; j < T - i; j++) {
-      if (k < E) {
-        v_tab[i][j] = k + 1;
-      }
-      k++;
+  uint T = ceil((sqrt(8 * E + 1) - 1) / 2);
+
+  bool v_tab[T][T];
+  memset(v_tab, false, sizeof(v_tab));
+  for (uint i = 0, k = 0; i < T; i++) {
+    for (uint j = 0; j < T - i; j++, k++) {
+      v_tab[i][j] = k < E;
     }
   }
 
   int v[T][T];
-  k = 0;
-  for (int j = 0; j < T; j++) {
-    for (int i = 0; i < T - j; i++) {
-      if (k < E && v_tab[i][j] != 0) {
-        v[i][j] = in[k];
+  memset(v, -1, sizeof(v));
+  for (uint j = 0, k = 0; j < T; j++) {
+    for (uint i = 0; i < T - j; i++) {
+      if (k < E && v_tab[i][j]) {
+        v[i][j] = k;
         k++;
-      } else {
-        v[i][j] = INT_MAX;
       }
     }
   }
 
-  k = 0;
   memset(out, 0, E * sizeof(*out));
-  for (int i = 0; i < T; i++) {
-    for (int j = 0; j < T - i; j++) {
-      if (v[i][j] != INT_MAX) {
+  for (uint i = 0, k = 0; i < T; i++) {
+    for (uint j = 0; j < T - i; j++) {
+      if (v[i][j] != -1) {
         out[k] = v[i][j];
         k++;
       }
