@@ -379,9 +379,9 @@ rfsim4g_enb_fembms:
 
 rfsim4g_ue_fembms:
   Host: "%%current_host%%"
-  NetworkScript: docker exec rfsim4g-oai-lte-ue0 ip a show dev oaitun_uem1
+  NetworkScript: docker exec rfsim4g-oai-lte-ue0 ip a show dev oaitun_uem2
   CmdPrefix: docker exec rfsim4g-oai-lte-ue0
-  IF: oaitun_uem1
+  IF: oaitun_uem2
 
 l2sim4g_ue:
   Host: "%%current_host%%"
