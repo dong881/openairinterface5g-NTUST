@@ -410,6 +410,7 @@ class Containerize():
 		result = re.search('native_arm', self.imageKind)
 		if result is not None:
 			imageNames.append(('oai-gnb', 'gNB', 'oai-gnb', ''))
+			imageNames.append(('ran-build-fhi72', 'build.fhi72.native_arm', 'ran-build-fhi72', ''))
 			imageNames.append(('oai-nr-cuup', 'nr-cuup', 'oai-nr-cuup', ''))
 			imageNames.append(('oai-nr-ue', 'nrUE', 'oai-nr-ue', ''))
 			imageNames.append(('oai-gnb-aerial', 'gNB.aerial', 'oai-gnb-aerial', ''))
