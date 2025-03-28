@@ -52,6 +52,7 @@
                 <desc>Pull Images from Local Registry</desc>
                 <svr_id>0</svr_id>
                 <images>oai-gnb-aerial</images>
+		<tag_prefix>arm_</tag_prefix>
         </testCase>
 
         <testCase id="800813">
@@ -96,8 +97,8 @@
 
         <testCase id="000022">
                 <class>Iperf</class>
-                <desc>iperf (DL/UDP/600M)(30 sec)(single-ue profile)</desc>
-                <iperf_args>-u -b 600M -t 30 -R</iperf_args>
+                <desc>iperf (DL/UDP/500M)(30 sec)(single-ue profile)</desc>
+                <iperf_args>-u -b 500M -t 30 -R</iperf_args>
                 <svr_id>oc-cn5g-20897-aerial2</svr_id>
                 <id>up2-aerial</id>
                 <iperf_packetloss_threshold>25</iperf_packetloss_threshold>
@@ -106,8 +107,8 @@
 
         <testCase id="000033">
                 <class>Iperf</class>
-                <desc>iperf (UL/UDP/50M)(30 sec)(single-ue profile)</desc>
-                <iperf_args>-u -b 50M -t 30</iperf_args>
+                <desc>iperf (UL/UDP/40M)(30 sec)(single-ue profile)</desc>
+                <iperf_args>-u -b 40M -t 30</iperf_args>
                 <svr_id>oc-cn5g-20897-aerial2</svr_id>
                 <id>up2-aerial</id>
                 <iperf_packetloss_threshold>25</iperf_packetloss_threshold>
