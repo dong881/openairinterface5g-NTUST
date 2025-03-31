@@ -927,23 +927,24 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
   const uint16_t feedback_ti = 1 + dci->pdsch_to_harq_feedback_timing_indicator.val + ntn_ue_koffset;
 
   if (rnti_type != TYPE_RA_RNTI_ && rnti_type != TYPE_SI_RNTI_) {
-    if (!get_FeedbackDisabled(mac->sc_info.downlinkHARQ_FeedbackDisabled_r17, dci->harq_pid.val))
+    if (!get_FeedbackDisabled(mac->sc_info.downlinkHARQ_FeedbackDisabled_r17, dci->harq_pid.val)) {
       AssertFatal(feedback_ti > GET_DURATION_RX_TO_TX(&mac->ntn_ta, dlsch_pdu->SubcarrierSpacing),
                   "PDSCH to HARQ feedback time (%d) needs to be higher than DURATION_RX_TO_TX (%ld).\n",
                   feedback_ti,
                   GET_DURATION_RX_TO_TX(&mac->ntn_ta, dlsch_pdu->SubcarrierSpacing));
-    // set the harq status at MAC for feedback
-    const int tpc[] = {-1, 0, 1, 3};
-    set_harq_status(mac,
-                    dci->pucch_resource_indicator,
-                    dci->harq_pid.val,
-                    tpc[dci->tpc],
-                    feedback_ti,
-                    dci->dai[0].val,
-                    dci_ind->n_CCE,
-                    dci_ind->N_CCE,
-                    frame,
-                    slot);
+      // set the harq status at MAC for feedback
+      const int tpc[] = {-1, 0, 1, 3};
+      set_harq_status(mac,
+                      dci->pucch_resource_indicator,
+                      dci->harq_pid.val,
+                      tpc[dci->tpc],
+                      feedback_ti,
+                      dci->dai[0].val,
+                      dci_ind->n_CCE,
+                      dci_ind->N_CCE,
+                      frame,
+                      slot);
+    }
     if (dlsch_pdu->new_data_indicator)
       current_harq->round = 0;
     else
@@ -1221,25 +1222,26 @@ static int nr_ue_process_dci_dl_11(NR_UE_MAC_INST_t *mac,
   const int ntn_ue_koffset = GET_NTN_UE_K_OFFSET(&mac->ntn_ta, dlsch_pdu->SubcarrierSpacing);
   const uint16_t feedback_ti = pucch_Config->dl_DataToUL_ACK->list.array[dci->pdsch_to_harq_feedback_timing_indicator.val][0] + ntn_ue_koffset;
 
-  if (!get_FeedbackDisabled(mac->sc_info.downlinkHARQ_FeedbackDisabled_r17, dci->harq_pid.val))
+  if (!get_FeedbackDisabled(mac->sc_info.downlinkHARQ_FeedbackDisabled_r17, dci->harq_pid.val)) {
     AssertFatal(feedback_ti > GET_DURATION_RX_TO_TX(&mac->ntn_ta, dlsch_pdu->SubcarrierSpacing),
                 "PDSCH to HARQ feedback time (%d) needs to be higher than DURATION_RX_TO_TX (%ld). Min feedback time set in config "
                 "file (min_rxtxtime).\n",
                 feedback_ti,
                 GET_DURATION_RX_TO_TX(&mac->ntn_ta, dlsch_pdu->SubcarrierSpacing));
 
-  // set the harq status at MAC for feedback
-  const int tpc[] = {-1, 0, 1, 3};
-  set_harq_status(mac,
-                  dci->pucch_resource_indicator,
-                  dci->harq_pid.val,
-                  tpc[dci->tpc],
-                  feedback_ti,
-                  dci->dai[0].val,
-                  dci_ind->n_CCE,
-                  dci_ind->N_CCE,
-                  frame,
-                  slot);
+    // set the harq status at MAC for feedback
+    const int tpc[] = {-1, 0, 1, 3};
+    set_harq_status(mac,
+                    dci->pucch_resource_indicator,
+                    dci->harq_pid.val,
+                    tpc[dci->tpc],
+                    feedback_ti,
+                    dci->dai[0].val,
+                    dci_ind->n_CCE,
+                    dci_ind->N_CCE,
+                    frame,
+                    slot);
+  }
   if (dlsch_pdu->new_data_indicator)
     current_harq->round = 0;
   else
@@ -2323,7 +2325,7 @@ bool get_downlink_ack(NR_UE_MAC_INST_t *mac, frame_t frame, int slot, PUCCH_sche
               LOG_E(NR_MAC, "DLSCH ACK/NACK reporting initiated for harq pid %d before DLSCH decoding completed\n", dl_harq_pid);
 
             if (get_FeedbackDisabled(mac->sc_info.downlinkHARQ_FeedbackDisabled_r17, dl_harq_pid)) {
-              LOG_D(NR_MAC, "skipping DLSCH ACK/NACK reporting for harq pid %d\n", dl_harq_pid);
+              LOG_W(NR_MAC, "skipping DLSCH ACK/NACK reporting for harq pid %d\n", dl_harq_pid);
               current_harq->active = false;
               current_harq->ack_received = false;
               continue;
