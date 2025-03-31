@@ -34,9 +34,8 @@
 #include "assertions.h"
 #include "common/utils/assertions.h"
 #include "common/utils/LOG/log.h"
-#include "openair1/PHY/TOOLS/tools_defs.h"
 #include "nr_common.h"
-#include <complex.h>
+#include <limits.h>
 
 #define C_SRS_NUMBER (64)
 #define B_SRS_NUMBER (4)
@@ -1319,20 +1318,6 @@ int get_delay_idx(int delay, int max_delay_comp)
   // If the measured delay is greater than +MAX_DELAY_COMP, a +MAX_DELAY_COMP delay is compensated.
   delay_idx = min(delay_idx, max_delay_comp << 1);
   return delay_idx;
-}
-
-void init_delay_table(uint16_t ofdm_symbol_size,
-                      int max_delay_comp,
-                      int max_ofdm_symbol_size,
-                      c16_t delay_table[][max_ofdm_symbol_size])
-{
-  for (int delay = -max_delay_comp; delay <= max_delay_comp; delay++) {
-    for (int k = 0; k < ofdm_symbol_size; k++) {
-      double complex delay_cexp = cexp(I * (2.0 * M_PI * k * delay / ofdm_symbol_size));
-      delay_table[max_delay_comp + delay][k].r = (int16_t)round(256 * creal(delay_cexp));
-      delay_table[max_delay_comp + delay][k].i = (int16_t)round(256 * cimag(delay_cexp));
-    }
-  }
 }
 
 int set_default_nta_offset(frequency_range_t freq_range, uint32_t samples_per_subframe)
