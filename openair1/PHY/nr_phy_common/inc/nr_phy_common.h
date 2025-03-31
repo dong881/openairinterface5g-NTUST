@@ -26,6 +26,15 @@
 #include "PHY/NR_REFSIG/nr_refsig_common.h"
 #include "PHY/MODULATION/nr_modulation.h"
 
+extern simde__m128i byte2bit16_lut[256];
+void init_byte2bit16(void);
+void init_byte2m128i(void);
+
+static inline simde__m128i byte2bit16(uint8_t b)
+{
+  return byte2bit16_lut[b];
+}
+
 typedef struct {
   int size;
   int ports;

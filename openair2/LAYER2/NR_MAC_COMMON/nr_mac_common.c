@@ -30,6 +30,7 @@
 
  */
 
+#include <math.h>
 #include "nr_mac.h"
 #include "nr_mac_common.h"
 #include "common/utils/nr/nr_common.h"

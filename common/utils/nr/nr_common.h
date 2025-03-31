@@ -36,7 +36,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "assertions.h"
-#include "PHY/sse_intrin.h"
 #include "common/utils/utils.h"
 
 #define NR_MAX_PDSCH_TBS 3824
@@ -212,15 +211,6 @@ bool nr_timer_is_active(const NR_timer_t *timer);
 uint32_t nr_timer_elapsed_time(const NR_timer_t *timer);
 
 int set_default_nta_offset(frequency_range_t freq_range, uint32_t samples_per_subframe);
-
-extern simde__m128i byte2bit16_lut[256];
-void init_byte2bit16(void);
-void init_byte2m128i(void);
-
-static inline simde__m128i byte2bit16(uint8_t b)
-{
-  return byte2bit16_lut[b];
-}
 
 static inline int get_num_dmrs(uint16_t dmrs_mask )
 {
