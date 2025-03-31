@@ -38,8 +38,8 @@
 #include "NR_CellGroupConfig.h"
 #include "NR_UE-NR-Capability.h"
 #include "NR_UL-CCCH-Message.h"
-#include "PHY/defs_common.h"
 #include "f1ap_messages_types.h"
+#include "common/platform_types.h"
 struct NR_MeasurementTimingConfiguration;
 struct NR_PDSCH_TimeDomainResourceAllocationList;
 

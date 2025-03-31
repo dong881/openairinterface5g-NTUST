@@ -69,6 +69,11 @@ typedef bool sl_discovery_flag_t;
 #define SL_DISCOVERY_FLAG_NO false
 #define SL_DISCOVERY_FLAG_YES true
 
+typedef enum {
+  TDD = 1,
+  FDD = 0
+} frame_type_t;
+
 typedef enum link_direction_e { UNKNOWN_DIR = 0, DIR_UPLINK = 1, DIR_DOWNLINK = 2 } link_direction_t;
 
 typedef enum rb_type_e { UNKNOWN_RADIO_BEARER = 0, SIGNALLING_RADIO_BEARER = 1, RADIO_ACCESS_BEARER = 2 } rb_type_t;

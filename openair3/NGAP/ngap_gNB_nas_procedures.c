@@ -39,7 +39,6 @@
 #include "INTEGER.h"
 #include "ngap_msg_includes.h"
 #include "OCTET_STRING.h"
-#include "PHY/defs_common.h"
 #include "T.h"
 #include "aper_encoder.h"
 #include "asn_application.h"

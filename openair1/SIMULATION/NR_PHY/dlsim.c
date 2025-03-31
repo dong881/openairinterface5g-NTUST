@@ -56,7 +56,6 @@
 #include "PHY/NR_UE_TRANSPORT/nr_transport_ue.h"
 #include "PHY/TOOLS/tools_defs.h"
 #include "PHY/defs_RU.h"
-#include "PHY/defs_common.h"
 #include "PHY/defs_gNB.h"
 #include "PHY/defs_nr_UE.h"
 #include "PHY/defs_nr_common.h"

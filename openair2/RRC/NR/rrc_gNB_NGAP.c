@@ -52,7 +52,6 @@
 #include "NR_UERadioAccessCapabilityInformation.h"
 #include "MAC/mac.h"
 #include "OCTET_STRING.h"
-#include "PHY/defs_common.h"
 #include "RRC/NR/MESSAGES/asn1_msg.h"
 #include "RRC/NR/nr_rrc_common.h"
 #include "RRC/NR/nr_rrc_defs.h"

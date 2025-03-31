@@ -37,7 +37,6 @@
 #include "BIT_STRING.h"
 #include "ngap_msg_includes.h"
 #include "OCTET_STRING.h"
-#include "PHY/defs_common.h"
 #include "T.h"
 #include "asn_internal.h"
 #include "assertions.h"

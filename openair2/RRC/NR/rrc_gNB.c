@@ -48,7 +48,6 @@
 #include "NGAP_CauseRadioNetwork.h"
 #include "openair2/LAYER2/NR_MAC_COMMON/nr_mac.h"
 #include "OCTET_STRING.h"
-#include "PHY/defs_common.h"
 #include "RRC/NR/MESSAGES/asn1_msg.h"
 #include "RRC/NR/mac_rrc_dl.h"
 #include "RRC/NR/nr_rrc_common.h"

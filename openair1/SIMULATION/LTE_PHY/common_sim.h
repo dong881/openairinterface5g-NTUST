@@ -1,3 +1,4 @@
+#include "PHY/defs_common.h"
 
 double median(varArray_t *input) {
   return *(double *)((uint8_t *)(input+1)+(input->size/2)*input->atomSize);

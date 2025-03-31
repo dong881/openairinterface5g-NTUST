@@ -51,7 +51,6 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include "LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
 #include "PHY/INIT/nr_phy_init.h"
 #include "PHY/TOOLS/phy_scope_interface.h"
-#include "PHY/defs_common.h"
 #include "PHY/defs_gNB.h"
 #include "PHY/defs_nr_common.h"
 #include "PHY/phy_vars.h"

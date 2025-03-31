@@ -38,8 +38,10 @@
 #include <string.h>
 #include <stdbool.h>
 #include "common/utils/nr/nr_common.h"
+#include "common/utils/LOG/log.h"
 #include "NR_CellGroupConfig.h"
 
+#define MAX_FRAME_NUMBER 0x400
 #define NR_SHORT_BSR_TABLE_SIZE 32
 #define NR_LONG_BSR_TABLE_SIZE 256
 

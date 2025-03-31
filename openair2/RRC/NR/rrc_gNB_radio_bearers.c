@@ -22,7 +22,6 @@
 #include "rrc_gNB_radio_bearers.h"
 #include <stddef.h>
 #include "E1AP_RLC-Mode.h"
-#include "PHY/defs_common.h"
 #include "RRC/NR/nr_rrc_defs.h"
 #include "T.h"
 #include "asn_internal.h"

@@ -26,6 +26,7 @@
 #define INDEX_MAX_TBS_TABLE (93)
 
 #include "common/utils/nr/nr_common.h"
+#include "common/utils/LOG/log.h"
 #include <math.h>
 
 //Table 5.1.2.2-2

@@ -100,8 +100,6 @@
 
 #define TC_NSEC_x32768 16667
 
-typedef enum {TDD=1,FDD=0} frame_type_t;
-
 typedef enum {EXTENDED=1,NORMAL=0} lte_prefix_type_t;
 
 typedef enum {LOCALIZED=0,DISTRIBUTED=1} vrb_t;

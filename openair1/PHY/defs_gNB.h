@@ -39,12 +39,10 @@
 #include "openair2/NR_PHY_INTERFACE/NR_IF_Module.h"
 #include "PHY/NR_TRANSPORT/nr_transport_common_proto.h"
 #include "PHY/impl_defs_top.h"
-#include "PHY/defs_common.h"
 #include "PHY/CODING/nrLDPC_coding/nrLDPC_coding_interface.h"
 #include "PHY/CODING/nrLDPC_extern.h"
 #include "PHY/CODING/nrLDPC_decoder/nrLDPC_types.h"
 #include "nfapi_nr_interface_scf.h"
-#include "openair2/NR_PHY_INTERFACE/NR_IF_Module.h"
 
 #define MAX_NUM_RU_PER_gNB 8
 #define MAX_PUCCH0_NID 8

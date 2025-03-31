@@ -30,7 +30,6 @@
 #include "ngap_gNB_ue_context.h"
 #include <stdint.h>
 #include <stdio.h>
-#include "PHY/defs_common.h"
 #include "T.h"
 #include "common/utils/T/T.h"
 #include "ngap_common.h"

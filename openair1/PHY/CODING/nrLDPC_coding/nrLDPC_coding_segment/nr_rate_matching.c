@@ -19,10 +19,9 @@
  *      contact@openairinterface.org
  */
 
-#include "PHY/defs_common.h"
 #include "PHY/sse_intrin.h"
-
 #include "nr_rate_matching.h"
+#include "common/utils/LOG/log.h"
 
 // #define RM_DEBUG 1
 

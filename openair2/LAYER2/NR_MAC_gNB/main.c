@@ -53,7 +53,6 @@
 #include "NR_ServingCellConfig.h"
 #include "NR_ServingCellConfigCommon.h"
 #include "NR_TAG.h"
-#include "PHY/defs_common.h"
 #include "RRC/NR/MESSAGES/asn1_msg.h"
 #include "RRC/NR/nr_rrc_config.h"
 #include "assertions.h"

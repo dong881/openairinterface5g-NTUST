@@ -29,7 +29,6 @@
 #include "NR_PDCP-Config.h"
 #include "NR_QFI.h"
 #include "NR_SDAP-Config.h"
-#include "PHY/defs_common.h"
 #include "RRC/NR/nr_rrc_common.h"
 #include "SDAP/nr_sdap/nr_sdap_entity.h"
 #include "asn_internal.h"

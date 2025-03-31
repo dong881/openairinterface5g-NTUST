@@ -33,6 +33,8 @@
 #include <stdint.h>
 #include "assertions.h"
 #include "common/utils/assertions.h"
+#include "common/utils/LOG/log.h"
+#include "openair1/PHY/TOOLS/tools_defs.h"
 #include "nr_common.h"
 #include <complex.h>
 

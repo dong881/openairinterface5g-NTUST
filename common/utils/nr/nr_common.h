@@ -36,7 +36,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "assertions.h"
-#include "PHY/defs_common.h"
+#include "PHY/sse_intrin.h"
+#include "common/utils/utils.h"
 
 #define NR_MAX_PDSCH_TBS 3824
 #define MAX_NUM_BEAM_PERIODS 4

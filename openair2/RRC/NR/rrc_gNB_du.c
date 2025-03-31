@@ -26,7 +26,6 @@
 #include "F1AP_CauseMisc.h"
 #include "F1AP_CauseProtocol.h"
 #include "F1AP_CauseRadioNetwork.h"
-#include "PHY/defs_common.h"
 #include "T.h"
 #include "asn_codecs.h"
 #include "assertions.h"
