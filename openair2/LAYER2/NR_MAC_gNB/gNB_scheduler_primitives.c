@@ -125,16 +125,22 @@ static const uint16_t cqi_table3[16][2] = {{0, 0},
 static void determine_aggregation_level_search_order(int agg_level_search_order[NUM_PDCCH_AGG_LEVELS],
                                                      float pdcch_cl_adjust);
 
-uint8_t get_dl_nrOfLayers(const NR_UE_sched_ctrl_t *sched_ctrl,
-                          const nr_dci_format_t dci_format) {
-
+uint8_t get_dl_nrOfLayers(const NR_UE_sched_ctrl_t *sched_ctrl, const nr_dci_format_t dci_format)
+{
   // TODO check this but it should be enough for now
   // if there is not csi report activated RI is 0 from initialization
   if(dci_format == NR_DL_DCI_FORMAT_1_0)
     return 1;
   else
-    return (sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.ri + 1);
+    return sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.ri + 1;
+}
 
+int get_ul_nrOfLayers(const NR_UE_sched_ctrl_t *sched_ctrl, const nr_dci_format_t dci_format)
+{
+  if(dci_format == NR_UL_DCI_FORMAT_0_0)
+    return 1;
+  else
+    return sched_ctrl->srs_feedback.ul_ri + 1;
 }
 
 // Table 5.2.2.2.1-3 and Table 5.2.2.2.1-4 in 38.214
