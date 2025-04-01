@@ -1947,7 +1947,7 @@ static void pf_ul(module_id_t module_id,
         continue;
       }
 
-      sched_pusch->nrOfLayers = sched_ctrl->srs_feedback.ul_ri + 1;
+      sched_pusch->nrOfLayers = get_ul_nrOfLayers(sched_ctrl, current_BWP->dci_format);
       sched_pusch->time_domain_allocation = get_ul_tda(nrmac, sched_frame, sched_slot);
       sched_pusch->tda_info = get_ul_tda_info(current_BWP,
                                               sched_ctrl->coreset->controlResourceSetId,
@@ -2097,7 +2097,7 @@ static void pf_ul(module_id_t module_id,
 
 
 
-    sched_pusch->nrOfLayers = sched_ctrl->srs_feedback.ul_ri + 1;
+    sched_pusch->nrOfLayers = get_ul_nrOfLayers(sched_ctrl, current_BWP->dci_format);
     sched_pusch->time_domain_allocation = get_ul_tda(nrmac, sched_frame, sched_slot);
     sched_pusch->tda_info = get_ul_tda_info(current_BWP,
                                             sched_ctrl->coreset->controlResourceSetId,
