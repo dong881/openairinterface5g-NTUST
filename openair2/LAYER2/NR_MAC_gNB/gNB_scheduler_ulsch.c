@@ -350,6 +350,7 @@ static int nr_process_mac_pdu(instance_t module_idP,
 
         if (lcid == UL_SCH_LCID_CCCH_48_BITS_REDCAP) {
           LOG_I(MAC, "UE with RNTI %04x is RedCap\n", UE->rnti);
+          UE->is_redcap = true;
         }
 
         if (prepare_initial_ul_rrc_message(RC.nrmac[module_idP], UE)) {
