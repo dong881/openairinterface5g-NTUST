@@ -2063,6 +2063,7 @@ foreach(myExe dlsim dlsim_tm7 ulsim pbchsim scansim mbmssim pdcchsim pucchsim pr
     pthread m rt CONFIG_LIB ${T_LIB} dl shlib_loader
     )
   target_link_libraries(${myExe} PRIVATE asn1_lte_rrc_hdrs)
+  add_dependencies(${myExe} coding)
 
 endforeach(myExe)
 
@@ -2115,12 +2116,18 @@ include(${OPENAIR1_DIR}/PHY/CODING/nrLDPC_decoder/nrLDPC_tools/CMakeLists.txt)
 
 set(ENABLE_TESTS OFF CACHE STRING "Activate build of tests")
 set_property(CACHE ENABLE_TESTS PROPERTY TYPE BOOL)
-if(ENABLE_TESTS)
-  # activates globally adding tests such that they can be run using ctest
-  enable_testing()
+set(ENABLE_PHYSIM_TESTS OFF CACHE STRING "Activate build of physim tests")
+set_property(CACHE ENABLE_PHYSIM_TESTS PROPERTY TYPE BOOL)
+
+if(ENABLE_TESTS OR ENABLE_PHYSIM_TESTS)
   # meta-target: each test is supposed to add_dependencies(tests ${NEWTEST})
   # then, it is possible to build and execute all tests using "ninja tests && ctest"
   add_custom_target(tests)
+  # activates globally adding tests such that they can be run using ctest
+  enable_testing()
+endif()
+
+if(ENABLE_TESTS)
   find_package(GTest)
   if (NOT GTest_FOUND)
     message(STATUS "GTest package not found, will download googletest automatically. To prevent that install google test on your system (libgtest-dev)")
