@@ -553,9 +553,6 @@ static void RU_write(nr_rxtx_thread_data_t *rxtxD, bool sl_tx_action)
 
   int tmp = openair0_write_reorder(&UE->rfdevice, writeTimestamp, txp, writeBlockSize, fp->nb_antennas_tx, flags);
   AssertFatal(tmp == writeBlockSize, "");
-
-  for (int i = 0; i < fp->nb_antennas_tx; i++)
-    memset(txp[i], 0, writeBlockSize);
 }
 
 void processSlotTX(void *arg)
