@@ -440,12 +440,14 @@ void rrc_gNB_process_f1_setup_req(f1ap_setup_req_t *req, sctp_assoc_t assoc_id)
 
   /* we need to setup one default UE for phy-test and do-ra modes in the MAC */
   if (get_softmodem_params()->phy_test > 0 || get_softmodem_params()->do_ra > 0)
-    rrc_add_nsa_user(rrc, NULL);
+    rrc_add_nsa_user(rrc, NULL, assoc_id);
 }
 
 static int invalidate_du_connections(gNB_RRC_INST *rrc, sctp_assoc_t assoc_id)
 {
   int count = 0;
+  seq_arr_t ue_context_to_remove;
+  seq_arr_init(&ue_context_to_remove, sizeof(rrc_gNB_ue_context_t *));
   rrc_gNB_ue_context_t *ue_context_p = NULL;
   RB_FOREACH(ue_context_p, rrc_nr_ue_tree_s, &rrc->rrc_ue_head) {
     gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
@@ -455,7 +457,7 @@ static int invalidate_du_connections(gNB_RRC_INST *rrc, sctp_assoc_t assoc_id)
       nr_rrc_finalize_ho(UE);
     }
     f1_ue_data_t ue_data = cu_get_f1_ue_data(ue_id);
-    if (ue_data.du_assoc_id == assoc_id) {
+    if (ue_data.du_assoc_id == assoc_id && IS_SA_MODE(get_softmodem_params())) {
       /* this UE belongs to the DU that disconnected, set du_assoc_id to 0,
        * meaning DU is offline, then trigger release request */
       ue_data.du_assoc_id = 0;
@@ -464,8 +466,17 @@ static int invalidate_du_connections(gNB_RRC_INST *rrc, sctp_assoc_t assoc_id)
       ngap_cause_t cause = {.type = NGAP_CAUSE_RADIO_NETWORK, .value = NGAP_CAUSE_RADIO_NETWORK_RADIO_CONNECTION_WITH_UE_LOST};
       rrc_gNB_send_NGAP_UE_CONTEXT_RELEASE_REQ(0, ue_context_p, cause);
       count++;
+    } else {
+      seq_arr_push_back(&ue_context_to_remove, &ue_context_p, sizeof(ue_context_p));
     }
   }
+  for (int i = 0; i < seq_arr_size(&ue_context_to_remove); ++i) {
+    /* we retrieve a pointer (=iterator) to the UE context pointer
+     * (ue_context_p), so dereference once */
+    rrc_gNB_ue_context_t *p = *(rrc_gNB_ue_context_t **)seq_arr_at(&ue_context_to_remove, i);
+    rrc_remove_nsa_user_context(rrc, p);
+  }
+  seq_arr_free(&ue_context_to_remove, NULL);
   return count;
 }
 
