@@ -436,8 +436,7 @@ bool search_space_monitoring_ocasion_other_si(NR_UE_MAC_INST_t *mac,
                                               const int abs_slot,
                                               const int frame,
                                               const int slot,
-                                              const int slots_per_frame,
-                                              const int bwp_id)
+                                              const int slots_per_frame)
 {
   const int duration = ss->duration ? *ss->duration : 1;
   int period, offset;
@@ -478,7 +477,6 @@ bool monitor_dci_for_other_SI(NR_UE_MAC_INST_t *mac,
 {
   // according to 5.2.2.3.2 in 331
   const int abs_slot = frame * slots_per_frame + slot;
-  const int bwp_id = mac->current_DL_BWP->bwp_id;
 
   for (int i = 0; i < mac->si_SchedInfo.si_SchedInfo_list.count; i++) {
     si_schedinfo_config_t *config = mac->si_SchedInfo.si_SchedInfo_list.array[i];
@@ -493,7 +491,7 @@ bool monitor_dci_for_other_SI(NR_UE_MAC_INST_t *mac,
             mac->si_SchedInfo.si_window_start = abs_slot; // in terms of absolute slot number
         }
         check_valid = is_window_valid(mac, window_slots, abs_slot);
-        if (check_valid && search_space_monitoring_ocasion_other_si(mac, ss, abs_slot, frame, slot, slots_per_frame, bwp_id))
+        if (check_valid && search_space_monitoring_ocasion_other_si(mac, ss, abs_slot, frame, slot, slots_per_frame))
           return true;
         break;
       case NR_SI_INFO_v1700 :
@@ -504,7 +502,7 @@ bool monitor_dci_for_other_SI(NR_UE_MAC_INST_t *mac,
         window_slots = 10; // TODO window length hardcoded to 10 at gNB for NTN
         check_valid = is_window_valid(mac, window_slots, abs_slot);
         if (check_valid && (config->si_WindowPosition - 1) == slot)
-          return search_space_monitoring_ocasion_other_si(mac, ss, abs_slot, frame, slot, slots_per_frame, bwp_id);
+          return search_space_monitoring_ocasion_other_si(mac, ss, abs_slot, frame, slot, slots_per_frame);
         break;
       default :
         AssertFatal(false, "Invalid SI-SchedulingInfo case\n");
