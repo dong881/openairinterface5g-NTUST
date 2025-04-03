@@ -255,41 +255,13 @@ void openair_rrc_gNB_configuration(gNB_RRC_INST *rrc, gNB_RrcConfigurationReq *c
   RB_INIT(&rrc->cuups);
   RB_INIT(&rrc->dus);
   rrc->configuration = *configuration;
-
-  if (get_softmodem_params()->phy_test > 0 || get_softmodem_params()->do_ra > 0) {
-    AssertFatal(NODE_IS_MONOLITHIC(rrc->node_type), "phy_test and do_ra only work in monolithic\n");
-    rrc_gNB_ue_context_t *ue_context_p = rrc_gNB_allocate_new_ue_context(rrc);
-    LOG_I(NR_RRC,"Adding new user (%p)\n",ue_context_p);
-    if (!NODE_IS_CU(rrc->node_type)) {
-      rrc_add_nsa_user(rrc,ue_context_p,NULL);
-    }
-  }
 }
 
 static void rrc_gNB_process_AdditionRequestInformation(const module_id_t gnb_mod_idP, x2ap_ENDC_sgnb_addition_req_t *m)
 {
-  struct NR_CG_ConfigInfo *cg_configinfo = NULL;
-  asn_dec_rval_t dec_rval = uper_decode_complete(NULL,
-                            &asn_DEF_NR_CG_ConfigInfo,
-                            (void **)&cg_configinfo,
-                            (uint8_t *)m->rrc_buffer,
-                            (int) m->rrc_buffer_size);//m->rrc_buffer_size);
-  gNB_RRC_INST         *rrc=RC.nrrrc[gnb_mod_idP];
-
-  if ((dec_rval.code != RC_OK) && (dec_rval.consumed == 0)) {
-    AssertFatal(1==0,"NR_UL_DCCH_MESSAGE decode error\n");
-    // free the memory
-    SEQUENCE_free(&asn_DEF_NR_CG_ConfigInfo, cg_configinfo, 1);
-    return;
-  }
-
-  xer_fprint(stdout,&asn_DEF_NR_CG_ConfigInfo, cg_configinfo);
-  // recreate enough of X2 EN-DC Container
-  AssertFatal(cg_configinfo->criticalExtensions.choice.c1->present == NR_CG_ConfigInfo__criticalExtensions__c1_PR_cg_ConfigInfo,
-              "ueCapabilityInformation not present\n");
-  parse_CG_ConfigInfo(rrc,cg_configinfo,m);
-  LOG_I(NR_RRC, "Successfully parsed CG_ConfigInfo of size %zu bits. (%zu bytes)\n",
-        dec_rval.consumed, (dec_rval.consumed +7/8));
+  gNB_RRC_INST *rrc = RC.nrrrc[gnb_mod_idP];
+  AssertFatal(NODE_IS_MONOLITHIC(rrc->node_type), "NSA, phy_test, and do_ra only work in monolithic\n");
+  rrc_add_nsa_user(rrc, m);
 }
 
 //-----------------------------------------------------------------------------
@@ -2182,6 +2154,11 @@ static void rrc_CU_process_ue_context_setup_response(MessageDef *msg_p, instance
   UE->masterCellGroup = cellGroupConfig;
   if (LOG_DEBUGFLAG(DEBUG_ASN1))
     xer_fprint(stdout, &asn_DEF_NR_CellGroupConfig, UE->masterCellGroup);
+
+  if (!IS_SA_MODE(get_softmodem_params())) {
+    rrc_add_nsa_user_resp(rrc, UE, resp);
+    return;
+  }
 
   if (resp->drbs_to_be_setup_length > 0) {
     int num_drb = get_number_active_drbs(UE);
