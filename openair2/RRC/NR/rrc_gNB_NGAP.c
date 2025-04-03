@@ -1384,7 +1384,7 @@ int rrc_gNB_process_NGAP_PDUSESSION_RELEASE_COMMAND(MessageDef *msg_p, instance_
   uint32_t gNB_ue_ngap_id;
   ngap_pdusession_release_command_t *cmd = &NGAP_PDUSESSION_RELEASE_COMMAND(msg_p);
   gNB_ue_ngap_id = cmd->gNB_ue_ngap_id;
-  if (cmd->nb_pdusessions_torelease > NGAP_MAX_PDUSESSION) {
+  if (cmd->nb_pdusessions_torelease > NGAP_MAX_PDU_SESSION) {
     LOG_E(NR_RRC, "incorrect number of pdu session do release %d\n", cmd->nb_pdusessions_torelease);
     return -1;
   }

@@ -71,9 +71,6 @@
 
 //-------------------------------------------------------------------------------------------//
 
-// maxnoofPDUSessions in 3GPP TS 38.413
-#define NGAP_MAX_PDUSESSION 16 // 256 according to specs
-
 /* Length of the transport layer address string
  * 160 bits / 8 bits by char.
  */
@@ -548,12 +545,12 @@ typedef struct ngap_initial_context_setup_resp_s {
   /* Number of pdusession setup-ed in the list */
   uint8_t       nb_of_pdusessions;
   /* list of pdusession setup-ed by RRC layers */
-  pdusession_setup_t pdusessions[NGAP_MAX_PDUSESSION];
+  pdusession_setup_t pdusessions[NGAP_MAX_PDU_SESSION];
 
   /* Number of pdusession failed to be setup in list */
   uint8_t        nb_of_pdusessions_failed;
   /* list of pdusessions that failed to be setup */
-  pdusession_failed_t pdusessions_failed[NGAP_MAX_PDUSESSION];
+  pdusession_failed_t pdusessions_failed[NGAP_MAX_PDU_SESSION];
 } ngap_initial_context_setup_resp_t;
 
 typedef struct ngap_initial_context_setup_fail_s {
@@ -633,7 +630,7 @@ typedef struct ngap_initial_context_setup_req_s {
   /* Number of pdusession to be setup in the list */
   uint8_t  nb_of_pdusessions;
   /* list of pdusession to be setup by RRC layers */
-  pdusession_t  pdusession_param[NGAP_MAX_PDUSESSION];
+  pdusession_t  pdusession_param[NGAP_MAX_PDU_SESSION];
 
   /* Mobility Restriction List */
   uint8_t                        mobility_restriction_flag;
@@ -689,7 +686,7 @@ typedef struct ngap_pdusession_setup_req_s {
   uint8_t nb_pdusessions_tosetup;
 
   /* E RAB setup request */
-  pdusession_t pdusession_setup_params[NGAP_MAX_PDUSESSION];
+  pdusession_t pdusession_setup_params[NGAP_MAX_PDU_SESSION];
 
   /* UE Uplink Aggregated Max Bitrates */
   uint64_t ueAggMaxBitRateUplink;
@@ -704,12 +701,12 @@ typedef struct ngap_pdusession_setup_resp_s {
   /* Number of pdusession setup-ed in the list */
   uint8_t       nb_of_pdusessions;
   /* list of pdusession setup-ed by RRC layers */
-  pdusession_setup_t pdusessions[NGAP_MAX_PDUSESSION];
+  pdusession_setup_t pdusessions[NGAP_MAX_PDU_SESSION];
 
   /* Number of pdusession failed to be setup in list */
   uint8_t        nb_of_pdusessions_failed;
   /* list of pdusessions that failed to be setup */
-  pdusession_failed_t pdusessions_failed[NGAP_MAX_PDUSESSION];
+  pdusession_failed_t pdusessions_failed[NGAP_MAX_PDU_SESSION];
 } ngap_pdusession_setup_resp_t;
 
 typedef struct ngap_path_switch_req_s {
@@ -719,7 +716,7 @@ typedef struct ngap_path_switch_req_s {
   uint8_t       nb_of_pdusessions;
 
   /* list of pdusession setup-ed by RRC layers */
-  pdusession_setup_t pdusessions_tobeswitched[NGAP_MAX_PDUSESSION];
+  pdusession_setup_t pdusessions_tobeswitched[NGAP_MAX_PDU_SESSION];
 
   /* AMF UE id  */
   uint64_t amf_ue_ngap_id;
@@ -749,13 +746,13 @@ typedef struct ngap_path_switch_req_ack_s {
   uint8_t       nb_pdusessions_tobeswitched;
 
   /* list of pdusession to be switched by RRC layers */
-  pdusession_tobeswitched_t pdusessions_tobeswitched[NGAP_MAX_PDUSESSION];
+  pdusession_tobeswitched_t pdusessions_tobeswitched[NGAP_MAX_PDU_SESSION];
 
   /* Number of pdusessions to be released by RRC */
   uint8_t        nb_pdusessions_tobereleased;
 
   /* list of pdusessions to be released */
-  pdusession_failed_t pdusessions_tobereleased[NGAP_MAX_PDUSESSION];
+  pdusession_failed_t pdusessions_tobereleased[NGAP_MAX_PDU_SESSION];
 
   /* Security key */
   int     next_hop_chain_count;
@@ -776,9 +773,9 @@ typedef struct ngap_pdusession_modification_ind_s {
   uint8_t       nb_of_pdusessions_nottobemodified;
 
   /* list of pdusession setup-ed by RRC layers */
-  pdusession_setup_t pdusessions_tobemodified[NGAP_MAX_PDUSESSION];
+  pdusession_setup_t pdusessions_tobemodified[NGAP_MAX_PDU_SESSION];
 
-  pdusession_setup_t pdusessions_nottobemodified[NGAP_MAX_PDUSESSION];
+  pdusession_setup_t pdusessions_nottobemodified[NGAP_MAX_PDU_SESSION];
 
   uint16_t ue_initial_id;
 
@@ -805,7 +802,7 @@ typedef struct ngap_ue_release_req_s {
   /* Number of pdusession resource in the list */
   uint8_t              nb_of_pdusessions;
   /* list of pdusession resource by RRC layers */
-  pdusession_release_t pdusessions[NGAP_MAX_PDUSESSION];
+  pdusession_release_t pdusessions[NGAP_MAX_PDU_SESSION];
   ngap_cause_t cause;
 } ngap_ue_release_req_t, ngap_ue_release_resp_t;
 
@@ -820,7 +817,7 @@ typedef struct ngap_pdusession_modify_req_s {
   uint8_t nb_pdusessions_tomodify;
 
   /* pdu session modify request */
-  pdusession_t pdusession_modify_params[NGAP_MAX_PDUSESSION];
+  pdusession_t pdusession_modify_params[NGAP_MAX_PDU_SESSION];
 } ngap_pdusession_modify_req_t;
 
 typedef struct ngap_pdusession_modify_resp_s {
@@ -829,12 +826,12 @@ typedef struct ngap_pdusession_modify_resp_s {
   /* Number of pdusession modify-ed in the list */
   uint8_t       nb_of_pdusessions;
   /* list of pdusession modify-ed by RRC layers */
-  pdusession_modify_t pdusessions[NGAP_MAX_PDUSESSION];
+  pdusession_modify_t pdusessions[NGAP_MAX_PDU_SESSION];
 
   /* Number of pdusession failed to be modify in list */
   uint8_t        nb_of_pdusessions_failed;
   /* list of pdusessions that failed to be modify */
-  pdusession_failed_t pdusessions_failed[NGAP_MAX_PDUSESSION];
+  pdusession_failed_t pdusessions_failed[NGAP_MAX_PDU_SESSION];
 } ngap_pdusession_modify_resp_t;
 
 typedef struct ngap_pdusession_release_command_s {
@@ -851,7 +848,7 @@ typedef struct ngap_pdusession_release_command_s {
   uint8_t                        nb_pdusessions_torelease;
 
   /* PDUSession release command */
-  pdusession_release_t pdusession_release_params[NGAP_MAX_PDUSESSION];
+  pdusession_release_t pdusession_release_params[NGAP_MAX_PDU_SESSION];
 
 } ngap_pdusession_release_command_t;
 
@@ -866,12 +863,12 @@ typedef struct ngap_pdusession_release_resp_s {
   uint8_t              nb_of_pdusessions_released;
 
   /* list of pdusessions released */
-  pdusession_release_t pdusession_release[NGAP_MAX_PDUSESSION];
+  pdusession_release_t pdusession_release[NGAP_MAX_PDU_SESSION];
 
   /* Number of pdusession failed to be released in list */
   uint8_t              nb_of_pdusessions_failed;
   /* list of pdusessions that failed to be released */
-  pdusession_failed_t  pdusessions_failed[NGAP_MAX_PDUSESSION];
+  pdusession_failed_t  pdusessions_failed[NGAP_MAX_PDU_SESSION];
 
 } ngap_pdusession_release_resp_t;
 
