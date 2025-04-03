@@ -312,28 +312,6 @@ void mac_top_init_gNB(ngran_node_t node_type,
 
     // These should be out of here later
     if (get_softmodem_params()->usim_test == 0 ) nr_pdcp_layer_init();
-
-    if(IS_SOFTMODEM_NOS1 && get_softmodem_params()->phy_test) {
-      // get default noS1 configuration
-      NR_RadioBearerConfig_t *rbconfig = NULL;
-      NR_RLC_BearerConfig_t *rlc_rbconfig = NULL;
-      fill_nr_noS1_bearer_config(&rbconfig, &rlc_rbconfig);
-
-      /* Note! previously, in nr_DRB_preconfiguration(), we passed ENB_FLAG_NO
-       * if ENB_NAS_USE_TUN was *not* set. It seems to me that we could not set
-       * this flag anywhere in the code, hence we would always configure PDCP
-       * with ENB_FLAG_NO in nr_DRB_preconfiguration(). This makes sense for
-       * noS1, because the result of passing ENB_FLAG_NO to PDCP is that PDCP
-       * will output the packets at a local interface, which is in line with
-       * the noS1 mode.  Hence, below, we simply hardcode ENB_FLAG_NO */
-      // setup PDCP, RLC
-      nr_pdcp_entity_security_keys_and_algos_t null_security_parameters = {0};
-      nr_pdcp_add_drbs(ENB_FLAG_NO, 0x1234, rbconfig->drb_ToAddModList, &null_security_parameters);
-
-      // free memory
-      free_nr_noS1_bearer_config(&rbconfig, &rlc_rbconfig);
-    }
-
   } else {
     RC.nrmac = NULL;
   }

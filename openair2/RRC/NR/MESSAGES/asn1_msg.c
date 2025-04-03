@@ -425,32 +425,6 @@ NR_RadioBearerConfig_t *get_default_rbconfig(int eps_bearer_id,
   return rbconfig;
 }
 
-void fill_nr_noS1_bearer_config(NR_RadioBearerConfig_t **rbconfig,
-                                NR_RLC_BearerConfig_t **rlc_rbconfig)
-{
-  /* the EPS bearer ID is arbitrary; the rb_id is 1/the first DRB, it needs to
-   * match the one in get_DRB_RLC_BearerConfig(). No ciphering is to be
-   * configured */
-  *rbconfig = get_default_rbconfig(10, 1, NR_CipheringAlgorithm_nea0, NR_SecurityConfig__keyToUse_master);
-  AssertFatal(*rbconfig != NULL, "get_default_rbconfig() failed\n");
-  /* LCID is 4 because the RLC layer requires it to be 3+rb_id; the rb_id 1 is
-   * common with get_default_rbconfig() (first RB). We pre-configure RLC UM
-   * Bi-directional, priority is 1 */
-  *rlc_rbconfig = get_DRB_RLC_BearerConfig(4, 1, NR_RLC_Config_PR_um_Bi_Directional, 1);
-  AssertFatal(*rlc_rbconfig != NULL, "get_DRB_RLC_BearerConfig() failed\n");
-}
-
-void free_nr_noS1_bearer_config(NR_RadioBearerConfig_t **rbconfig,
-                                NR_RLC_BearerConfig_t **rlc_rbconfig)
-{
-  ASN_STRUCT_FREE(asn_DEF_NR_RadioBearerConfig, *rbconfig);
-  *rbconfig = NULL;
-  if (rlc_rbconfig != NULL) {
-    ASN_STRUCT_FREE(asn_DEF_NR_RLC_BearerConfig, *rlc_rbconfig);
-    *rlc_rbconfig = NULL;
-  }
-}
-
 //------------------------------------------------------------------------------
 int do_RRCSetup(uint8_t *const buffer,
                 size_t buffer_size,
