@@ -221,6 +221,8 @@ void rrc_add_nsa_user(gNB_RRC_INST *rrc, x2ap_ENDC_sgnb_addition_req_t *m)
 
   if(m!=NULL) {
 
+    UE->x2_target_assoc = m->target_assoc_id;
+    UE->MeNB_ue_x2_id = m->ue_x2_id;
     gtpv1u_enb_create_tunnel_req_t  create_tunnel_req = {0};
     gtpv1u_enb_create_tunnel_resp_t create_tunnel_resp = {0};
     if (m->nb_e_rabs_tobeadded>0) {
@@ -309,54 +311,37 @@ void rrc_add_nsa_user_resp(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const f1ap_ue_co
   reconfig->criticalExtensions.present = NR_RRCReconfiguration__criticalExtensions_PR_rrcReconfiguration;
   reconfig->criticalExtensions.choice.rrcReconfiguration = get_default_reconfig(UE->masterCellGroup);
 
-  /*NR_CG_Config_t *CG_Config =*/ generate_CG_Config(reconfig, UE->rb_config);
+  NR_CG_Config_t *CG_Config = generate_CG_Config(reconfig, UE->rb_config);
 
+  if (get_softmodem_params()->phy_test > 0 || get_softmodem_params()->do_ra > 0) {
+    /* we are done, no X2 answer necessary */
+    ASN_STRUCT_FREE(asn_DEF_NR_CG_Config, CG_Config);
+    return;
+  }
 
-  /*
-  MessageDef *msg;
-  msg = itti_alloc_new_message(TASK_RRC_ENB, 0, X2AP_ENDC_SGNB_ADDITION_REQ_ACK);
-      X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).nb_e_rabs_admitted_tobeadded = m->nb_e_rabs_tobeadded;
-      X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).target_assoc_id = m->target_assoc_id;
+  MessageDef *msg = itti_alloc_new_message(TASK_RRC_ENB, 0, X2AP_ENDC_SGNB_ADDITION_REQ_ACK);
+  x2ap_ENDC_sgnb_addition_req_ACK_t *ack = &X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg);
 
-      for (int i = 0; i < UE->nb_of_e_rabs; i++) {
-        X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).e_rabs_admitted_tobeadded[i].e_rab_id = UE->e_rab[i].param.e_rab_id;
-        X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).e_rabs_admitted_tobeadded[i].gtp_teid = create_tunnel_resp.enb_S1u_teid[i];
-        memcpy(&X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).e_rabs_admitted_tobeadded[i].gnb_addr, &create_tunnel_resp.enb_addr, sizeof(transport_layer_addr_t));
-        //The length field in the X2AP targetting structure is expected in bits but the create_tunnel_resp returns the address length in bytes
-        X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).e_rabs_admitted_tobeadded[i].gnb_addr.length = create_tunnel_resp.enb_addr.length*8;
-        LOG_I(RRC,"S1-U create_tunnel_resp tunnel: index %d target gNB ip %d.%d.%d.%d length %d gtp teid %u\n",
-              i,
-              create_tunnel_resp.enb_addr.buffer[0],
-              create_tunnel_resp.enb_addr.buffer[1],
-              create_tunnel_resp.enb_addr.buffer[2],
-              create_tunnel_resp.enb_addr.buffer[3],
-              create_tunnel_resp.enb_addr.length,
-              create_tunnel_resp.enb_S1u_teid[i]);
-        LOG_I(RRC,"X2AP sGNB Addition Request: index %d target gNB ip %d.%d.%d.%d length %d gtp teid %u\n",
-              i,
-              X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).e_rabs_admitted_tobeadded[i].gnb_addr.buffer[0],
-              X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).e_rabs_admitted_tobeadded[i].gnb_addr.buffer[1],
-              X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).e_rabs_admitted_tobeadded[i].gnb_addr.buffer[2],
-              X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).e_rabs_admitted_tobeadded[i].gnb_addr.buffer[3],
-              X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).e_rabs_admitted_tobeadded[i].gnb_addr.length,
-              X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).e_rabs_admitted_tobeadded[i].gtp_teid);
-      }
-    } else
-      LOG_W(RRC, "No E-RAB to be added received from SgNB Addition Request message \n");
+  ack->nb_e_rabs_admitted_tobeadded = UE->nb_of_e_rabs;
+  DevAssert(UE->x2_target_assoc > 0);
+  ack->target_assoc_id = UE->x2_target_assoc;
 
-    X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).MeNB_ue_x2_id = m->ue_x2_id;
-    X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).SgNB_ue_x2_id = secondaryCellGroup->spCellConfig->reconfigurationWithSync->newUE_Identity;
-    //X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).rrc_buffer_size = CG_Config_size; //Need to verify correct value for the buffer_size
-    // Send to X2 entity to transport to MeNB
-    asn_enc_rval_t enc_rval = uper_encode_to_buffer(&asn_DEF_NR_CG_Config,
-                              NULL,
-                              (void *)CG_Config,
-                              X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).rrc_buffer,
-                              sizeof(X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).rrc_buffer));
-    X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).rrc_buffer_size = (enc_rval.encoded+7)>>3;
-    itti_send_msg_to_task(TASK_X2AP, ENB_MODULE_ID_TO_INSTANCE(0), msg); //Check right id instead of hardcoding
-                                                                         */
+  for (int i = 0; i < UE->nb_of_e_rabs; i++) {
+    ack->e_rabs_admitted_tobeadded[i].e_rab_id = UE->e_rab[i].param.e_rab_id;
+    ack->e_rabs_admitted_tobeadded[i].gtp_teid = UE->nsa_gtp_teid[0];
+    memcpy(&ack->e_rabs_admitted_tobeadded[i].gnb_addr, &UE->nsa_gtp_addrs[0], sizeof(transport_layer_addr_t));
+    ack->e_rabs_admitted_tobeadded[i].gnb_addr.length = 32; // bits, IPv4 only
+  }
 
+  ack->MeNB_ue_x2_id = UE->MeNB_ue_x2_id;
+  ack->SgNB_ue_x2_id = UE->rrc_ue_id;
+
+  // Send to X2 entity to transport to MeNB
+  asn_enc_rval_t enc_rval =
+      uper_encode_to_buffer(&asn_DEF_NR_CG_Config, NULL, (void *)CG_Config, ack->rrc_buffer, sizeof(ack->rrc_buffer));
+  ack->rrc_buffer_size = (enc_rval.encoded + 7) >> 3;
+  itti_send_msg_to_task(TASK_X2AP, ENB_MODULE_ID_TO_INSTANCE(0), msg);
+  ASN_STRUCT_FREE(asn_DEF_NR_CG_Config, CG_Config);
 }
 
 void rrc_remove_nsa_user(gNB_RRC_INST *rrc, int rnti) {
