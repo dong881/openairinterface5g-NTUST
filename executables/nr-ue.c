@@ -881,13 +881,12 @@ static inline int get_readBlockSize(uint16_t slot, NR_DL_FRAME_PARMS *fp) {
 static inline void apply_ntn_config(PHY_VARS_NR_UE *UE,
                                     NR_DL_FRAME_PARMS *fp,
                                     int slot_nr,
-                                    bool *update_ntn_system_information,
                                     int *duration_rx_to_tx,
                                     int *timing_advance,
                                     int *ntn_koffset)
 {
-  if (*update_ntn_system_information) {
-    *update_ntn_system_information = false;
+  if (UE->ntn_config_message->update) {
+    UE->ntn_config_message->update = false;
 
     double total_ta_ms = UE->ntn_config_message->ntn_config_params.ntn_total_time_advance_ms;
     UE->timing_advance = fp->samples_per_subframe * total_ta_ms;
@@ -969,9 +968,7 @@ void *UE_thread(void *arg)
 
   double ntn_init_time_drift = get_nrUE_params()->ntn_init_time_drift;
   int ntn_koffset = 0;
-
   int duration_rx_to_tx = NR_UE_CAPABILITY_SLOT_RX_TO_TX;
-  bool update_ntn_system_information = false;
 
   while (!oai_exit) {
     if (syncRunning) {
@@ -1098,11 +1095,6 @@ void *UE_thread(void *arg)
     absolute_slot++;
     TracyCFrameMark;
 
-    if (UE->ntn_config_message->update) {
-      UE->ntn_config_message->update = false;
-      update_ntn_system_information = true;
-    }
-
     int slot_nr = absolute_slot % nb_slot_frame;
     nr_rxtx_thread_data_t curMsg = {0};
     curMsg.UE=UE;
@@ -1192,8 +1184,8 @@ void *UE_thread(void *arg)
       shiftForNextFrame = ret;
     pushNotifiedFIFO(&UE->dl_actors[curMsg.proc.nr_slot_rx % NUM_DL_ACTORS].fifo, newRx);
 
-    // apply new duration next run to avoid thread dead lock
-    apply_ntn_config(UE, fp, slot_nr, &update_ntn_system_information, &duration_rx_to_tx, &timing_advance, &ntn_koffset);
+    // apply new NTN timing information
+    apply_ntn_config(UE, fp, slot_nr, &duration_rx_to_tx, &timing_advance, &ntn_koffset);
 
     // Start TX slot processing here. It runs in parallel with RX slot processing
     // in current code, DURATION_RX_TO_TX constant is the limit to get UL data to encode from a RX slot
