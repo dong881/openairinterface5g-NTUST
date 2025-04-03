@@ -221,9 +221,9 @@ typedef struct gNB_RRC_UE_s {
 
   ngap_security_capabilities_t       security_capabilities;
   //NSA block
-  /* Number of NSA e_rab */
+  sctp_assoc_t x2_target_assoc;
+  int MeNB_ue_x2_id;
   int                                nb_of_e_rabs;
-  /* list of pdu session to be setup by RRC layers */
   nr_e_rab_param_t                   e_rab[NB_RB_MAX];//[S1AP_MAX_E_RAB];
   uint32_t                           nsa_gtp_teid[S1AP_MAX_E_RAB];
   transport_layer_addr_t             nsa_gtp_addrs[S1AP_MAX_E_RAB];
