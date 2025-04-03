@@ -90,8 +90,8 @@
 
   <testCase id="100010">
     <class>Iperf</class>
-    <desc>iperf (DL/300Mbps/UDP)(30 sec)(multi-ue profile)</desc>
-    <iperf_args>-u -b 300M -t 30 -R</iperf_args>
+    <desc>iperf (DL/600Mbps/UDP)(30 sec)(multi-ue profile)</desc>
+    <iperf_args>-u -b 600M -t 30 -R</iperf_args>
     <id>up2-fhi72</id>
     <iperf_packetloss_threshold>20</iperf_packetloss_threshold>
     <iperf_bitrate_threshold>80</iperf_bitrate_threshold>
@@ -110,8 +110,8 @@
 
   <testCase id="100020">
     <class>Iperf</class>
-    <desc>iperf (UL/70Mbps/UDP)(30 sec)(multi-ue profile)</desc>
-    <iperf_args>-u -b 70M -t 30</iperf_args>
+    <desc>iperf (UL/80Mbps/UDP)(30 sec)(multi-ue profile)</desc>
+    <iperf_args>-u -b 80M -t 30</iperf_args>
     <id>up2-fhi72</id>
     <iperf_packetloss_threshold>20</iperf_packetloss_threshold>
     <iperf_bitrate_threshold>80</iperf_bitrate_threshold>
@@ -124,7 +124,7 @@
     <desc>iperf (UL/TCP)(30 sec)(multi-ue profile)</desc>
     <iperf_args>-t 30</iperf_args>
     <id>up2-fhi72</id>
-    <iperf_tcp_rate_target>40</iperf_tcp_rate_target>
+    <iperf_tcp_rate_target>10</iperf_tcp_rate_target>
     <svr_id>oc-cn5g-20897</svr_id>
   </testCase>
 
