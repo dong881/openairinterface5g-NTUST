@@ -71,6 +71,7 @@
 #include "x2ap_messages_types.h"
 #include "xer_decoder.h"
 #include "xer_encoder.h"
+#include "f1ap_common.h"
 
 // In case of phy-test and do-ra mode, read UE capabilities directly from file
 // and put it into a CG-ConfigInfo field
@@ -114,16 +115,22 @@ static int cg_config_info_from_ue_cap_file(uint32_t maxlen, uint8_t buf[maxlen])
   return (rval.encoded + 7) >> 3;
 }
 
+static instance_t get_f1_gtp_instance(void)
+{
+  const f1ap_cudu_inst_t *inst = getCxt(0);
+  if (!inst)
+    return -1; // means no F1
+  return inst->gtpInst;
+}
+
 /* generate prototypes for the tree management functions (RB_INSERT used in rrc_add_nsa_user) */
 RB_PROTOTYPE(rrc_nr_ue_tree_s, rrc_gNB_ue_context_s, entries,
              rrc_gNB_compare_ue_rnti_id);
 
-void rrc_add_nsa_user(gNB_RRC_INST *rrc, x2ap_ENDC_sgnb_addition_req_t *m)
+void rrc_add_nsa_user(gNB_RRC_INST *rrc, x2ap_ENDC_sgnb_addition_req_t *m, sctp_assoc_t assoc_id)
 {
   AssertFatal(!IS_SA_MODE(get_softmodem_params()), "%s() cannot be called in SA mode, it is intrinsically for NSA\n", __func__);
-  AssertFatal(NODE_IS_MONOLITHIC(rrc->node_type), "NSA, phy_test and do_ra only work in monolithic\n");
 
-  sctp_assoc_t assoc_id = -1; /* integrated DU, hardcoded: if multiple we would not know what to do? */
   /* all the 0 are DU-related info that we will fill later, see rrc_add_nsa_user_resp() below */
   rrc_gNB_ue_context_t *ue_context_p = rrc_gNB_create_ue_context(assoc_id, 0, rrc, 0, 0);
   gNB_RRC_UE_t *UE = &ue_context_p->ue_context;
@@ -273,12 +280,36 @@ void rrc_add_nsa_user(gNB_RRC_INST *rrc, x2ap_ENDC_sgnb_addition_req_t *m)
   /* assumption: only a single bearer, see above */
   NR_DRB_ToAddModList_t *rb_list = UE->rb_config->drb_ToAddModList;
   AssertFatal(rb_list->list.count == 1, "can only handle one bearer for NSA/phy-test/do-ra, but has %d\n", rb_list->list.count);
+  int drb_id = rb_list->list.array[0]->drb_Identity;
+  f1ap_flows_mapped_to_drb_t *flow = calloc(1, sizeof(f1ap_flows_mapped_to_drb_t));
+  flow->qos_params.qos_characteristics.qos_type = NON_DYNAMIC;
+  flow->qfi = flow->qos_params.qos_characteristics.non_dynamic.fiveqi = 9;
   f1ap_drb_to_be_setup_t drbs = {
-      .drb_id = rb_list->list.array[0]->drb_Identity,
+      .drb_id = drb_id,
       .rlc_mode = F1AP_RLC_MODE_UM_BIDIR, // hardcoded keep it backwards compatible for now
       // rrc->configuration.um_on_default_drb ? F1AP_RLC_MODE_UM_BIDIR : F1AP_RLC_MODE_AM,
       .up_ul_tnl_length = 1,
+      .drb_info.flows_to_be_setup_length = 1,
+      .drb_info.flows_mapped_to_drb = flow,
   };
+  // Note: E1 support for NSA/phy-test/do-ra not implemented yet
+  instance_t f1inst = get_f1_gtp_instance();
+  if (f1inst >= 0) {
+      gtpv1u_gnb_create_tunnel_req_t req = {
+        .ue_id = UE->rrc_ue_id,
+        .incoming_rb_id[0] = drb_id,
+        .pdusession_id[0] = drb_id,
+        .outgoing_teid[0] = 0xffff, // will be updated later
+        .dst_addr[0].length = 32,
+        .num_tunnels = 1,
+      };
+      gtpv1u_gnb_create_tunnel_resp_t resp = {0};
+      int ret = gtpv1u_create_ngu_tunnel(f1inst, &req, &resp, NULL, NULL);
+      AssertFatal(ret == 0, "gtpv1u_create_ngu_tunnel failed: ret %d\n", ret);
+      drbs.up_ul_tnl[0].port = rrc->eth_params_s.my_portd;
+      memcpy(&drbs.up_ul_tnl[0].tl_address, &resp.gnb_addr.buffer, 4);
+      drbs.up_ul_tnl[0].teid = resp.gnb_NGu_teid[0];
+  }
   f1ap_ue_context_setup_t req = {
       .gNB_CU_ue_id = UE->rrc_ue_id,
       .gNB_DU_ue_id = 0xffffffff, /* not known yet */
@@ -363,6 +394,19 @@ void rrc_add_nsa_user_resp(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const f1ap_ue_co
   bool success = cu_update_f1_ue_data(UE->rrc_ue_id, &ue_data);
   DevAssert(success);
 
+  instance_t f1inst = get_f1_gtp_instance();
+  if (f1inst >= 0) {
+    // Note: E1 support for NSA/phy-test/do-ra not implemented yet
+    // so set up GTP from here
+    for (int i = 0; i < resp->drbs_to_be_setup_length; ++i) {
+      f1ap_drb_to_be_setup_t *drb = &resp->drbs_to_be_setup[i];
+      DevAssert(drb->up_dl_tnl_length == 1);
+      in_addr_t addr = drb->up_dl_tnl[0].tl_address;
+      uint32_t teid = drb->up_dl_tnl[0].teid;
+      GtpuUpdateTunnelOutgoingAddressAndTeid(f1inst, UE->rrc_ue_id, drb->drb_id, addr, teid);
+    }
+  }
+
   NR_RRCReconfiguration_t *reconfig = calloc(1, sizeof(NR_RRCReconfiguration_t));
   reconfig->rrc_TransactionIdentifier = 0;
   reconfig->criticalExtensions.present = NR_RRCReconfiguration__criticalExtensions_PR_rrcReconfiguration;
@@ -405,6 +449,9 @@ void rrc_remove_nsa_user_context(gNB_RRC_INST *rrc, rrc_gNB_ue_context_t *ue_con
 {
   if (!IS_SOFTMODEM_NOS1)
     gtpv1u_delete_all_s1u_tunnel(rrc->module_id, ue_context->ue_context.rrc_ue_id);
+  instance_t f1inst = get_f1_gtp_instance();
+  if (f1inst >= 0)
+    gtpv1u_delete_all_s1u_tunnel(f1inst, ue_context->ue_context.rrc_ue_id);
   // we don't use E1 => we have to free SDAP
   nr_sdap_delete_ue_entities(ue_context->ue_context.rrc_ue_id);
   rrc_remove_ue(rrc, ue_context);

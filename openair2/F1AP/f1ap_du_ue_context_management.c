@@ -178,6 +178,11 @@ int DU_handle_UE_CONTEXT_SETUP_REQUEST(instance_t instance, sctp_assoc_t assoc_i
     f1ap_ue_context_setup_req->cu_to_du_rrc_information = (cu_to_du_rrc_information_t *)calloc(1,sizeof(cu_to_du_rrc_information_t));
     cu_to_du_rrc_information_t *cu2du = f1ap_ue_context_setup_req->cu_to_du_rrc_information;
     const F1AP_CUtoDURRCInformation_t *cu2duie = &ieCuRrcInfo->value.choice.CUtoDURRCInformation;
+    if (cu2duie->cG_ConfigInfo != NULL) {
+      cu2du->cG_ConfigInfo = malloc_or_fail(cu2duie->cG_ConfigInfo->size);
+      cu2du->cG_ConfigInfo_length = cu2duie->cG_ConfigInfo->size;
+      memcpy(cu2du->cG_ConfigInfo, cu2duie->cG_ConfigInfo->buf, cu2du->cG_ConfigInfo_length);
+    }
     if(cu2duie->uE_CapabilityRAT_ContainerList!=NULL){
       cu2du->uE_CapabilityRAT_ContainerList = calloc(1, cu2duie->uE_CapabilityRAT_ContainerList->size);
       memcpy(cu2du->uE_CapabilityRAT_ContainerList,

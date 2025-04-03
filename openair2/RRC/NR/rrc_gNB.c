@@ -261,7 +261,8 @@ static void rrc_gNB_process_AdditionRequestInformation(const module_id_t gnb_mod
 {
   gNB_RRC_INST *rrc = RC.nrrrc[gnb_mod_idP];
   AssertFatal(NODE_IS_MONOLITHIC(rrc->node_type), "NSA, phy_test, and do_ra only work in monolithic\n");
-  rrc_add_nsa_user(rrc, m);
+  sctp_assoc_t assoc_id = -1; // monolithic gNB
+  rrc_add_nsa_user(rrc, m, assoc_id);
 }
 
 //-----------------------------------------------------------------------------

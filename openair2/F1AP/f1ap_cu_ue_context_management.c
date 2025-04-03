@@ -262,11 +262,13 @@ int CU_send_UE_CONTEXT_SETUP_REQUEST(sctp_assoc_t assoc_id, f1ap_ue_context_setu
   if (f1ap_ue_context_setup_req->cu_to_du_rrc_information!=NULL) {
     /* optional */
     /* 6.1 cG_ConfigInfo */
-    if(f1ap_ue_context_setup_req->cu_to_du_rrc_information->cG_ConfigInfo!=NULL){
+    if(f1ap_ue_context_setup_req->cu_to_du_rrc_information->cG_ConfigInfo_length > 0) {
+      DevAssert(f1ap_ue_context_setup_req->cu_to_du_rrc_information->cG_ConfigInfo != NULL);
       asn1cCalloc(ie6->value.choice.CUtoDURRCInformation.cG_ConfigInfo, cG_ConfigInfo);
       OCTET_STRING_fromBuf(cG_ConfigInfo, (const char *)f1ap_ue_context_setup_req->cu_to_du_rrc_information->cG_ConfigInfo,
         f1ap_ue_context_setup_req->cu_to_du_rrc_information->cG_ConfigInfo_length);
     }
+
     /* optional */
     /* 6.2 uE_CapabilityRAT_ContainerList */
     if(f1ap_ue_context_setup_req->cu_to_du_rrc_information->uE_CapabilityRAT_ContainerList!=NULL){
