@@ -60,7 +60,6 @@
 #include "openair2/F1AP/f1ap_ids.h"
 #include "openair2/LAYER2/NR_MAC_gNB/mac_proto.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
-#include "openair2/RRC/NR/rrc_gNB_GTPV1U.h"
 #include "openair3/SECU/key_nas_deriver.h"
 #include "rlc.h"
 #include "s1ap_messages_types.h"
@@ -272,9 +271,6 @@ void rrc_add_nsa_user(gNB_RRC_INST *rrc, rrc_gNB_ue_context_t *ue_context_p, x2a
   NR_CG_Config_t *CG_Config = generate_CG_Config(reconfig, UE->rb_config);
 
   if(m!=NULL) {
-    uint8_t inde_list[m->nb_e_rabs_tobeadded];
-    memset(inde_list, 0, m->nb_e_rabs_tobeadded*sizeof(uint8_t));
-
     if (m->nb_e_rabs_tobeadded>0) {
       for (int i=0; i<m->nb_e_rabs_tobeadded; i++) {
         // Add the new E-RABs at the corresponding rrc ue context of the gNB
@@ -286,7 +282,6 @@ void rrc_add_nsa_user(gNB_RRC_INST *rrc, rrc_gNB_ue_context_t *ue_context_p, x2a
         create_tunnel_req.eps_bearer_id[i] = UE->e_rab[i].param.e_rab_id;
         create_tunnel_req.sgw_S1u_teid[i] = UE->e_rab[i].param.gtp_teid;
         memcpy(&create_tunnel_req.sgw_addr[i], &UE->e_rab[i].param.sgw_addr, sizeof(transport_layer_addr_t));
-        inde_list[i] = i;
         LOG_I(RRC,"S1-U tunnel: index %d target sgw ip %d.%d.%d.%d length %d gtp teid %u\n",
               i,
               create_tunnel_req.sgw_addr[i].buffer[0],
@@ -302,9 +297,11 @@ void rrc_add_nsa_user(gNB_RRC_INST *rrc, rrc_gNB_ue_context_t *ue_context_p, x2a
       RB_INSERT(rrc_nr_ue_tree_s, &RC.nrrrc[rrc->module_id]->rrc_ue_head, ue_context_p);
       memset(&create_tunnel_resp, 0, sizeof(create_tunnel_resp));
       if (!IS_SOFTMODEM_NOS1) {
-        LOG_D(RRC, "Calling gtpv1u_create_s1u_tunnel()\n");
         gtpv1u_create_s1u_tunnel(rrc->module_id, &create_tunnel_req, &create_tunnel_resp, nr_pdcp_data_req_drb);
-        rrc_gNB_process_GTPV1U_CREATE_TUNNEL_RESP(&ue_context_p->ue_context, &create_tunnel_resp, &inde_list[0]);
+        DevAssert(create_tunnel_resp.num_tunnels == 1);
+        UE->nsa_gtp_teid[0] = create_tunnel_resp.enb_S1u_teid[0];
+        UE->nsa_gtp_addrs[0] = create_tunnel_resp.enb_addr;
+        UE->nsa_gtp_ebi[0] = create_tunnel_resp.eps_bearer_id[0];
       }
       X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).nb_e_rabs_admitted_tobeadded = m->nb_e_rabs_tobeadded;
       X2AP_ENDC_SGNB_ADDITION_REQ_ACK(msg).target_assoc_id = m->target_assoc_id;

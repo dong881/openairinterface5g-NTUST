@@ -1849,7 +1849,6 @@ INPUT                  = \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR/cucp_cuup_if.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR/cucp_cuup_direct.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR/nr_rrc_config.c \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR/rrc_gNB_GTPV1U.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR/mac_rrc_dl_direct.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR/rrc_gNB_radio_bearers.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR/rrc_gNB_NGAP.h \
@@ -1865,7 +1864,6 @@ INPUT                  = \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR/rrc_gNB_reconfig.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR/rrc_gNB_NGAP.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR/mac_rrc_dl_f1ap.c \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR/rrc_gNB_GTPV1U.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR/mac_rrc_dl.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR/rrc_gNB_nsa.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/LTE/rrc_eNB_GTPV1U.c \

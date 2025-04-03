@@ -1366,7 +1366,6 @@ include_directories("${OPENAIR1_DIR}/SCHED_NR_UE")
 ##########################
 
 add_library (GTPV1U
-  ${NR_RRC_DIR}/rrc_gNB_GTPV1U.c
   ${RRC_DIR}/rrc_eNB_GTPV1U.c
   ${OPENAIR3_DIR}/ocp-gtpu/gtp_itf.cpp
   )
