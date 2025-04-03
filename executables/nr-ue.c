@@ -971,11 +971,9 @@ void *UE_thread(void *arg)
   int ntn_koffset = 0;
 
   int duration_rx_to_tx = NR_UE_CAPABILITY_SLOT_RX_TO_TX;
-  int nr_slot_tx_offset = 0;
   bool update_ntn_system_information = false;
 
   while (!oai_exit) {
-    nr_slot_tx_offset = 0;
     if (syncRunning) {
       notifiedFIFO_elt_t *res = pollNotifiedFIFO(&nf);
 
@@ -1103,7 +1101,6 @@ void *UE_thread(void *arg)
     if (UE->ntn_config_message->update) {
       UE->ntn_config_message->update = false;
       update_ntn_system_information = true;
-      nr_slot_tx_offset = UE->ntn_config_message->ntn_config_params.cell_specific_k_offset << fp->numerology_index;
     }
 
     int slot_nr = absolute_slot % nb_slot_frame;
@@ -1207,7 +1204,7 @@ void *UE_thread(void *arg)
     curMsgTx->writeBlockSize = writeBlockSize;
     curMsgTx->proc.timestamp_tx = writeTimestamp;
     curMsgTx->UE = UE;
-    curMsgTx->proc.nr_slot_tx_offset = nr_slot_tx_offset;
+
     int slot = curMsgTx->proc.nr_slot_tx;
     int slot_and_frame = slot + curMsgTx->proc.frame_tx * UE->frame_parms.slots_per_frame;
     int next_tx_slot_and_frame = absolute_slot + duration_rx_to_tx + 1;
