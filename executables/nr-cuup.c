@@ -102,16 +102,12 @@ ngran_node_t get_node_type()
   return ngran_gNB_CUUP;
 }
 
-rlc_op_status_t rlc_data_req(const protocol_ctxt_t *const pc,
-                             const srb_flag_t sf,
-                             const MBMS_flag_t mf,
-                             const rb_id_t rb_id,
-                             const mui_t mui,
-                             const confirm_t c,
-                             const sdu_size_t size,
-                             uint8_t *const buf,
-                             const uint32_t *const a,
-                             const uint32_t *const b)
+rlc_op_status_t nr_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
+                                const srb_flag_t srb_flagP,
+                                const rb_id_t rb_idP,
+                                const mui_t muiP,
+                                sdu_size_t sdu_sizeP,
+                                uint8_t *sdu_pP)
 {
   abort();
   return 0;
@@ -121,16 +117,6 @@ int nr_rlc_get_available_tx_space(const rnti_t rntiP, const logical_chan_id_t ch
 {
   abort();
   return 0;
-}
-
-void nr_rlc_add_drb(int rnti, int drb_id, const NR_RLC_BearerConfig_t *rlc_BearerConfig)
-{
-  abort();
-}
-
-void prepare_and_send_ue_context_modification_f1(rrc_gNB_ue_context_t *ue_context_p, e1ap_bearer_setup_resp_t *e1ap_resp)
-{
-  abort();
 }
 
 f1ap_cudu_inst_t *getCxt(instance_t instanceP)
@@ -145,8 +131,6 @@ f1ap_cudu_inst_t *getCxt(instance_t instanceP)
   return &fake;
 }
 configmodule_interface_t *uniqCfg = NULL;
-
-void rrc_gNB_send_NGAP_UE_CONTEXT_RELEASE_COMPLETE(instance_t instance, uint32_t gNB_ue_ngap_id) { };
 
 int main(int argc, char **argv)
 {
