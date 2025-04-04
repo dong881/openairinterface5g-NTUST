@@ -190,12 +190,12 @@ static void rrc_deliver_dl_rrc_message(void *deliver_pdu_data, ue_id_t ue_id, in
   data->rrc->mac_rrc.dl_rrc_message_transfer(data->assoc_id, data->dl_rrc);
 }
 
-void nr_rrc_transfer_protected_rrc_message(const gNB_RRC_INST *rrc,
-                                           const gNB_RRC_UE_t *ue_p,
-                                           uint8_t srb_id,
-                                           const uint32_t message_id,
-                                           const uint8_t *buffer,
-                                           int size)
+static void nr_rrc_transfer_protected_rrc_message(const gNB_RRC_INST *rrc,
+                                                  const gNB_RRC_UE_t *ue_p,
+                                                  uint8_t srb_id,
+                                                  const uint32_t message_id,
+                                                  const uint8_t *buffer,
+                                                  int size)
 {
   DevAssert(size > 0);
   f1_ue_data_t ue_data = cu_get_f1_ue_data(ue_p->rrc_ue_id);
