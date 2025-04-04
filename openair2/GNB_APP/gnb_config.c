@@ -98,6 +98,28 @@ static int DEFRUTPCORES[] = {-1,-1,-1,-1};
     (element)->choice.setup = CALLOC(1, sizeof(*((element)->choice.setup))); \
   } while (0)
 
+static uint16_t set_snssai_config(nssai_t *nssai, const int max_num_ssi, uint8_t k, uint8_t l)
+{
+  char snssaistr[MAX_OPTNAME_SIZE * 2 + 8];
+  sprintf(snssaistr, "%s.[%i].%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, k, GNB_CONFIG_STRING_PLMN_LIST, l);
+  GET_PARAMS_LIST(SNSSAIParamList,
+                  SNSSAIParams,
+                  GNBSNSSAIPARAMS_DESC,
+                  GNB_CONFIG_STRING_SNSSAI_LIST,
+                  snssaistr,
+                  SNSSAIPARAMS_CHECK);
+  uint16_t num_ssi = SNSSAIParamList.numelt;
+  AssertFatal(num_ssi < max_num_ssi, "S-NSSAI size %d exceeds the max array size %d", num_ssi, max_num_ssi);
+  for (int s = 0; s < num_ssi; ++s) {
+    nssai[s].sst = *SNSSAIParamList.paramarray[s][GNB_SLICE_SERVICE_TYPE_IDX].uptr;
+    // SD is optional
+    // 0xffffff is "no SD", see 23.003 Sec 28.4.2
+    nssai[s].sd = *SNSSAIParamList.paramarray[s][GNB_SLICE_DIFFERENTIATOR_IDX].uptr;
+    AssertFatal(nssai[s].sd <= 0xffffff, "SD cannot be bigger than 0xffffff, but is %d\n", nssai[s].sd);
+  }
+  return num_ssi;
+}
+
 /**
  * Allocate memory and initialize ServingCellConfigCommon struct members
  */
@@ -1238,20 +1260,7 @@ static int read_du_cell_info(configmodule_interface_t *cfg,
   info->nr_cellid = (uint64_t) * (GNBParamList.paramarray[0][GNB_NRCELLID_IDX].u64ptr);
 
   // SNSSAI
-  char snssaistr[MAX_OPTNAME_SIZE * 2 + 8];
-  sprintf(snssaistr, "%s.[0].%s.[0]", GNB_CONFIG_STRING_GNB_LIST, GNB_CONFIG_STRING_PLMN_LIST);
-  GET_PARAMS_LIST(SNSSAIParamList,
-                  SNSSAIParams,
-                  GNBSNSSAIPARAMS_DESC,
-                  GNB_CONFIG_STRING_SNSSAI_LIST,
-                  snssaistr,
-                  SNSSAIPARAMS_CHECK);
-  info->num_ssi = SNSSAIParamList.numelt;
-  for (int s = 0; s < info->num_ssi; ++s) {
-    info->nssai[s].sst = *SNSSAIParamList.paramarray[s][GNB_SLICE_SERVICE_TYPE_IDX].uptr;
-    info->nssai[s].sd = *SNSSAIParamList.paramarray[s][GNB_SLICE_DIFFERENTIATOR_IDX].uptr;
-    AssertFatal(info->nssai[s].sd <= 0xffffff, "SD cannot be bigger than 0xffffff, but is %d\n", info->nssai[s].sd);
-  }
+  info->num_ssi = set_snssai_config(info->nssai, MAX_NUM_SLICES, 0, 0);
 
   return 1;
 }
@@ -2213,15 +2222,6 @@ int RCconfig_NR_NG(MessageDef *msg_p, uint32_t i) {
             NGAP_REGISTER_GNB_REQ(msg_p).num_plmn = PLMNParamList.numelt;
 
             for (int l = 0; l < PLMNParamList.numelt; ++l) {
-              char snssaistr[MAX_OPTNAME_SIZE * 2 + 8];
-              sprintf(snssaistr, "%s.[%i].%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, k, GNB_CONFIG_STRING_PLMN_LIST, l);
-              GET_PARAMS_LIST(SNSSAIParamList,
-                              SNSSAIParams,
-                              GNBSNSSAIPARAMS_DESC,
-                              GNB_CONFIG_STRING_SNSSAI_LIST,
-                              snssaistr,
-                              SNSSAIPARAMS_CHECK);
-
               NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].mcc = *PLMNParamList.paramarray[l][GNB_MOBILE_COUNTRY_CODE_IDX].uptr;
               NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].mnc = *PLMNParamList.paramarray[l][GNB_MOBILE_NETWORK_CODE_IDX].uptr;
               NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].mnc_digit_length = *PLMNParamList.paramarray[l][GNB_MNC_DIGIT_LENGTH].u8ptr;
@@ -2231,15 +2231,7 @@ int RCconfig_NR_NG(MessageDef *msg_p, uint32_t i) {
                           "BAD MNC DIGIT LENGTH %d",
                           NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].mnc_digit_length);
 
-              NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].num_nssai = SNSSAIParamList.numelt;
-              for (int s = 0; s < SNSSAIParamList.numelt; ++s) {
-                NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].s_nssai[s].sst =
-                    *SNSSAIParamList.paramarray[s][GNB_SLICE_SERVICE_TYPE_IDX].uptr;
-                // SD is optional
-                // 0xffffff is "no SD", see 23.003 Sec 28.4.2
-                NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].s_nssai[s].sd =
-                    (*SNSSAIParamList.paramarray[s][GNB_SLICE_DIFFERENTIATOR_IDX].uptr & 0xffffff);
-              }
+              NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].num_nssai = set_snssai_config(NGAP_REGISTER_GNB_REQ(msg_p).plmn[l].s_nssai, 8, k, l);
             }
             sprintf(aprefix, "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, k);
             GET_PARAMS_LIST(NGParamList, NGParams, GNBNGPARAMS_DESC, GNB_CONFIG_STRING_AMF_IP_ADDRESS, aprefix);
