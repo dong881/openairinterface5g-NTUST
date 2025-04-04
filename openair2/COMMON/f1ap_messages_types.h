@@ -25,6 +25,7 @@
 #include <netinet/in.h>
 #include <netinet/sctp.h>
 #include "common/5g_platform_types.h"
+#include "common/platform_constants.h"
 
 //-------------------------------------------------------------------------------------------//
 // Defines to access message fields.
@@ -140,7 +141,7 @@ typedef struct f1ap_served_cell_info_t {
 
   // Number of slice support items (max 16, could be increased to as much as 1024)
   uint16_t num_ssi;
-  nssai_t nssai[16];
+  nssai_t nssai[MAX_NUM_SLICES];
 
   f1ap_mode_t mode;
   union {
