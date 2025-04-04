@@ -151,6 +151,8 @@ static const text_info_t sa_iei_s[] = {FOREACH_SA_IEI(TO_TEXT)};
 
 typedef enum { FOREACH_CAUSE(TO_ENUM) } cause_id_t;
 
+static const text_info_t fgmm_cause_s[] = {FOREACH_CAUSE(TO_TEXT)};
+
 /* 10.5.7.3 3GPP TS 24.008 */
 typedef struct {
   uint8_t value;

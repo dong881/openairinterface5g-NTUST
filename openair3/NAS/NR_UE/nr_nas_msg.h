@@ -100,6 +100,8 @@ typedef struct {
   int t3512;
   // Timer t3448 in seconds (-1 = disabled)
   int t3448;
+  // Timer t3446 in seconds (-1 = disabled)
+  int t3446;
 } nr_ue_nas_t;
 
 nr_ue_nas_t *get_ue_nas_info(module_id_t module_id);

@@ -66,6 +66,7 @@
 #include "openair2/SDAP/nr_sdap/nr_sdap.h"
 #include "fgs_nas_utils.h"
 #include "fgmm_service_accept.h"
+#include "fgmm_service_reject.h"
 
 #define MAX_NAS_UE 4
 
@@ -1531,6 +1532,17 @@ static void handle_service_accept(nr_ue_nas_t *nas, const byte_array_t *buffer)
           print_info(msg.cause->cause, cause_text_info, sizeofArray(cause_text_info)));
 }
 
+static void handle_service_reject(nr_ue_nas_t *nas, const byte_array_t *buffer)
+{
+  fgs_service_reject_msg_t msg = {0};
+  decode_fgs_service_reject(&msg, buffer);
+  // Extract timer t3448 in seconds (optional IE)
+  nas->t3448 = process_gprs_timer(msg.t3448);
+  // Extract timer t3446 in seconds (optional IE)
+  nas->t3446 = process_gprs_timer(msg.t3446);
+  LOG_E(NAS, "Received NAS Service Reject message with cause %s\n", fgmm_cause_s[msg.cause].text);
+}
+
 void *nas_nrue(void *args_p)
 {
   // Wait for a message or an event
@@ -1737,6 +1749,13 @@ void *nas_nrue(void *args_p)
             handle_service_accept(nas, &buffer);
             break;
           }
+
+          case FGS_SERVICE_REJECT: {
+            byte_array_t buffer = {.buf = pdu_buffer, .len = pdu_length};
+            handle_service_reject(nas, &buffer);
+            break;
+          }
+
           default:
             LOG_W(NR_RRC, "unknown message type %d\n", msg_type);
             break;
