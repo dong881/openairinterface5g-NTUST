@@ -430,7 +430,7 @@ int main(int argc, char *argv[])
   short max_iterations = 5;
   int n_segments = 1;
   // double rate=0.333;
-
+  int ret = 1;
   int nom_rate = 1;
   int denom_rate = 3;
   double SNR0 = -2.0;
@@ -616,8 +616,10 @@ int main(int argc, char *argv[])
             dec_iter[i].n_iter_max);
 
     i = i + 1;
-    if (decoded_errors[i - 1] == 0)
+    if (decoded_errors[i - 1] == 0) {
+      ret = 0;
       break;
+    }
   }
   fclose(fd);
   LOG_M("ldpctestStats.m", "SNR", &dec_iter[0].snr, i, 1, 7);
@@ -628,5 +630,5 @@ int main(int argc, char *argv[])
   loader_reset();
   logTerm();
 
-  return (0);
+  return ret;
 }

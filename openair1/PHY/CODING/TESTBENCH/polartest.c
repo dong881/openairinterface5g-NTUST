@@ -22,6 +22,7 @@ configmodule_interface_t *uniqCfg = NULL;
 int main(int argc, char *argv[])
 {
   // Default simulation values (Aim for iterations = 1000000.)
+  int ret = 1;
   int decoder_int16 = 0;
   int itr, iterations = 1000, arguments, polarMessageType = 0; // 0=PBCH, 1=DCI, 2=UCI
   double SNRstart = -20.0, SNRstop = 0.0, SNRinc = 0.5; // dB
@@ -387,8 +388,10 @@ int main(int argc, char *argv[])
            (double)timeEncoder.diff / timeEncoder.trials / (get_cpu_freq_GHz() * 1000.0),
            (double)timeDecoder.diff / timeDecoder.trials / (get_cpu_freq_GHz() * 1000.0));
 
-    if (blockErrorCumulative == 0 && bitErrorCumulative == 0)
+    if (blockErrorCumulative == 0 && bitErrorCumulative == 0) {
+      ret = 0;
       break;
+    }
 
     blockErrorCumulative = 0;
     bitErrorCumulative = 0;
@@ -398,5 +401,5 @@ int main(int argc, char *argv[])
   print_meas(&timeDecoder, "polar_decoder", NULL, NULL);
   if (logFlag)
     fclose(logFile);
-  return (0);
+  return ret;
 }
