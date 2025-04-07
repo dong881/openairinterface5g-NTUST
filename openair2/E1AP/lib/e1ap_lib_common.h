@@ -29,7 +29,7 @@
 #include "e1ap_messages_types.h"
 
 #ifdef E1AP_LOG_ERRORS
-#define PRINT_ERROR(...) fprintf(stderr, ##__VA_ARGS__);
+#define PRINT_ERROR(fmt, ...) fprintf(stderr, "[%s] " fmt, __func__, ##__VA_ARGS__)
 #else
 #define PRINT_ERROR(...) // Do nothing
 #endif
