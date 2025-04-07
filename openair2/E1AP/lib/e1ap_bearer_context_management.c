@@ -516,7 +516,7 @@ static bool eq_pdu_session_item(const pdu_session_to_setup_t *a, const pdu_sessi
       return false;
   _E1_EQ_CHECK_OPTIONAL_PTR(a, b, inactivityTimer);
   if (a->inactivityTimer && b->inactivityTimer)
-    _E1_EQ_CHECK_INT(a->inactivityTimer, b->inactivityTimer);
+    _E1_EQ_CHECK_INT(*a->inactivityTimer, *b->inactivityTimer);
   _E1_EQ_CHECK_OPTIONAL_IE(a, b, dlAggregateMaxBitRate, _E1_EQ_CHECK_LONG);
   return true;
 }
@@ -767,7 +767,7 @@ bool eq_bearer_context_setup_request(const e1ap_bearer_setup_req_t *a, const e1a
   // Check optional IEs
   _E1_EQ_CHECK_OPTIONAL_PTR(a, b, inactivityTimerUE);
   if (a->inactivityTimerUE && b->inactivityTimerUE)
-    _E1_EQ_CHECK_INT(a->inactivityTimerUE, b->inactivityTimerUE);
+    _E1_EQ_CHECK_INT(*a->inactivityTimerUE, *b->inactivityTimerUE);
   _E1_EQ_CHECK_OPTIONAL_IE(a, b, ueDlMaxIPBitRate, _E1_EQ_CHECK_LONG);
   return true;
 }
