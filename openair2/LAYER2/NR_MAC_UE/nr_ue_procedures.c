@@ -4002,9 +4002,10 @@ static void handle_rar_reception(NR_UE_MAC_INST_t *mac, NR_MAC_RAR *rar, frame_t
   const NR_UE_UL_BWP_t *current_UL_BWP = mac->current_UL_BWP;
   const NR_UE_DL_BWP_t *current_DL_BWP = mac->current_DL_BWP;
   const NR_BWP_PDCCH_t *pdcch_config = &mac->config_BWP_PDCCH[current_DL_BWP->bwp_id];
+  const NR_SearchSpace_t *ra_SS = get_common_search_space(mac, pdcch_config->ra_SS_id);
   NR_tda_info_t tda_info = get_ul_tda_info(current_UL_BWP,
-                                           *pdcch_config->ra_SS->controlResourceSetId,
-                                           pdcch_config->ra_SS->searchSpaceType->present,
+                                           *ra_SS->controlResourceSetId,
+                                           ra_SS->searchSpaceType->present,
                                            TYPE_RA_RNTI_,
                                            rar_grant.Msg3_t_alloc);
   if (!tda_info.valid_tda || tda_info.nrOfSymbols == 0) {

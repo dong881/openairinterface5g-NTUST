@@ -43,6 +43,34 @@
 #include "oai_asn1.h"
 #include "executables/position_interface.h"
 
+#define ASIGN_P_VAL(dst, src) \
+  do {                        \
+    if (src)                  \
+      dst = *src;             \
+    else                      \
+      dst = -1;               \
+  } while (0)
+
+// Build the list of all the valid/transmitted SSBs according to the config
+static void build_ssb_list(NR_UE_MAC_INST_t *mac)
+{
+  // Create the list of transmitted SSBs
+  memset(&mac->ssb_list, 0, sizeof(ssb_list_info_t));
+  ssb_list_info_t *ssb_list = &mac->ssb_list;
+  fapi_nr_config_request_t *cfg = &mac->phy_config.config_req;
+  ssb_list->nb_tx_ssb = 0;
+
+  for (int ssb_index = 0; ssb_index < MAX_NB_SSB; ssb_index++) {
+    uint32_t curr_mask = cfg->ssb_table.ssb_mask_list[ssb_index / 32].ssb_mask;
+    // check if if current SSB is transmitted
+    if ((curr_mask >> (31 - (ssb_index % 32))) & 0x01) {
+      ssb_list->nb_ssb_per_index[ssb_index] = ssb_list->nb_tx_ssb;
+      ssb_list->nb_tx_ssb++;
+    } else
+      ssb_list->nb_ssb_per_index[ssb_index] = -1;
+  }
+}
+
 static int get_ta_offset(long *n_TimingAdvanceOffset)
 {
   if (!n_TimingAdvanceOffset)
@@ -477,9 +505,10 @@ static void config_common_ue(NR_UE_MAC_INST_t *mac, NR_ServingCellConfigCommon_t
 
 void release_common_ss_cset(NR_BWP_PDCCH_t *pdcch)
 {
-  asn1cFreeStruc(asn_DEF_NR_SearchSpace, pdcch->otherSI_SS);
-  asn1cFreeStruc(asn_DEF_NR_SearchSpace, pdcch->ra_SS);
-  asn1cFreeStruc(asn_DEF_NR_SearchSpace, pdcch->paging_SS);
+  pdcch->otherSI_SS_id = -1;
+  pdcch->ra_SS_id = -1;
+  pdcch->paging_SS_id = -1;
+  asn1cFreeSeq(asn_DEF_NR_SearchSpace, pdcch->list_common_SS);
   asn1cFreeStruc(asn_DEF_NR_ControlResourceSet, pdcch->commonControlResourceSet);
 }
 
@@ -501,60 +530,64 @@ static void modlist_ss(NR_SearchSpace_t *source, NR_SearchSpace_t *target)
     UPDATE_IE(target->searchSpaceType, source->searchSpaceType, struct NR_SearchSpace__searchSpaceType);
 }
 
-static NR_SearchSpace_t *get_common_search_space(const NR_UE_MAC_INST_t *mac,
-                                                 const struct NR_PDCCH_ConfigCommon__commonSearchSpaceList *commonSearchSpaceList,
-                                                 const NR_BWP_PDCCH_t *pdcch,
-                                                 const NR_SearchSpaceId_t ss_id)
+NR_SearchSpace_t *get_common_search_space(const NR_UE_MAC_INST_t *mac, const NR_SearchSpaceId_t ss_id)
 {
   if (ss_id == 0)
     return mac->search_space_zero;
 
   NR_SearchSpace_t *css = NULL;
-  for (int i = 0; i < commonSearchSpaceList->list.count; i++) {
-    if (commonSearchSpaceList->list.array[i]->searchSpaceId == ss_id) {
-      css = calloc(1, sizeof(*css));
-      modlist_ss(commonSearchSpaceList->list.array[i], css);
-      break;
+  // if current DL BWP is not set, use first BWP
+  const int bwp_id = mac->current_DL_BWP ? mac->current_DL_BWP->bwp_id : 0;
+  for (int i = 0; i < mac->config_BWP_PDCCH[bwp_id].list_common_SS.count; i++) {
+    css = mac->config_BWP_PDCCH[bwp_id].list_common_SS.array[i];
+    if (css->searchSpaceId == ss_id) {
+      return css;
     }
   }
   AssertFatal(css, "Couldn't find CSS with Id %ld\n", ss_id);
   return css;
 }
 
+static void update_ss(void *ue_ss_in, void *nw_ss_in)
+{
+  if (!nw_ss_in || !ue_ss_in)
+    return;
+
+  asn_anonymous_sequence_ *ue_ss = _A_SEQUENCE_FROM_VOID(ue_ss_in);
+  asn_anonymous_sequence_ *nw_ss = _A_SEQUENCE_FROM_VOID(nw_ss_in);
+  for (int i = 0; i < nw_ss->count; i++) {
+    NR_SearchSpace_t *source_ss = (NR_SearchSpace_t *)nw_ss->array[i];
+    NR_SearchSpace_t *target_ss = NULL;
+    for (int j = 0; j < ue_ss->count; j++) {
+      NR_SearchSpace_t **s = (NR_SearchSpace_t **)ue_ss->array;
+      if (s[j]->searchSpaceId == source_ss->searchSpaceId) {
+        target_ss = s[j];
+        break;
+      }
+    }
+    if (!target_ss) {
+      target_ss = calloc(1, sizeof(*target_ss));
+      ASN_SEQUENCE_ADD(ue_ss, target_ss);
+    }
+    modlist_ss(source_ss, target_ss);
+  }
+}
+
 static void configure_common_ss_coreset(const NR_UE_MAC_INST_t *mac,
                                         NR_BWP_PDCCH_t *pdcch,
                                         NR_PDCCH_ConfigCommon_t *pdcch_ConfigCommon)
 {
-  if (pdcch_ConfigCommon) {
-    asn1cFreeStruc(asn_DEF_NR_SearchSpace, pdcch->otherSI_SS);
-    if (pdcch_ConfigCommon->searchSpaceOtherSystemInformation)
-      pdcch->otherSI_SS = get_common_search_space(mac,
-                                                  pdcch_ConfigCommon->commonSearchSpaceList,
-                                                  pdcch,
-                                                  *pdcch_ConfigCommon->searchSpaceOtherSystemInformation);
+  if (!pdcch_ConfigCommon)
+    return;
 
-    asn1cFreeStruc(asn_DEF_NR_SearchSpace, pdcch->ra_SS);
-    if (pdcch_ConfigCommon->ra_SearchSpace) {
-      if (pdcch->otherSI_SS && *pdcch_ConfigCommon->ra_SearchSpace == pdcch->otherSI_SS->searchSpaceId)
-        pdcch->ra_SS = pdcch->otherSI_SS;
-      else
-        pdcch->ra_SS =
-            get_common_search_space(mac, pdcch_ConfigCommon->commonSearchSpaceList, pdcch, *pdcch_ConfigCommon->ra_SearchSpace);
-    }
+  if (pdcch_ConfigCommon->commonSearchSpaceList)
+    update_ss((void *)&pdcch->list_common_SS, (void *)&pdcch_ConfigCommon->commonSearchSpaceList->list);
 
-    asn1cFreeStruc(asn_DEF_NR_SearchSpace, pdcch->paging_SS);
-    if (pdcch_ConfigCommon->pagingSearchSpace) {
-      if (pdcch->otherSI_SS && *pdcch_ConfigCommon->pagingSearchSpace == pdcch->otherSI_SS->searchSpaceId)
-        pdcch->paging_SS = pdcch->otherSI_SS;
-      else if (pdcch->ra_SS && *pdcch_ConfigCommon->pagingSearchSpace == pdcch->ra_SS->searchSpaceId)
-        pdcch->paging_SS = pdcch->ra_SS;
-      if (!pdcch->paging_SS)
-        pdcch->paging_SS =
-            get_common_search_space(mac, pdcch_ConfigCommon->commonSearchSpaceList, pdcch, *pdcch_ConfigCommon->pagingSearchSpace);
-    }
+  ASIGN_P_VAL(pdcch->otherSI_SS_id, pdcch_ConfigCommon->searchSpaceOtherSystemInformation);
+  ASIGN_P_VAL(pdcch->ra_SS_id, pdcch_ConfigCommon->ra_SearchSpace);
+  ASIGN_P_VAL(pdcch->paging_SS_id, pdcch_ConfigCommon->pagingSearchSpace);
 
-    UPDATE_IE(pdcch->commonControlResourceSet, pdcch_ConfigCommon->commonControlResourceSet, NR_ControlResourceSet_t);
-  }
+  UPDATE_IE(pdcch->commonControlResourceSet, pdcch_ConfigCommon->commonControlResourceSet, NR_ControlResourceSet_t);
 }
 
 static void modlist_coreset(NR_ControlResourceSet_t *source, NR_ControlResourceSet_t *target)
@@ -652,23 +685,10 @@ static void configure_ss_coreset(NR_BWP_PDCCH_t *pdcch, NR_PDCCH_Config_t *pdcch
       }
     }
   }
-  if (pdcch_Config->searchSpacesToAddModList) {
-    for (int i = 0; i < pdcch_Config->searchSpacesToAddModList->list.count; i++) {
-      NR_SearchSpace_t *source_ss = pdcch_Config->searchSpacesToAddModList->list.array[i];
-      NR_SearchSpace_t *target_ss = NULL;
-      for (int j = 0; j < pdcch->list_SS.count; j++) {
-        if (pdcch->list_SS.array[j]->searchSpaceId == source_ss->searchSpaceId) {
-          target_ss = pdcch->list_SS.array[j];
-          break;
-        }
-      }
-      if (!target_ss) {
-        target_ss = calloc(1, sizeof(*target_ss));
-        ASN_SEQUENCE_ADD(&pdcch->list_SS, target_ss);
-      }
-      modlist_ss(source_ss, target_ss);
-    }
-  }
+
+  if (pdcch_Config->searchSpacesToAddModList)
+    update_ss((void *)&pdcch->list_SS, (void *)&pdcch_Config->searchSpacesToAddModList->list);
+
   if (pdcch_Config->searchSpacesToReleaseList) {
     for (int i = 0; i < pdcch_Config->searchSpacesToReleaseList->list.count; i++) {
       NR_ControlResourceSetId_t id = *pdcch_Config->searchSpacesToReleaseList->list.array[i];

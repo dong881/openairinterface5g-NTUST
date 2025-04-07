@@ -481,7 +481,7 @@ void ue_dci_configuration(NR_UE_MAC_INST_t *mac, fapi_nr_dl_config_request_t *dl
     // If searchSpaceOtherSystemInformation is set to zero,
     // PDCCH monitoring occasions for SI message reception in SI-window
     // are same as PDCCH monitoring occasions for SIB1
-    const NR_SearchSpace_t *ss = pdcch_config->otherSI_SS ? pdcch_config->otherSI_SS : mac->search_space_zero;
+    const NR_SearchSpace_t *ss = get_common_search_space(mac, pdcch_config->otherSI_SS_id == -1 ? 0 : pdcch_config->otherSI_SS_id);
     // TODO configure SI-window
     if (monitor_dci_for_other_SI(mac, ss, i, slots_per_frame, frame, slot)) {
       LOG_D(NR_MAC_DCI, "Monitoring DCI for other SIs in frame %d slot %d\n", frame, slot);
@@ -490,15 +490,16 @@ void ue_dci_configuration(NR_UE_MAC_INST_t *mac, fapi_nr_dl_config_request_t *dl
   }
   RA_config_t *ra = &mac->ra;
   if (mac->state == UE_PERFORMING_RA && ra->ra_state >= nrRA_WAIT_RAR) {
+    const NR_SearchSpace_t *ra_SS = get_common_search_space(mac, pdcch_config->ra_SS_id);
     // if RA is ongoing use RA search space
-    if (is_ss_monitor_occasion(frame, slot, slots_per_frame, pdcch_config->ra_SS)) {
+    if (is_ss_monitor_occasion(frame, slot, slots_per_frame, ra_SS)) {
       nr_rnti_type_t rnti_type = 0;
       if (ra->ra_type == RA_4_STEP) {
         rnti_type = ra->ra_state == nrRA_WAIT_RAR ? TYPE_RA_RNTI_ : TYPE_TC_RNTI_;
       } else {
         rnti_type = TYPE_MSGB_RNTI_;
       }
-      config_dci_pdu(mac, dl_config, rnti_type, slot, pdcch_config->ra_SS);
+      config_dci_pdu(mac, dl_config, rnti_type, slot, ra_SS);
     }
   } else if (mac->state == UE_CONNECTED) {
     for (int i = 0; i < pdcch_config->list_SS.count; i++) {
@@ -506,13 +507,14 @@ void ue_dci_configuration(NR_UE_MAC_INST_t *mac, fapi_nr_dl_config_request_t *dl
       if (is_ss_monitor_occasion(frame, slot, slots_per_frame, ss))
         config_dci_pdu(mac, dl_config, TYPE_C_RNTI_, slot, ss);
     }
-    if (pdcch_config->list_SS.count == 0 && pdcch_config->ra_SS) {
+    const NR_SearchSpace_t *ra_SS = get_common_search_space(mac, pdcch_config->ra_SS_id);
+    if (pdcch_config->list_SS.count == 0 && ra_SS) {
       // If the UE has not been provided a Type3-PDCCH CSS set or a USS set and
       // the UE has received a C-RNTI and has been provided a Type1-PDCCH CSS set,
       // the UE monitors PDCCH candidates for DCI format 0_0 and DCI format 1_0
       // with CRC scrambled by the C-RNTI in the Type1-PDCCH CSS set
-      if (is_ss_monitor_occasion(frame, slot, slots_per_frame, pdcch_config->ra_SS))
-        config_dci_pdu(mac, dl_config, TYPE_C_RNTI_, slot, pdcch_config->ra_SS);
+      if (is_ss_monitor_occasion(frame, slot, slots_per_frame, ra_SS))
+        config_dci_pdu(mac, dl_config, TYPE_C_RNTI_, slot, ra_SS);
     }
   }
 }

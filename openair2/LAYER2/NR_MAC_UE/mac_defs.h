@@ -457,11 +457,12 @@ typedef struct {
 } __attribute__ ((__packed__)) NR_CCCH_PDU;
 
 typedef struct {
-  NR_SearchSpace_t *otherSI_SS;
-  NR_SearchSpace_t *ra_SS;
-  NR_SearchSpace_t *paging_SS;
+  long otherSI_SS_id;
+  long ra_SS_id;
+  long paging_SS_id;
   NR_ControlResourceSet_t *commonControlResourceSet;
   A_SEQUENCE_OF(NR_ControlResourceSet_t) list_Coreset;
+  A_SEQUENCE_OF(NR_SearchSpace_t) list_common_SS;
   A_SEQUENCE_OF(NR_SearchSpace_t) list_SS;
 } NR_BWP_PDCCH_t;
 
