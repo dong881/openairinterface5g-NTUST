@@ -210,7 +210,7 @@ def Iperf_analyzeV2UDP(server_filename, iperf_bitrate_threshold, iperf_packetlos
 		jit_msg = f'Jitter      : {jitter}'
 		pal_msg = f'Packet Loss : {packetloss}'
 		if float(packetloss) > float(iperf_packetloss_threshold):
-			pal_msg += f' (too high! >{self.iperf_packetloss_threshold}%)'
+			pal_msg += f' (too high! >{iperf_packetloss_threshold}%)'
 		return (result, f'{req_msg}\n{bir_msg}\n{brl_msg}\n{jit_msg}\n{pal_msg}')
 
 def Custom_Command(HTML, node, command, command_fail):
