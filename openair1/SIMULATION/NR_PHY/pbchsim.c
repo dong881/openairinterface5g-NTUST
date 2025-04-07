@@ -146,6 +146,7 @@ int main(int argc, char **argv)
   //  int subframe_offset;
   //  char fname[40], vname[40];
   int trial,n_trials=1,n_errors=0,n_errors_payload=0;
+  int ret_test = 1;
   uint8_t transmission_mode = 1,n_tx=1,n_rx=1;
   uint16_t Nid_cell=0;
   uint64_t SSB_positions=0x01;
@@ -771,6 +772,7 @@ int main(int argc, char **argv)
 
     if (((float)n_errors/(float)n_trials <= target_error_rate) && (n_errors_payload==0)) {
       printf("PBCH test OK\n");
+      ret_test = 0;
       break;
     }
       
@@ -816,6 +818,6 @@ int main(int argc, char **argv)
   loader_reset();
   logTerm();
 
-  return(n_errors);
+  return ret_test;
 
 }
