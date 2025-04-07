@@ -27,6 +27,7 @@
  */
 
 #include <string.h>
+#include <stdint.h>
 
 #include "common/utils/assertions.h"
 #include "openair3/UTILS/conversions.h"
