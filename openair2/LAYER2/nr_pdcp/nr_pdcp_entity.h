@@ -155,13 +155,13 @@ typedef struct nr_pdcp_entity_t {
   stream_security_context_t *security_context;
   void (*cipher)(stream_security_context_t *security_context,
                  unsigned char *buffer, int length,
-                 int bearer, int count, int direction);
+                 int bearer, uint32_t count, int direction);
   void (*free_security)(stream_security_context_t *security_context);
   stream_security_context_t *integrity_context;
   void (*integrity)(stream_security_context_t *integrity_context,
                  unsigned char *out,
                  unsigned char *buffer, int length,
-                 int bearer, int count, int direction);
+                 int bearer, uint32_t count, int direction);
   void (*free_integrity)(stream_security_context_t *integrity_context);
   /* security/integrity algorithms need to know uplink/downlink information
    * which is reverse for gnb and ue, so we need to know if this
