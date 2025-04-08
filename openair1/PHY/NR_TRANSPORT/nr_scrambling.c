@@ -33,33 +33,27 @@ void nr_codeword_scrambling(uint8_t *in,
 {
   const int roundedSz = (size + 31) / 32;
   uint32_t *seq = gold_cache((n_RNTI << 15) + (q << 14) + Nid, roundedSz);
-  for (int i = 0; i < roundedSz; i++) 
-    out[i] = ((uint32_t*)in)[i] ^ seq[i];
-#if 0
-//#elif __AVX2__
-  for (int i = 0; i < roundedSz; i++) {
-    __m256i c = ((__m256i*)in)[i];
-    uint32_t in32 = _mm256_movemask_epi8(_mm256_slli_epi16(c, 7));
-    out[i] = in32 ^ seq[i];
-    DEBUG_SCRAMBLING(LOG_D(PHY, "in[%d] %x => %x\n", i, in32, out[i]));
-  }
-//#elif defined (__aarch64__)
-  const int8_t __attribute__ ((aligned (16))) ucShift[] = {0,1,2,3,4,5,6,7,0,1,2,3,4,5,6,7};
-  int8x16_t vshift = vld1q_s8(ucShift);
-  uint8x16_t *c = (uint8x16_t*)in;		     
-  uint8x16_t cshift; 
-  uint32_t in32;
-  for (int i = 0; i < roundedSz; i++) {
-    cshift = vshlq_u8(*c++, vshift);
-    in32 = vaddv_u8(vget_low_u8(cshift));
-    in32 += (vaddv_u8(vget_high_u8(cshift)) << 8);
-    cshift = vshlq_u8(*c++, vshift);
-    in32 += (vaddv_u8(vget_low_u8(cshift)) << 16);
-    in32 += (vaddv_u8(vget_high_u8(cshift)) << 24);
-    out[i] = in32 ^ seq[i];
-    DEBUG_SCRAMBLING(LOG_D(PHY, "in[%d] %x => %x\n", i, in32, out[i]));
+  unsigned int i_32 = 0;
+#if defined(__AVX512F__) && defined(__AVX512VL__)
+  for (; i_32 < ((roundedSz >> 3) << 3); i_32 += 8) {
+    __m256i in_256 = _mm256_load_epi32(&((uint32_t *)in)[i_32]);
+    __m256i seq_256 = _mm256_load_epi32(&seq[i_32]);
+    _mm256_storeu_epi32(&out[i_32], _mm256_xor_si256(in_256, seq_256));
   }
 #endif
+#if defined(__aarch64__)
+  for (; i_32 < ((roundedSz >> 2) << 2); i_32 += 4) {
+    unsigned int i = i_32 >> 2;
+    uint32x4_t in_32x4 = vld1q_u32(&((uint32_t *)in)[i_32]);
+    uint32x4_t seq_32x4 = vld1q_u32(&seq[i_32]);
+    ((uint32x4_t *)out)[i] = veorq_u32(in_32x4, seq_32x4);
+  }
+#endif
+  for (; i_32 < roundedSz; i_32++) { 
+    unsigned int i = i_32;
+    out[i] = ((uint32_t *)in)[i] ^ seq[i];
+    DEBUG_SCRAMBLING(LOG_D(PHY, "in[%d] %x => %x\n", i, ((uint32_t*)in)[i], out[i]));
+  }
 }
 
 void nr_codeword_unscrambling(int16_t* llr, uint32_t size, uint8_t q, uint32_t Nid, uint32_t n_RNTI)
