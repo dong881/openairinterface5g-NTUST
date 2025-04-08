@@ -100,7 +100,7 @@ static void nr_fill_nfapi_pucch(gNB_MAC_INST *nrmac, frame_t frame, slot_t slot,
 #define MIN_RSRP_VALUE -141
 #define MAX_RSRP_VALUE -43
 
-//Measured RSRP Values Table 10.1.16.1-1 from 36.133
+//Measured RSRP Values Table 10.1.16.1-1 from 38.133
 //Stored all the upper limits[Max RSRP Value of corresponding index]
 //stored -1 for invalid values
 static const int L1_SSB_CSI_RSRP_measReport_mapping_38133_10_1_6_1_1[128] = {
@@ -119,7 +119,7 @@ static const int L1_SSB_CSI_RSRP_measReport_mapping_38133_10_1_6_1_1[128] = {
     -1,   -1,   -1,   -1,   -1,      -1,   -1,      -1 // 120 - 127
 };
 
-//Differential RSRP values Table 10.1.6.1-2 from 36.133
+//Differential RSRP values Table 10.1.6.1-2 from 38.133
 //Stored the upper limits[MAX RSRP Value]
 static const int diff_rsrp_ssb_csi_meas_10_1_6_1_2[16] = {
     0,
