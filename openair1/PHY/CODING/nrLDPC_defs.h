@@ -28,7 +28,7 @@
 /**
    \brief LDPC encoder parameter structure
    \var n_segments number of segments in the transport block
-   \var macro_num index of the subset of segments to encode
+   \var first_seg index of the first segment of the subset to encode
    within the transport block 
    \var gen_code flag to generate parity check code
    0 -> encoding
@@ -52,7 +52,7 @@
 */
 typedef struct {
   unsigned int n_segments; // optim8seg
-  unsigned int macro_num;  // optim8segmulti
+  unsigned int first_seg;  // optim8segmulti
   unsigned char gen_code;  //orig
   time_stats_t *tinput;
   time_stats_t *tprep;
@@ -92,6 +92,6 @@ typedef int32_t(LDPC_decoderfunc_t)(t_nrLDPC_dec_params *p_decParams,
                                     int8_t *p_out,
                                     t_nrLDPC_time_stats *,
                                     decode_abort_t *ab);
-typedef int32_t(LDPC_encoderfunc_t)(uint8_t **, uint8_t **, encoder_implemparams_t *);
+typedef int32_t(LDPC_encoderfunc_t)(uint8_t **, uint8_t *, encoder_implemparams_t *);
 
 #endif

@@ -41,11 +41,11 @@
 #include "openair1/PHY/CODING/nrLDPC_extern.h"
 #include "ldpc_generate_coefficient.c"
 
-int LDPCencoder(unsigned char **inputArray, unsigned char **outputArray, encoder_implemparams_t *impp)
+int LDPCencoder(unsigned char **inputArray, unsigned char *outputArray, encoder_implemparams_t *impp)
 {
   const unsigned char *input = inputArray[0];
   // channel input is the output of this function!
-  unsigned char *output = outputArray[0];
+  unsigned char *output = outputArray;
   const int Zc = impp->Zc;
   const int Kb = impp->Kb;
   const short block_length = impp->K;

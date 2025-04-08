@@ -123,7 +123,7 @@ one_measurement_t test_ldpc(short max_iterations,
   uint8_t estimated_output[MAX_NUM_DLSCH_SEGMENTS][Kprime];
   memset(estimated_output, 0, sizeof(estimated_output));
   uint8_t *channel_input[MAX_NUM_DLSCH_SEGMENTS];
-  uint8_t *channel_input_optim[MAX_NUM_DLSCH_SEGMENTS];
+  uint8_t *channel_input_optim;
   // double channel_output[68 * 384];
   double modulated_input[MAX_NUM_DLSCH_SEGMENTS][68 * 384] = {0};
   int8_t channel_output_fixed[MAX_NUM_DLSCH_SEGMENTS][68 * 384] = {0};
@@ -265,9 +265,9 @@ one_measurement_t test_ldpc(short max_iterations,
     memset(test_input[j], 0, ((K + 7) & ~7) / 8);
     channel_input[j] = malloc16(68 * 384);
     memset(channel_input[j], 0, 68 * 384);
-    channel_input_optim[j] = malloc16(68 * 384);
-    memset(channel_input_optim[j], 0, 68 * 384);
   }
+  channel_input_optim = malloc16(68 * 384);
+  memset(channel_input_optim, 0, 68 * 384);
 
   // Fill input segments with random values
   for (int j = 0; j < MAX_NUM_DLSCH_SEGMENTS; j++) {
@@ -285,7 +285,7 @@ one_measurement_t test_ldpc(short max_iterations,
   impp.gen_code = 1;
 
   if (ntrials == 0)
-    ldpc_orig.LDPCencoder(test_input, channel_input, &impp);
+    ldpc_orig.LDPCencoder(test_input, channel_input[0], &impp);
   impp.gen_code = 0;
   decode_abort_t dec_abort;
   init_abort(&dec_abort);
@@ -294,23 +294,21 @@ one_measurement_t test_ldpc(short max_iterations,
     //// encoder
     start_meas(&time);
     for (int j = 0; j < n_segments; j++) {
-      ldpc_orig.LDPCencoder(&test_input[j], &channel_input[j], &impp);
+      ldpc_orig.LDPCencoder(&test_input[j], channel_input[j], &impp);
     }
     stop_meas(&time);
 
     impp.n_segments = n_segments;
-    for (int j = 0; j < (n_segments / 8 + 1); j++) {
-      start_meas(&ret.time_optim);
-      impp.macro_num = j;
-      ldpc_toCompare.LDPCencoder(test_input, channel_input_optim, &impp);
-      stop_meas(&ret.time_optim);
-    }
+    start_meas(&ret.time_optim);
+    impp.first_seg = 0;
+    ldpc_toCompare.LDPCencoder(test_input, channel_input_optim, &impp);
+    stop_meas(&ret.time_optim);
 
     if (ntrials == 1)
       for (int j = 0; j < n_segments; j++)
         for (int i = 0; i < K + (nrows - no_punctured_columns) * Zc - removed_bit; i++) {
-          if (channel_input[j][i] != channel_input_optim[j][i]) {
-            printf("differ in seg %d pos %d (%u,%u)\n", j, i, channel_input[j][i], channel_input_optim[j][i]);
+          if (channel_input[j][i] != ((channel_input_optim[i] >> j) & 0x1)) {
+            printf("differ in seg %d pos %d (%u,%u)\n", j, i, channel_input[j][i], (channel_input_optim[i] >> j) & 0x1);
             return ret;
           }
         }
@@ -322,7 +320,7 @@ one_measurement_t test_ldpc(short max_iterations,
           printf("\ne %d..%d:    ", i, i + 15);
 #endif
 
-        if (channel_input_optim[j][i - 2 * Zc] == 0)
+        if (((channel_input_optim[i - 2 * Zc] >> j) & 0x1) == 0)
           modulated_input[j][i] = 1.0; /// sqrt(2);  //QPSK
         else
           modulated_input[j][i] = -1.0; /// sqrt(2);
@@ -332,7 +330,7 @@ one_measurement_t test_ldpc(short max_iterations,
 
         // Uncoded BER
         uint8_t channel_output_uncoded = channel_output_fixed[j][i] < 0 ? 1 /* QPSK demod */ : 0;
-        if (channel_output_uncoded != channel_input_optim[j][i - 2 * Zc])
+        if (channel_output_uncoded != ((channel_input_optim[i - 2 * Zc] >> j) & 0x1))
           ret.errors_bit_uncoded++;
       }
 
@@ -396,8 +394,8 @@ one_measurement_t test_ldpc(short max_iterations,
   for (int j = 0; j < MAX_NUM_DLSCH_SEGMENTS; j++) {
     free(test_input[j]);
     free(channel_input[j]);
-    free(channel_input_optim[j]);
   }
+  free(channel_input_optim);
 
   print_meas(&time, "ldpc_encoder", NULL, NULL);
   print_meas(&ret.time_optim, "ldpc_encoder_optim", NULL, NULL);
