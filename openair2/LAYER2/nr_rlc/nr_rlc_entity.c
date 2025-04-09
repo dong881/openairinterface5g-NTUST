@@ -100,8 +100,8 @@ nr_rlc_entity_t *new_nr_rlc_entity_am(
     exit(1);
   }
 
-  ret->tx_maxsize = tx_maxsize;
-  ret->rx_maxsize = rx_maxsize;
+  ret->tx_maxsize = tx_maxsize * 5;
+  ret->rx_maxsize = rx_maxsize * 5;
 
   ret->t_poll_retransmit  = t_poll_retransmit;
   ret->t_reassembly       = t_reassembly;
