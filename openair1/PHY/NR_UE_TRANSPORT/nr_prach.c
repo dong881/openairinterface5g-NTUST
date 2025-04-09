@@ -68,7 +68,7 @@ int32_t generate_nr_prach(PHY_VARS_NR_UE *ue, uint8_t gNB_id, int frame, uint8_t
   int Ncp = 0;
   int prach_start, prach_sequence_length, prach_len, dftlen, mu, n_ra_prb, k, prachStartSymbol, sample_offset_slot;
 
-  fd_occasion             = 0;
+  fd_occasion             = prach_pdu->num_ra;
   prach_len               = 0;
   dftlen                  = 0;
   first_nonzero_root_idx = 0;
