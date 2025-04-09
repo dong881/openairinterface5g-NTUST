@@ -1432,6 +1432,9 @@ static nr_redcap_config_t *get_redcap_config(int gnb_idx)
 
 static seq_arr_t *fill_du_sibs(paramdef_t *GNBparamarray)
 {
+  if (NODE_IS_DU(get_node_type()))
+    AssertFatal(GNBparamarray[GNB_CU_SIBS_IDX].numelt == 0, "This is DU, do not input CU SIBs\n");
+
   if (!config_isparamset(GNBparamarray, GNB_DU_SIBS_IDX))
     return NULL;
 
@@ -1881,6 +1884,9 @@ static int sort_neighbour_cell_config_by_cell_id(const void *a, const void *b)
 
 static seq_arr_t *fill_cu_sibs(paramdef_t *GNBparamarray)
 {
+  if (NODE_IS_CU(get_node_type()))
+    AssertFatal(GNBparamarray[GNB_DU_SIBS_IDX].numelt == 0, "This is CU, do not input DU SIBs\n");
+
   if (!config_isparamset(GNBparamarray, GNB_CU_SIBS_IDX))
     return NULL;
 
