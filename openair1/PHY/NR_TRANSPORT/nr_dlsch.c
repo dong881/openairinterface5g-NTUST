@@ -468,7 +468,7 @@ static inline void do_txdataF(c16_t **txdataF,
   nfapi_nr_tx_precoding_and_beamforming_t *pb = &rel15->precodingAndBeamforming;
   while (rb < rel15->rbSize) {
     // get pmi info
-    const int pmi = (pb->num_prgs > 0 && pb->prg_size > 0) ? (pb->prgs_list[(int)rb / pb->prg_size].pm_idx) : 0;
+    const int pmi = (pb->prg_size > 0) ? (pb->prgs_list[(int)rb / pb->prg_size].pm_idx) : 0;
     const int pmi2 = (rb < (rel15->rbSize - 1) && pb->prg_size > 0) ? (pb->prgs_list[(int)(rb + 1) / pb->prg_size].pm_idx) : -1;
 
     // If pmi of next RB and pmi of current RB are the same, we do 2 RB in a row
