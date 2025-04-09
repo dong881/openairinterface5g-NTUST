@@ -133,14 +133,14 @@ void reverse_bits_u8(uint8_t const* in, size_t sz, uint8_t* out)
   DevAssert(out != NULL);
 
 // Bit reversal implementation based on https://wunkolo.github.io/post/2020/11/gf2p8affineqb-bit-reversal/
-#if defined(__GFNI__) && defined(__AVX512VL__)
-  int simde_sz = 16;
+#if defined(__GFNI__) && defined(__AVX512F__)
+  int simde_sz = 64;
   int i = 0;
   int simde_bound = sz - simde_sz;
   for (; i <= simde_bound; i += simde_sz) {
-    __m128i input = simde_mm_loadu_si128((__m128i *)&in[i]);
-    __m128i reversed = simde_mm_gf2p8affine_epi64_epi8(input, simde_mm_set1_epi64x(0x8040201008040201), 0);
-    simde_mm_storeu_si128((__m128i *)&out[i], reversed);
+    __m512i input = _mm512_loadu_epi8(&in[i]);
+    __m512i reversed = _mm512_gf2p8affine_epi64_epi8(input, _mm512_set1_epi64(0x8040201008040201), 0);
+    _mm512_storeu_epi8(&out[i], reversed);
   }
 
   for (; i < sz; ++i) {
