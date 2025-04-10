@@ -104,7 +104,9 @@ static void *NRUE_phy_stub_standalone_pnf_task(void *arg);
 static void start_process_slot_tx(void* arg) {
   notifiedFIFO_elt_t *newTx = arg;
   nr_rxtx_thread_data_t *curMsgTx = NotifiedFifoData(newTx);
-  pushNotifiedFIFO(&curMsgTx->UE->ul_actors[curMsgTx->proc.nr_slot_tx % NUM_UL_ACTORS].fifo, newTx);
+  int num_ul_actors_to_use =
+      get_nrUE_params()->num_ul_actors == 0 ? NUM_UL_ACTORS : min(get_nrUE_params()->num_ul_actors, NUM_UL_ACTORS);
+  pushNotifiedFIFO(&curMsgTx->UE->ul_actors[curMsgTx->proc.nr_slot_tx % num_ul_actors_to_use].fifo, newTx);
 }
 
 static size_t dump_L1_UE_meas_stats(PHY_VARS_NR_UE *ue, char *output, size_t max_len)
