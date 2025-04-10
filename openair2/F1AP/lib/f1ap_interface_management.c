@@ -653,11 +653,9 @@ static void encode_cells_to_activate(const served_cells_to_activate_t *cell, F1A
         &cells_to_be_activated_itemExtIEs->extensionValue.choice.GNB_CUSystemInformation;
     const f1ap_sib_msg_t *SI_msg = &cell->SI_msg[n];
     if (SI_msg->SI_container != NULL) {
-      if (SI_msg->SI_type > 6 && SI_msg->SI_type != 9) {
-        asn1cSequenceAdd(gNB_CUSystemInformation->sibtypetobeupdatedlist.list, F1AP_SibtypetobeupdatedListItem_t, sib_item);
-        sib_item->sIBtype = SI_msg->SI_type;
-        OCTET_STRING_fromBuf(&sib_item->sIBmessage, (const char *)SI_msg->SI_container, SI_msg->SI_container_length);
-      }
+      asn1cSequenceAdd(gNB_CUSystemInformation->sibtypetobeupdatedlist.list, F1AP_SibtypetobeupdatedListItem_t, sib_item);
+      sib_item->sIBtype = SI_msg->SI_type;
+      OCTET_STRING_fromBuf(&sib_item->sIBmessage, (const char *)SI_msg->SI_container, SI_msg->SI_container_length);
     }
   }
 }
@@ -1221,7 +1219,7 @@ f1ap_setup_resp_t cp_f1ap_setup_response(const f1ap_setup_resp_t *msg)
       const f1ap_sib_msg_t *b_SI_msg = &msg_cell->SI_msg[j];
       cp_SI_msg->SI_container_length = b_SI_msg->SI_container_length;
       cp_SI_msg->SI_container = malloc_or_fail(cp_SI_msg->SI_container_length);
-      *cp_SI_msg->SI_container = *b_SI_msg->SI_container;
+      memcpy(cp_SI_msg->SI_container, b_SI_msg->SI_container, b_SI_msg->SI_container_length);
       cp_SI_msg->SI_type = b_SI_msg->SI_type;
     }
   }
