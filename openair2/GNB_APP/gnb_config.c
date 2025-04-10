@@ -101,7 +101,7 @@ static int DEFRUTPCORES[] = {-1,-1,-1,-1};
 static uint16_t set_snssai_config(nssai_t *nssai, const int max_num_ssi, uint8_t k, uint8_t l)
 {
   char snssaistr[MAX_OPTNAME_SIZE * 2 + 8];
-  sprintf(snssaistr, "%s.[%i].%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, k, GNB_CONFIG_STRING_PLMN_LIST, l);
+  snprintf(snssaistr, sizeof(snssaistr), "%s.[%i].%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, k, GNB_CONFIG_STRING_PLMN_LIST, l);
   GET_PARAMS_LIST(SNSSAIParamList,
                   SNSSAIParams,
                   GNBSNSSAIPARAMS_DESC,
@@ -819,7 +819,7 @@ void fix_scd(NR_ServingCellConfig_t *scd) {
 static void verify_gnb_param_notset(paramdef_t *params, int paramidx, const char *paramname)
 {
   char aprefix[MAX_OPTNAME_SIZE * 2 + 8];
-  sprintf(aprefix, "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0);
+  snprintf(aprefix, sizeof(aprefix), "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0);
   AssertFatal(!config_isparamset(params, paramidx),
               "Option \"%s." GNB_CONFIG_STRING_SERVINGCELLCONFIGCOMMON
               ".%s\" is not allowed in this config, please remove it\n",
@@ -1093,12 +1093,12 @@ static NR_ServingCellConfigCommon_t *get_scc_config(configmodule_interface_t *cf
   prepare_msgA_scc(scc);
 
   char aprefix[MAX_OPTNAME_SIZE*2 + 8];
-  sprintf(aprefix, "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0);
+  snprintf(aprefix, sizeof(aprefix), "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0);
   GET_PARAMS_LIST(SCCsParamList, SCCsParams, SCCPARAMS_DESC(scc), GNB_CONFIG_STRING_SERVINGCELLCONFIGCOMMON, aprefix);
   GET_PARAMS_LIST(MsgASCCsParamList, MsgASCCsParams, MSGASCCPARAMS_DESC(scc), GNB_CONFIG_STRING_SERVINGCELLCONFIGCOMMON, aprefix);
 
   if (SCCsParamList.numelt > 0 || MsgASCCsParamList.numelt > 0) {
-    sprintf(aprefix, "%s.[%i].%s.[%i]", GNB_CONFIG_STRING_GNB_LIST,0,GNB_CONFIG_STRING_SERVINGCELLCONFIGCOMMON, 0);
+    snprintf(aprefix, sizeof(aprefix), "%s.[%i].%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0, GNB_CONFIG_STRING_SERVINGCELLCONFIGCOMMON, 0);
     GET_PARAMS(SCCsParams, SCCPARAMS_DESC(scc), aprefix);
     GET_PARAMS(MsgASCCsParams, MSGASCCPARAMS_DESC(scc), aprefix);
     // NR_TDD-UL-DL-ConfigCommon pattern2 (optional IE)
@@ -1106,7 +1106,14 @@ static NR_ServingCellConfigCommon_t *get_scc_config(configmodule_interface_t *cf
     struct NR_TDD_UL_DL_Pattern p2;
     paramdef_t pattern2Params[] = SCC_PATTERN2_PARAMS_DESC(p2);
     char aprefix[MAX_OPTNAME_SIZE * 2 + 8];
-    sprintf(aprefix, "%s.[%i].%s.[%i].%s", GNB_CONFIG_STRING_GNB_LIST, 0, GNB_CONFIG_STRING_SERVINGCELLCONFIGCOMMON, 0, SCC_PATTERN2_STRING_CONFIG);
+    snprintf(aprefix,
+             sizeof(aprefix),
+             "%s.[%i].%s.[%i].%s",
+             GNB_CONFIG_STRING_GNB_LIST,
+             0,
+             GNB_CONFIG_STRING_SERVINGCELLCONFIGCOMMON,
+             0,
+             SCC_PATTERN2_STRING_CONFIG);
     config_get(config_get_if(), pattern2Params, sizeofArray(pattern2Params), aprefix);
     // check validity
     bool is_pattern2 = false;
@@ -1198,7 +1205,7 @@ static NR_ServingCellConfig_t *get_scd_config(configmodule_interface_t *cfg)
   GET_PARAMS_LIST(SCDsParamList, SCDsParams, SCDPARAMS_DESC(scd), GNB_CONFIG_STRING_SERVINGCELLCONFIGDEDICATED, aprefix);
 
   if (SCDsParamList.numelt > 0) {
-    sprintf(aprefix, "%s.[%i].%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0, GNB_CONFIG_STRING_SERVINGCELLCONFIGDEDICATED, 0);
+    snprintf(aprefix, sizeof(aprefix), "%s.[%i].%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0, GNB_CONFIG_STRING_SERVINGCELLCONFIGDEDICATED, 0);
     GET_PARAMS(SCDsParams, SCDPARAMS_DESC(scd), aprefix);
     const NR_BWP_UplinkDedicated_t *bwp_Dedicated = scd->uplinkConfig->uplinkBWP_ToAddModList->list.array[0]->bwp_Dedicated;
     const NR_PTRS_UplinkConfig_t *setup =
@@ -1396,7 +1403,7 @@ static nr_redcap_config_t *get_redcap_config(int gnb_idx)
 {
   paramdef_t RedCap_Params[] = GNB_REDCAP_PARAMS_DESC;
   char aprefix[MAX_OPTNAME_SIZE * 2 + 8];
-  sprintf(aprefix, "%s.[%d].%s", GNB_CONFIG_STRING_GNB_LIST, gnb_idx, GNB_CONFIG_STRING_REDCAP);
+  snprintf(aprefix, sizeof(aprefix), "%s.[%d].%s", GNB_CONFIG_STRING_GNB_LIST, gnb_idx, GNB_CONFIG_STRING_REDCAP);
   int ret = config_get(config_get_if(), RedCap_Params, sizeofArray(RedCap_Params), aprefix);
 
   if (ret <= 0) {
@@ -1518,7 +1525,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
   config.redcap = get_redcap_config(0);
 
   char aprefix[MAX_OPTNAME_SIZE * 2 + 8];
-  sprintf(aprefix, "%s.[%d].%s", GNB_CONFIG_STRING_GNB_LIST, 0, GNB_CONFIG_STRING_TIMERS_CONFIG);
+  snprintf(aprefix, sizeof(aprefix), "%s.[%d].%s", GNB_CONFIG_STRING_GNB_LIST, 0, GNB_CONFIG_STRING_TIMERS_CONFIG);
   GET_PARAMS(Timers_Params, GNB_TIMERS_PARAMS_DESC, aprefix);
 
   config.timer_config.sr_ProhibitTimer = *Timers_Params[GNB_TIMERS_SR_PROHIBIT_TIMER_IDX].iptr;
@@ -1883,7 +1890,7 @@ static seq_arr_t *fill_cu_sibs(paramdef_t *GNBparamarray)
 static void fill_neighbour_cell_configuration(uint8_t gnb_idx, gNB_RRC_INST *rrc)
 {
   char gnbpath[MAX_OPTNAME_SIZE + 8];
-  sprintf(gnbpath, "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, gnb_idx);
+  snprintf(gnbpath, sizeof(gnbpath), "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, gnb_idx);
 
   GET_PARAMS_LIST(neighbour_list_param_list,
                   neighbour_list_params,
@@ -1903,7 +1910,7 @@ static void fill_neighbour_cell_configuration(uint8_t gnb_idx, gNB_RRC_INST *rrc
     cell->nr_cell_id = (uint64_t)*neighbour_list_param_list.paramarray[elm][0].u64ptr;
 
     char neighbourpath[MAX_OPTNAME_SIZE + 8];
-    sprintf(neighbourpath, "%s.[%i].%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, gnb_idx, GNB_CONFIG_STRING_NEIGHBOUR_LIST, elm);
+    snprintf(neighbourpath, sizeof(neighbourpath), "%s.[%i].%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, gnb_idx, GNB_CONFIG_STRING_NEIGHBOUR_LIST, elm);
     GET_PARAMS_LIST(NeighbourCellParamList,
                     NeighbourCellParams,
                     GNBNEIGHBOURCELLPARAMS_DESC,
@@ -1927,12 +1934,13 @@ static void fill_neighbour_cell_configuration(uint8_t gnb_idx, gNB_RRC_INST *rrc
       neighbourCell->tac = *NeighbourCellParamList.paramarray[l][GNB_CONFIG_N_CELL_TAC_IDX].uptr;
 
       char neighbour_plmn_path[CONFIG_MAXOPTLENGTH];
-      sprintf(neighbour_plmn_path,
-              "%s.%s.[%i].%s",
-              neighbourpath,
-              GNB_CONFIG_STRING_NEIGHBOUR_CELL_LIST,
-              l,
-              GNB_CONFIG_STRING_NEIGHBOUR_PLMN);
+      snprintf(neighbour_plmn_path,
+               sizeof(neighbour_plmn_path),
+               "%s.%s.[%i].%s",
+               neighbourpath,
+               GNB_CONFIG_STRING_NEIGHBOUR_CELL_LIST,
+               l,
+               GNB_CONFIG_STRING_NEIGHBOUR_PLMN);
       GET_PARAMS(NeighbourPlmn, GNBPLMNPARAMS_DESC, neighbour_plmn_path);
 
       neighbourCell->plmn.mcc = *NeighbourPlmn[GNB_MOBILE_COUNTRY_CODE_IDX].uptr;
@@ -1953,17 +1961,18 @@ static void fill_neighbour_cell_configuration(uint8_t gnb_idx, gNB_RRC_INST *rrc
 static void fill_measurement_configuration(uint8_t gnb_idx, gNB_RRC_INST *rrc)
 {
   char measurement_path[MAX_OPTNAME_SIZE + 8];
-  sprintf(measurement_path, "%s.[%i].%s", GNB_CONFIG_STRING_GNB_LIST, gnb_idx, GNB_CONFIG_STRING_MEASUREMENT_CONFIGURATION);
+  snprintf(measurement_path, sizeof(measurement_path), "%s.[%i].%s", GNB_CONFIG_STRING_GNB_LIST, gnb_idx, GNB_CONFIG_STRING_MEASUREMENT_CONFIGURATION);
 
   nr_measurement_configuration_t *measurementConfig = &rrc->measurementConfiguration;
   // Periodical Event Configuration
   char periodic_event_path[MAX_OPTNAME_SIZE + 8];
-  sprintf(periodic_event_path,
-          "%s.[%i].%s.%s",
-          GNB_CONFIG_STRING_GNB_LIST,
-          gnb_idx,
-          GNB_CONFIG_STRING_MEASUREMENT_CONFIGURATION,
-          MEASUREMENT_EVENTS_PERIODICAL);
+  snprintf(periodic_event_path,
+           sizeof(periodic_event_path),
+           "%s.[%i].%s.%s",
+           GNB_CONFIG_STRING_GNB_LIST,
+           gnb_idx,
+           GNB_CONFIG_STRING_MEASUREMENT_CONFIGURATION,
+           MEASUREMENT_EVENTS_PERIODICAL);
   GET_PARAMS(Periodical_EventParams, MEASUREMENT_PERIODICAL_GLOBALPARAMS_DESC, periodic_event_path);
 
   if (*Periodical_EventParams[MEASUREMENT_EVENTS_ENABLE_IDX].i64ptr) {
@@ -1976,12 +1985,7 @@ static void fill_measurement_configuration(uint8_t gnb_idx, gNB_RRC_INST *rrc)
 
   // A2 Event Configuration
   char a2_path[MAX_OPTNAME_SIZE + 8];
-  sprintf(a2_path,
-          "%s.[%i].%s.%s",
-          GNB_CONFIG_STRING_GNB_LIST,
-          gnb_idx,
-          GNB_CONFIG_STRING_MEASUREMENT_CONFIGURATION,
-          MEASUREMENT_EVENTS_A2);
+  snprintf(a2_path, sizeof(a2_path), "%s.[%i].%s.%s", GNB_CONFIG_STRING_GNB_LIST, gnb_idx, GNB_CONFIG_STRING_MEASUREMENT_CONFIGURATION, MEASUREMENT_EVENTS_A2);
   GET_PARAMS(A2_EventParams, MEASUREMENT_A2_GLOBALPARAMS_DESC, a2_path);
 
   if (*A2_EventParams[MEASUREMENT_EVENTS_ENABLE_IDX].i64ptr) {
@@ -2062,7 +2066,7 @@ gNB_RRC_INST *RCconfig_NRRRC()
 
     if (NODE_IS_CU(rrc->node_type)) {
       char aprefix[MAX_OPTNAME_SIZE*2 + 8];
-      sprintf(aprefix, "%s.[%d].%s", GNB_CONFIG_STRING_GNB_LIST, i, GNB_CONFIG_STRING_SCTP_CONFIG);
+      snprintf(aprefix, sizeof(aprefix), "%s.[%d].%s", GNB_CONFIG_STRING_GNB_LIST, i, GNB_CONFIG_STRING_SCTP_CONFIG);
       GET_PARAMS(SCTPParams, GNBSCTPPARAMS_DESC, aprefix);
       LOG_I(GNB_APP,"F1AP: gNB_CU_id[%d] %d\n", k, rrc->node_id);
       rrc->node_name = strdup(*(GNBParamList.paramarray[0][GNB_GNB_NAME_IDX].strptr));
@@ -2205,7 +2209,7 @@ int RCconfig_NR_NG(MessageDef *msg_p, uint32_t i)
             }
             NGAP_REGISTER_GNB_REQ(msg_p).default_drx = 0;
             // NG
-            sprintf(aprefix, "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, k);
+            snprintf(aprefix, sizeof(aprefix), "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, k);
             GET_PARAMS_LIST(NGParamList, NGParams, GNBNGPARAMS_DESC, GNB_CONFIG_STRING_AMF_IP_ADDRESS, aprefix);
             NGAP_REGISTER_GNB_REQ (msg_p).nb_amf = 0;
             
@@ -2226,14 +2230,14 @@ int RCconfig_NR_NG(MessageDef *msg_p, uint32_t i)
             NGAP_REGISTER_GNB_REQ (msg_p).sctp_out_streams = SCTP_OUT_STREAMS;
             NGAP_REGISTER_GNB_REQ (msg_p).sctp_in_streams  = SCTP_IN_STREAMS;
             if (IS_SA_MODE(get_softmodem_params())) {
-              sprintf(aprefix, "%s.[%d].%s", GNB_CONFIG_STRING_GNB_LIST, k, GNB_CONFIG_STRING_SCTP_CONFIG);
+              snprintf(aprefix, sizeof(aprefix), "%s.[%d].%s", GNB_CONFIG_STRING_GNB_LIST, k, GNB_CONFIG_STRING_SCTP_CONFIG);
               GET_PARAMS(SCTPParams, GNBSCTPPARAMS_DESC, aprefix);
               NGAP_REGISTER_GNB_REQ (msg_p).sctp_in_streams = (uint16_t)*(SCTPParams[GNB_SCTP_INSTREAMS_IDX].uptr);
               NGAP_REGISTER_GNB_REQ (msg_p).sctp_out_streams = (uint16_t)*(SCTPParams[GNB_SCTP_OUTSTREAMS_IDX].uptr);
             }
 
             // NETWORK_INTERFACES
-            sprintf(aprefix, "%s.[%d].%s", GNB_CONFIG_STRING_GNB_LIST, k, GNB_CONFIG_STRING_NETWORK_INTERFACES_CONFIG);
+            snprintf(aprefix, sizeof(aprefix), "%s.[%d].%s", GNB_CONFIG_STRING_GNB_LIST, k, GNB_CONFIG_STRING_NETWORK_INTERFACES_CONFIG);
             GET_PARAMS(NETParams, GNBNETPARAMS_DESC, aprefix);
             if (NETParams[GNB_IPV4_ADDRESS_FOR_NG_AMF_IDX].strptr != NULL) {
               char *cidr = *(NETParams[GNB_IPV4_ADDRESS_FOR_NG_AMF_IDX].strptr);
@@ -2393,10 +2397,10 @@ int RCconfig_NR_X2(MessageDef *msg_p, uint32_t i) {
                         X2AP_REGISTER_ENB_REQ(msg_p).mnc);
 
             char aprefix[MAX_OPTNAME_SIZE * 80 + 8];
-            sprintf(aprefix, "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0);
+            snprintf(aprefix, sizeof(aprefix), "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0);
             GET_PARAMS_LIST(SCCsParamList, SCCsParams, SCCPARAMS_DESC(scc), GNB_CONFIG_STRING_SERVINGCELLCONFIGCOMMON, aprefix);
             if (SCCsParamList.numelt > 0) {
-              sprintf(aprefix, "%s.[%i].%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0, GNB_CONFIG_STRING_SERVINGCELLCONFIGCOMMON, 0);
+              snprintf(aprefix, sizeof(aprefix), "%s.[%i].%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0, GNB_CONFIG_STRING_SERVINGCELLCONFIGCOMMON, 0);
               GET_PARAMS(SCCsParams, SCCPARAMS_DESC(scc), aprefix);
               fix_scc(scc,ssb_bitmap);
             }
@@ -2417,7 +2421,7 @@ int RCconfig_NR_X2(MessageDef *msg_p, uint32_t i) {
                   X2AP_REGISTER_ENB_REQ (msg_p).num_cc);
             }
 
-            sprintf(aprefix,"%s.[%i]",GNB_CONFIG_STRING_GNB_LIST,k);
+            snprintf(aprefix, sizeof(aprefix), "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, k);
             GET_PARAMS_LIST(X2ParamList, X2Params, X2PARAMS_DESC, ENB_CONFIG_STRING_TARGET_ENB_X2_IP_ADDRESS, aprefix);
 
             AssertFatal(X2ParamList.numelt <= X2AP_MAX_NB_ENB_IP_ADDRESS,
@@ -2464,14 +2468,14 @@ int RCconfig_NR_X2(MessageDef *msg_p, uint32_t i) {
             X2AP_REGISTER_ENB_REQ (msg_p).sctp_in_streams  = SCTP_IN_STREAMS;
 
             if (IS_SA_MODE(get_softmodem_params())) {
-              sprintf(aprefix,"%s.[%i].%s",GNB_CONFIG_STRING_GNB_LIST,k,GNB_CONFIG_STRING_SCTP_CONFIG);
+              snprintf(aprefix, sizeof(aprefix), "%s.[%i].%s", GNB_CONFIG_STRING_GNB_LIST, k, GNB_CONFIG_STRING_SCTP_CONFIG);
               GET_PARAMS(SCTPParams, GNBSCTPPARAMS_DESC, aprefix);
               X2AP_REGISTER_ENB_REQ (msg_p).sctp_in_streams = (uint16_t)*(SCTPParams[GNB_SCTP_INSTREAMS_IDX].uptr);
               X2AP_REGISTER_ENB_REQ (msg_p).sctp_out_streams = (uint16_t)*(SCTPParams[GNB_SCTP_OUTSTREAMS_IDX].uptr);
             }
 
             // NETWORK_INTERFACES
-            sprintf(aprefix, "%s.[%i].%s", GNB_CONFIG_STRING_GNB_LIST, k, GNB_CONFIG_STRING_NETWORK_INTERFACES_CONFIG);
+            snprintf(aprefix, sizeof(aprefix), "%s.[%i].%s", GNB_CONFIG_STRING_GNB_LIST, k, GNB_CONFIG_STRING_NETWORK_INTERFACES_CONFIG);
             GET_PARAMS(NETParams, GNBNETPARAMS_DESC, aprefix);
             X2AP_REGISTER_ENB_REQ (msg_p).enb_port_for_X2C = (uint32_t)*(NETParams[GNB_PORT_FOR_X2C_IDX].uptr);
 
@@ -2594,7 +2598,7 @@ ngran_node_t get_node_type(void)
 
   // E1 params
   char aprefix[MAX_OPTNAME_SIZE * 2 + 8];
-  sprintf(aprefix, "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0);
+  snprintf(aprefix, sizeof(aprefix), "%s.[%i]", GNB_CONFIG_STRING_GNB_LIST, 0);
   GET_PARAMS_LIST(GNBE1ParamList, GNBE1Params, GNBE1PARAMS_DESC, GNB_CONFIG_STRING_E1_PARAMETERS, aprefix);
   if (strcmp(*(GNBParamList.paramarray[0][GNB_TRANSPORT_S_PREFERENCE_IDX].strptr), "f1") == 0) {
     if ( GNBE1ParamList.paramarray == NULL || GNBE1ParamList.numelt == 0 )
