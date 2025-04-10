@@ -458,25 +458,6 @@ int main(int argc, char **argv)
     get_channel_model_mode(uniqCfg);
   }
 
-  // Delay to allow the convergence of the IIR filter on PRACH noise measurements at gNB side
-  if (IS_SOFTMODEM_RFSIM && !get_softmodem_params()->phy_test)
-    sleep(3);
-
-  // start time manager with some reasonable default for the running mode
-  // (may be overwritten in configuration file or command line)
-  void nr_pdcp_ms_tick(void);
-  void nr_rlc_ms_tick(void);
-  time_manager_tick_function_t tick_functions[] = {
-    nr_pdcp_ms_tick,
-    nr_rlc_ms_tick
-  };
-  int tick_functions_count = 2;
-  time_manager_start(tick_functions, tick_functions_count,
-                     // iq_samples time source for rfsim,
-                     // realtime time source if not
-                     IS_SOFTMODEM_RFSIM ? TIME_SOURCE_IQ_SAMPLES
-                                        : TIME_SOURCE_REALTIME);
-
   if (!get_softmodem_params()->nsa && get_softmodem_params()->emulate_l1)
     start_oai_nrue_threads();
 
