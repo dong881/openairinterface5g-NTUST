@@ -735,7 +735,7 @@ int get_mcs_from_bler(const NR_bler_options_t *bler_options,
   /* first call: everything is zero. Initialize to sensible default */
   if (bler_stats->last_frame == 0 && bler_stats->mcs == 0) {
     bler_stats->last_frame = frame;
-    bler_stats->mcs = 9;
+    bler_stats->mcs = bler_options->min_mcs;
     bler_stats->bler = (bler_options->lower + bler_options->upper) / 2.0f;
   }
   int diff = frame - bler_stats->last_frame;
@@ -756,8 +756,7 @@ int get_mcs_from_bler(const NR_bler_options_t *bler_options,
   int new_mcs = old_mcs;
   if (bler_stats->bler < bler_options->lower && old_mcs < max_mcs && num_dl_sched > 3)
     new_mcs += 1;
-  else if ((bler_stats->bler > bler_options->upper && old_mcs > 6) // above threshold
-      || (num_dl_sched <= 3 && old_mcs > 9))                                // no activity
+  else if (bler_stats->bler > bler_options->upper || num_dl_sched <= 3) // above threshold or no activity
     new_mcs -= 1;
   // else we are within threshold boundaries
 
