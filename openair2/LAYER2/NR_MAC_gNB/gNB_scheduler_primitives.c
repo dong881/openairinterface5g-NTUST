@@ -732,12 +732,6 @@ int get_mcs_from_bler(const NR_bler_options_t *bler_options,
                       int max_mcs,
                       frame_t frame)
 {
-  /* first call: everything is zero. Initialize to sensible default */
-  if (bler_stats->last_frame == 0 && bler_stats->mcs == 0) {
-    bler_stats->last_frame = frame;
-    bler_stats->mcs = bler_options->min_mcs;
-    bler_stats->bler = (bler_options->lower + bler_options->upper) / 2.0f;
-  }
   int diff = frame - bler_stats->last_frame;
   if (diff < 0) // wrap around
     diff += 1024;
@@ -2492,6 +2486,13 @@ void reset_srs_stats(NR_UE_info_t *UE) {
   }
 }
 
+static void init_bler_stats(const NR_bler_options_t *bler_options, NR_bler_stats_t *bler_stats, frame_t frame)
+{
+  bler_stats->last_frame = frame;
+  bler_stats->mcs = bler_options->min_mcs;
+  bler_stats->bler = (float)(bler_options->lower + bler_options->upper) / 2.0f;
+}
+
 //------------------------------------------------------------------------------
 NR_UE_info_t *add_new_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rntiP, NR_CellGroupConfig_t *CellGroup)
 {
@@ -2521,6 +2522,10 @@ NR_UE_info_t *add_new_nr_ue(gNB_MAC_INST *nr_mac, rnti_t rntiP, NR_CellGroupConf
   sched_ctrl->sched_srs.frame = -1;
   sched_ctrl->sched_srs.slot = -1;
   sched_ctrl->pdcch_cl_adjust = 0;
+
+  // Initialize bler_stats
+  init_bler_stats(&nr_mac->dl_bler, &sched_ctrl->dl_bler_stats, nr_mac->frame);
+  init_bler_stats(&nr_mac->ul_bler, &sched_ctrl->ul_bler_stats, nr_mac->frame);
 
   // initialize LCID structure
   seq_arr_init(&sched_ctrl->lc_config, sizeof(nr_lc_config_t));
