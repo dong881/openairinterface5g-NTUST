@@ -232,7 +232,9 @@ In the `MACRLCs` section of the gNB/DU configuration file:
 
 In the `gNBs` section of the gNB/DU configuration file: some of the parameters
 affect RRC configuration (CellGroupConfig) of a UE, and are therefore listed
-here, *also they pertain to the DU*, i.e., the scheduler.
+here, *also they pertain to the DU*, i.e., the scheduler. Note also that some
+SIBs are configured at the DU and some at the CU; please consult the [RRC
+configuration](../RRC/rrc-usage.md) as well for SIB configuration.
 
 * `pdsch_AntennaPorts_XP` (default 1): number of XP logical antenna
   ports in PDSCH (see also [`RUNMODEM.md`](../RUNMODEM.md))
@@ -267,6 +269,8 @@ here, *also they pertain to the DU*, i.e., the scheduler.
   options are 2, 4, 6, 8, 10, 12, 32; **32 is a Rel-17 features**)
 * `num_ulharq` (default 16): as `num_dlharq` for UL (other valid option is 32;
   **32 is i Rel-17 feature**)
+- `du_sibs` (default `[]`): list of SIBs to transmit in the cell. Currently,
+  SIB19 (for NTN) is supported.
 
 ## ServingCellConfigCommon parameters
 

@@ -67,6 +67,9 @@ RRC-specific configuration
 
 ### cell-specific options
 
+Note that some SIBS are configured at the CU and some at the DU; please consult
+the [MAC configuration](../MAC/mac-usage.md) as well for SIB configuration.
+
 - `gNB_ID` and `gNB_name`: ID and name of the gNB
 - `tracking_area_code`: the current tracking area code in the range `[0x0001,
   0xfffd]`
@@ -84,6 +87,8 @@ RRC-specific configuration
 - `enable_sdap` (default: false): enable the use of the SDAP layer. If
   deactivated, a transparent SDAP header is prepended to packets, but no
   further processing is being done.
+- `cu_sibs` (default: `[]`) list of SIBs to give to the DU for transmission.
+  Currently, SIB2 is supported.
 
 ### UE-specific configuration
 
