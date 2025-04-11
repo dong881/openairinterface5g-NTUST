@@ -464,7 +464,7 @@ class OaiCiTest():
 			return (False, f"UE {ue.getName()} has no IP address")
 		svrIP = cn.getIP()
 		if not svrIP:
-			return (False, f"Iperf server {ue.getName()} has no IP address")
+			return (False, f"Iperf server {cn.getName()} has no IP address")
 
 		iperf_opt = self.iperf_args
 		jsonReport = "--json"
