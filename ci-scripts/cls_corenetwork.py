@@ -162,6 +162,9 @@ class CoreNetwork:
 	def getCmdPrefix(self):
 		return self._cmd_prefix or ""
 
+	def getName(self):
+		return self._cn_name
+
 	def getHost(self):
 		return self._host
 
