@@ -44,9 +44,268 @@
 #define DEBUG_LDPC_ENCODING
 //#define DEBUG_LDPC_ENCODING_FREE 1
 
+/**
+ * \typedef group_tail_t
+ * \struct group_tail_s
+ * \brief index and content of the last word written by a task to the encoding library output
+ * It is returned after task completion to fix the borders of segment groups
+ * \var index index of the last word written by the task
+ * \var content content of the last word written by the task
+ */
+typedef struct group_tail_s
+{
+  uint32_t index;
+#if defined(__AVX512VBMI__)
+  uint64_t content;
+#elif defined(__aarch64__)
+  uint16_t content;
+#else
+  uint32_t content;
+#endif
+} group_tail_t;
+
+/**
+ * \brief fix segment groups first and last words
+ * The last word of a segment group is not written by encoding tasks in order to avoid race conditions
+ * This function fixes the segment group borders after encoding tasks completion
+ * \param group_tail store segment groups tail to fix segment borders
+ * \param nbGroups number of groups
+ * \params output encoding library output to write to
+ */
+static void fix_group_borders(group_tail_t *group_tail, int nbGroups, uint8_t *output)
+{
+  for(int i = 0; i < nbGroups; i++) {
+#if defined(__AVX512VBMI__)
+    ((uint64_t *)output)[group_tail[i].index] = group_tail[i].content | ((uint64_t *)output)[group_tail[i].index];
+#elif defined(__aarch64__)
+    ((uint16_t *)output)[group_tail[i].index] = group_tail[i].content | ((uint16_t *)output)[group_tail[i].index];
+#else
+    ((uint32_t *)output)[group_tail[i].index] = group_tail[i].content | ((uint32_t *)output)[group_tail[i].index];
+#endif
+  }
+}
+
+/**
+ * \brief determine the value of E for the current segment
+ * \param E number of bits per segment in f
+ * \param E2 number of bits per segment in f2
+ * \param Eshift flag indicating if there was a E shift within the segment group
+ * \param segment index of the segment
+ * \param E2_first_segment index of the first segment of size E2 if there is a E shift in the segment group
+ */
+static inline uint32_t select_E(uint32_t E, uint32_t E2, bool Eshift, uint32_t segment, uint32_t E2_first_segment)
+{
+  return (Eshift && (segment >= E2_first_segment)) ? E2 : E;
+}
+
+/**
+ * \brief write nrLDPC_coding_segment_encoder output with interleaver output
+ * the interleaver output has 8 bits from 8 different segments per byte
+ * nrLDPC_coding_segment_encoder is made of concatenated packed segments
+ * \param f input interleaved segment, 8 bits from 8 segments per byte
+ * \param E number of bits per segment in f
+ * \param f2 input interleaved segment, 8 bits from 8 segments per byte
+ * interleaved with E2 if there was a E shift in the segment group
+ * \param E2 number of bits per segment in f2
+ * \param Eshift flag indicating if there was a E shift within the segment group
+ * \param E2_first_segment index of the first segment of size E2 if there is a E shift in the segment group
+ * \param nb_segments number of segments in the group
+ * \param output nrLDPC_coding_segment_encoder with concatenated segments and packed bits
+ * \param Eoffset offset in number of bits of the first segment of the segment group within output
+ * \param group_tail store segment group last words to fix segment group borders
+ */
+static void write_task_output(uint8_t *f,
+                              uint32_t E,
+                              uint8_t *f2,
+                              uint32_t E2,
+                              bool Eshift,
+                              uint32_t E2_first_segment,
+                              uint32_t nb_segments,
+                              uint8_t *output,
+                              uint32_t Eoffset,
+                              group_tail_t *group_tail)
+{
+
+#if defined(__AVX512VBMI__)
+  uint64_t *output_p = (uint64_t*)output;
+  int i=0;
+  __m512i bitperm[8];
+  uint32_t Eoffset2[8];
+  uint32_t Eoffset2_bit[8];
+  bitperm[0] = _mm512_set1_epi64(0x3830282018100800);
+  __m512i inc = _mm512_set1_epi8(0x1);
+  Eoffset2[0] = Eoffset >> 6;
+  Eoffset2_bit[0] = Eoffset & 63;
+  Eoffset += select_E(E, E2, Eshift, 0, E2_first_segment);
+  for (int n = 1; n < nb_segments; n++) {
+    bitperm[n] = _mm512_add_epi8(bitperm[n-1] ,inc);
+    Eoffset2[n] = Eoffset >> 6;
+    Eoffset2_bit[n] = Eoffset & 63;
+    Eoffset += select_E(E, E2, Eshift, n, E2_first_segment);
+  } 
+  group_tail->index = Eoffset2[nb_segments - 1];
+  int i2=0;
+  __m64 tmp;
+  for (i=0;i<E2;i+=64,i2++) {
+    if (i<E) {
+      for (int j=0; j < E2_first_segment && (j < (nb_segments - 1) || i < (E2 - 64)); j++) {
+        // Note: Here and below for AVX2, we are using the 64-bit SIMD instruction
+        // instead of C >>/<< because when the Eoffset2_bit is 64 or 0, the <<
+        // and >> operations are undefined and in fact don't give "0" which is
+        // what we want here. The SIMD version do give 0 when the shift is 64
+        tmp = (__m64)_mm512_bitshuffle_epi64_mask(((__m512i *)f)[i2],bitperm[j]);
+
+        *(__m64*)(output_p + Eoffset2[j]) = _mm_or_si64(*(__m64*)(output_p + Eoffset2[j]),_mm_slli_si64(tmp,Eoffset2_bit[j]));
+
+        *(__m64*)(output_p + Eoffset2[j] + 1) = _mm_or_si64(*(__m64*)(output_p + Eoffset2[j]+1),_mm_srli_si64(tmp,(64-Eoffset2_bit[j])));
+
+      } //for (int j=0;
+    } // if (i < E)
+    for (int j=E2_first_segment; j < nb_segments && (j < (nb_segments - 1) || i < (E2 - 64)); j++) {
+      tmp = (__m64)_mm512_bitshuffle_epi64_mask(((__m512i *)f2)[i2],bitperm[j]);
+
+      *(__m64*)(output_p + Eoffset2[j]) = _mm_or_si64(*(__m64*)(output_p + Eoffset2[j]),_mm_slli_si64(tmp,Eoffset2_bit[j]));
+
+      *(__m64*)(output_p + Eoffset2[j]+1) = _mm_or_si64(*(__m64*)(output_p + Eoffset2[j]+1),_mm_srli_si64(tmp,(64-Eoffset2_bit[j])));
+    }
+    output_p++;
+    group_tail->index++;
+  }
+
+  // Do not write the last word of the segment group but keep it for fixing segment borders
+  if (Eshift) {
+    tmp = (__m64)_mm512_bitshuffle_epi64_mask(((__m512i *)f2)[(E2 - 1) >> 6], bitperm[nb_segments - 1]);
+  } else {
+    tmp = (__m64)_mm512_bitshuffle_epi64_mask(((__m512i *)f)[(E2 - 1) >> 6], bitperm[nb_segments - 1]);
+  }
+  *(__m64*)(output_p - 1 + Eoffset2[nb_segments - 1]) = _mm_or_si64(*(__m64*)(output_p - 1 + Eoffset2[nb_segments - 1]), _mm_slli_si64(tmp, Eoffset2_bit[nb_segments - 1]));
+  group_tail->content = (uint64_t)_mm_srli_si64(tmp, (64 - Eoffset2_bit[nb_segments - 1]));
+
+#elif defined(__aarch64__)
+  uint16_t *output_p = (uint16_t*)output;
+  int i=0;
+  uint32_t Eoffset2[8];
+  uint32_t Eoffset2_bit[8];
+  for (int n = 0; n < nb_segments; n++) {
+    Eoffset2[n]  = Eoffset >> 4;
+    Eoffset2_bit[n] = Eoffset & 15;
+    Eoffset += select_E(E, E2, Eshift, n, E2_first_segment);
+  } 
+  group_tail->index = Eoffset2[nb_segments - 1];
+  int i2=0;
+  const int8_t __attribute__ ((aligned (16))) ucShift[8][16] = {
+    {0,1,2,3,4,5,6,7,0,1,2,3,4,5,6,7},     // segment 0
+    {-1,0,1,2,3,4,5,6,-1,0,1,2,3,4,5,6},   // segment 1
+    {-2,-1,0,1,2,3,4,5,-2,-1,0,1,2,3,4,5}, // segment 2
+    {-3,-2,-1,0,1,2,3,4,-3,-2,-1,0,1,2,3,4}, // segment 3
+    {-4,-3,-2,-1,0,1,2,3,-4,-3,-2,-1,0,1,2,3}, // segment 4
+    {-5,-4,-3,-2,-1,0,1,2,-5,-4,-3,-2,-1,0,1,2}, // segment 5
+    {-6,-5,-4,-3,-2,-1,0,1,-6,-5,-4,-3,-2,-1,0,1}, // segment 6
+    {-7,-6,-5,-4,-3,-2,-1,0,-7,-6,-5,-4,-3,-2,-1,0}}; // segment 7
+  const uint8_t __attribute__ ((aligned (16))) masks[16] = 
+      {0x1,0x2,0x4,0x8,0x10,0x20,0x40,0x80,0x1,0x2,0x4,0x8,0x10,0x20,0x40,0x80};
+  int8x16_t vshift[8];
+  for (int n=0;n<8;n++) vshift[n] = vld1q_s8(ucShift[n]);
+  uint8x16_t vmask  = vld1q_u8(masks);
+
+  int32_t tmp;
+  uint8x16_t cshift;
+  for (i=0;i<E2;i+=16,i2++) {
+    if (i<E) {	
+      for (int j=0; j < E2_first_segment && (j < (nb_segments - 1) || i < (E2 - 16)); j++) {
+        cshift = vandq_u8(vshlq_u8(((uint8x16_t*)f)[i2],vshift[j]),vmask);
+        tmp = (int)vaddv_u8(vget_low_u8(cshift));
+        tmp += (int)(vaddv_u8(vget_high_u8(cshift))<<8);
+        *(output_p + Eoffset2[j]) |= (uint16_t)(tmp<<Eoffset2_bit[j]);
+        *(output_p + Eoffset2[j] + 1) |= (uint16_t)(tmp>>(16-Eoffset2_bit[j]));
+      }
+    }
+    for (int j=E2_first_segment; j < nb_segments && (j < (nb_segments - 1) || i < (E2 - 16)); j++) {
+      cshift = vandq_u8(vshlq_u8(((uint8x16_t*)f2)[i2],vshift[j]),vmask);
+      tmp = (int)vaddv_u8(vget_low_u8(cshift));
+      tmp += (int)(vaddv_u8(vget_high_u8(cshift))<<8);
+      *(output_p + Eoffset2[j]) |= (uint16_t)(tmp<<Eoffset2_bit[j]);
+      *(output_p + Eoffset2[j] + 1) |= (uint16_t)(tmp>>(16-Eoffset2_bit[j]));
+    }
+    output_p++;
+    group_tail->index++;
+  }
+
+  // Do not write the last word of the segment group but keep it for fixing segment borders
+  if (Eshift) {
+    cshift = vandq_u8(vshlq_u8(((uint8x16_t*)f2)[(E2 - 1) >> 4], vshift[nb_segments - 1]), vmask);
+  } else {
+    cshift = vandq_u8(vshlq_u8(((uint8x16_t*)f)[(E2 - 1) >> 4], vshift[nb_segments - 1]), vmask);
+  }
+  tmp = (int)vaddv_u8(vget_low_u8(cshift));
+  tmp += (int)(vaddv_u8(vget_high_u8(cshift)) << 8);
+  *(output_p  - 1 + Eoffset2[nb_segments - 1]) |= (uint16_t)(tmp << Eoffset2_bit[nb_segments - 1]);
+  group_tail->content = (uint16_t)(tmp >> (16 - Eoffset2_bit[nb_segments - 1]));
+       
+#else
+  uint32_t *output_p = (uint32_t*)output;
+  int i=0;
+  uint32_t Eoffset2[8];
+  uint32_t Eoffset2_bit[8];
+  for (int n = 0; n < nb_segments; n++) {
+    Eoffset2[n]  = Eoffset >> 5;
+    Eoffset2_bit[n] = Eoffset & 31;
+    Eoffset += select_E(E, E2, Eshift, n, E2_first_segment);
+  } 
+  group_tail->index = Eoffset2[nb_segments - 1];
+  int i2 = 0;
+  int tmp;
+  __m64 tmp64, tmp64b, tmp64c, out64;
+  
+  for (i=0; i < E2; i += 32, i2++) {
+    if (i < E) {
+      for (int j = 0; j < E2_first_segment && (j < (nb_segments - 1) || i < (E2 - 32)); j++) {
+        // Note: Here and below, we are using the 64-bit SIMD instruction
+        // instead of C >>/<< because when the Eoffset2_bit is 64 or 0, the <<
+        // and >> operations are undefined and in fact don't give "0" which is
+        // what we want here. The SIMD version do give 0 when the shift is 64
+        tmp = _mm256_movemask_epi8(_mm256_slli_epi16(((__m256i *)f)[i2], 7 - j));
+        tmp64 = _mm_set1_pi32(tmp);
+        out64 = _mm_set_pi32(*(output_p + Eoffset2[j] + 1), *(output_p + Eoffset2[j]));
+        tmp64b = _mm_or_si64(out64, _mm_slli_pi32(tmp64, Eoffset2_bit[j]));
+        tmp64c = _mm_or_si64(out64, _mm_srli_pi32(tmp64, (32 - Eoffset2_bit[j])));
+        *(output_p + Eoffset2[j]) = _m_to_int(tmp64b);
+        *(output_p + Eoffset2[j] + 1) = _m_to_int(_mm_srli_si64(tmp64c, 32));
+      }
+    } 
+    for (int j = E2_first_segment; j < nb_segments && (j < (nb_segments - 1) || i < (E2 - 32)); j++) {
+      tmp = _mm256_movemask_epi8(_mm256_slli_epi16(((__m256i *)f2)[i2], 7 - j));
+      tmp64 = _mm_set1_pi32(tmp);
+      out64 = _mm_set_pi32(*(output_p + Eoffset2[j] + 1), *(output_p + Eoffset2[j]));
+      tmp64b = _mm_or_si64(out64, _mm_slli_pi32(tmp64, Eoffset2_bit[j]));
+      tmp64c = _mm_or_si64(out64, _mm_srli_pi32(tmp64, (32 - Eoffset2_bit[j])));
+      *(output_p + Eoffset2[j])  = _m_to_int(tmp64b);
+      *(output_p + Eoffset2[j] + 1) = _m_to_int(_mm_srli_si64(tmp64c, 32));
+    }
+    output_p++;
+    group_tail->index++;
+  }
+
+  // Do not write the last word of the segment group but keep it for fixing segment borders
+  if (Eshift) {
+    tmp = _mm256_movemask_epi8(_mm256_slli_epi16(((__m256i *)f2)[(E2 - 1) >> 5], 7 - nb_segments + 1));
+  } else {
+    tmp = _mm256_movemask_epi8(_mm256_slli_epi16(((__m256i *)f)[(E2 - 1) >> 5], 7 - nb_segments + 1));
+  }
+  tmp64 = _mm_set1_pi32(tmp);
+  out64 = _mm_set_pi32(*(output_p - 1 + Eoffset2[nb_segments - 1] + 1), *(output_p - 1 + Eoffset2[nb_segments - 1]));
+  tmp64b = _mm_or_si64(out64, _mm_slli_pi32(tmp64, Eoffset2_bit[nb_segments - 1]));
+  tmp64c = _mm_srli_pi32(tmp64, (32 - Eoffset2_bit[nb_segments - 1]));
+  *(output_p - 1 + Eoffset2[nb_segments - 1])  = _m_to_int(tmp64b);
+  group_tail->content = _m_to_int(tmp64c);
+  
+#endif
+}
+
 typedef struct ldpc8blocks_args_s {
   nrLDPC_TB_encoding_parameters_t *nrLDPC_TB_encoding_parameters;
   encoder_implemparams_t impp;
+  group_tail_t *group_tail;
 } ldpc8blocks_args_t;
 
 static void ldpc8blocks(void *p)
@@ -191,295 +450,17 @@ static void ldpc8blocks(void *p)
   uint32_t Eoffset=0;
   for (int s=0; s<macro_segment; s++)
     Eoffset += (nrLDPC_TB_encoding_parameters->segments[s].E); 
-#ifdef __AVX512VBMI__
-  uint64_t *output_p = (uint64_t*)impp->output;
-  int i=0;
-  __m512i bitperm[8];
-  uint32_t Eoffset2[8];
-  uint32_t Eoffset2_bit[8];
-  bitperm[0] = _mm512_set1_epi64(0x3830282018100800);
-  __m512i inc   = _mm512_set1_epi8(0x1);
-  Eoffset2[0] = Eoffset>>6;
-  Eoffset2_bit[0] = Eoffset&63;
-  //printf("E2_first_segment %d,Eoffset %d, Eoffset2 %d, Eoffset2_bit %d\n",E2_first_segment,Eoffset,Eoffset2[0],Eoffset2_bit[0]);
-  for (int n=1;n<E2_first_segment;n++) {
-    bitperm[n]   = _mm512_add_epi8(bitperm[n-1],inc);
-    Eoffset += E;
-    Eoffset2[n]  = Eoffset>>6;
-    Eoffset2_bit[n] = Eoffset&63;
-    //printf("E %d : n %d, Eoffset %d, Eoffset2 %d, Eoffset2_bit %d\n",E,n,Eoffset,Eoffset2[n],Eoffset2_bit[n]);
-  } 
-  if (Eshift) {
-    bitperm[E2_first_segment]   = _mm512_add_epi8(bitperm[E2_first_segment-1],inc);
-    Eoffset += E;
-    Eoffset2[E2_first_segment] = Eoffset>>6;
-    Eoffset2_bit[E2_first_segment] = Eoffset &63;
-    //printf("E2 %d : Eoffset %d, Eoffset2 %d, Eoffset2_bit %d\n",E2,Eoffset,Eoffset2[E2_first_segment],Eoffset2_bit[E2_first_segment]);
-  }
-  for (int n=E2_first_segment+1;n<macro_segment_end-macro_segment;n++) {
-    bitperm[n]   = _mm512_add_epi8(bitperm[n-1],inc);
-    Eoffset+=E2;
-    Eoffset2[n] = Eoffset>>6;
-    Eoffset2_bit[n] = Eoffset&63;
-    //printf("E2 %d (macro_segment_end %d, macro_segment %d) : n %d, Eoffset %d, Eoffset2 %d, Eoffset2_bit %d\n",E2,macro_segment_end,macro_segment,n,Eoffset,Eoffset2[n],Eoffset2_bit[n]);
-  }
-  int i2=0;
-  __m64 tmp;
-  for (i=0;i<E2;i+=64,i2++) {
-     if (i<E) {
-      for (int j=0; j < E2_first_segment; j++) {
-#ifdef DEBUG_BIT_INTERLEAVE
-        printf("segment %d : qword %d, first bit %d last bit %d\n",j, 
-            Eoffset2[j]+(i>>6),
-            (Eoffset2_bit[j] + i)&63,
-            (i<=(E-64)) ? 63 : (Eoffset2_bit[j] + E-1)&63);
-        if  (Eoffset2_bit[j] > 0) 
-          printf("segment %d : qword %d, first bit %d last bit %d\n",j,
-                 1+Eoffset2[j]+(i>>6),
-                 0,
-                 ((Eoffset2_bit[j] + i)&63) - 1);
-#endif 
-        // Note: Here and below for AVX2, we are using the 64-bit SIMD instruction
-        // instead of C >>/<< because when the Eoffset2_bit is 64 or 0, the <<
-        // and >> operations are undefined and in fact don't give "0" which is
-        // what we want here. The SIMD version do give 0 when the shift is 64
-        tmp = (__m64)_mm512_bitshuffle_epi64_mask(((__m512i *)f)[i2],bitperm[j]);
-        *(__m64*)(output_p + Eoffset2[j])   = _mm_or_si64(*(__m64*)(output_p + Eoffset2[j]),_mm_slli_si64(tmp,Eoffset2_bit[j]));
-        *(__m64*)(output_p + Eoffset2[j]+1) = _mm_or_si64(*(__m64*)(output_p + Eoffset2[j]+1),_mm_srli_si64(tmp,(64-Eoffset2_bit[j])));
-#ifdef DEBUG_BIT_INTERLEAVE
-       if (j<=1) { 
-           printf("pos : %d, i2 %d, j %d\n",(int)(output_p + Eoffset2[j]-(uint64_t*)impp->output),i2,j);
-           printf("i : %x.%x.%x.%x.%x.%x.%x.%x\n",
-           ((uint8_t*)(output_p + Eoffset2[j]))[0],
-           ((uint8_t*)(output_p + Eoffset2[j]))[1],
-           ((uint8_t*)(output_p + Eoffset2[j]))[2],
-           ((uint8_t*)(output_p + Eoffset2[j]))[3],
-           ((uint8_t*)(output_p + Eoffset2[j]))[4],
-           ((uint8_t*)(output_p + Eoffset2[j]))[5],
-           ((uint8_t*)(output_p + Eoffset2[j]))[6],
-           ((uint8_t*)(output_p + Eoffset2[j]))[7]);
-           printf("i+1 : %x.%x.%x.%x.%x.%x.%x.%x\n",
-           ((uint8_t*)(output_p + Eoffset2[j]+1))[0],
-           ((uint8_t*)(output_p + Eoffset2[j]+1))[1],
-           ((uint8_t*)(output_p + Eoffset2[j]+1))[2],
-           ((uint8_t*)(output_p + Eoffset2[j]+1))[3],
-           ((uint8_t*)(output_p + Eoffset2[j]+1))[4],
-           ((uint8_t*)(output_p + Eoffset2[j]+1))[5],
-           ((uint8_t*)(output_p + Eoffset2[j]+1))[6],
-           ((uint8_t*)(output_p + Eoffset2[j]+1))[7]);
-           printf("%x.%x.%x.%x.%x.%x.%x.%x\n",
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),0)<<(0-j))&1)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),1)<<(1-j))&2)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),2)<<(2-j))&4)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),3)<<(3-j))&8)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),4)<<(4-j))&16)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),5)<<(5-j))&32)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),6)<<(6-j))&64)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),7)<<(7-j))&128),
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),8)<<(0-j))&1)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),9)<<(1-j))&2)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),10)<<(2-j))&4)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),11)<<(3-j))&8)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),12)<<(4-j))&16)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),13)<<(5-j))&32)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),14)<<(6-j))&64)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),15)<<(7-j))&128),
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),16)<<(0-j))&1)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),17)<<(1-j))&2)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),18)<<(2-j))&4)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),19)<<(3-j))&8)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),20)<<(4-j))&16)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),21)<<(5-j))&32)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),22)<<(6-j))&64)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),23)<<(7-j))&128),
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),24)<<(0-j))&1)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),25)<<(1-j))&2)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),26)<<(2-j))&4)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),27)<<(3-j))&8)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),28)<<(4-j))&16)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),29)<<(5-j))&32)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),30)<<(6-j))&64)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],0),31)<<(7-j))&128),
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),0)<<(0-j))&1)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),1)<<(1-j))&2)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),2)<<(2-j))&4)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),3)<<(3-j))&8)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),4)<<(4-j))&16)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),5)<<(5-j))&32)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),6)<<(6-j))&64)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),7)<<(7-j))&128),
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),8)<<(0-j))&1)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),9)<<(1-j))&2)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),10)<<(2-j))&4)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),11)<<(3-j))&8)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),12)<<(4-j))&16)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),13)<<(5-j))&32)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),14)<<(6-j))&64)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),15)<<(7-j))&128),
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),16)<<(0-j))&1)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),17)<<(1-j))&2)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),18)<<(2-j))&4)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),19)<<(3-j))&8)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),20)<<(4-j))&16)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),21)<<(5-j))&32)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),22)<<(6-j))&64)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),23)<<(7-j))&128),
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),24)<<(0-j))&1)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),25)<<(1-j))&2)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),26)<<(2-j))&4)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),27)<<(3-j))&8)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),28)<<(4-j))&16)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),29)<<(5-j))&32)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),30)<<(6-j))&64)+
-               ((_mm256_extract_epi8(_mm512_extracti32x8_epi32(((__m512i *)f)[i2],1),31)<<(7-j))&128));
-       }
-#endif
-      } //for (int j=0;
-     } // if (i < E)
-     for (int j=E2_first_segment; j < macro_segment_end-macro_segment; j++) {
-#ifdef DEBUG_BIT_INTERLEAVE
-       printf("segment %d : qword %d, first bit %d last bit %d\n",j,
-           Eoffset2[j]+(i>>6),
-           (Eoffset2_bit[j] + i)&63,
-           (i<=(E-64)) ? 63 : (Eoffset2_bit[j] + E-1)&63);
-       if (Eoffset2_bit[j] > 0) 
-         printf("segment %d : qword %d, first bit %d last bit %d\n",j,
-                1+Eoffset2[j]+(i>>6),
-                0,
-                ((Eoffset2_bit[j] + i)&63) - 1);
-#endif
-       tmp = (__m64)_mm512_bitshuffle_epi64_mask(((__m512i *)f2)[i2],bitperm[j]);
-       *(__m64*)(output_p + Eoffset2[j])   = _mm_or_si64(*(__m64*)(output_p + Eoffset2[j]),
-                                                          _mm_slli_si64(tmp,Eoffset2_bit[j]));
-       *(__m64*)(output_p + Eoffset2[j]+1) = _mm_or_si64(*(__m64*)(output_p + Eoffset2[j]+1),_mm_srli_si64(tmp,(64-Eoffset2_bit[j])));
-     }
-     output_p++;
-  }
 
-#elif defined(__aarch64__)
-  uint16_t *output_p = (uint16_t*)impp->output;
-  int i=0;
-  uint32_t Eoffset2[8];
-  uint32_t Eoffset2_bit[8];
-  Eoffset2[0] = Eoffset>>4;
-  Eoffset2_bit[0] = Eoffset&15;
-  //printf("E2_first_segment %d,Eoffset %d, Eoffset2 %d, Eoffset2_bit %d\n",E2_first_segment,Eoffset,Eoffset2[0],Eoffset2_bit[0]);
-  for (int n=1;n<E2_first_segment;n++) {
-    Eoffset += E;
-    Eoffset2[n]  = Eoffset>>4;
-    Eoffset2_bit[n] = Eoffset&15;
-    //printf("E %d : n %d, Eoffset %d, Eoffset2 %d, Eoffset2_bit %d\n",E,n,Eoffset,Eoffset2[n],Eoffset2_bit[n]);
-  } 
-  if (Eshift) {
-    Eoffset += E;
-    Eoffset2[E2_first_segment] = Eoffset>>4;
-    Eoffset2_bit[E2_first_segment] = Eoffset &15;
-    //printf("E2 %d : Eoffset %d, Eoffset2 %d, Eoffset2_bit %d\n",E2,Eoffset,Eoffset2[E2_first_segment],Eoffset2_bit[E2_first_segment]);
-  }
-  for (int n=E2_first_segment+1;n<macro_segment_end-macro_segment;n++) {
-    Eoffset+=E2;
-    Eoffset2[n] = Eoffset>>4;
-    Eoffset2_bit[n] = Eoffset&15;
-    //printf("E2 %d (macro_segment_end %d, macro_segment %d) : n %d, Eoffset %d, Eoffset2 %d, Eoffset2_bit %d\n",E2,macro_segment_end,macro_segment,n,Eoffset,Eoffset2[n],Eoffset2_bit[n]);
-  }
-  int i2=0;
-  const int8_t __attribute__ ((aligned (16))) ucShift[8][16] = {
-    {0,1,2,3,4,5,6,7,0,1,2,3,4,5,6,7},     // segment 0
-    {-1,0,1,2,3,4,5,6,-1,0,1,2,3,4,5,6},   // segment 1
-    {-2,-1,0,1,2,3,4,5,-2,-1,0,1,2,3,4,5}, // segment 2
-    {-3,-2,-1,0,1,2,3,4,-3,-2,-1,0,1,2,3,4}, // segment 3
-    {-4,-3,-2,-1,0,1,2,3,-4,-3,-2,-1,0,1,2,3}, // segment 4
-    {-5,-4,-3,-2,-1,0,1,2,-5,-4,-3,-2,-1,0,1,2}, // segment 5
-    {-6,-5,-4,-3,-2,-1,0,1,-6,-5,-4,-3,-2,-1,0,1}, // segment 6
-    {-7,-6,-5,-4,-3,-2,-1,0,-7,-6,-5,-4,-3,-2,-1,0}}; // segment 7
-  const uint8_t __attribute__ ((aligned (16))) masks[16] = 
-      {0x1,0x2,0x4,0x8,0x10,0x20,0x40,0x80,0x1,0x2,0x4,0x8,0x10,0x20,0x40,0x80};
-  int8x16_t vshift[8];
-  for (int n=0;n<8;n++) vshift[n] = vld1q_s8(ucShift[n]);
-  uint8x16_t vmask  = vld1q_u8(masks);
-
-  int32_t tmp;
-  uint8x16_t cshift;
-  for (i=0;i<E2;i+=16,i2++) {
-     if (i<E) {	
-       for (int j=0; j < E2_first_segment; j++) {
-         cshift = vandq_u8(vshlq_u8(((uint8x16_t*)f)[i2],vshift[j]),vmask);
-         tmp = (int)vaddv_u8(vget_low_u8(cshift));
-         tmp += (int)(vaddv_u8(vget_high_u8(cshift))<<8);
-         *(output_p + Eoffset2[j])   |= (uint16_t)(tmp<<Eoffset2_bit[j]);
-         *(output_p + Eoffset2[j]+1) |= (uint16_t)(tmp>>(16-Eoffset2_bit[j]));
-       }
-     }
-     for (int j=E2_first_segment; j < macro_segment_end-macro_segment; j++) {
-       cshift = vandq_u8(vshlq_u8(((uint8x16_t*)f2)[i2],vshift[j]),vmask);
-       tmp = (int)vaddv_u8(vget_low_u8(cshift));
-       tmp += (int)(vaddv_u8(vget_high_u8(cshift))<<8);
-       *(output_p + Eoffset2[j])   |= (uint16_t)(tmp<<Eoffset2_bit[j]);
-       *(output_p + Eoffset2[j]+1) |= (uint16_t)(tmp>>(16-Eoffset2_bit[j]));
-     }
-     output_p++;
-  }
-       
-#else
-  uint32_t *output_p = (uint32_t*)impp->output;
-  int i=0;
-  uint32_t Eoffset2[8];
-  uint32_t Eoffset2_bit[8];
-  Eoffset2[0] = Eoffset>>5;
-  Eoffset2_bit[0] = Eoffset&31;
-  //printf("E2_first_segment %d,Eoffset %d, Eoffset2 %d, Eoffset2_bit %d\n",E2_first_segment,Eoffset,Eoffset2[0],Eoffset2_bit[0]);
-  for (int n=1;n<E2_first_segment;n++) {
-    Eoffset += E;
-    Eoffset2[n]  = Eoffset>>5;
-    Eoffset2_bit[n] = Eoffset&31;
-    //printf("E %d : n %d, Eoffset %d, Eoffset2 %d, Eoffset2_bit %d\n",E,n,Eoffset,Eoffset2[n],Eoffset2_bit[n]);
-  } 
-  if (Eshift) {
-    Eoffset += E;
-    Eoffset2[E2_first_segment] = Eoffset>>5;
-    Eoffset2_bit[E2_first_segment] = Eoffset &31;
-    //printf("E2 %d : Eoffset %d, Eoffset2 %d, Eoffset2_bit %d\n",E2,Eoffset,Eoffset2[E2_first_segment],Eoffset2_bit[E2_first_segment]);
-  }
-  for (int n=E2_first_segment+1;n<macro_segment_end-macro_segment;n++) {
-    Eoffset+=E2;
-    Eoffset2[n] = Eoffset>>5;
-    Eoffset2_bit[n] = Eoffset&31;
-    //printf("E2 %d (macro_segment_end %d, macro_segment %d) : n %d, Eoffset %d, Eoffset2 %d, Eoffset2_bit %d\n",E2,macro_segment_end,macro_segment,n,Eoffset,Eoffset2[n],Eoffset2_bit[n]);
-  }
-  int i2 = 0;
-  int tmp;
-  __m64 tmp64, tmp64b, tmp64c, out64;
-  
-  for (i=0; i < E2; i += 32, i2++) {
-     if (i < E) {
-       for (int j = 0; j < E2_first_segment; j++) {
-         // Note: Here and below, we are using the 64-bit SIMD instruction
-         // instead of C >>/<< because when the Eoffset2_bit is 64 or 0, the <<
-         // and >> operations are undefined and in fact don't give "0" which is
-         // what we want here. The SIMD version do give 0 when the shift is 64
-         tmp = _mm256_movemask_epi8(_mm256_slli_epi16(((__m256i *)f)[i2], 7 - j));
-         tmp64 = _mm_set1_pi32(tmp);
-	 out64 = _mm_set_pi32(*(output_p + Eoffset2[j] + 1), *(output_p + Eoffset2[j]));
-         tmp64b = _mm_or_si64(out64, _mm_slli_pi32(tmp64, Eoffset2_bit[j]));
-         tmp64c = _mm_or_si64(out64, _mm_srli_pi32(tmp64, (32 - Eoffset2_bit[j])));
-         *(output_p + Eoffset2[j]) = _m_to_int(tmp64b);
-         *(output_p + Eoffset2[j] + 1) = _m_to_int(_mm_srli_si64(tmp64c, 32));
-       }
-    } 
-    for (int j = E2_first_segment; j < macro_segment_end - macro_segment; j++) {
-      tmp = _mm256_movemask_epi8(_mm256_slli_epi16(((__m256i *)f2)[i2], 7 - j));
-      tmp64 = _mm_set1_pi32(tmp);
-      out64 = _mm_set_pi32(*(output_p + Eoffset2[j] + 1), *(output_p + Eoffset2[j]));
-      tmp64b = _mm_or_si64(out64, _mm_slli_pi32(tmp64, Eoffset2_bit[j]));
-      tmp64c = _mm_or_si64(out64, _mm_srli_pi32(tmp64, (32 - Eoffset2_bit[j])));
-      *(output_p + Eoffset2[j])  = _m_to_int(tmp64b);
-      *(output_p + Eoffset2[j] + 1) = _m_to_int(_mm_srli_si64(tmp64c, 32));
-    }
-    output_p++;
-  }
-
-  
-#endif
+  write_task_output(f,
+                    E,
+                    f2,
+                    E2,
+                    Eshift,
+                    E2_first_segment,
+                    macro_segment_end - macro_segment,
+                    impp->output,
+                    Eoffset,
+		    args->group_tail);
 
   if(impp->toutput != NULL) stop_meas(impp->toutput);
 /*
@@ -493,8 +474,9 @@ static void ldpc8blocks(void *p)
 }
 
 static int nrLDPC_launch_TB_encoding(nrLDPC_slot_encoding_parameters_t *nrLDPC_slot_encoding_parameters,
-                                      int dlsch_id,
-                                      thread_info_tm_t *t_info)
+                                     int dlsch_id,
+                                     thread_info_tm_t *t_info,
+                                     group_tail_t *group_tail)
 {
   nrLDPC_TB_encoding_parameters_t *nrLDPC_TB_encoding_parameters = &nrLDPC_slot_encoding_parameters->TBs[dlsch_id];
 
@@ -523,6 +505,7 @@ static int nrLDPC_launch_TB_encoding(nrLDPC_slot_encoding_parameters_t *nrLDPC_s
     perJobImpp->impp.first_seg = j * 8;
     perJobImpp->impp.ans = t_info->ans;
     perJobImpp->nrLDPC_TB_encoding_parameters = nrLDPC_TB_encoding_parameters;
+    perJobImpp->group_tail = &group_tail[j];
 
     task_t t = {.func = ldpc8blocks, .args = perJobImpp};
     pushTpool(nrLDPC_slot_encoding_parameters->threadPool, t);
@@ -544,15 +527,26 @@ int nrLDPC_coding_encoder(nrLDPC_slot_encoding_parameters_t *nrLDPC_slot_encodin
   init_task_ans(&ans, nbTasks);
   thread_info_tm_t t_info = {.buf = (uint8_t *)arr, .len = 0, .cap = nbTasks, .ans = &ans};
 
+  group_tail_t group_tail[nbTasks];
+  memset(group_tail, 0, nbTasks * sizeof(group_tail_t));
+
   int nbEncode = 0;
   for (int dlsch_id = 0; dlsch_id < nrLDPC_slot_encoding_parameters->nb_TBs; dlsch_id++) {
-    nbEncode += nrLDPC_launch_TB_encoding(nrLDPC_slot_encoding_parameters, dlsch_id, &t_info);
+    nbEncode += nrLDPC_launch_TB_encoding(nrLDPC_slot_encoding_parameters, dlsch_id, &t_info, &group_tail[dlsch_id]);
   }
   if (nbEncode < nbTasks) {
     completed_many_task_ans(&ans, nbTasks - nbEncode);
   }
   // Execute thread pool tasks
   join_task_ans(&ans);
+
+  int n_seg_sum = 0;
+  for (int dlsch_id = 0; dlsch_id < nrLDPC_slot_encoding_parameters->nb_TBs; dlsch_id++) {
+    nrLDPC_TB_encoding_parameters_t *nrLDPC_TB_encoding_parameters = &nrLDPC_slot_encoding_parameters->TBs[dlsch_id];
+    int n_seg = (nrLDPC_TB_encoding_parameters->C / 8 + ((nrLDPC_TB_encoding_parameters->C & 7) == 0 ? 0 : 1));
+    fix_group_borders(&group_tail[n_seg_sum], n_seg, nrLDPC_TB_encoding_parameters->output);
+    n_seg_sum += n_seg;
+  }
 
   return 0;
 }
