@@ -862,7 +862,7 @@ class OaiCiTest():
 		success, output = cn.deploy()
 		logging.info(f"deployment core network {core_name} success {success}, output:\n{output}")
 		if success:
-			msg = f"Started {cn}"
+			msg = f"Started {cn} [{cn.getIP()}]"
 			HTML.CreateHtmlTestRowQueue(core_name, 'OK', [msg])
 		else:
 			msg = f"deployment of core network {core_name} FAILED"

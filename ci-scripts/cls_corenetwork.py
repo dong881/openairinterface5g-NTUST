@@ -49,7 +49,7 @@ class CoreNetwork:
 		self._host = c.get('Host').strip()
 		if self._host == "%%current_host%%":
 			if node is None:
-				raise Exception(f"core network {self} requires node, but none provided (cannot replace %%current_host%%)")
+				raise Exception(f"core network {cn_name} requires node, but none provided (cannot replace %%current_host%%)")
 			self._host = node
 		if d is not None:
 			raise Exception("directory handling not implemented")
@@ -66,7 +66,7 @@ class CoreNetwork:
 		logging.info(f'initialized core {self} from {filename}')
 
 	def __str__(self):
-		return f"{self._cn_name}@{self._host} [IP: {self.getIP()}]"
+		return f"{self._cn_name}@{self._host}"
 
 	def __repr__(self):
 		return self.__str__()
