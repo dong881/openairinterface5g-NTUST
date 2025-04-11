@@ -350,7 +350,7 @@ int32_t LDPCdecoder(t_nrLDPC_dec_params *p_decParams,
     uint16_t Zc          = p_decParams->Z;
     uint8_t  BG         = p_decParams->BG;
 //    uint8_t  numMaxIter = p_decParams->numMaxIter;
-    int block_length    = p_decParams->block_length;
+    int block_length = p_decParams->Kprime;
 //    e_nrLDPC_outMode outMode = p_decParams->outMode;
 	uint8_t row,col;
 	if(BG == 1){
