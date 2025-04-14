@@ -140,7 +140,7 @@ NR_UE_MAC_INST_t *nr_l2_init_ue(int nb_inst)
       ue_init_config_request(mac, get_slots_per_frame_from_scs(get_softmodem_params()->numerology));
   }
 
-  int rc = nr_rlc_module_init(0);
+  int rc = nr_rlc_module_init(NR_RLC_OP_MODE_UE);
   AssertFatal(rc == 0, "Could not initialize RLC layer\n");
 
   for (int j = 0; j < nb_inst; j++) {

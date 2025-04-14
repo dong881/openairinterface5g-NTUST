@@ -31,10 +31,10 @@ typedef struct {
   pthread_mutex_t lock;
   nr_rlc_ue_t     **ue_list;
   int             ue_count;
-  int             gnb_flag;
+  nr_rlc_op_mode_t mode;
 } nr_rlc_ue_manager_internal_t;
 
-nr_rlc_ue_manager_t *new_nr_rlc_ue_manager(int gnb_flag)
+nr_rlc_ue_manager_t *new_nr_rlc_ue_manager(nr_rlc_op_mode_t mode)
 {
   nr_rlc_ue_manager_internal_t *ret;
 
@@ -45,15 +45,21 @@ nr_rlc_ue_manager_t *new_nr_rlc_ue_manager(int gnb_flag)
   }
 
   if (pthread_mutex_init(&ret->lock, NULL)) abort();
-  ret->gnb_flag = gnb_flag;
+  ret->mode = mode;
 
   return ret;
+}
+
+bool nr_rlc_manager_rlc_is_split(nr_rlc_ue_manager_t *_m)
+{
+  nr_rlc_ue_manager_internal_t *m = _m;
+  return m->mode == NR_RLC_OP_MODE_SPLIT_GNB;
 }
 
 int nr_rlc_manager_get_gnb_flag(nr_rlc_ue_manager_t *_m)
 {
   nr_rlc_ue_manager_internal_t *m = _m;
-  return m->gnb_flag;
+  return m->mode != NR_RLC_OP_MODE_UE;
 }
 
 void nr_rlc_manager_lock(nr_rlc_ue_manager_t *_m)

@@ -320,7 +320,7 @@ int nr_rlc_get_available_tx_space(const int ue_id, const logical_chan_id_t chann
   return ret;
 }
 
-int nr_rlc_module_init(int gnb_flag)
+int nr_rlc_module_init(nr_rlc_op_mode_t mode)
 {
   static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
   static int inited = 0;
@@ -328,6 +328,7 @@ int nr_rlc_module_init(int gnb_flag)
 
   if (pthread_mutex_lock(&lock)) abort();
 
+  bool gnb_flag = mode != NR_RLC_OP_MODE_UE;
   if (gnb_flag == 1 && inited) {
     LOG_E(RLC, "%s:%d:%s: fatal, inited already 1\n", __FILE__, __LINE__, __FUNCTION__);
     exit(1);
@@ -343,7 +344,7 @@ int nr_rlc_module_init(int gnb_flag)
   if (gnb_flag == 0)
     inited_ue = 1;
 
-  nr_rlc_ue_manager = new_nr_rlc_ue_manager(gnb_flag);
+  nr_rlc_ue_manager = new_nr_rlc_ue_manager(mode);
 
   if (pthread_mutex_unlock(&lock)) abort();
 
@@ -409,17 +410,14 @@ rb_found:
       T_INT(0 /*ctxt_pP->module_id*/),
       T_INT(ue->ue_id), T_INT(rb_id), T_INT(size));
 
-    const ngran_node_t type = RC.nrrrc[0 /*ctxt_pP->module_id*/]->node_type;
-    AssertFatal(!NODE_IS_CU(type),
-                "Can't be CU, bad node type %d\n", type);
-
     // if (NODE_IS_DU(type) && is_srb == 0) {
     //   LOG_D(RLC, "call proto_agent_send_pdcp_data_ind() \n");
     //   proto_agent_send_pdcp_data_ind(&ctx, is_srb, 0, rb_id, size, memblock);
     //   return;
     // }
 
-    if (NODE_IS_DU(type)) {
+    bool rlc_split = nr_rlc_manager_rlc_is_split(nr_rlc_ue_manager);
+    if (rlc_split) {
       if(is_srb) {
         MessageDef *msg;
         msg = itti_alloc_new_message(TASK_RLC_ENB, 0, F1AP_UL_RRC_MESSAGE);
