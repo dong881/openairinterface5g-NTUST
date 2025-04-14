@@ -79,7 +79,10 @@ void *nrmac_stats_thread(void *arg) {
   char output[MACSTATSSTRLEN] = {0};
   const char *end = output + MACSTATSSTRLEN;
   FILE *file = fopen("nrMAC_stats.log","w");
-  AssertFatal(file!=NULL,"Cannot open nrMAC_stats.log, error %s\n",strerror(errno));
+  if (!file) {
+    LOG_W(NR_MAC, "Cannot open nrMAC_stats.log: %d, %s\n", errno, strerror(errno));
+    return NULL;
+  }
 
   while (oai_exit == 0) {
     char *p = output;

@@ -2481,13 +2481,13 @@ static const char *get_pdusession_status_text(pdu_session_status_t status)
   return "illegal";
 }
 
-static void write_rrc_stats(const gNB_RRC_INST *rrc)
+static bool write_rrc_stats(const gNB_RRC_INST *rrc)
 {
   const char *filename = "nrRRC_stats.log";
   FILE *f = fopen(filename, "w");
   if (f == NULL) {
-    LOG_E(NR_RRC, "cannot open %s for writing\n", filename);
-    return;
+    LOG_W(NR_RRC, "cannot open %s for writing: %d, %s\n", filename, errno, strerror(errno));
+    return false;
   }
 
   time_t now = time(NULL);
@@ -2538,6 +2538,7 @@ static void write_rrc_stats(const gNB_RRC_INST *rrc)
   dump_du_info(rrc, f);
 
   fclose(f);
+  return true;
 }
 
 void *rrc_gnb_task(void *args_p) {
@@ -2576,10 +2577,12 @@ void *rrc_gnb_task(void *args_p) {
         break;
 
       case TIMER_HAS_EXPIRED:
-        if (TIMER_HAS_EXPIRED(msg_p).timer_id == stats_timer_id)
-          write_rrc_stats(RC.nrrrc[0]);
-        else
+        if (TIMER_HAS_EXPIRED(msg_p).timer_id == stats_timer_id) {
+          if (!write_rrc_stats(RC.nrrrc[0]))
+            timer_remove(stats_timer_id);
+        } else {
           itti_send_msg_to_task(TASK_RRC_GNB, 0, TIMER_HAS_EXPIRED(msg_p).arg); /* see rrc_gNB_process_NGAP_PDUSESSION_SETUP_REQ() */
+        }
         break;
 
       case F1AP_INITIAL_UL_RRC_MESSAGE:

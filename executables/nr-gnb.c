@@ -267,9 +267,11 @@ void *nrL1_stats_thread(void *param) {
   char output[L1STATSSTRLEN];
   memset(output,0,L1STATSSTRLEN);
   wait_sync("L1_stats_thread");
-  FILE *fd;
-  fd=fopen("nrL1_stats.log","w");
-  AssertFatal(fd!=NULL,"Cannot open nrL1_stats.log\n");
+  FILE *fd=fopen("nrL1_stats.log","w");
+  if (!fd) {
+    LOG_W(NR_PHY, "Cannot open nrL1_stats.log: %d, %s\n", errno, strerror(errno));
+    return NULL;
+  }
 
   reset_meas(&gNB->phy_proc_tx);
   reset_meas(&gNB->dlsch_encoding_stats);
