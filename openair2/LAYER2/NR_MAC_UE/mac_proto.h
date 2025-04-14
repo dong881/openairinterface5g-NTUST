@@ -406,15 +406,4 @@ uint8_t sl_determine_sci_1a_len(uint16_t *num_subchannels,
 int sl_nr_ue_slot_select(const sl_nr_phy_config_request_t *cfg, int nr_slot, uint8_t frame_duplex_type);
 
 void nr_ue_sidelink_scheduler(nr_sidelink_indication_t *sl_ind, NR_UE_MAC_INST_t *mac);
-
-void nr_mac_rrc_sl_mib_ind(const module_id_t module_id,
-                           const int CC_id,
-                           const uint8_t gNB_index,
-                           const frame_t frame,
-                           const int slot,
-                           const channel_t channel,
-                           uint8_t *pduP,
-                           const sdu_size_t pdu_len,
-                           const uint16_t rx_slss_id);
-
 #endif
