@@ -21,8 +21,6 @@
 
 #include "position_interface.h"
 
-extern uint16_t NB_UE_INST;
-
 static void read_position_coordinates(char *sectionName, position_t *position)
 {
   paramdef_t position_params[] = POSITION_CONFIG_PARAMS_DEF;

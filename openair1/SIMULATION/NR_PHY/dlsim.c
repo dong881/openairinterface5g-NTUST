@@ -261,7 +261,6 @@ void validate_input_pmi(nfapi_nr_config_request_scf_t *gNB_config,
 }
 
 
-int NB_UE_INST = 1;
 configmodule_interface_t *uniqCfg = NULL;
 int main(int argc, char **argv)
 {

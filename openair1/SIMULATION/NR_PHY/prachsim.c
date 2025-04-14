@@ -124,7 +124,6 @@ nrUE_params_t *get_nrUE_params(void) {
 }
 
 void processSlotTX(void *arg) {}
-int NB_UE_INST = 1;
 configmodule_interface_t *uniqCfg = NULL;
 int main(int argc, char **argv){
 

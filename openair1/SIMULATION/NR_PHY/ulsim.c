@@ -160,7 +160,6 @@ uint16_t n_rnti = 0x1234;
 openair0_config_t openair0_cfg[MAX_CARDS];
 
 channel_desc_t *UE2gNB[MAX_MOBILES_PER_GNB][NUMBER_OF_gNB_MAX];
-int NB_UE_INST = 1;
 
 configmodule_interface_t *uniqCfg = NULL;
 int main(int argc, char *argv[])
