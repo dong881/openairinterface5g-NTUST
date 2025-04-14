@@ -19,8 +19,9 @@
  *      contact@openairinterface.org
  */
 
-#include "rrc_defs.h"
 #include "common/utils/ocp_itti/intertask_interface.h"
+
+typedef uint32_t channel_t;
 
 #ifndef _L2_INTERFACE_UE_H_
 #define _L2_INTERFACE_UE_H_

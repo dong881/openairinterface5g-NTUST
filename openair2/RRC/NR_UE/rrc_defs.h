@@ -70,8 +70,6 @@
 #define MAX_MEAS_ID 7
 #define MAX_QUANTITY_CONFIG 2
 
-typedef uint32_t channel_t;
-
 typedef enum {
   nr_SecondaryCellGroupConfig_r15=0,
   nr_RadioBearerConfigX_r15=1

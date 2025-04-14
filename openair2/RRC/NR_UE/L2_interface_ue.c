@@ -30,7 +30,6 @@
  * \warning
  */
 
-#include "rrc_defs.h"
 #include "L2_interface_ue.h"
 #include "assertions.h"
 #include "LAYER2/NR_MAC_COMMON/nr_mac.h"
