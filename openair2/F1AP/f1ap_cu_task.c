@@ -38,6 +38,7 @@
 #include "lib/f1ap_interface_management.h"
 #include "f1ap_cu_paging.h"
 #include "f1ap_cu_task.h"
+#include "openair2/RRC/NR/nr_rrc_defs.h"
 #include <openair3/ocp-gtpu/gtp_itf.h>
 
 //Fixme: Uniq dirty DU instance, by global var, datamodel need better management

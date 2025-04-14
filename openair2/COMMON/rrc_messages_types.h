@@ -29,6 +29,7 @@
 #ifndef RRC_MESSAGES_TYPES_H_
 #define RRC_MESSAGES_TYPES_H_
 #include "common/utils/mem/oai_memory.h"
+#include "openair1/PHY/defs_common.h"
 #include "as_message.h"
 #include "rrc_types.h"
 #include "s1ap_messages_types.h"

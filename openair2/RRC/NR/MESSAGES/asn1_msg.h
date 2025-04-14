@@ -50,7 +50,6 @@
 #include "NR_ReestablishmentCause.h"
 #include "NR_SRB-ToAddModList.h"
 #include "NR_SecurityConfig.h"
-#include "RRC/NR/nr_rrc_defs.h"
 #include "ds/seq_arr.h"
 #include "rrc_messages_types.h"
 struct NR_RRCReconfiguration_v1530_IEs__dedicatedNAS_MessageList;
