@@ -636,14 +636,14 @@ void prepare_scd(NR_ServingCellConfig_t *scd) {
         calloc_or_fail(1, sizeof(*NR_DMRS_DownlinkCfg->phaseTrackingRS->choice.setup));
     NR_PTRS_DownlinkConfig_t *NR_PTRS_DownlinkCfg = NR_DMRS_DownlinkCfg->phaseTrackingRS->choice.setup;
     NR_PTRS_DownlinkCfg->frequencyDensity = calloc_or_fail(1, sizeof(*NR_PTRS_DownlinkCfg->frequencyDensity));
-    long *dl_rbs = calloc_or_fail(2, sizeof(*dl_rbs));
     for (int i=0;i<2;i++) {
-      asn1cSeqAdd(&NR_PTRS_DownlinkCfg->frequencyDensity->list, &dl_rbs[i]);
+      long *a = calloc_or_fail(1, sizeof(*a));
+      asn1cSeqAdd(&NR_PTRS_DownlinkCfg->frequencyDensity->list, a);
     }
     NR_PTRS_DownlinkCfg->timeDensity = calloc_or_fail(1, sizeof(*NR_PTRS_DownlinkCfg->timeDensity));
-    long *dl_mcs = calloc_or_fail(3, sizeof(*dl_mcs));
     for (int i=0;i<3;i++) {
-      asn1cSeqAdd(&NR_PTRS_DownlinkCfg->timeDensity->list, &dl_mcs[i]);
+      long *dl_mcs = calloc_or_fail(1, sizeof(*dl_mcs));
+      asn1cSeqAdd(&NR_PTRS_DownlinkCfg->timeDensity->list, dl_mcs);
     }
     NR_PTRS_DownlinkCfg->epre_Ratio = calloc_or_fail(1, sizeof(*NR_PTRS_DownlinkCfg->epre_Ratio));
     NR_PTRS_DownlinkCfg->resourceElementOffset = calloc_or_fail(1, sizeof(*NR_PTRS_DownlinkCfg->resourceElementOffset));
@@ -668,15 +668,15 @@ void prepare_scd(NR_ServingCellConfig_t *scd) {
     NR_PTRS_UplinkConfig->transformPrecoderDisabled = calloc_or_fail(1, sizeof(*NR_PTRS_UplinkConfig->transformPrecoderDisabled));
     NR_PTRS_UplinkConfig->transformPrecoderDisabled->frequencyDensity =
         calloc_or_fail(1, sizeof(*NR_PTRS_UplinkConfig->transformPrecoderDisabled->frequencyDensity));
-    long *n_rbs = calloc_or_fail(2, sizeof(*n_rbs));
     for (int i=0;i<2;i++) {
-      asn1cSeqAdd(&NR_PTRS_UplinkConfig->transformPrecoderDisabled->frequencyDensity->list, &n_rbs[i]);
+      long *n_rbs = calloc_or_fail(1, sizeof(*n_rbs));
+      asn1cSeqAdd(&NR_PTRS_UplinkConfig->transformPrecoderDisabled->frequencyDensity->list, n_rbs);
     }
     NR_PTRS_UplinkConfig->transformPrecoderDisabled->timeDensity =
         calloc_or_fail(1, sizeof(*NR_PTRS_UplinkConfig->transformPrecoderDisabled->timeDensity));
-    long *ptrs_mcs = calloc_or_fail(3, sizeof(*ptrs_mcs));
     for (int i = 0; i < 3; i++) {
-      asn1cSeqAdd(&NR_PTRS_UplinkConfig->transformPrecoderDisabled->timeDensity->list, &ptrs_mcs[i]);
+      long *ptrs_mcs = calloc_or_fail(1, sizeof(*ptrs_mcs));
+      asn1cSeqAdd(&NR_PTRS_UplinkConfig->transformPrecoderDisabled->timeDensity->list, ptrs_mcs);
     }
     NR_PTRS_UplinkConfig->transformPrecoderDisabled->resourceElementOffset =
         calloc_or_fail(1, sizeof(*NR_PTRS_UplinkConfig->transformPrecoderDisabled->resourceElementOffset));
@@ -703,6 +703,7 @@ void fix_scd(NR_ServingCellConfig_t *scd) {
   int b = 0;
   while (b<scd->downlinkBWP_ToAddModList->list.count) {
     if (scd->downlinkBWP_ToAddModList->list.array[b]->bwp_Common->genericParameters.locationAndBandwidth == 0) {
+      ASN_STRUCT_FREE(asn_DEF_NR_BWP_Downlink, scd->downlinkBWP_ToAddModList->list.array[b]);
       asn_sequence_del(&scd->downlinkBWP_ToAddModList->list,b,1);
     } else {
       b++;
@@ -712,6 +713,7 @@ void fix_scd(NR_ServingCellConfig_t *scd) {
   b = 0;
   while (b<scd->uplinkConfig->uplinkBWP_ToAddModList->list.count) {
     if (scd->uplinkConfig->uplinkBWP_ToAddModList->list.array[b]->bwp_Common->genericParameters.locationAndBandwidth == 0) {
+      ASN_STRUCT_FREE(asn_DEF_NR_BWP_Uplink, scd->uplinkConfig->uplinkBWP_ToAddModList->list.array[b]);
       asn_sequence_del(&scd->uplinkConfig->uplinkBWP_ToAddModList->list,b,1);
     } else {
       b++;
