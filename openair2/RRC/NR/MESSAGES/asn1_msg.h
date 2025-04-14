@@ -147,12 +147,7 @@ int do_RRCReestablishmentRequest(uint8_t *buffer,
                                  uint32_t cell_id,
                                  uint16_t c_rnti);
 
-int do_RRCReestablishment(rrc_gNB_ue_context_t *const ue_context_pP,
-                          uint8_t *const buffer,
-                          size_t buffer_size,
-                          const uint8_t Transaction_id,
-                          uint16_t pci,
-                          NR_ARFCN_ValueNR_t absoluteFrequencySSB);
+int do_RRCReestablishment(int8_t nh_ncc, uint8_t *const buffer, size_t buffer_size, const uint8_t Transaction_id);
 
 int do_RRCReestablishmentComplete(uint8_t *buffer, size_t buffer_size, int64_t rrc_TransactionIdentifier);
 

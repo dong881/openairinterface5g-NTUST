@@ -66,12 +66,9 @@ TEST(nr_asn1, rrc_reestablishment_request)
 
 TEST(nr_asn1, rrc_reestablishment)
 {
-  rrc_gNB_ue_context_t ue_context_pP;
-  memset(&ue_context_pP, 0, sizeof(ue_context_pP));
   unsigned char buf[1000];
-  const uint32_t physical_cell_id = 177;
-  NR_ARFCN_ValueNR_t absoluteFrequencySSB = 2700000;
-  EXPECT_GT(do_RRCReestablishment(&ue_context_pP, buf, 1000, 0, physical_cell_id, absoluteFrequencySSB), 0);
+  const uint8_t nh_ncc = 0;
+  EXPECT_GT(do_RRCReestablishment(nh_ncc, buf, 1000, 0), 0);
 }
 
 TEST(nr_asn1, paging)

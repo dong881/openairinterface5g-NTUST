@@ -1025,12 +1025,7 @@ int do_RRCReestablishmentRequest(uint8_t *buffer,
 }
 
 //------------------------------------------------------------------------------
-int do_RRCReestablishment(rrc_gNB_ue_context_t *const ue_context_pP,
-                          uint8_t *const buffer,
-                          size_t buffer_size,
-                          const uint8_t Transaction_id,
-                          uint16_t pci,
-                          NR_ARFCN_ValueNR_t absoluteFrequencySSB)
+int do_RRCReestablishment(int8_t nh_ncc, uint8_t *const buffer, size_t buffer_size, const uint8_t Transaction_id)
 {
   asn_enc_rval_t enc_rval;
   NR_DL_DCCH_Message_t dl_dcch_msg = {0};
@@ -1047,19 +1042,8 @@ int do_RRCReestablishment(rrc_gNB_ue_context_t *const ue_context_pP,
   rrcReestablishment->criticalExtensions.present = NR_RRCReestablishment__criticalExtensions_PR_rrcReestablishment;
   rrcReestablishment->criticalExtensions.choice.rrcReestablishment = CALLOC(1, sizeof(NR_RRCReestablishment_IEs_t));
 
-  LOG_I(NR_RRC, "Reestablishment update key pci=%d, earfcn_dl=%lu\n", pci, absoluteFrequencySSB);
-
   // 3GPP TS 33.501 Section 6.11 Security handling for RRC connection re-establishment procedure
-  if (ue_context_pP->ue_context.nh_ncc >= 0) {
-    nr_derive_key_ng_ran_star(pci, absoluteFrequencySSB, ue_context_pP->ue_context.nh, ue_context_pP->ue_context.kgnb);
-    rrcReestablishment->criticalExtensions.choice.rrcReestablishment->nextHopChainingCount = ue_context_pP->ue_context.nh_ncc;
-  } else { // first HO
-    nr_derive_key_ng_ran_star(pci, absoluteFrequencySSB, ue_context_pP->ue_context.kgnb, ue_context_pP->ue_context.kgnb);
-    // LG: really 1
-    rrcReestablishment->criticalExtensions.choice.rrcReestablishment->nextHopChainingCount = 0;
-  }
-
-  ue_context_pP->ue_context.kgnb_ncc = 0;
+  rrcReestablishment->criticalExtensions.choice.rrcReestablishment->nextHopChainingCount = nh_ncc >= 0 ? nh_ncc : 0;
   rrcReestablishment->criticalExtensions.choice.rrcReestablishment->lateNonCriticalExtension = NULL;
   rrcReestablishment->criticalExtensions.choice.rrcReestablishment->nonCriticalExtension = NULL;
 
