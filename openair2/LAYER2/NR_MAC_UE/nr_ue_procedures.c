@@ -749,14 +749,8 @@ static int nr_ue_process_dci_dl_10(NR_UE_MAC_INST_t *mac,
   }
 
   dlsch_pdu->rb_offset = dlsch_pdu->start_rb + dlsch_pdu->BWPStart;
-  bool otherSI = false;
-  for (int i = 0; i < MAX_SI_GROUPS; i++) {
-    if (mac->get_otherSI[i]) {
-      otherSI = true;
-      break;
-    }
-  }
-  if (mac->get_sib1 || otherSI)
+
+  if (mac->get_sib1)
     dlsch_pdu->rb_offset -= dlsch_pdu->BWPStart;
 
   /* TIME_DOM_RESOURCE_ASSIGNMENT */

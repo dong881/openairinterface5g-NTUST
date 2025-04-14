@@ -460,7 +460,7 @@ static void nr_fill_nfapi_dl_SIB_pdu(gNB_MAC_INST *gNB_mac,
   pdsch_pdu_rel15->dataScramblingId = *scc->physCellId;
   pdsch_pdu_rel15->nrOfLayers = 1;
   pdsch_pdu_rel15->transmissionScheme = 0;
-  pdsch_pdu_rel15->refPoint = 1;
+  pdsch_pdu_rel15->refPoint = is_sib1;
   pdsch_pdu_rel15->dmrsConfigType = 0;
   pdsch_pdu_rel15->dlDmrsScramblingId = *scc->physCellId;
   pdsch_pdu_rel15->SCID = 0;

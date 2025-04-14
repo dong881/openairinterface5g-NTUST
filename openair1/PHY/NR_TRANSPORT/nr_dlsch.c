@@ -730,7 +730,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
 #endif
     }
     uint32_t dmrs_idx = rel15->rbStart;
-    if (rel15->rnti != SI_RNTI)
+    if (rel15->refPoint == 0)
       dmrs_idx += rel15->BWPStart;
     dmrs_idx *= dmrs_Type == NFAPI_NR_DMRS_TYPE1 ? 6 : 4;
     c16_t txdataF_precoding[rel15->nrOfLayers][symbol_sz] __attribute__((aligned(64)));
