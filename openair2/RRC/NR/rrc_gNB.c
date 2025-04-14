@@ -471,6 +471,114 @@ static void rrc_gNB_process_RRCSetupComplete(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE
   rrc_gNB_send_NGAP_NAS_FIRST_REQ(rrc, UE, rrcSetupComplete);
 }
 
+static nr_a3_event_t *get_a3_configuration(gNB_RRC_INST *rrc, int pci)
+{
+  nr_measurement_configuration_t *measurementConfiguration = &rrc->measurementConfiguration;
+  if (!measurementConfiguration->a3_event_list)
+    return NULL;
+
+  for (uint8_t i = 0; i < measurementConfiguration->a3_event_list->size; i++) {
+    nr_a3_event_t *a3_event = (nr_a3_event_t *)seq_arr_at(measurementConfiguration->a3_event_list, i);
+    if (a3_event->pci == pci)
+      return a3_event;
+  }
+
+  if (measurementConfiguration->is_default_a3_configuration_exists)
+    return get_a3_configuration(rrc, -1);
+
+  return NULL;
+}
+
+static NR_ReportConfigToAddMod_t *prepare_periodic_event_report(const nr_per_event_t *per_event)
+{
+  NR_ReportConfigToAddMod_t *rc = calloc(1, sizeof(*rc));
+  rc->reportConfigId = 1;
+  rc->reportConfig.present = NR_ReportConfigToAddMod__reportConfig_PR_reportConfigNR;
+
+  NR_PeriodicalReportConfig_t *prc = calloc(1, sizeof(*prc));
+  prc->rsType = NR_NR_RS_Type_ssb;
+  prc->reportInterval = NR_ReportInterval_ms1024;
+  prc->reportAmount = NR_PeriodicalReportConfig__reportAmount_infinity;
+  prc->reportQuantityCell.rsrp = true;
+  prc->reportQuantityCell.rsrq = true;
+  prc->reportQuantityCell.sinr = true;
+  prc->reportQuantityRS_Indexes = calloc(1, sizeof(*prc->reportQuantityRS_Indexes));
+  prc->reportQuantityRS_Indexes->rsrp = true;
+  prc->reportQuantityRS_Indexes->rsrq = true;
+  prc->reportQuantityRS_Indexes->sinr = true;
+  asn1cCallocOne(prc->maxNrofRS_IndexesToReport, per_event->maxReportCells);
+  prc->maxReportCells = per_event->maxReportCells;
+  prc->includeBeamMeasurements = per_event->includeBeamMeasurements;
+
+  NR_ReportConfigNR_t *rcnr = calloc(1, sizeof(*rcnr));
+  rcnr->reportType.present = NR_ReportConfigNR__reportType_PR_periodical;
+  rcnr->reportType.choice.periodical = prc;
+
+  rc->reportConfig.choice.reportConfigNR = rcnr;
+  return rc;
+}
+
+static NR_ReportConfigToAddMod_t *prepare_a2_event_report(const nr_a2_event_t *a2_event)
+{
+  NR_ReportConfigToAddMod_t *rc_A2 = calloc(1, sizeof(*rc_A2));
+  rc_A2->reportConfigId = 2;
+  rc_A2->reportConfig.present = NR_ReportConfigToAddMod__reportConfig_PR_reportConfigNR;
+  NR_EventTriggerConfig_t *etrc_A2 = calloc(1, sizeof(*etrc_A2));
+  etrc_A2->eventId.present = NR_EventTriggerConfig__eventId_PR_eventA2;
+  etrc_A2->eventId.choice.eventA2 = calloc(1, sizeof(*etrc_A2->eventId.choice.eventA2));
+  etrc_A2->eventId.choice.eventA2->a2_Threshold.present = NR_MeasTriggerQuantity_PR_rsrp;
+  etrc_A2->eventId.choice.eventA2->a2_Threshold.choice.rsrp = a2_event->threshold_RSRP;
+  etrc_A2->eventId.choice.eventA2->reportOnLeave = false;
+  etrc_A2->eventId.choice.eventA2->hysteresis = 0;
+  etrc_A2->eventId.choice.eventA2->timeToTrigger = a2_event->timeToTrigger;
+  etrc_A2->rsType = NR_NR_RS_Type_ssb;
+  etrc_A2->reportInterval = NR_ReportInterval_ms480;
+  etrc_A2->reportAmount = NR_EventTriggerConfig__reportAmount_r4;
+  etrc_A2->reportQuantityCell.rsrp = true;
+  etrc_A2->reportQuantityCell.rsrq = true;
+  etrc_A2->reportQuantityCell.sinr = true;
+  asn1cCallocOne(etrc_A2->maxNrofRS_IndexesToReport, 4);
+  etrc_A2->maxReportCells = 1;
+  etrc_A2->includeBeamMeasurements = false;
+  NR_ReportConfigNR_t *rcnr_A2 = calloc(1, sizeof(*rcnr_A2));
+  rcnr_A2->reportType.present = NR_ReportConfigNR__reportType_PR_eventTriggered;
+  rcnr_A2->reportType.choice.eventTriggered = etrc_A2;
+  rc_A2->reportConfig.choice.reportConfigNR = rcnr_A2;
+
+  return rc_A2;
+}
+
+static NR_ReportConfigToAddMod_t *prepare_a3_event_report(const nr_a3_event_t *a3_event)
+{
+  NR_ReportConfigToAddMod_t *rc_A3 = calloc(1, sizeof(*rc_A3));
+  // 3 is default A3 Report Config ID. So cellId(0) specific Report Config ID
+  // starts from 4
+  rc_A3->reportConfigId = a3_event->pci == -1 ? 3 : a3_event->pci + 4;
+  rc_A3->reportConfig.present = NR_ReportConfigToAddMod__reportConfig_PR_reportConfigNR;
+  NR_EventTriggerConfig_t *etrc_A3 = calloc(1, sizeof(*etrc_A3));
+  etrc_A3->eventId.present = NR_EventTriggerConfig__eventId_PR_eventA3;
+  etrc_A3->eventId.choice.eventA3 = calloc(1, sizeof(*etrc_A3->eventId.choice.eventA3));
+  etrc_A3->eventId.choice.eventA3->a3_Offset.present = NR_MeasTriggerQuantityOffset_PR_rsrp;
+  etrc_A3->eventId.choice.eventA3->a3_Offset.choice.rsrp = a3_event->a3_offset;
+  etrc_A3->eventId.choice.eventA3->reportOnLeave = true;
+  etrc_A3->eventId.choice.eventA3->hysteresis = a3_event->hysteresis;
+  etrc_A3->eventId.choice.eventA3->timeToTrigger = a3_event->timeToTrigger;
+  etrc_A3->rsType = NR_NR_RS_Type_ssb;
+  etrc_A3->reportInterval = NR_ReportInterval_ms1024;
+  etrc_A3->reportAmount = NR_EventTriggerConfig__reportAmount_r4;
+  etrc_A3->reportQuantityCell.rsrp = true;
+  etrc_A3->reportQuantityCell.rsrq = true;
+  etrc_A3->reportQuantityCell.sinr = true;
+  asn1cCallocOne(etrc_A3->maxNrofRS_IndexesToReport, 4);
+  etrc_A3->maxReportCells = 4;
+  etrc_A3->includeBeamMeasurements = false;
+  NR_ReportConfigNR_t *rcnr_A3 = calloc(1, sizeof(*rcnr_A3));
+  rcnr_A3->reportType.present = NR_ReportConfigNR__reportType_PR_eventTriggered;
+  rcnr_A3->reportType.choice.eventTriggered = etrc_A3;
+  rc_A3->reportConfig.choice.reportConfigNR = rcnr_A3;
+  return rc_A3;
+}
+
 static int rrc_gNB_encode_RRCReconfiguration(gNB_RRC_INST *rrc,
                                              gNB_RRC_UE_t *UE,
                                              uint8_t xid,
@@ -484,6 +592,10 @@ static int rrc_gNB_encode_RRCReconfiguration(gNB_RRC_INST *rrc,
   DevAssert(du != NULL);
   f1ap_served_cell_info_t *cell_info = &du->setup_req->cell[0].info;
   NR_MeasConfig_t *measconfig = NULL;
+  NR_ReportConfigToAddMod_t *rc_PER = NULL;
+  NR_ReportConfigToAddMod_t *rc_A2 = NULL;
+  seq_arr_t *rc_A3_seq = NULL;
+  seq_arr_t *pci_seq = NULL;
   if (du->mtc != NULL) {
     int scs = get_ssb_scs(cell_info);
     int band = get_dl_band(cell_info);
@@ -494,7 +606,38 @@ static int rrc_gNB_encode_RRCReconfiguration(gNB_RRC_INST *rrc,
     if (neighbour_config)
       neighbour_cells = neighbour_config->neighbour_cells;
 
-    measconfig = get_MeasConfig(mt, band, scs, &rrc->measurementConfiguration, neighbour_cells);
+    if (neighbour_cells
+        && rrc->measurementConfiguration.a3_event_list
+        && rrc->measurementConfiguration.a3_event_list->size > 0) {
+      /* Loop through neighbours and find related A3 configuration
+         If no related A3 but there is default add the default one.
+         If default one added once as a report, no need to add it again && duplication.
+      */
+      rc_A3_seq = malloc(sizeof(seq_arr_t));
+      pci_seq = malloc(sizeof(seq_arr_t));
+      seq_arr_init(rc_A3_seq, sizeof(NR_ReportConfigToAddMod_t));
+      seq_arr_init(pci_seq, sizeof(int));
+      LOG_D(NR_RRC, "HO LOG: Preparing A3 Event Measurement Configuration!\n");
+      bool is_default_a3_added = false;
+      for (int i = 0; i < neighbour_cells->size; i++) {
+        nr_neighbour_gnb_configuration_t *neighbourCell = (nr_neighbour_gnb_configuration_t *)seq_arr_at(neighbour_cells, i);
+        if (!neighbourCell->isIntraFrequencyNeighbour)
+          continue;
+        seq_arr_push_back(pci_seq, &neighbourCell->physicalCellId, sizeof(int));
+        const nr_a3_event_t *a3Event = get_a3_configuration(rrc, neighbourCell->physicalCellId);
+        if (!a3Event || is_default_a3_added)
+          continue;
+        if (a3Event->pci == -1)
+          is_default_a3_added = true;
+        seq_arr_push_back(rc_A3_seq, prepare_a3_event_report(a3Event), sizeof(NR_ReportConfigToAddMod_t));
+      }
+    }
+    if (rrc->measurementConfiguration.per_event)
+      rc_PER = prepare_periodic_event_report(rrc->measurementConfiguration.per_event);
+    if (rrc->measurementConfiguration.a2_event)
+      rc_A2 = prepare_a2_event_report(rrc->measurementConfiguration.a2_event);
+
+    measconfig = get_MeasConfig(mt, band, scs, rc_PER, rc_A2, rc_A3_seq, pci_seq);
   }
 
   if (UE->measConfig)
@@ -1279,7 +1422,10 @@ static void process_Periodical_Measurement_Report(gNB_RRC_UE_t *ue_ctxt, NR_Meas
   measurementReport->criticalExtensions.choice.measurementReport = NULL;
 }
 
-static void process_Event_Based_Measurement_Report(gNB_RRC_UE_t *ue, NR_ReportConfigNR_t *report, NR_MeasurementReport_t *measurementReport)
+static void process_Event_Based_Measurement_Report(gNB_RRC_INST *rrc,
+                                                   gNB_RRC_UE_t *ue,
+                                                   NR_ReportConfigNR_t *report,
+                                                   NR_MeasurementReport_t *measurementReport)
 {
   NR_EventTriggerConfig_t *event_triggered = report->reportType.choice.eventTriggered;
 
@@ -1344,7 +1490,7 @@ static void process_Event_Based_Measurement_Report(gNB_RRC_UE_t *ue, NR_ReportCo
         // neighbour.
         if (!neigh_cell && neighbour) {
           // No F1 connection but static neighbour configuration is available
-          const nr_a3_event_t *a3_event_configuration = get_a3_configuration(neighbour->physicalCellId);
+          const nr_a3_event_t *a3_event_configuration = get_a3_configuration(rrc, neighbour->physicalCellId);
           // Additional check - This part can be modified according to additional cell specific Handover Margin
           if (a3_event_configuration
               && ((a3_event_configuration->a3_offset + a3_event_configuration->hysteresis)
@@ -1370,7 +1516,7 @@ static void process_Event_Based_Measurement_Report(gNB_RRC_UE_t *ue, NR_ReportCo
   }
 }
 
-static void rrc_gNB_process_MeasurementReport(gNB_RRC_UE_t *UE, NR_MeasurementReport_t *measurementReport)
+static void rrc_gNB_process_MeasurementReport(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, NR_MeasurementReport_t *measurementReport)
 {
   NR_MeasurementReport__criticalExtensions_PR p = measurementReport->criticalExtensions.present;
   if (p != NR_MeasurementReport__criticalExtensions_PR_measurementReport
@@ -1422,7 +1568,7 @@ static void rrc_gNB_process_MeasurementReport(gNB_RRC_UE_t *UE, NR_MeasurementRe
     return process_Periodical_Measurement_Report(UE, measurementReport);
 
   if (report_config->choice.reportConfigNR->reportType.present == NR_ReportConfigNR__reportType_PR_eventTriggered)
-    return process_Event_Based_Measurement_Report(UE, report_config->choice.reportConfigNR, measurementReport);
+    return process_Event_Based_Measurement_Report(rrc, UE, report_config->choice.reportConfigNR, measurementReport);
 
   LOG_E(NR_RRC, "Incoming Report Type: %d is not supported! \n", report_config->choice.reportConfigNR->reportType.present);
 }
@@ -1781,7 +1927,7 @@ static int rrc_gNB_decode_dcch(gNB_RRC_INST *rrc, const f1ap_ul_rrc_message_t *m
 
       case NR_UL_DCCH_MessageType__c1_PR_measurementReport:
         if (ul_dcch_msg->message.choice.c1->choice.measurementReport != NULL) {
-          rrc_gNB_process_MeasurementReport(UE, ul_dcch_msg->message.choice.c1->choice.measurementReport);
+          rrc_gNB_process_MeasurementReport(rrc, UE, ul_dcch_msg->message.choice.c1->choice.measurementReport);
         } else {
           LOG_E(NR_RRC, "UE %d: No measurementReport CHOICE is given\n", ue_context_p->ue_context.rrc_ue_id);
         }

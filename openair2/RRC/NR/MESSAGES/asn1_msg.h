@@ -151,12 +151,13 @@ int do_RRCReestablishment(int8_t nh_ncc, uint8_t *const buffer, size_t buffer_si
 
 int do_RRCReestablishmentComplete(uint8_t *buffer, size_t buffer_size, int64_t rrc_TransactionIdentifier);
 
-const nr_a3_event_t *get_a3_configuration(int pci);
 NR_MeasConfig_t *get_MeasConfig(const NR_MeasTiming_t *mt,
                                 int band,
                                 int scs,
-                                const nr_measurement_configuration_t *const measurementConfiguration,
-                                const seq_arr_t *const neighbourConfiguration);
+                                NR_ReportConfigToAddMod_t *rc_PER,
+                                NR_ReportConfigToAddMod_t *rc_A2,
+                                seq_arr_t *rc_A3_seq,
+                                seq_arr_t *pci_seq);
 void free_MeasConfig(NR_MeasConfig_t *mc);
 int do_NR_Paging(uint8_t Mod_id, uint8_t *buffer, uint32_t tmsi);
 
