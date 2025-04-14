@@ -437,12 +437,11 @@ static void fix_tdd_pattern(NR_ServingCellConfigCommon_t *scc)
   int pattern_ext = pattern1->dl_UL_TransmissionPeriodicity - 8;
   // Check if the pattern1 extension is configured and set the value accordingly
   if (pattern_ext >= 0) {
-    pattern1->ext1 = calloc_or_fail(1, sizeof(struct NR_TDD_UL_DL_Pattern__ext1));
-    pattern1->ext1->dl_UL_TransmissionPeriodicity_v1530 =
-        calloc_or_fail(1, sizeof(*pattern1->ext1->dl_UL_TransmissionPeriodicity_v1530));
     *pattern1->ext1->dl_UL_TransmissionPeriodicity_v1530 = pattern_ext;
     pattern1->dl_UL_TransmissionPeriodicity = 5;
   } else {
+    free(pattern1->ext1->dl_UL_TransmissionPeriodicity_v1530);
+    free(pattern1->ext1);
     pattern1->ext1 = NULL;
   }
   struct NR_TDD_UL_DL_Pattern *pattern2 = scc->tdd_UL_DL_ConfigurationCommon->pattern2;
