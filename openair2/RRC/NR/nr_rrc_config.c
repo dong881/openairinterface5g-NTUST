@@ -2471,6 +2471,14 @@ static bool is_ntn_band(int band)
   return false;
 }
 
+static BIT_STRING_t bit_string_clone(const BIT_STRING_t *orig)
+{
+  BIT_STRING_t bs = {.size = orig->size, .bits_unused = orig->bits_unused};
+  bs.buf = malloc_or_fail(bs.size * sizeof(*bs.buf));
+  memcpy(bs.buf, orig->buf, bs.size);
+  return bs;
+}
+
 NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
                                       const plmn_id_t *plmn,
                                       uint64_t cellID,
@@ -2548,8 +2556,7 @@ NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
     asn1cSequenceAdd(ServCellCom->downlinkConfigCommon.frequencyInfoDL.frequencyBandList.list,
                      struct NR_NR_MultiBandInfo,
                      nrMultiBandInfo);
-    nrMultiBandInfo->freqBandIndicatorNR =
-        frequencyInfoDL->frequencyBandList.list.array[i];
+    asn1cCallocOne(nrMultiBandInfo->freqBandIndicatorNR, *frequencyInfoDL->frequencyBandList.list.array[i]);
   }
 
   const NR_FreqBandIndicatorNR_t band = *frequencyInfoDL->frequencyBandList.list.array[0];
@@ -2564,8 +2571,11 @@ NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
         (int)sib1->servingCellConfigCommon->downlinkConfigCommon.frequencyInfoDL.offsetToPointA);
   
   for (int i = 0; i < frequencyInfoDL->scs_SpecificCarrierList.list.count; i++) {
-    asn1cSeqAdd(&ServCellCom->downlinkConfigCommon.frequencyInfoDL.scs_SpecificCarrierList.list,
-                frequencyInfoDL->scs_SpecificCarrierList.list.array[i]);
+    const NR_SCS_SpecificCarrier_t *orig = frequencyInfoDL->scs_SpecificCarrierList.list.array[i];
+    NR_SCS_SpecificCarrier_t *new = NULL;
+    const int copy_result = asn_copy(&asn_DEF_NR_SCS_SpecificCarrier, (void **)&new, orig);
+    AssertFatal(copy_result == 0, "unable to copy NR_SCS_SpecificCarrier from scc to SIB1 structure\n");
+    asn1cSeqAdd(&ServCellCom->downlinkConfigCommon.frequencyInfoDL.scs_SpecificCarrierList.list, new);
   }
 
   initialDownlinkBWP->pdcch_ConfigCommon = clone_pdcch_configcommon(scc->downlinkConfigCommon->initialDownlinkBWP->pdcch_ConfigCommon);
@@ -2598,7 +2608,11 @@ NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
   asn_set_empty(&UL->frequencyInfoUL.scs_SpecificCarrierList.list);
   const NR_FrequencyInfoUL_t *frequencyInfoUL = scc->uplinkConfigCommon->frequencyInfoUL;
   for (int i = 0; i < frequencyInfoUL->scs_SpecificCarrierList.list.count; i++) {
-    asn1cSeqAdd(&UL->frequencyInfoUL.scs_SpecificCarrierList.list, frequencyInfoUL->scs_SpecificCarrierList.list.array[i]);
+    const NR_SCS_SpecificCarrier_t *orig = frequencyInfoUL->scs_SpecificCarrierList.list.array[i];
+    NR_SCS_SpecificCarrier_t *new = NULL;
+    const int copy_result = asn_copy(&asn_DEF_NR_SCS_SpecificCarrier, (void **)&new, orig);
+    AssertFatal(copy_result == 0, "unable to copy NR_SCS_SpecificCarrier from scc to SIB1 structure\n");
+    asn1cSeqAdd(&UL->frequencyInfoUL.scs_SpecificCarrierList.list, new);
   }
 
   asn1cCallocOne(UL->frequencyInfoUL.p_Max, *frequencyInfoUL->p_Max);
@@ -2616,7 +2630,7 @@ NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
     AssertFatal(UL->frequencyInfoUL.frequencyBandList != NULL, "out of memory\n");
     for (int i = 0; i < frequencyInfoUL->frequencyBandList->list.count; i++) {
       asn1cSequenceAdd(UL->frequencyInfoUL.frequencyBandList->list, struct NR_NR_MultiBandInfo, nrMultiBandInfo);
-      nrMultiBandInfo->freqBandIndicatorNR = frequencyInfoUL->frequencyBandList->list.array[i];
+      asn1cCallocOne(nrMultiBandInfo->freqBandIndicatorNR, *frequencyInfoUL->frequencyBandList->list.array[i]);
     }
   }
 
@@ -2643,14 +2657,13 @@ NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
 
   ServCellCom->n_TimingAdvanceOffset = scc->n_TimingAdvanceOffset;
 
-  ServCellCom->ssb_PositionsInBurst.inOneGroup.buf = calloc(1, sizeof(uint8_t));
   uint8_t bitmap8,temp_bitmap=0;
   switch (scc->ssb_PositionsInBurst->present) {
     case NR_ServingCellConfigCommon__ssb_PositionsInBurst_PR_shortBitmap:
-      ServCellCom->ssb_PositionsInBurst.inOneGroup = scc->ssb_PositionsInBurst->choice.shortBitmap;
+      ServCellCom->ssb_PositionsInBurst.inOneGroup = bit_string_clone(&scc->ssb_PositionsInBurst->choice.shortBitmap);
       break;
     case NR_ServingCellConfigCommon__ssb_PositionsInBurst_PR_mediumBitmap:
-      ServCellCom->ssb_PositionsInBurst.inOneGroup = scc->ssb_PositionsInBurst->choice.mediumBitmap;
+      ServCellCom->ssb_PositionsInBurst.inOneGroup = bit_string_clone(&scc->ssb_PositionsInBurst->choice.mediumBitmap);
       break;
     /*
      * groupPresence: This field is present when maximum number of SS/PBCH blocks per half frame equals to 64 as defined in
@@ -2664,6 +2677,7 @@ NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
      * transmitted.
      */
     case NR_ServingCellConfigCommon__ssb_PositionsInBurst_PR_longBitmap:
+      ServCellCom->ssb_PositionsInBurst.inOneGroup.buf = calloc_or_fail(1, sizeof(uint8_t));
       ServCellCom->ssb_PositionsInBurst.inOneGroup.size = 1;
       ServCellCom->ssb_PositionsInBurst.inOneGroup.bits_unused = 0;
       ServCellCom->ssb_PositionsInBurst.groupPresence = calloc(1, sizeof(BIT_STRING_t));
