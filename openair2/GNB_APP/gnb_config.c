@@ -811,11 +811,13 @@ void fix_scd(NR_ServingCellConfig_t *scd) {
   }
 
   if (scd->downlinkBWP_ToAddModList->list.count == 0) {
+    free(scd->downlinkBWP_ToAddModList->list.array);
     free(scd->downlinkBWP_ToAddModList);
     scd->downlinkBWP_ToAddModList = NULL;
   }
 
   if (scd->uplinkConfig->uplinkBWP_ToAddModList->list.count == 0) {
+    free(scd->uplinkConfig->uplinkBWP_ToAddModList->list.array);
     free(scd->uplinkConfig->uplinkBWP_ToAddModList);
     scd->uplinkConfig->uplinkBWP_ToAddModList = NULL;
   }
