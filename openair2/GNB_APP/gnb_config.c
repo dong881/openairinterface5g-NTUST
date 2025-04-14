@@ -1131,12 +1131,8 @@ static NR_ServingCellConfigCommon_t *get_scc_config(configmodule_interface_t *cf
 
     if (is_pattern2) {
       LOG_I(GNB_APP, "tdd->pattern2 present\n");
-      // allocate memory
       struct NR_TDD_UL_DL_ConfigCommon *tdd = scc->tdd_UL_DL_ConfigurationCommon;
       tdd->pattern2 = calloc_or_fail(1, sizeof(*tdd->pattern2));
-      tdd->pattern2->ext1 = calloc_or_fail(1, sizeof(struct NR_TDD_UL_DL_Pattern__ext1));
-      tdd->pattern2->ext1->dl_UL_TransmissionPeriodicity_v1530 = calloc_or_fail(1, sizeof(*tdd->pattern2->ext1->dl_UL_TransmissionPeriodicity_v1530));
-      // fill in scc
       *scc->tdd_UL_DL_ConfigurationCommon->pattern2 = p2;
       AssertFatal(p2.nrofUplinkSlots ^ scc->tdd_UL_DL_ConfigurationCommon->pattern1.nrofUplinkSlots,
                   "UL slots in pattern1 (%ld) and pattern2 (%ld) are mutually exclusive (e.g. DDDFUU DDDD, DDDD DDDFUU)\n",
