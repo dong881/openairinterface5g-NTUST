@@ -65,9 +65,9 @@
 #include "common/utils/nr/nr_common.h"
 
 #define NB_CNX_UE 2//MAX_MANAGED_RG_PER_MOBILE
-#define MAX_MEAS_OBJ 7
-#define MAX_MEAS_CONFIG 7
-#define MAX_MEAS_ID 7
+#define MAX_MEAS_OBJ 64
+#define MAX_MEAS_CONFIG 64
+#define MAX_MEAS_ID 64
 #define MAX_QUANTITY_CONFIG 2
 
 typedef enum {
