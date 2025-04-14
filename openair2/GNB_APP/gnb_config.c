@@ -548,8 +548,10 @@ void fix_scc(NR_ServingCellConfigCommon_t *scc, uint64_t ssbmap)
       && (int)scc->uplinkConfigCommon->initialUplinkBWP->ext1->msgA_ConfigCommon_r16->choice.setup->msgA_PUSCH_Config_r16
                  ->msgA_PUSCH_ResourceGroupA_r16->msgA_PUSCH_TimeDomainOffset_r16
              == 0) {
-    free(scc->uplinkConfigCommon->initialUplinkBWP->ext1);
-    scc->uplinkConfigCommon->initialUplinkBWP->ext1 = NULL;
+    NR_BWP_UplinkCommon_t *ulcc = scc->uplinkConfigCommon->initialUplinkBWP;
+    ASN_STRUCT_FREE(asn_DEF_NR_SetupRelease_MsgA_ConfigCommon_r16, ulcc->ext1->msgA_ConfigCommon_r16);
+    free(ulcc->ext1);
+    ulcc->ext1 = NULL;
   }
 
   if ((int)*scc->n_TimingAdvanceOffset == -1) {
