@@ -406,7 +406,7 @@ static void rrc_gNB_generate_RRCSetup(instance_t instance,
   ue_p->xids[xid] = RRC_SETUP;
   NR_SRB_ToAddModList_t *SRBs = createSRBlist(ue_p, false);
 
-  int size = do_RRCSetup(ue_context_pP, buf, xid, masterCellGroup, masterCellGroup_len, &rrc->configuration, SRBs);
+  int size = do_RRCSetup(buf, sizeof(buf), xid, masterCellGroup, masterCellGroup_len, &rrc->configuration, SRBs);
   AssertFatal(size > 0, "do_RRCSetup failed\n");
   AssertFatal(size <= 1024, "memory corruption\n");
 

@@ -452,8 +452,8 @@ void free_nr_noS1_bearer_config(NR_RadioBearerConfig_t **rbconfig,
 }
 
 //------------------------------------------------------------------------------
-int do_RRCSetup(rrc_gNB_ue_context_t *const ue_context_pP,
-                uint8_t *const buffer,
+int do_RRCSetup(uint8_t *const buffer,
+                size_t buffer_size,
                 const uint8_t transaction_id,
                 const uint8_t *masterCellGroup,
                 int masterCellGroup_len,
@@ -461,9 +461,6 @@ int do_RRCSetup(rrc_gNB_ue_context_t *const ue_context_pP,
                 NR_SRB_ToAddModList_t *SRBs)
 //------------------------------------------------------------------------------
 {
-  AssertFatal(ue_context_pP != NULL, "ue_context_p is null\n");
-  gNB_RRC_UE_t *ue_p = &ue_context_pP->ue_context;
-
   NR_DL_CCCH_Message_t dl_ccch_msg = {0};
   dl_ccch_msg.message.present = NR_DL_CCCH_MessageType_PR_c1;
   asn1cCalloc(dl_ccch_msg.message.choice.c1, dl_msg);
@@ -488,12 +485,10 @@ int do_RRCSetup(rrc_gNB_ue_context_t *const ue_context_pP,
   memcpy(ie->masterCellGroup.buf, masterCellGroup, masterCellGroup_len);
   ie->masterCellGroup.size = masterCellGroup_len;
 
-  if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
-    xer_fprint(stdout, &asn_DEF_NR_CellGroupConfig, ue_p->masterCellGroup);
+  if (LOG_DEBUGFLAG(DEBUG_ASN1))
     xer_fprint(stdout, &asn_DEF_NR_DL_CCCH_Message, (void *)&dl_ccch_msg);
-  }
 
-  asn_enc_rval_t enc_rval = uper_encode_to_buffer(&asn_DEF_NR_DL_CCCH_Message, NULL, (void *)&dl_ccch_msg, buffer, 1000);
+  asn_enc_rval_t enc_rval = uper_encode_to_buffer(&asn_DEF_NR_DL_CCCH_Message, NULL, (void *)&dl_ccch_msg, buffer, buffer_size);
 
   AssertFatal(enc_rval.encoded > 0, "ASN1 message encoding failed (%s, %lu)!\n", enc_rval.failed_type->name, enc_rval.encoded);
   // free what we did not allocate ourselves

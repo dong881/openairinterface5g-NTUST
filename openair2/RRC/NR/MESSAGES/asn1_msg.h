@@ -86,8 +86,8 @@ void fill_nr_noS1_bearer_config(NR_RadioBearerConfig_t **rbconfig,
 void free_nr_noS1_bearer_config(NR_RadioBearerConfig_t **rbconfig,
                                 NR_RLC_BearerConfig_t **rlc_rbconfig);
 
-int do_RRCSetup(rrc_gNB_ue_context_t *const ue_context_pP,
-                uint8_t *const buffer,
+int do_RRCSetup(uint8_t *const buffer,
+                size_t buffer_size,
                 const uint8_t transaction_id,
                 const uint8_t *masterCellGroup,
                 int masterCellGroup_len,
