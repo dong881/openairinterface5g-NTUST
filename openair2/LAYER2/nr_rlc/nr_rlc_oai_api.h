@@ -34,7 +34,6 @@
 #include "NR_LogicalChannelIdentity.h"
 #include "NR_RadioBearerConfig.h"
 #include "NR_CellGroupConfig.h"
-#include "openair2/RRC/NR/nr_rrc_proto.h"
 #include "nr_rlc_ue_manager.h"
 
 

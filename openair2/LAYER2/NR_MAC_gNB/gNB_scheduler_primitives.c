@@ -61,6 +61,11 @@
 
 #include "common/utils/alg/find.h"
 
+// 3GPP TS 38.331 Section 12 Table 12.1-1: UE performance requirements for RRC procedures for UEs
+#define NR_RRC_SETUP_DELAY_MS           10
+#define NR_RRC_RECONFIGURATION_DELAY_MS 10
+#define NR_RRC_BWP_SWITCHING_DELAY_MS   6
+
 // #define DEBUG_DCI
 //  CQI TABLES (10 times the value in 214 to adequately compare with R)
 //  Table 1 (38.214 5.2.2.1-2)
