@@ -25,6 +25,7 @@
 #include <stdint.h> 
 
 #define NR_NUM_SRB 4 /* Number of Signalling Radio Bearers according to clause 4.2.2 of 3GPP TS 38.331 */
+#define NR_RRC_BUF_SIZE 4096
 
 typedef enum UE_STATE_NR_e {
   NR_RRC_INACTIVE=0,

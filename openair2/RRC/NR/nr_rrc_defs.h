@@ -72,7 +72,6 @@ typedef enum {
 #define MAX_MEAS_CONFIG                               7
 #define MAX_MEAS_ID                                   7
 
-#define NR_RRC_BUF_SIZE                               4096
 #define UNDEF_SECURITY_MODE                           0xff
 #define NO_SECURITY_MODE                              0x20
 
