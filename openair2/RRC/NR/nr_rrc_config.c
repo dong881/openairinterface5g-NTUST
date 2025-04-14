@@ -2708,14 +2708,8 @@ NR_BCCH_DL_SCH_Message_t *get_SIB1_NR(const NR_ServingCellConfigCommon_t *scc,
 
   ServCellCom->ssb_PeriodicityServingCell = *scc->ssb_periodicityServingCell;
   if (scc->tdd_UL_DL_ConfigurationCommon) {
-    ServCellCom->tdd_UL_DL_ConfigurationCommon = CALLOC(1,sizeof(struct NR_TDD_UL_DL_ConfigCommon));
-    AssertFatal(ServCellCom->tdd_UL_DL_ConfigurationCommon != NULL, "out of memory\n");
-    ServCellCom->tdd_UL_DL_ConfigurationCommon->referenceSubcarrierSpacing = scc->tdd_UL_DL_ConfigurationCommon->referenceSubcarrierSpacing;
-    ServCellCom->tdd_UL_DL_ConfigurationCommon->pattern1 = scc->tdd_UL_DL_ConfigurationCommon->pattern1;
-    if (scc->tdd_UL_DL_ConfigurationCommon->pattern2) {
-      ServCellCom->tdd_UL_DL_ConfigurationCommon->pattern2 = calloc_or_fail(1, sizeof(struct NR_TDD_UL_DL_Pattern));
-      *ServCellCom->tdd_UL_DL_ConfigurationCommon->pattern2 = *scc->tdd_UL_DL_ConfigurationCommon->pattern2;
-    }
+    int copy_result = asn_copy(&asn_DEF_NR_TDD_UL_DL_ConfigCommon, (void **)&ServCellCom->tdd_UL_DL_ConfigurationCommon, scc->tdd_UL_DL_ConfigurationCommon);
+    AssertFatal(copy_result == 0, "Was unable to copy tdd_UL_DL_ConfigurationCommon from scc to SIB19 structure\n");
   }
   ServCellCom->ss_PBCH_BlockPower = scc->ss_PBCH_BlockPower;
 
