@@ -758,6 +758,11 @@ int main( int argc, char **argv ) {
   if (RC.nb_nr_L1_inst > 0 || RC.nb_RU > 0)
     stop_L1(0);
 
+  if (RC.nb_nr_macrlc_inst > 0) {
+    DevAssert(RC.nb_nr_macrlc_inst == 1);
+    mac_top_destroy_gNB(RC.nrmac[0]);
+  }
+
   pthread_cond_destroy(&sync_cond);
   pthread_mutex_destroy(&sync_mutex);
   pthread_cond_destroy(&nfapi_sync_cond);

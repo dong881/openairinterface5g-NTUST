@@ -47,10 +47,13 @@ int get_full_ul_slots_per_period(const frame_structure_t *fs);
 int get_full_dl_slots_per_period(const frame_structure_t *fs);
 int get_ul_slot_offset(const frame_structure_t *fs, int idx, bool count_mixed);
 
+void delete_nr_ue_data(NR_UE_info_t *UE, NR_COMMON_channels_t *ccPtr, uid_allocator_t *uia);
+
 void mac_top_init_gNB(ngran_node_t node_type,
                       NR_ServingCellConfigCommon_t *scc,
                       NR_ServingCellConfig_t *scd,
                       const nr_mac_config_t *conf);
+void mac_top_destroy_gNB(gNB_MAC_INST *mac);
 void nr_mac_send_f1_setup_req(void);
 
 void nr_mac_config_scc(gNB_MAC_INST *nrmac, NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *mac_config);
