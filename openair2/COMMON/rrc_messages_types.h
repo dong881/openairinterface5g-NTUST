@@ -43,6 +43,12 @@
 #include "NR_RACH-ConfigCommon.h"
 #include "NR_ServingCellConfigCommon.h"
 #include "NR_ServingCellConfig.h"
+#include "NR_SIB1.h"
+#include "NR_SIB19-r17.h"
+#include "NR_CellGroupConfig.h"
+#include "NR_BCCH-BCH-Message.h"
+#include "NR_ReestablishmentCause.h"
+#include "NR_UE-NR-Capability.h"
 
 //-------------------------------------------------------------------------------------------//
 // Messages for RRC logging
@@ -463,7 +469,6 @@ typedef struct {
   int ue_id;
 } RlcMaxRtxIndication;
 
-#include "openair2/RRC/NR_UE/rrc_defs.h"
 typedef struct {
   NR_ReestablishmentCause_t cause;
 } nr_mac_rrc_config_reset_t;

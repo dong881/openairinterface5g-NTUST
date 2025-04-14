@@ -30,6 +30,7 @@
 #include "asn_codecs.h"
 #include "assertions.h"
 #include "common/ran_context.h"
+#include "common/utils/nr/nr_common.h"
 #include "common/utils/T/T.h"
 #include "common/utils/alg/foreach.h"
 #include "common/utils/ds/seq_arr.h"

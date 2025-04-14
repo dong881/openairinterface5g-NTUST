@@ -35,6 +35,7 @@
 #include "nr_pdcp/nr_pdcp_oai_api.h"
 #include "openair3/SECU/key_nas_deriver.h"
 #include "openair2/RRC/NR/rrc_gNB_NGAP.h"
+#include "NR_DL-DCCH-MessageType.h"
 
 #ifdef E2_AGENT
 #include "openair2/E2AP/RAN_FUNCTION/O-RAN/ran_func_rc_extern.h"
