@@ -505,7 +505,7 @@ static int rrc_gNB_encode_RRCReconfiguration(gNB_RRC_INST *rrc,
   NR_SRB_ToAddModList_t *SRBs = createSRBlist(UE, reestablish);
   NR_DRB_ToAddModList_t *DRBs = createDRBlist(UE, reestablish);
 
-  int size = do_RRCReconfiguration(UE,
+  int size = do_RRCReconfiguration(UE->rrc_ue_id,
                                    buf,
                                    max_len,
                                    xid,
@@ -658,7 +658,7 @@ void rrc_gNB_modify_dedicatedRRCReconfiguration(gNB_RRC_INST *rrc, gNB_RRC_UE_t 
 
   NR_DRB_ToAddModList_t *DRBs = createDRBlist(ue_p, false);
   uint8_t buffer[NR_RRC_BUF_SIZE];
-  int size = do_RRCReconfiguration(ue_p,
+  int size = do_RRCReconfiguration(ue_p->rrc_ue_id,
                                    buffer,
                                    NR_RRC_BUF_SIZE,
                                    xid,
@@ -710,7 +710,7 @@ void rrc_gNB_generate_dedicatedRRCReconfiguration_release(gNB_RRC_INST *rrc,
   }
 
   uint8_t buffer[NR_RRC_BUF_SIZE] = {0};
-  int size = do_RRCReconfiguration(ue_p,
+  int size = do_RRCReconfiguration(ue_p->rrc_ue_id,
                                    buffer,
                                    NR_RRC_BUF_SIZE,
                                    xid,
@@ -969,7 +969,7 @@ static void rrc_gNB_process_RRCReestablishmentComplete(gNB_RRC_INST *rrc, gNB_RR
   uint8_t new_xid = rrc_gNB_get_next_transaction_identifier(rrc->module_id);
   ue_p->xids[new_xid] = RRC_REESTABLISH_COMPLETE;
   uint8_t buffer[NR_RRC_BUF_SIZE] = {0};
-  int size = do_RRCReconfiguration(ue_p,
+  int size = do_RRCReconfiguration(ue_p->rrc_ue_id,
                                    buffer,
                                    NR_RRC_BUF_SIZE,
                                    new_xid,
@@ -1010,7 +1010,17 @@ int nr_rrc_reconfiguration_req(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue_p, const int 
   }
 
   uint8_t buffer[NR_RRC_BUF_SIZE];
-  int size = do_RRCReconfiguration(ue_p, buffer, NR_RRC_BUF_SIZE, xid, NULL, NULL, NULL, NULL, NULL, NULL, masterCellGroup);
+  int size = do_RRCReconfiguration(ue_p->rrc_ue_id,
+                                   buffer,
+                                   NR_RRC_BUF_SIZE,
+                                   xid,
+                                   NULL,
+                                   NULL,
+                                   NULL,
+                                   NULL,
+                                   NULL,
+                                   NULL,
+                                   masterCellGroup);
 
   const uint32_t msg_id = NR_DL_DCCH_MessageType__c1_PR_rrcReconfiguration;
   nr_rrc_transfer_protected_rrc_message(rrc, ue_p, DL_SCH_LCID_DCCH, msg_id, buffer, size);

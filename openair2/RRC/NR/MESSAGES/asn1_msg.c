@@ -638,7 +638,7 @@ int do_NR_RRCRelease(uint8_t *buffer, size_t buffer_size, uint8_t Transaction_id
 }
 
 //------------------------------------------------------------------------------
-int do_RRCReconfiguration(const gNB_RRC_UE_t *UE,
+int do_RRCReconfiguration(int rrc_ue_id,
                           uint8_t *buffer,
                           size_t buffer_size,
                           uint8_t Transaction_id,
@@ -738,7 +738,7 @@ int do_RRCReconfiguration(const gNB_RRC_UE_t *UE,
     ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NR_DL_DCCH_Message, &dl_dcch_msg);
     LOG_D(NR_RRC,
           "RRCReconfiguration for UE %d: Encoded %zd bits (%zd bytes)\n",
-          UE->rrc_ue_id,
+          rrc_ue_id,
           enc_rval.encoded,
           (enc_rval.encoded + 7) / 8);
 

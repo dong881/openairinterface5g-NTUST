@@ -103,7 +103,7 @@ int do_NR_SA_UECapabilityEnquiry(uint8_t *const buffer, const uint8_t Transactio
 
 int do_NR_RRCRelease(uint8_t *buffer, size_t buffer_size, uint8_t Transaction_id);
 
-int do_RRCReconfiguration(const gNB_RRC_UE_t *UE,
+int do_RRCReconfiguration(int rrc_ue_id,
                           uint8_t *buffer,
                           size_t buffer_size,
                           uint8_t Transaction_id,
