@@ -5,6 +5,7 @@
 
 # define GTPU_HEADER_OVERHEAD_MAX 64
 
+#include "openair2/COMMON/gtpv1_u_messages_types.h"
 #include "common/utils/hashtable/hashtable.h"
 #ifdef __cplusplus
 extern "C" {

@@ -25,6 +25,7 @@
 
 #include "ran_func_pdcp.h"
 #include "common/ran_context.h"
+#include "common/openairinterface5g_limits.h"
 #include "openair2/E2AP/flexric/src/util/time_now_us.h"
 
 #if defined (NGRAN_GNB_DU)

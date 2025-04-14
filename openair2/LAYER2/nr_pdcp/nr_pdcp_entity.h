@@ -25,9 +25,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "common/platform_types.h"
-
 #include "nr_pdcp_sdu.h"
-#include "openair2/RRC/NR/rrc_gNB_radio_bearers.h"
 #include "openair3/SECU/secu_defs.h"
 
 /* PDCP Formats according to clause 6.2 of 3GPP TS 38.323 */
@@ -41,6 +39,8 @@
 #define LONG_PDCP_HEADER_SIZE 3
 /* MAC-I size (unit: byte) */
 #define PDCP_INTEGRITY_SIZE 4
+/* K keys have 128 bits length */
+#define NR_K_KEY_SIZE 16
 
 typedef enum {
   NR_PDCP_DRB_AM,
