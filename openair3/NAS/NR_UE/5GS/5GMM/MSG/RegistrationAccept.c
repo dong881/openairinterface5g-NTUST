@@ -70,7 +70,7 @@ static int encode_fgs_registration_result(byte_array_t buffer, const registratio
 /**
  * @brief Allowed NSSAI from Registration Accept according to 3GPP TS 24.501 Table 8.2.7.1.1
  */
-static int decode_nssai_ie(nr_nas_msg_snssai_t *nssai, const uint8_t *buf)
+static int decode_nssai_ie(nr_nas_msg_snssai_t *nssai, uint8_t *num_slices, uint8_t *buf)
 {
   const int length = *buf; // Length of S-NSSAI IE contents (list of S-NSSAIs)
   const uint32_t decoded = length + 1; // Length IE (1 octet)
@@ -123,6 +123,7 @@ static int decode_nssai_ie(nr_nas_msg_snssai_t *nssai, const uint8_t *buf)
         break;
     }
   }
+  *num_slices = nssai_cnt;
   return decoded;
 }
 
@@ -159,12 +160,12 @@ size_t decode_registration_accept(registration_accept_msg *registration_accept, 
     switch (iei) {
 
       case 0x15: // allowed NSSAI
-        dec = decode_nssai_ie(registration_accept->nas_allowed_nssai, ba.buf);
+        dec = decode_nssai_ie(registration_accept->nas_allowed_nssai, &registration_accept->num_allowed_slices, ba.buf);
         UPDATE_BYTE_ARRAY(ba, dec);
         break;
 
       case 0x31: // configured NSSAI
-        dec = decode_nssai_ie(registration_accept->config_nssai, ba.buf);
+        dec = decode_nssai_ie(registration_accept->config_nssai, &registration_accept->num_configured_slices, ba.buf);
         UPDATE_BYTE_ARRAY(ba, dec);
         break;
 

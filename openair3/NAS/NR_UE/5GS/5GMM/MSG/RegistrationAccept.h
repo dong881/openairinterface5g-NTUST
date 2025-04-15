@@ -71,8 +71,10 @@ typedef struct registration_accept_msg_tag {
   FGSMobileIdentity *guti;
   // Allowed NSSAI (Optional)
   nr_nas_msg_snssai_t nas_allowed_nssai[NAS_MAX_NUMBER_SLICES];
+  uint8_t num_allowed_slices;
   // Configured NSSAI (Optional)
   nr_nas_msg_snssai_t config_nssai[NAS_MAX_NUMBER_SLICES];
+  uint8_t num_configured_slices;
 } registration_accept_msg;
 
 size_t decode_registration_accept(registration_accept_msg *registrationaccept, const byte_array_t buffer);
