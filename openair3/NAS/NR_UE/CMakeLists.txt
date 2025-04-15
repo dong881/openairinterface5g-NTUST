@@ -10,6 +10,7 @@ target_link_libraries(nr_nas PUBLIC
     fgs_5gmm_ies_lib
     nas_common_ies_lib
     nas_utils
+    ds
 )
 
 target_include_directories(nr_nas PUBLIC . 5GS/)

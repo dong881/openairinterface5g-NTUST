@@ -165,5 +165,7 @@ int encode_gprs_timer_ie(byte_array_t *buffer, nas_service_IEI_t iei, const gprs
 int decode_gprs_timer_ie(gprs_timer_t *timer, const byte_array_t *buffer);
 bool eq_gprs_timer(const gprs_timer_t *a, const gprs_timer_t *b);
 int decode_eap_msg_ie(const byte_array_t *buffer);
+int encode_fgs_nas_cause(byte_array_t *buffer, const cause_id_t *cause);
+int decode_fgs_nas_cause(cause_id_t *cause, const byte_array_t *buffer);
 
 #endif /* FGS_LIB_H */

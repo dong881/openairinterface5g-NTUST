@@ -11,6 +11,7 @@ add_library(fgs_5gmm_lib OBJECT
     RegistrationComplete.c
     FGSUplinkNasTransport.c
     FGSDeregistrationRequestUEOriginating.c
+    fgmm_authentication_failure.c
 )
 
 target_link_libraries(fgs_5gmm_lib PUBLIC fgs_5gmm_ies_lib)

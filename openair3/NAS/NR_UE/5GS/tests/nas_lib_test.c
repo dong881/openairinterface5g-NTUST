@@ -7,6 +7,7 @@
 #include "fgs_service_request.h"
 #include "fgmm_service_accept.h"
 #include "fgmm_service_reject.h"
+#include "fgmm_authentication_failure.h"
 #include "nr_nas_msg.h"
 
 void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
@@ -230,11 +231,47 @@ static void test_service_reject(void)
   free_fgs_service_reject(&orig);
 }
 
+/** @brief Test NAS Authentication Failure enc/dec */
+static void test_auth_failure(void)
+{
+  // Dummy NAS Authentication Failure message
+  uint8_t afp[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
+  const fgmm_auth_failure_t orig = {
+      .cause = Synch_failure,
+      .authentication_failure_param.len = 6,
+      .authentication_failure_param.buf = afp,
+  };
+
+  // Expected encoded data
+  uint8_t expected_enc[] = {0x15, 0x30, 0x06, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
+
+  // Buffer
+  uint8_t buf[16] = {0};
+  byte_array_t buffer = {.buf = buf, .len = sizeof(buf)};
+
+  // Encode
+  int encoded_length = encode_fgmm_auth_failure(&buffer, &orig);
+  AssertFatal(encoded_length == sizeofArray(expected_enc), "encode_fgmm_auth_failure() failed\n");
+
+  // Compare the raw encoded buffer with expected encoded data
+  AssertFatal(memcmp(buffer.buf, expected_enc, encoded_length) == 0, "Encoding mismatch!\n");
+
+  // Decode
+  fgmm_auth_failure_t dec = {0};
+  int decoded_length = decode_fgmm_auth_failure(&dec, &buffer);
+  AssertFatal(decoded_length >= 0, "decode_fgmm_auth_failure() failed\n");
+
+  // Compare original and decoded messages
+  AssertFatal(eq_fgmm_auth_failure(&orig, &dec), "test_auth_failure() failed: original and decoded messages do not match\n");
+  free_fgmm_auth_failure(&dec);
+}
+
 int main()
 {
   test_regression_registration_accept();
   test_service_request();
   test_service_accept();
   test_service_reject();
+  test_auth_failure();
   return 0;
 }

@@ -12,6 +12,7 @@ target_link_libraries(fgs_lib PUBLIC
     fgs_5gsm_lib
     fgs_5gmm_ies_lib
     nas_common_ies_lib
+    ds
 )
 
 target_include_directories(fgs_lib PUBLIC . 5GMM/MSG 5GMM/IES)
