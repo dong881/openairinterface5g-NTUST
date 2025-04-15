@@ -38,8 +38,36 @@
 #include "RegistrationAccept.h"
 #include "assertions.h"
 #include "fgs_nas_utils.h"
+#include "common/utils/utils.h"
+#include "ds/byte_array.h"
 
 #define IEI_5G_GUTI 0x77
+#define FGS_REGISTRATION_RESULT_LEN 2
+#define REGISTRATION_ACCEPT_MIN_LEN FGS_REGISTRATION_RESULT_LEN // (5GS registration result) 2 octets
+
+/** @brief Decode 5GS registration result (9.11.3.6 3GPP TS 24.501) */
+static int decode_fgs_registration_result(registration_accept_msg *out, const byte_array_t buffer)
+{
+  if (buffer.len < FGS_REGISTRATION_RESULT_LEN) {
+    PRINT_NAS_ERROR("5GS registration result decoding failure: invalid buffer length\n");
+    return -1;
+  }
+  out->result = buffer.buf[1] & 0x7; // skip length of contents octet
+  out->sms_allowed = buffer.buf[1] & 0x8;
+  return 2; // length 2 octets (no IEI)
+}
+
+static int encode_fgs_registration_result(byte_array_t buffer, const registration_accept_msg *out)
+{
+  if (buffer.len < FGS_REGISTRATION_RESULT_LEN) {
+    PRINT_NAS_ERROR("5GS registration result encoding failure: invalid buffer length\n");
+    return -1;
+  }
+  uint8_t *buf = buffer.buf;
+  buf[0] = 1;
+  buf[1] = 0x00 | (out->sms_allowed & 0x8) | (out->result & 0x7);
+  return 2; // encoded length 2 octets (no IEI)
+}
 
 /**
  * @brief Allowed NSSAI from Registration Accept according to 3GPP TS 24.501 Table 8.2.7.1.1
@@ -105,8 +133,9 @@ int decode_registration_accept(registration_accept_msg *registration_accept, con
   int dec = 0;
   const uint8_t *end = buffer + len;
 
-  /* Decoding mandatory fields */
-  if ((dec = decode_fgs_registration_result(&registration_accept->fgsregistrationresult, 0, *buffer, len)) < 0)
+  // 5GS registration result (Mandatory)
+  byte_array_t ba = {.buf = buffer, .len = len};
+  if ((dec = decode_fgs_registration_result(registration_accept, ba)) < 0)
     return dec;
   buffer += dec;
 
@@ -149,9 +178,8 @@ int encode_registration_accept(const registration_accept_msg *registration_accep
   int encoded = 0;
 
   LOG_FUNC_IN;
-
-  *(buffer + encoded) = encode_fgs_registration_result(&registration_accept->fgsregistrationresult);
-  encoded = encoded + 2;
+  byte_array_t ba = {.buf = buffer, .len = len};
+  encoded += encode_fgs_registration_result(ba, registration_accept);
 
   if (registration_accept->guti) {
     int mi_enc = encode_5gs_mobile_identity(registration_accept->guti, 0x77, buffer + encoded, len - encoded);

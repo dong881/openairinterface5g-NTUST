@@ -1430,7 +1430,6 @@ static void process_guti(Guti5GSMobileIdentity_t *guti, nr_ue_nas_t *nas)
 
 static void handle_registration_accept(nr_ue_nas_t *nas, const uint8_t *pdu_buffer, uint32_t msg_length)
 {
-  LOG_I(NAS, "[UE] Received REGISTRATION ACCEPT message\n");
   registration_accept_msg msg = {0};
   fgs_nas_message_security_header_t sp_header = {0};
   const uint8_t *end = pdu_buffer + msg_length;
@@ -1457,6 +1456,13 @@ static void handle_registration_accept(nr_ue_nas_t *nas, const uint8_t *pdu_buff
     LOG_E(NAS, "Failed to decode NAS Registration Accept\n");
     return;
   }
+  LOG_I(NAS,
+        "Received Registration Accept with result %s\n",
+        msg.result == FGS_REGISTRATION_RESULT_3GPP       ? "3GPP"
+        : msg.result == FGS_REGISTRATION_RESULT_NON_3GPP ? "non-3PP"
+                                                         : "3GPP and non-3GPP");
+  LOG_I(NAS, "SMS %s in 5GS Registration Result\n", msg.sms_allowed ? "allowed" : "not allowed");
+
   pdu_buffer += decoded;
   // process GUTI
   if (msg.guti) {

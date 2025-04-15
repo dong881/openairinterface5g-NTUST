@@ -34,11 +34,16 @@
 
 #include "SecurityHeaderType.h"
 #include "MessageType.h"
-#include "FGSRegistrationResult.h"
 #include "FGSMobileIdentity.h"
 
 #ifndef REGISTRATION_ACCEPT_H_
 #define REGISTRATION_ACCEPT_H_
+
+typedef enum {
+  FGS_REGISTRATION_RESULT_3GPP = 1,
+  FGS_REGISTRATION_RESULT_NON_3GPP = 2,
+  FGS_REGISTRATION_RESULT_3GPP_AND_NON_3GPP = 3
+} fgs_registration_result_t;
 
 // 9.11.3.37 of 3GPP TS 24.501
 typedef struct {
@@ -56,9 +61,10 @@ typedef struct {
  */
 
 typedef struct registration_accept_msg_tag {
-  /* Mandatory fields */
-  FGSRegistrationResult fgsregistrationresult;
-  /* Optional fields */
+  // 5GS registration result (Mandatory)
+  fgs_registration_result_t result;
+  bool sms_allowed;
+  // 5G-GUTI (Optional)
   FGSMobileIdentity *guti;
   // Allowed NSSAI (O)
   nr_nas_msg_snssai_t nas_allowed_nssai[8];
