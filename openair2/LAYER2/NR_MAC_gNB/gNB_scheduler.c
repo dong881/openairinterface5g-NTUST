@@ -202,14 +202,16 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, frame_t frame, slot_t slo
 
   nr_mac_update_timers(module_idP, frame, slot);
 
-  // This schedules MIB
-  schedule_nr_mib(module_idP, frame, slot, &sched_info->DL_req);
+  if (gNB->num_scheduled_prach_rx >= NUM_PRACH_RX_FOR_NOISE_ESTIMATE || get_softmodem_params()->phy_test) {
+    // This schedules MIB
+    schedule_nr_mib(module_idP, frame, slot, &sched_info->DL_req);
 
-  // This schedules SIB1
-  // SIB19 will be scheduled if ntn_Config_r17 is initialized
-  if (IS_SA_MODE(get_softmodem_params())) {
-    schedule_nr_sib1(module_idP, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
-    schedule_nr_other_sib(module_idP, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
+    // This schedules SIB1
+    // SIB19 will be scheduled if ntn_Config_r17 is initialized
+    if (IS_SA_MODE(get_softmodem_params())) {
+      schedule_nr_sib1(module_idP, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
+      schedule_nr_other_sib(module_idP, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
+    }
   }
 
   // This schedule PRACH if we are not in phy_test mode

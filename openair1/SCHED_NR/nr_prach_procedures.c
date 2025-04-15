@@ -145,7 +145,8 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
 	    max_preamble_delay[0],
 	    gNB->prach_energy_counter);
 
-      if ((gNB->prach_energy_counter == 100) && (max_preamble_energy[0] > gNB->measurements.prach_I0 + gNB->prach_thres)
+      if ((gNB->prach_energy_counter == NUM_PRACH_RX_FOR_NOISE_ESTIMATE)
+          && (max_preamble_energy[0] > gNB->measurements.prach_I0 + gNB->prach_thres)
           && (rach_ind->number_of_pdus < MAX_NUM_NR_RX_RACH_PDUS)) {
         LOG_A(NR_PHY,
               "[RAPROC] %d.%d Initiating RA procedure with preamble %d, energy %d.%d dB (I0 %d, thres %d), delay %d start symbol "
@@ -185,7 +186,8 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
       }
       gNB->measurements.prach_I0 = ((gNB->measurements.prach_I0*900)>>10) + ((max_preamble_energy[0]*124)>>10); 
       if (frame==0) LOG_I(PHY,"prach_I0 = %d.%d dB\n",gNB->measurements.prach_I0/10,gNB->measurements.prach_I0%10);
-      if (gNB->prach_energy_counter < 100) gNB->prach_energy_counter++;
+      if (gNB->prach_energy_counter < NUM_PRACH_RX_FOR_NOISE_ESTIMATE)
+        gNB->prach_energy_counter++;
     } //if prach_id>0
     rach_ind->slot = prach_start_slot;
   } // for NUMBER_OF_NR_PRACH_OCCASION_MAX

@@ -95,5 +95,6 @@
 #define RETURNerror (-1)
 #define DEFAULT_NAS_PATH "PWD"
 #define UNUSED_VARIABLE(vARIABLE) (void)(vARIABLE)
+#define NUM_PRACH_RX_FOR_NOISE_ESTIMATE 100
 
 #endif /* __PLATFORM_CONSTANTS_H__ */

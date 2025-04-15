@@ -430,6 +430,7 @@ void schedule_nr_prach(module_id_t module_idP, frame_t frameP, slot_t slotP)
             }
           }
           if(td_index == 0) {
+            gNB->num_scheduled_prach_rx++;
             AssertFatal(UL_tti_req->n_pdus < sizeof(UL_tti_req->pdus_list) / sizeof(UL_tti_req->pdus_list[0]),
                         "Invalid UL_tti_req->n_pdus %d\n", UL_tti_req->n_pdus);
 
