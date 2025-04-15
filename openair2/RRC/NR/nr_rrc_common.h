@@ -23,6 +23,7 @@
 #define __NR_RRC_COMMON_H__
 
 #include <stdint.h> 
+#include "NR_BWP-Downlink.h"
 
 #define NR_NUM_SRB 4 /* Number of Signalling Radio Bearers according to clause 4.2.2 of 3GPP TS 38.331 */
 #define NR_RRC_BUF_SIZE 4096

@@ -62,7 +62,6 @@
 #include "PHY/impl_defs_nr.h"
 #include "PHY/phy_vars_nr_ue.h"
 #include "RRC/NR/nr_rrc_config.h"
-#include "RRC/NR/nr_rrc_proto.h"
 #include "SCHED_NR/fapi_nr_l1.h"
 #include "SCHED_NR/sched_nr.h"
 #include "SCHED_NR_UE/defs.h"
@@ -86,7 +85,6 @@
 #include "oai_asn1.h"
 #include "openair1/SIMULATION/NR_PHY/nr_unitary_defs.h"
 #include "openair1/SIMULATION/TOOLS/sim.h"
-#include "openair2/RRC/LTE/rrc_vars.h"
 #include "thread-pool.h"
 #include "time_meas.h"
 #include "utils.h"
@@ -119,6 +117,43 @@ unsigned int NTN_UE_Koffset = 0;
 
 void nr_derive_key_ng_ran_star(uint16_t pci, uint64_t nr_arfcn_dl, const uint8_t key[32], uint8_t *key_ng_ran_star)
 {
+}
+
+/* Function to set or overwrite PTRS DL RRC parameters */
+static void rrc_config_dl_ptrs_params(NR_BWP_Downlink_t *bwp, long *ptrsNrb, long *ptrsMcs, long *epre_Ratio, long *reOffset)
+{
+  int i=0;
+  NR_DMRS_DownlinkConfig_t *tmp = bwp->bwp_Dedicated->pdsch_Config->choice.setup->dmrs_DownlinkForPDSCH_MappingTypeA->choice.setup;
+  // struct NR_SetupRelease_PTRS_DownlinkConfig *tmp=bwp->bwp_Dedicated->pdsch_Config->choice.setup->dmrs_DownlinkForPDSCH_MappingTypeA->choice.setup->phaseTrackingRS;
+  /* check for memory allocation  */
+  if (tmp->phaseTrackingRS == NULL) {
+    asn1cCalloc(tmp->phaseTrackingRS, TrackingRS);
+    TrackingRS->present = NR_SetupRelease_PTRS_DownlinkConfig_PR_setup;
+    asn1cCalloc(TrackingRS->choice.setup, setup);
+    asn1cCalloc(setup->frequencyDensity, freqD);
+    /* Fill the given values */
+    for(i = 0; i < 2; i++) {
+      asn1cSequenceAdd(freqD->list, long, nbr);
+      *nbr = ptrsNrb[i];
+    }
+    asn1cCalloc(setup->timeDensity, timeD);
+    for(i = 0; i < 3; i++) {
+      asn1cSequenceAdd(timeD->list, long, mcs);
+      *mcs = ptrsMcs[i];
+    }
+    asn1cCallocOne(setup->epre_Ratio, epre_Ratio[0]);
+    asn1cCallocOne(setup->resourceElementOffset, reOffset[0]);
+  } else {
+    NR_PTRS_DownlinkConfig_t *TrackingRS = tmp->phaseTrackingRS->choice.setup;
+    for(i = 0; i < 2; i++) {
+      *TrackingRS->frequencyDensity->list.array[i] = ptrsNrb[i];
+    }
+    for(i = 0; i < 3; i++) {
+      *TrackingRS->timeDensity->list.array[i] = ptrsMcs[i];
+    }
+    *TrackingRS->epre_Ratio = epre_Ratio[0];
+    *TrackingRS->resourceElementOffset = reOffset[0];
+  }
 }
 
 int dummy_nr_ue_ul_indication(nr_uplink_indication_t *ul_info) { return(0);  }

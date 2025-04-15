@@ -66,14 +66,6 @@ void rrc_gNB_generate_RRCRelease(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE);
    \param args_p Pointer on arguments to start the task. */
 void *rrc_gnb_task(void *args_p);
 
-/**\ Function to set or overwrite PTRS DL RRC parameters.
-   \ *bwp Pointer to dedicated RC config structure
-   \ *ptrsNrb Pointer to K_ptrs N_RB related parameters
-   \ *ptrsMcs Pointer to L_ptrs MCS related parameters
-   \ *epre_Ratio Pointer to ep_ratio
-   \ *reOffset Pointer to RE Offset Value */
-void rrc_config_dl_ptrs_params(NR_BWP_Downlink_t *bwp, long *ptrsNrb, long *ptrsMcs, long *epre_Ratio, long *reOffset);
-
 int nr_rrc_reconfiguration_req(gNB_RRC_INST *rrc, gNB_RRC_UE_t *ue_p, const int dl_bwp_id, const int ul_bwp_id);
 
 void rrc_gNB_generate_dedicatedRRCReconfiguration_release(gNB_RRC_INST *rrc,
