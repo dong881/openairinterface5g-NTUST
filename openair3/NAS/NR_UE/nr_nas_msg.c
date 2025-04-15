@@ -839,6 +839,24 @@ static void generateAuthenticationResp(nr_ue_nas_t *nas, as_nas_info_t *initialN
   free(res.value);
 }
 
+/** @brief Send Authentication Failure message from the UE to the AMF to
+ * indicate that authentication of the network has failed */
+static void generateAuthenticationFailure(nr_ue_nas_t *nas, as_nas_info_t *initialNasMsg, cause_id_t cause)
+{
+  int size = sizeof(fgmm_msg_header_t);
+  fgmm_nas_message_plain_t plain = {0};
+
+  // Plain 5GMM header
+  plain.header = set_mm_header(FGS_AUTHENTICATION_FAILURE, PLAIN_5GS_MSG);
+  size += sizeof(plain.header);
+  // 5GMM Cause (Mandatory)
+  fgmm_auth_failure_t *mm_msg = &plain.mm_msg.fgmm_auth_failure;
+  mm_msg->cause = cause;
+  size += 1;
+  initialNasMsg->nas_data = malloc_or_fail(size * sizeof(*initialNasMsg->nas_data));
+  initialNasMsg->length = mm_msg_encode(&plain, initialNasMsg->nas_data, size);
+}
+
 int nas_itti_kgnb_refresh_req(instance_t instance, const uint8_t kgnb[32])
 {
   MessageDef *message_p;

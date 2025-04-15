@@ -35,6 +35,7 @@
 #include "RegistrationComplete.h"
 #include "RegistrationRequest.h"
 #include "fgs_service_request.h"
+#include "fgmm_authentication_failure.h"
 
 /* Message types defintions for:
    (a) 5GS Mobility Management (5GMM) (IDs 0x41 - 0x68)
@@ -222,6 +223,7 @@ typedef struct {
     fgs_service_request_msg_t service_request;
     fgmm_identity_response_msg fgs_identity_response;
     fgs_authentication_response_msg fgs_auth_response;
+    fgmm_auth_failure_t fgmm_auth_failure;
     fgs_deregistration_request_ue_originating_msg fgs_deregistration_request_ue_originating;
     fgs_security_mode_complete_msg fgs_security_mode_complete;
     registration_complete_msg registration_complete;
