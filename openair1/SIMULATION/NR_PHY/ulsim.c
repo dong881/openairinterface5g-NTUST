@@ -32,7 +32,6 @@
 #include "common/utils/var_array.h"
 #define inMicroS(a) (((double)(a))/(get_cpu_freq_GHz()*1000.0))
 #include "SIMULATION/LTE_PHY/common_sim.h"
-#include "openair2/RRC/LTE/rrc_vars.h"
 #include "common/utils/assertions.h"
 #include "executables/softmodem-common.h"
 #include "NR_BCCH-BCH-Message.h"
