@@ -26,6 +26,7 @@
 #include "common/utils/ds/byte_array.h"
 
 #define GPRS_TIMER_LENGTH 3 // octets
+#define FGS_NAS_CAUSE_LENGTH 1
 
 /**
  * Encode PDU Session Status and PDU session reactivation result (optional IEs)
@@ -157,4 +158,28 @@ int decode_eap_msg_ie(const byte_array_t *buffer)
   int eap_msg_len = (buffer->buf[0] << 8) | buffer->buf[1];
   PRINT_NAS_ERROR("EAP message IE in NAS Service Reject is not handled\n");
   return eap_msg_len + 2; // content length + 2 octets for the length IE
+}
+
+int encode_fgs_nas_cause(byte_array_t *buffer, const cause_id_t *cause)
+{
+  uint32_t encoded = 0;
+
+  if (buffer->len < FGS_NAS_CAUSE_LENGTH)
+    return -1;
+
+  buffer->buf[encoded++] = *cause;
+
+  return encoded;
+}
+
+int decode_fgs_nas_cause(cause_id_t *cause, const byte_array_t *buffer)
+{
+  int decoded = 0;
+
+  if (buffer->len < FGS_NAS_CAUSE_LENGTH)
+    return -1; // nothing to decode
+
+  *cause = buffer->buf[decoded++];
+
+  return decoded;
 }
