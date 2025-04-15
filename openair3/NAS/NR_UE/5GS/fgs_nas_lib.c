@@ -73,6 +73,11 @@ int mm_msg_encode(const fgmm_nas_message_plain_t *p, uint8_t *buffer, uint32_t l
     case FGS_AUTHENTICATION_RESPONSE:
       enc_msg = encode_fgs_authentication_response(&p->mm_msg.fgs_auth_response, buffer, len);
       break;
+    case FGS_AUTHENTICATION_FAILURE: {
+      byte_array_t ba = {.buf = buffer, .len = len};
+      enc_msg = encode_fgmm_auth_failure(&ba, &p->mm_msg.fgmm_auth_failure);
+      break;
+    }
     case FGS_SECURITY_MODE_COMPLETE:
       enc_msg = encode_fgs_security_mode_complete(&p->mm_msg.fgs_security_mode_complete, buffer, len);
       break;
