@@ -141,7 +141,6 @@ typedef struct nrLDPC_slot_decoding_parameters_s{
  * \brief encoding parameter of segments
  * \var E input llr segment size
  * \var c Pointers to code blocks before LDPC encoding (38.212 V15.4.0 section 5.2.2)
- * flag indicating that the decoding of the segment was successful
  * IT MUST BE FILLED BY THE IMPLEMENTATION
  * \var ts_interleave interleaving time stats
  * \var ts_rate_match rate matching time stats
