@@ -576,6 +576,25 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
             *log2_maxh,
             ue->phy_cpu_stats.cpu_time_stats[DLSCH_CHANNEL_COMPENSATION_STATS].p_time / (cpuf * 1000.0));
     }
+    // Please keep it: useful for debugging
+#ifdef DEBUG_PDSCH_RX
+    char filename[50];
+
+    snprintf(filename, 50, "rxdataF0_symb_%d_nr_slot_rx_%d.m", symbol, nr_slot_rx);
+    write_output(filename, "rxdataF0", &rxdataF[0][symbol * frame_parms->ofdm_symbol_size], frame_parms->ofdm_symbol_size, 1, 1);
+
+    snprintf(filename, 50, "dl_ch_estimates0_symb_%d_nr_slot_rx_%d.m", symbol, nr_slot_rx);
+    write_output(filename, "dl_ch_estimates0", &dl_ch_estimates[0][symbol * frame_parms->ofdm_symbol_size], frame_parms->ofdm_symbol_size, 1, 1);
+
+    snprintf(filename, 50, "rxdataF_ext0_symb_%d_nr_slot_rx_%d.m", symbol, nr_slot_rx);
+    write_output(filename, "rxdataF_ext0", &rxdataF_ext[0][0], rx_size_symbol, 1, 1);
+
+    snprintf(filename, 50, "dl_ch_estimates_ext0_symb_%d_nr_slot_rx_%d.m", symbol, nr_slot_rx);
+    write_output(filename, "dl_ch_estimates_ext0", &dl_ch_estimates_ext[0][0], rx_size_symbol, 1, 1);
+
+    snprintf(filename, 50, "rxdataF_comp00_symb_%d_nr_slot_rx_%d.m", symbol, nr_slot_rx);
+    write_output(filename, "rxdataF_comp00", &rxdataF_comp[0][0][symbol * rx_size_symbol], rx_size_symbol, 1, 1);
+#endif
   }
 
   start_meas_nr_ue_phy(ue, DLSCH_MRC_MMSE_STATS);
@@ -694,32 +713,12 @@ int nr_rx_pdsch(PHY_VARS_NR_UE *ue,
                              rx_llr_layer_size,
                              layer_llr);
     stop_meas_nr_ue_phy(ue, DLSCH_LAYER_DEMAPPING);
-    // Please keep it: useful for debugging
-#ifdef DEBUG_PDSCH_RX
-    char filename[50];
-    uint8_t aa = 0;
-
-    snprintf(filename, 50, "rxdataF0_symb_%d_nr_slot_rx_%d.m", symbol, nr_slot_rx);
-    write_output(filename, "rxdataF0", &rxdataF[0][0], NR_SYMBOLS_PER_SLOT*frame_parms->ofdm_symbol_size, 1, 1);
-
-    snprintf(filename, 50, "dl_ch_estimates0%d_symb_%d_nr_slot_rx_%d.m", aa, symbol, nr_slot_rx);
-    write_output(filename, "dl_ch_estimates", &dl_ch_estimates[aa][0], NR_SYMBOLS_PER_SLOT*frame_parms->ofdm_symbol_size, 1, 1);
-
-    snprintf(filename, 50, "rxdataF_ext0%d_symb_%d_nr_slot_rx_%d.m", aa, symbol, nr_slot_rx);
-    write_output(filename, "rxdataF_ext", &rxdataF_ext[aa][0], NR_SYMBOLS_PER_SLOT*frame_parms->N_RB_DL*NR_NB_SC_PER_RB, 1, 1);
-
-    snprintf(filename, 50, "dl_ch_estimates_ext0%d_symb_%d_nr_slot_rx_%d.m", aa, symbol, nr_slot_rx);
-    write_output(filename, "dl_ch_estimates_ext00", &dl_ch_estimates_ext[aa][0], NR_SYMBOLS_PER_SLOT*frame_parms->N_RB_DL*NR_NB_SC_PER_RB, 1, 1);
-
-    snprintf(filename, 50, "rxdataF_comp0%d_symb_%d_nr_slot_rx_%d.m", aa, symbol, nr_slot_rx);
-    write_output(filename, "rxdataF_comp00", &rxdataF_comp[aa][0], NR_SYMBOLS_PER_SLOT*frame_parms->N_RB_DL*NR_NB_SC_PER_RB, 1, 1);
   /*
     for (int i=0; i < 2; i++){
       snprintf(filename, 50,  "llr%d_symb_%d_nr_slot_rx_%d.m", i, symbol, nr_slot_rx);
       write_output(filename,"llr",  &llr[i][0], (NR_SYMBOLS_PER_SLOT*nb_rb_pdsch*NR_NB_SC_PER_RB*dlsch1_harq->Qm) - 4*(nb_rb_pdsch*4*dlsch1_harq->Qm), 1, 0);
     }
   */
-#endif
     if (UEScopeHasTryLock(ue)) {
       metadata mt = {.frame = proc->frame_rx, .slot = proc->nr_slot_rx };
       int total_valid_res = 0;

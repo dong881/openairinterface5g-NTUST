@@ -28,13 +28,6 @@
 #include "PHY/nr_phy_common/inc/nr_phy_common.h"
 #include <common/utils/LOG/log.h>
 
-//#define DEBUG_FEP
-
-/*#ifdef LOG_I
-#undef LOG_I
-#define LOG_I(A,B...) printf(A)
-#endif*/
-
 int nr_slot_fep(PHY_VARS_NR_UE *ue,
                 const NR_DL_FRAME_PARMS *frame_parms,
                 unsigned int slot,
@@ -44,7 +37,6 @@ int nr_slot_fep(PHY_VARS_NR_UE *ue,
                 uint32_t sample_offset,
                 c16_t **rxdata)
 {
-
   AssertFatal(symbol < frame_parms->symbols_per_slot, "slot_fep: symbol must be between 0 and %d\n", frame_parms->symbols_per_slot-1);
   AssertFatal(slot < frame_parms->slots_per_frame, "slot_fep: Ns must be between 0 and %d\n", frame_parms->slots_per_frame - 1);
 
@@ -80,12 +72,6 @@ int nr_slot_fep(PHY_VARS_NR_UE *ue,
 
   // use OFDM symbol from within 1/8th of the CP to avoid ISI
   rx_offset -= (nb_prefix_samples / frame_parms->ofdm_offset_divisor);
-
-#ifdef DEBUG_FEP
-  //  if (ue->frame <100)
-  LOG_D(PHY,"slot_fep: slot %d, symbol %d, nb_prefix_samples %u, nb_prefix_samples0 %u, rx_offset %u energy %d\n",
-  Ns, symbol, nb_prefix_samples, nb_prefix_samples0, rx_offset, dB_fixed(signal_energy((int32_t *)&common_vars->rxdata[0][rx_offset],frame_parms->ofdm_symbol_size)));
-#endif
 
   for (unsigned char aa=0; aa<frame_parms->nb_antennas_rx; aa++) {
     int16_t *rxdata_ptr = (int16_t *)&rxdata[aa][rx_offset];
@@ -128,10 +114,6 @@ int nr_slot_fep(PHY_VARS_NR_UE *ue,
 
     apply_nr_rotation_RX(frame_parms, rxdataF[aa], frame_parms->symbol_rotation[linktype], slot, N_RB, 0, symbol, 1);
   }
-
-#ifdef DEBUG_FEP
-  printf("slot_fep: done\n");
-#endif
 
   return 0;
 }

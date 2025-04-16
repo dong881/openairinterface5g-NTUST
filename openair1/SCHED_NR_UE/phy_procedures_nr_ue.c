@@ -486,6 +486,7 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
                                   c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP],
                                   int G)
 {
+  int frame_rx = proc->frame_rx;
   int nr_slot_rx = proc->nr_slot_rx;
 
   // We handle only one CW now
@@ -497,9 +498,10 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
     NR_DL_UE_HARQ_t *dlsch0_harq = &ue->dl_harq_processes[0][harq_pid];
 
     LOG_D(PHY,
-          "[UE %d] nr_slot_rx %d, harq_pid %d (%d), BWP start %d, rb_start %d, nb_rb %d, symbol_start %d, nb_symbols %d, DMRS mask "
+          "[UE %d] frame_rx %d, nr_slot_rx %d, harq_pid %d (%d), BWP start %d, rb_start %d, nb_rb %d, symbol_start %d, nb_symbols %d, DMRS mask "
           "%x, Nl %d\n",
           ue->Mod_id,
+          frame_rx,
           nr_slot_rx,
           harq_pid,
           dlsch0_harq->status,
@@ -559,10 +561,9 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
           nvar += nvar_tmp;
 #if 0
           ///LOG_M: the channel estimation
-          int nr_frame_rx = proc->frame_rx;
           char filename[100];
           for (uint8_t aarx=0; aarx<ue->frame_parms.nb_antennas_rx; aarx++) {
-            sprintf(filename,"PDSCH_CHANNEL_frame%d_slot%d_sym%d_port%d_rx%d.m", nr_frame_rx, nr_slot_rx, m, nl, aarx);
+            sprintf(filename,"PDSCH_CHANNEL_frame%d_slot%d_sym%d_port%d_rx%d.m", frame_rx, nr_slot_rx, m, nl, aarx);
             int **dl_ch_estimates = ue->pdsch_vars[gNB_id]->dl_ch_estimates;
             LOG_M(filename,"channel_F",&dl_ch_estimates[nl*ue->frame_parms.nb_antennas_rx+aarx][ue->frame_parms.ofdm_symbol_size*m],ue->frame_parms.ofdm_symbol_size, 1, 1);
           }

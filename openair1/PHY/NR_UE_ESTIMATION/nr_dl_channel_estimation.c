@@ -1081,7 +1081,6 @@ void NFAPI_NR_DMRS_TYPE1_linear_interp(NR_DL_FRAME_PARMS *frame_parms,
                                        c16_t *dl_ch,
                                        unsigned short bwp_start_subcarrier,
                                        unsigned short nb_rb_pdsch,
-                                       int8_t delta,
                                        delay_t *delay,
                                        uint32_t *nvar)
 {
@@ -1094,30 +1093,23 @@ void NFAPI_NR_DMRS_TYPE1_linear_interp(NR_DL_FRAME_PARMS *frame_parms,
   int nest_count = 0;
   uint64_t noise_amp2 = 0;
 
-  for (int pilot_cnt = 0; pilot_cnt < 6 * nb_rb_pdsch; pilot_cnt++) {
-    if (pilot_cnt % 2 == 0) {
-      c16_t ch = c16mulShift(*pil, rxF[re_offset], 15);
-      pil++;
-      re_offset = (re_offset + 2) % frame_parms->ofdm_symbol_size;
-      ch = c16maddShift(*pil, rxF[re_offset], ch, 15);
-      ch = c16Shift(ch, 1);
-      pil++;
-      re_offset = (re_offset + 2) % frame_parms->ofdm_symbol_size;
-      for (int k = pilot_cnt << 1; k < (pilot_cnt << 1) + 4; k++) {
-        dl_ls_est[k] = ch;
-      }
-    }
-
+  for (int pilot_cnt = 0; pilot_cnt < 6 * nb_rb_pdsch; pilot_cnt += 2) {
+    c16_t ch_l = c16mulShift(*pil, rxF[re_offset], 15);
 #ifdef DEBUG_PDSCH
-    printf("pilot %3d: pil -> (%6d,%6d), rxF -> (%4d,%4d), ch -> (%4d,%4d) \n",
-           pilot_cnt,
-           pil->r,
-           pil->i,
-           rxF[re_offset].r,
-           rxF[re_offset].i,
-           dl_ls_est[pilot_cnt << 1].r,
-           dl_ls_est[pilot_cnt << 1].i);
+    printf("pilot %3d: pil -> (%6d,%6d), rxF -> (%4d,%4d), ch -> (%4d,%4d) \n", pilot_cnt, pil->r, pil->i, rxF[re_offset].r, rxF[re_offset].i, ch_l.r, ch_l.i);
 #endif
+    pil++;
+    re_offset = (re_offset + 2) % frame_parms->ofdm_symbol_size;
+    c16_t ch_r = c16mulShift(*pil, rxF[re_offset], 15);
+#ifdef DEBUG_PDSCH
+    printf("pilot %3d: pil -> (%6d,%6d), rxF -> (%4d,%4d), ch -> (%4d,%4d) \n", pilot_cnt + 1, pil->r, pil->i, rxF[re_offset].r, rxF[re_offset].i, ch_r.r, ch_r.i);
+#endif
+    c16_t ch = c16addShift(ch_l, ch_r, 1);
+    pil++;
+    re_offset = (re_offset + 2) % frame_parms->ofdm_symbol_size;
+    for (int k = pilot_cnt << 1; k < (pilot_cnt << 1) + 4; k++) {
+      dl_ls_est[k] = ch;
+    }
   }
 
   c16_t ch_estimates_time[frame_parms->ofdm_symbol_size] __attribute__((aligned(32)));
@@ -1247,8 +1239,6 @@ void NFAPI_NR_DMRS_TYPE2_linear_interp(NR_DL_FRAME_PARMS *frame_parms,
                                        c16_t *dl_ch,
                                        unsigned short bwp_start_subcarrier,
                                        unsigned short nb_rb_pdsch,
-                                       int8_t delta,
-                                       unsigned short p,
                                        delay_t *delay,
                                        uint32_t *nvar)
 {
@@ -1270,7 +1260,7 @@ void NFAPI_NR_DMRS_TYPE2_linear_interp(NR_DL_FRAME_PARMS *frame_parms,
     re_offset = (re_offset + 1) % frame_parms->ofdm_symbol_size;
     c16_t ch_r = c16mulShift(*pil, rxF[re_offset], 15);
 #ifdef DEBUG_PDSCH
-    printf("pilot %3d: pil -> (%6d,%6d), rxF -> (%4d,%4d), ch -> (%4d,%4d) \n", pilot_cnt, pil->r, pil->i, rxF[re_offset].r, rxF[re_offset].i, ch_r.r, ch_r.i);
+    printf("pilot %3d: pil -> (%6d,%6d), rxF -> (%4d,%4d), ch -> (%4d,%4d) \n", pilot_cnt + 1, pil->r, pil->i, rxF[re_offset].r, rxF[re_offset].i, ch_r.r, ch_r.i);
 #endif
     c16_t ch = c16addShift(ch_l, ch_r, 1);
     for (int k = 3 * pilot_cnt; k < (3 * pilot_cnt) + 6; k++) {
@@ -1427,9 +1417,8 @@ int nr_pdsch_channel_estimation(PHY_VARS_NR_UE *ue,
 
 #ifdef DEBUG_PDSCH
   printf(
-      "PDSCH Channel Estimation : gNB_id %d ch_offset %d, symbol_offset %d OFDM size %d, Ncp=%d, Ns=%d, bwp_start_subcarrier=%d "
+      "PDSCH Channel Estimation : ch_offset %d, symbol_offset %d OFDM size %d, Ncp=%d, Ns=%d, bwp_start_subcarrier=%d "
       "symbol %d\n",
-      gNB_id,
       ch_offset,
       symbol_offset,
       fp->ofdm_symbol_size,
@@ -1467,7 +1456,6 @@ int nr_pdsch_channel_estimation(PHY_VARS_NR_UE *ue,
                                         dl_ch,
                                         bwp_start_subcarrier,
                                         nb_rb_pdsch,
-                                        delta,
                                         &delay,
                                         nvar);
 
@@ -1478,8 +1466,6 @@ int nr_pdsch_channel_estimation(PHY_VARS_NR_UE *ue,
                                         dl_ch,
                                         bwp_start_subcarrier,
                                         nb_rb_pdsch,
-                                        delta,
-                                        p,
                                         &delay,
                                         nvar);
 
