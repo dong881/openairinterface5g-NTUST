@@ -60,7 +60,7 @@ int nr_slot_fep(PHY_VARS_NR_UE *ue,
 
   dft_size_idx_t dftsize = get_dft(frame_parms->ofdm_symbol_size);
   // This is for misalignment issues
-  int32_t tmp_dft_in[8192] __attribute__ ((aligned (32)));
+  c16_t tmp_dft_in[frame_parms->ofdm_symbol_size] __attribute__ ((aligned (32)));
 
   unsigned int rx_offset = frame_parms->get_samples_slot_timestamp(slot, frame_parms, 0);
   unsigned int abs_symbol = slot * frame_parms->symbols_per_slot + symbol;
@@ -73,10 +73,10 @@ int nr_slot_fep(PHY_VARS_NR_UE *ue,
   // use OFDM symbol from within 1/8th of the CP to avoid ISI
   rx_offset -= (nb_prefix_samples / frame_parms->ofdm_offset_divisor);
 
-  for (unsigned char aa=0; aa<frame_parms->nb_antennas_rx; aa++) {
-    int16_t *rxdata_ptr = (int16_t *)&rxdata[aa][rx_offset];
+  rx_offset %= total_samples;
 
-    rx_offset %= total_samples;
+  for (unsigned char aa=0; aa<frame_parms->nb_antennas_rx; aa++) {
+    c16_t *rxdata_ptr = &rxdata[aa][rx_offset];
 
     // This happens only during initial sync
     if (rx_offset + frame_parms->ofdm_symbol_size > total_samples) {
@@ -87,17 +87,17 @@ int nr_slot_fep(PHY_VARS_NR_UE *ue,
       memcpy((void *)&tmp_dft_in[total_samples - rx_offset],
              (void *)&rxdata[aa][0],
              (frame_parms->ofdm_symbol_size - (total_samples - rx_offset)) * sizeof(int32_t));
-      rxdata_ptr = (int16_t *)tmp_dft_in;
+      rxdata_ptr = tmp_dft_in;
 
     } else if ((rx_offset & 7) != 0) { // if input to dft is not 256-bit aligned
       memcpy((void *)&tmp_dft_in[0], (void *)&rxdata[aa][rx_offset], frame_parms->ofdm_symbol_size * sizeof(int32_t));
-
-      rxdata_ptr = (int16_t *)tmp_dft_in;
+      rxdata_ptr = tmp_dft_in;
     }
 
     if (ue && ue->cont_fo_comp) {
       start_meas_nr_ue_phy(ue, RX_FO_COMPENSATION_STATS);
-      nr_fo_compensation(ue->freq_offset, frame_parms->samples_per_subframe, rx_offset, (c16_t *)rxdata_ptr, frame_parms->ofdm_symbol_size);
+      nr_fo_compensation(ue->freq_offset, frame_parms->samples_per_subframe, rx_offset, rxdata_ptr, tmp_dft_in, frame_parms->ofdm_symbol_size);
+      rxdata_ptr = tmp_dft_in;
       stop_meas_nr_ue_phy(ue, RX_FO_COMPENSATION_STATS);
     }
 
@@ -105,7 +105,7 @@ int nr_slot_fep(PHY_VARS_NR_UE *ue,
       start_meas_nr_ue_phy(ue, RX_DFT_STATS);
 
     dft(dftsize,
-        rxdata_ptr,
+        (int16_t *)rxdata_ptr,
         (int16_t *)&rxdataF[aa][frame_parms->ofdm_symbol_size*symbol],
         1);
 

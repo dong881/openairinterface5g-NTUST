@@ -80,6 +80,6 @@ void nr_256qam_llr(int32_t *rxdataF_comp, int32_t *ch_mag, int32_t *ch_mag2, int
 void freq2time(uint16_t ofdm_symbol_size, int16_t *freq_signal, int16_t *time_signal);
 void nr_est_delay(int ofdm_symbol_size, const c16_t *ls_est, c16_t *ch_estimates_time, delay_t *delay);
 unsigned int nr_get_tx_amp(int power_dBm, int power_max_dBm, int total_nb_rb, int nb_rb);
-void nr_fo_compensation(double fo_Hz, int samples_per_ms, int sample_offset, c16_t *rxdata_ptr, int size);
+void nr_fo_compensation(double fo_Hz, int samples_per_ms, int sample_offset, const c16_t *rxdata_in, c16_t *rxdata_out, int size);
 
 #endif
