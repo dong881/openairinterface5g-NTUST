@@ -117,6 +117,7 @@ services:
                 --time-sync-I 0.1 --ntn-initial-time-drift -46
                 --autonomous-ta --initial-fo 57340 --cont-fo-comp 2
                 --log_config.global_log_options level,nocolor,time
+                --num-ul-actors 1
         depends_on:
             - oai-gnb
         networks:
