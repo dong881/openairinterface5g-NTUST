@@ -2028,16 +2028,27 @@ void rrc_gNB_process_initial_ul_rrc_message(sctp_assoc_t assoc_id, const f1ap_in
   ASN_STRUCT_FREE(asn_DEF_NR_UL_CCCH_Message, ul_ccch_msg);
 }
 
+static void rrc_gNB_trigger_nsa_release(module_id_t mod_id, int ue_id)
+{
+  gNB_RRC_INST *rrc = RC.nrrrc[mod_id];
+  rrc_gNB_ue_context_t *ue_context = rrc_gNB_get_ue_context(rrc, ue_id);
+  if (!ue_context) {
+    LOG_E(NR_RRC, "could not find UE for ID %d\n", ue_id);
+    return;
+  }
+  rrc_release_nsa_user(rrc, ue_context);
+}
+
 void rrc_gNB_process_release_request(const module_id_t gnb_mod_idP, x2ap_ENDC_sgnb_release_request_t *m)
 {
-  gNB_RRC_INST *rrc = RC.nrrrc[gnb_mod_idP];
-  rrc_remove_nsa_user(rrc, m->rnti);
+  /* it's not the RNTI, it's the UE ID ... */
+  rrc_gNB_trigger_nsa_release(gnb_mod_idP, m->rnti);
 }
 
 void rrc_gNB_process_dc_overall_timeout(const module_id_t gnb_mod_idP, x2ap_ENDC_dc_overall_timeout_t *m)
 {
-  gNB_RRC_INST *rrc = RC.nrrrc[gnb_mod_idP];
-  rrc_remove_nsa_user(rrc, m->rnti);
+  /* it's not the RNTI, it's the UE ID ... */
+  rrc_gNB_trigger_nsa_release(gnb_mod_idP, m->rnti);
 }
 
 /* \brief fill E1 bearer modification's DRB from F1 DRB
