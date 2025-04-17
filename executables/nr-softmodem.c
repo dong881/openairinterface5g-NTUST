@@ -305,11 +305,6 @@ static int create_gNB_tasks(ngran_node_t node_type, configmodule_interface_t *cf
   }
 
   if (gnb_nb > 0) {
-    if (itti_create_task (TASK_GNB_APP, gNB_app_task, NULL) < 0) {
-      LOG_E(GNB_APP, "Create task for gNB APP failed\n");
-      return -1;
-    }
-
     if (!NODE_IS_DU(node_type)) {
       if (itti_create_task (TASK_RRC_GNB, rrc_gnb_task, NULL) < 0) {
         LOG_E(NR_RRC, "Create task for NR RRC gNB failed\n");
@@ -331,6 +326,11 @@ static int create_gNB_tasks(ngran_node_t node_type, configmodule_interface_t *cf
       new_msg->ittiMsgHeader.originInstance = -1; /* meaning, it is local */
       itti_send_msg_to_task(TASK_RRC_GNB, 0 /*unused by callee*/, new_msg);
       itti_free(TASK_UNKNOWN, msg);
+    }
+
+    if (itti_create_task (TASK_GNB_APP, gNB_app_task, NULL) < 0) {
+      LOG_E(GNB_APP, "Create task for gNB APP failed\n");
+      return -1;
     }
 
     //Use check on x2ap to consider the NSA scenario 
