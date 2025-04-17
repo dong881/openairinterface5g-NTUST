@@ -2262,7 +2262,7 @@ void nr_schedule_RA(module_id_t module_idP,
       // Check RA Contention Resolution timer (TODO check this procedure)
       if (ra->ra_type == RA_4_STEP && ra->ra_state > nrRA_WAIT_Msg3) {
         ra->contention_resolution_timer--;
-        if (ra->contention_resolution_timer < 0) {
+        if (ra->contention_resolution_timer == 0) {
           LOG_W(NR_MAC, "(%d.%d) RA Contention Resolution timer expired for UE 0x%04x, RA procedure failed...\n", frameP, slotP, UE->rnti);
           bool requested = nr_mac_request_release_ue(mac, UE->rnti);
           if (!requested)
