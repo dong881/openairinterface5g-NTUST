@@ -554,8 +554,7 @@ static NR_UE_info_t *create_new_UE(gNB_MAC_INST *mac, uint32_t cu_id, const NR_C
   } else {
     NR_UE_NR_Capability_t *cap = get_ue_nr_cap_from_cg_config_info(cgci);
     cellGroupConfig = get_default_secondaryCellGroup(scc, sccd, cap, 1, 1, configuration, UE->uid);
-    // TODO: fixme: gives a new random RNTI
-    UE->rnti = cellGroupConfig->spCellConfig->reconfigurationWithSync->newUE_Identity;
+    cellGroupConfig->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(UE->rnti, UE->uid, scc);
     // TODO: in NSA we assign capabilities here, otherwise outside => not logic
     UE->capability = cap;
   }
