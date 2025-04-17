@@ -1844,7 +1844,6 @@ INPUT                  = \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR_UE/rrc_defs.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR_UE/L2_interface_ue.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/L2_INTERFACE/openair_rrc_L2_interface.h \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR/rrc_gNB_internode.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR/nr_rrc_defs.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR/cucp_cuup_if.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/RRC/NR/cucp_cuup_direct.c \
