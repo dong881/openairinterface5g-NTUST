@@ -899,12 +899,6 @@ void nr_rlc_remove_ue(int ue_id)
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 }
 
-rlc_op_status_t rrc_rlc_remove_ue (const protocol_ctxt_t* const x)
-{
-  nr_rlc_remove_ue(x->rntiMaybeUEid);
-  return RLC_OP_STATUS_OK;
-}
-
 bool nr_rlc_update_id(int from_id, int to_id)
 {
   nr_rlc_manager_lock(nr_rlc_ue_manager);

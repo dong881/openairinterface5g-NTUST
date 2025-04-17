@@ -61,6 +61,7 @@
 #include "openair2/LAYER2/NR_MAC_gNB/mac_proto.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "openair3/SECU/key_nas_deriver.h"
+#include "openair2/SDAP/nr_sdap/nr_sdap_entity.h"
 #include "rrc_gNB_du.h"
 #include "rlc.h"
 #include "s1ap_messages_types.h"
@@ -400,40 +401,26 @@ void rrc_add_nsa_user_resp(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const f1ap_ue_co
   ASN_STRUCT_FREE(asn_DEF_NR_CG_Config, CG_Config);
 }
 
-void rrc_remove_nsa_user(gNB_RRC_INST *rrc, int rnti) {
-  protocol_ctxt_t      ctxt;
-  rrc_gNB_ue_context_t *ue_context;
-  int                  e_rab;
+void rrc_remove_nsa_user_context(gNB_RRC_INST *rrc, rrc_gNB_ue_context_t *ue_context)
+{
+  if (!IS_SOFTMODEM_NOS1)
+    gtpv1u_delete_all_s1u_tunnel(rrc->module_id, ue_context->ue_context.rrc_ue_id);
+  // we don't use E1 => we have to free SDAP
+  nr_sdap_delete_ue_entities(ue_context->ue_context.rrc_ue_id);
+  rrc_remove_ue(rrc, ue_context);
+}
 
-  LOG_D(RRC, "calling rrc_remove_nsa_user rnti %x\n", rnti);
-  PROTOCOL_CTXT_SET_BY_MODULE_ID(&ctxt, rrc->module_id, GNB_FLAG_YES, rnti, 0, 0, rrc->module_id);
-
-  ue_context = rrc_gNB_get_ue_context_by_rnti_any_du(rrc, rnti);
-  if (ue_context == NULL) {
-    LOG_W(RRC, "rrc_remove_nsa_user: rnti %x not found\n", rnti);
-    return;
-  }
-
-  nr_pdcp_remove_UE(ue_context->ue_context.rrc_ue_id);
-  rrc_rlc_remove_ue(&ctxt);
-
-  // lock the scheduler before removing the UE. Note: mac_remove_nr_ue() checks
-  // that the scheduler is actually locked!
-  NR_SCHED_LOCK(&RC.nrmac[rrc->module_id]->sched_lock);
-  mac_remove_nr_ue(RC.nrmac[rrc->module_id], rnti);
-  NR_SCHED_UNLOCK(&RC.nrmac[rrc->module_id]->sched_lock);
-  gtpv1u_enb_delete_tunnel_req_t tmp={0};
-  tmp.rnti=rnti;
-  tmp.from_gnb=1;
-  LOG_D(RRC, "ue_context->ue_context.nb_of_e_rabs %d will be deleted for rnti %x\n", ue_context->ue_context.nb_of_e_rabs, rnti);
-  for (e_rab = 0; e_rab < ue_context->ue_context.nb_of_e_rabs; e_rab++) {
-    tmp.eps_bearer_id[tmp.num_erab++]= ue_context->ue_context.nsa_gtp_ebi[e_rab];
-    // erase data
-    ue_context->ue_context.nsa_gtp_teid[e_rab] = 0;
-    memset(&ue_context->ue_context.nsa_gtp_addrs[e_rab], 0, sizeof(ue_context->ue_context.nsa_gtp_addrs[e_rab]));
-    ue_context->ue_context.nsa_gtp_ebi[e_rab] = 0;
-  }
-  gtpv1u_delete_all_s1u_tunnel(rrc->module_id, rnti);
-  /* remove context */
-  rrc_gNB_remove_ue_context(rrc, ue_context);
+void rrc_release_nsa_user(gNB_RRC_INST *rrc, rrc_gNB_ue_context_t *ue_context)
+{
+  gNB_RRC_UE_t *UE = &ue_context->ue_context;
+  f1_ue_data_t ue_data = cu_get_f1_ue_data(UE->rrc_ue_id);
+  RETURN_IF_INVALID_ASSOC_ID(ue_data.du_assoc_id);
+  f1ap_ue_context_release_cmd_t cmd = {
+      .gNB_CU_ue_id = UE->rrc_ue_id,
+      .gNB_DU_ue_id = ue_data.secondary_ue,
+      .cause = F1AP_CAUSE_RADIO_NETWORK,
+      .cause_value = 10, // 10 = F1AP_CauseRadioNetwork_normal_release
+  };
+  rrc->mac_rrc.ue_context_release_command(ue_data.du_assoc_id, &cmd);
+  rrc_remove_nsa_user_context(rrc, ue_context);
 }
