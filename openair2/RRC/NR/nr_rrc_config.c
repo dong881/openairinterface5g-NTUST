@@ -3567,11 +3567,6 @@ NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigC
   secondaryCellGroup->spCellConfig = calloc(1, sizeof(*secondaryCellGroup->spCellConfig));
   secondaryCellGroup->spCellConfig->servCellIndex = calloc(1, sizeof(*secondaryCellGroup->spCellConfig->servCellIndex));
   *secondaryCellGroup->spCellConfig->servCellIndex = servCellIndex;
-  secondaryCellGroup->spCellConfig->reconfigurationWithSync =
-      calloc(1, sizeof(*secondaryCellGroup->spCellConfig->reconfigurationWithSync));
-
-  rnti_t rnti = get_softmodem_params()->phy_test == 1 ? 0x1234 : (taus() & 0xffff);
-  secondaryCellGroup->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(rnti, uid, servingcellconfigcommon);
 
   secondaryCellGroup->spCellConfig->rlf_TimersAndConstants =
       calloc(1, sizeof(*secondaryCellGroup->spCellConfig->rlf_TimersAndConstants));

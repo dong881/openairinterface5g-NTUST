@@ -672,15 +672,16 @@ int main(int argc, char *argv[])
   fix_scd(scd);
 
   NR_UE_NR_Capability_t* UE_Capability_nr = CALLOC(1,sizeof(NR_UE_NR_Capability_t));
-  prepare_sim_uecap(UE_Capability_nr,scc,mu,
-                    N_RB_UL,0,mcs_table);
-
-  NR_CellGroupConfig_t *secondaryCellGroup = get_default_secondaryCellGroup(scc, scd, UE_Capability_nr, 0, 1, &conf, 0);
+  prepare_sim_uecap(UE_Capability_nr, scc, mu, N_RB_UL, 0, mcs_table);
+  rnti_t rnti = 0x1234;
+  int uid = 0;
+  NR_CellGroupConfig_t *secondaryCellGroup = get_default_secondaryCellGroup(scc, scd, UE_Capability_nr, 0, 1, &conf, uid);
+  secondaryCellGroup->spCellConfig->reconfigurationWithSync = get_reconfiguration_with_sync(rnti, uid, scc);
 
   NR_BCCH_BCH_Message_t *mib = get_new_MIB_NR(scc);
 
   // UE dedicated configuration
-  nr_mac_add_test_ue(RC.nrmac[0], secondaryCellGroup->spCellConfig->reconfigurationWithSync->newUE_Identity, secondaryCellGroup);
+  nr_mac_add_test_ue(RC.nrmac[0], rnti, secondaryCellGroup);
   frame_parms->nb_antennas_tx = 1;
   frame_parms->nb_antennas_rx = n_rx;
   nfapi_nr_config_request_scf_t *cfg = &gNB->gNB_config;
