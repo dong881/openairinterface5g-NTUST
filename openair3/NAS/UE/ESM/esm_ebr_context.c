@@ -204,7 +204,7 @@ int esm_ebr_context_create(
             // etc
             case NET_PDN_TYPE_IPV4: {
               char ip[20];
-              char *ip_addr = pdn->ip_addr;
+              unsigned char *ip_addr = (unsigned char *)pdn->ip_addr;
               snprintf(ip, sizeof(ip), "%d.%d.%d.%d", ip_addr[0], ip_addr[1], ip_addr[2], ip_addr[3]);
               const char *ifn = get_softmodem_params()->nsa ? "oaitun_nru" : "oaitun_ue";
               char ifname[IFNAMSIZ];
