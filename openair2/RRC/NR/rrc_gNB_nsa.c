@@ -313,6 +313,44 @@ static NR_RRCReconfiguration_IEs_t *get_default_reconfig(const NR_CellGroupConfi
   return reconfig;
 }
 
+static NR_CG_Config_t *generate_CG_Config(const NR_RRCReconfiguration_t *reconfig, const NR_RadioBearerConfig_t *rbconfig)
+{
+  NR_CG_Config_t *cg_Config = calloc_or_fail(1, sizeof(*cg_Config));
+  cg_Config->criticalExtensions.present = NR_CG_Config__criticalExtensions_PR_c1;
+  cg_Config->criticalExtensions.choice.c1 = calloc_or_fail(1, sizeof(*cg_Config->criticalExtensions.choice.c1));
+  cg_Config->criticalExtensions.choice.c1->present = NR_CG_Config__criticalExtensions__c1_PR_cg_Config;
+  NR_CG_Config_IEs_t *cgc_ie = calloc_or_fail(1, sizeof(*cgc_ie));
+  cg_Config->criticalExtensions.choice.c1->choice.cg_Config = cgc_ie;
+  cgc_ie->scg_CellGroupConfig = calloc_or_fail(1, sizeof(*cgc_ie->scg_CellGroupConfig));
+  cgc_ie->scg_CellGroupConfig->size =
+      uper_encode_to_new_buffer(&asn_DEF_NR_RRCReconfiguration, NULL, reconfig, (void **)&cgc_ie->scg_CellGroupConfig->buf);
+  AssertFatal(cgc_ie->scg_CellGroupConfig->size > 0,
+              "ASN1 message encoding of RRCReconfiguration failed (%ld)!\n",
+              cgc_ie->scg_CellGroupConfig->size);
+
+  cgc_ie->scg_RB_Config = calloc_or_fail(1, sizeof(*cgc_ie->scg_RB_Config));
+  cgc_ie->scg_RB_Config->size =
+      uper_encode_to_new_buffer(&asn_DEF_NR_RadioBearerConfig, NULL, rbconfig, (void **)&cgc_ie->scg_RB_Config->buf);
+  AssertFatal(cgc_ie->scg_RB_Config->size > 0, "ASN1 message encoding failed (%ld)!\n", cgc_ie->scg_RB_Config->size);
+
+  if (get_softmodem_params()->phy_test == 1 || get_softmodem_params()->do_ra > 0) {
+    // This is for phytest only, emulate first X2 message if uecap.raw file is present
+    LOG_I(RRC, "Dumping NR_RRCReconfiguration message (%jd bytes) to reconfig.raw\n", cgc_ie->scg_CellGroupConfig->size);
+    FILE *fd = fopen("reconfig.raw", "w");
+    AssertFatal(fd != NULL, "could not open reconig.raw for writing: %d, %s\n", errno, strerror(errno));
+    fwrite(cgc_ie->scg_CellGroupConfig->buf, cgc_ie->scg_CellGroupConfig->size, 1, fd);
+    fclose(fd);
+
+    LOG_I(RRC, "Dumping scg_RB_Config message (%jd bytes) to reconfig.raw\n", cgc_ie->scg_RB_Config->size);
+    fd = fopen("rbconfig.raw", "w");
+    AssertFatal(fd != NULL, "could not open rbconig.raw for writing: %d, %s\n", errno, strerror(errno));
+    fwrite(cgc_ie->scg_RB_Config->buf, cgc_ie->scg_RB_Config->size, 1, fd);
+    fclose(fd);
+  }
+
+  return cg_Config;
+}
+
 void rrc_add_nsa_user_resp(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const f1ap_ue_context_setup_t *resp)
 {
   DevAssert(resp->crnti != NULL);
