@@ -600,9 +600,15 @@ void add_drb(int is_gnb,
   nr_pdcp_ue_t *ue;
 
   int drb_id = s->drb_Identity;
-  int sn_size_ul = decode_sn_size_ul(*s->pdcp_Config->drb->pdcp_SN_SizeUL);
-  int sn_size_dl = decode_sn_size_dl(*s->pdcp_Config->drb->pdcp_SN_SizeDL);
-  int discard_timer = decode_discard_timer(*s->pdcp_Config->drb->discardTimer);
+  if (!s->pdcp_Config || !s->pdcp_Config->drb) {
+    LOG_E(PDCP, "DRB field mandatory present at setup. DRB %d not configured.\n", drb_id);
+    return;
+  }
+
+  struct NR_PDCP_Config__drb *drb = s->pdcp_Config->drb;
+  int sn_size_ul = decode_sn_size_ul(*drb->pdcp_SN_SizeUL);
+  int sn_size_dl = decode_sn_size_dl(*drb->pdcp_SN_SizeDL);
+  int discard_timer = decode_discard_timer(*drb->discardTimer);
 
   int has_integrity;
   int has_ciphering;
@@ -613,20 +619,18 @@ void add_drb(int is_gnb,
     t_reordering = decode_t_reordering(*s->pdcp_Config->t_Reordering);
   }
 
-  if (s->pdcp_Config->drb != NULL
-      && s->pdcp_Config->drb->integrityProtection != NULL)
+  if (drb->integrityProtection != NULL)
     has_integrity = 1;
   else
     has_integrity = 0;
 
-  if (s->pdcp_Config->ext1 != NULL
-     && s->pdcp_Config->ext1->cipheringDisabled != NULL)
+  if (s->pdcp_Config->ext1 != NULL && s->pdcp_Config->ext1->cipheringDisabled != NULL)
     has_ciphering = 0;
   else
     has_ciphering = 1;
 
   if ((!s->cnAssociation) || s->cnAssociation->present == NR_DRB_ToAddMod__cnAssociation_PR_NOTHING) {
-    LOG_E(PDCP,"%s:%d:%s: fatal, cnAssociation is missing or present is NR_DRB_ToAddMod__cnAssociation_PR_NOTHING\n",__FILE__,__LINE__,__FUNCTION__);
+    LOG_E(PDCP, "fatal, cnAssociation is missing or present is NR_DRB_ToAddMod__cnAssociation_PR_NOTHING\n");
     exit(-1);
   }
 
@@ -640,7 +644,7 @@ void add_drb(int is_gnb,
      pdusession_id = s->cnAssociation->choice.eps_BearerIdentity;
   else {
     if (!s->cnAssociation->choice.sdap_Config) {
-      LOG_E(PDCP,"%s:%d:%s: fatal, sdap_Config is null",__FILE__,__LINE__,__FUNCTION__);
+      LOG_E(PDCP,"fatal, sdap_Config is null");
       exit(-1);
     }
     pdusession_id = s->cnAssociation->choice.sdap_Config->pdu_Session;
@@ -653,8 +657,7 @@ void add_drb(int is_gnb,
   }
   /* TODO(?): accept different UL and DL SN sizes? */
   if (sn_size_ul != sn_size_dl) {
-    LOG_E(PDCP, "%s:%d:%s: fatal, bad SN sizes, must be same. ul=%d, dl=%d\n",
-          __FILE__, __LINE__, __FUNCTION__, sn_size_ul, sn_size_dl);
+    LOG_E(PDCP, "fatal, bad SN sizes, must be same. ul=%d, dl=%d\n", sn_size_ul, sn_size_dl);
     exit(1);
   }
 
