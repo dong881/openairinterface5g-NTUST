@@ -709,7 +709,7 @@ At this stage, RU must be rebooted so the changes apply.
 The OAI configuration file [`gnb.sa.band78.273prb.fhi72.4X4-foxconn.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi72.4X4-foxconn.conf) corresponds to:
 - TDD pattern `DDDSU`, 2.5ms
 - Bandwidth 100MHz
-- MTU 8000
+- MTU 9600
 
 #### RU configuration
 
