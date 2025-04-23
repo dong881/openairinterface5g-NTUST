@@ -121,7 +121,7 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
 
     for(int prach_oc = 0; prach_oc < prach_pdu->num_prach_ocas; prach_oc++) {
       for (ru_aa=0,aa=0;ru_aa<ru->nb_rx;ru_aa++,aa++) {
-	gNB->prach_vars.rxsigF[aa] = ru->prach_rxsigF[prach_oc][ru_aa];
+        gNB->prach_vars.rxsigF[aa] = ru->prach_rxsigF[prach_oc][ru_aa];
       }
 
       prachStartSymbol = prach_pdu->prach_start_symbol+prach_oc*N_dur;

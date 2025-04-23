@@ -430,7 +430,6 @@ void schedule_nr_prach(module_id_t module_idP, frame_t frameP, slot_t slotP)
             }
           }
           if(td_index == 0) {
-            gNB->num_scheduled_prach_rx++;
             AssertFatal(UL_tti_req->n_pdus < sizeof(UL_tti_req->pdus_list) / sizeof(UL_tti_req->pdus_list[0]),
                         "Invalid UL_tti_req->n_pdus %d\n", UL_tti_req->n_pdus);
 
@@ -443,6 +442,7 @@ void schedule_nr_prach(module_id_t module_idP, frame_t frameP, slot_t slotP)
             // filling the prach fapi structure
             prach_pdu->phys_cell_id = *scc->physCellId;
             prach_pdu->num_prach_ocas = N_t_slot;
+            gNB->num_scheduled_prach_rx += N_t_slot;
             prach_pdu->prach_start_symbol = start_symb;
             prach_pdu->num_ra = fdm_index;
             prach_pdu->num_cs = get_NCS(rach_ConfigGeneric->zeroCorrelationZoneConfig,
