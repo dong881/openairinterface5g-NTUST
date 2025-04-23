@@ -88,7 +88,6 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include "nr_nas_msg.h"
 #include <openair1/PHY/MODULATION/nr_modulation.h>
 #include "openair2/GNB_APP/gnb_paramdef.h"
-#include "pdcp.h"
 #include "actor.h"
 
 THREAD_STRUCT thread_struct;
