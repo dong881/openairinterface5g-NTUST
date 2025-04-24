@@ -11,8 +11,8 @@ Ref :
   feptx_prec : 13.0
   feptx_ofdm : 30.0
   feptx_total : 45.0
-  L1 Tx processing : 160.0
-  DLSCH encoding : 100.0
+  L1 Tx processing : 145.0
+  DLSCH encoding : 90.0
   L1 Rx processing : 290.0
   PUSCH inner-receiver : 115.0
   Schedule Response : 1.0
