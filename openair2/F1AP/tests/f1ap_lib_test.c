@@ -567,6 +567,8 @@ static void test_f1ap_du_configuration_update(void)
   };
   orig.cell_to_modify[0].sys_info = calloc_or_fail(1, sizeof(*orig.cell_to_modify[0].sys_info));
   *orig.cell_to_modify[0].sys_info = sys_info;
+  orig.gNB_DU_ID = malloc_or_fail(sizeof(*orig.gNB_DU_ID));
+  *orig.gNB_DU_ID = 12;
 
   F1AP_F1AP_PDU_t *f1enc = encode_f1ap_du_configuration_update(&orig);
   F1AP_F1AP_PDU_t *f1dec = f1ap_encode_decode(f1enc);

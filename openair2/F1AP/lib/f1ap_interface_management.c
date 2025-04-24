@@ -1559,6 +1559,7 @@ bool decode_f1ap_du_configuration_update(const F1AP_F1AP_PDU_t *pdu, f1ap_gnb_du
         break;
       case F1AP_ProtocolIE_ID_id_gNB_DU_ID:
         /* gNB-DU ID (O)*/
+        out->gNB_DU_ID = malloc_or_fail(sizeof(*out->gNB_DU_ID));
         asn_INTEGER2ulong(&ie->value.choice.GNB_DU_ID, out->gNB_DU_ID);
         break;
       case F1AP_ProtocolIE_ID_id_GNB_DU_TNL_Association_To_Remove_List:
@@ -1586,6 +1587,8 @@ void free_f1ap_du_configuration_update(const f1ap_gnb_du_configuration_update_t 
  */
 bool eq_f1ap_du_configuration_update(const f1ap_gnb_du_configuration_update_t *a, const f1ap_gnb_du_configuration_update_t *b)
 {
+  if ((a->gNB_DU_ID != NULL) ^ (b->gNB_DU_ID != NULL))
+    return false;
   if (a->gNB_DU_ID != NULL && b->gNB_DU_ID != NULL)
     _F1_EQ_CHECK_LONG(*a->gNB_DU_ID, *b->gNB_DU_ID);
   _F1_EQ_CHECK_LONG(a->transaction_id, b->transaction_id);
