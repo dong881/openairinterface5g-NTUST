@@ -107,17 +107,10 @@ void sdap_data_ind(rb_id_t pdcp_entity,
                          size);
 }
 
-struct thread_args {
-  nr_sdap_entity_t *entity;
-  bool is_gnb;
-};
 static void *sdap_tun_read_thread(void *arg)
 {
   DevAssert(arg != NULL);
-  struct thread_args *ta = arg;
-  nr_sdap_entity_t *entity = ta->entity;
-  bool is_gnb = ta->is_gnb;
-  free(ta);
+  nr_sdap_entity_t *entity = arg;
 
   char rx_buf[NL_MAX_PAYLOAD];
   int len;
@@ -134,9 +127,9 @@ static void *sdap_tun_read_thread(void *arg)
 
     LOG_D(SDAP, "read data of size %d\n", len);
 
-    protocol_ctxt_t ctxt = {.enb_flag = is_gnb, .rntiMaybeUEid = entity->ue_id};
+    protocol_ctxt_t ctxt = {.enb_flag = entity->is_gnb, .rntiMaybeUEid = entity->ue_id};
 
-    bool dc = is_gnb ? false : SDAP_HDR_UL_DATA_PDU;
+    bool dc = entity->is_gnb ? false : SDAP_HDR_UL_DATA_PDU;
 
     DevAssert(entity != NULL);
     entity->tx_entity(entity,
@@ -161,30 +154,25 @@ void start_sdap_tun_gnb_first_ue_default_pdu_session(ue_id_t ue_id)
 {
   nr_sdap_entity_t *entity = nr_sdap_get_entity(ue_id, get_softmodem_params()->default_pdu_session_id);
   DevAssert(entity != NULL);
+  DevAssert(entity->is_gnb);
   char *ifprefix = get_softmodem_params()->nsa ? "oaitun_gnb" : "oaitun_enb";
   char ifname[IFNAMSIZ];
   tun_generate_ifname(ifname, ifprefix, ue_id - 1);
   entity->pdusession_sock = tun_alloc(ifname);
   tun_config(ifname, "10.0.1.1", NULL);
-  struct thread_args *ta = calloc_or_fail(1, sizeof(*ta));
-  ta->entity = entity;
-  ta->is_gnb = true;
-
-  threadCreate(&entity->pdusession_thread, sdap_tun_read_thread, ta, "gnb_tun_read_thread", -1, OAI_PRIORITY_RT_LOW);
+  threadCreate(&entity->pdusession_thread, sdap_tun_read_thread, entity, "gnb_tun_read_thread", -1, OAI_PRIORITY_RT_LOW);
 }
 
 void start_sdap_tun_ue(ue_id_t ue_id, int pdu_session_id, int sock)
 {
   nr_sdap_entity_t *entity = nr_sdap_get_entity(ue_id, pdu_session_id);
   DevAssert(entity != NULL);
+  DevAssert(!entity->is_gnb);
   entity->pdusession_sock = sock;
   entity->stop_thread = false;
   char thread_name[64];
   snprintf(thread_name, sizeof(thread_name), "ue_tun_read_%ld_p%d", ue_id, pdu_session_id);
-  struct thread_args *ta = calloc_or_fail(1, sizeof(*ta));
-  ta->entity = entity;
-  ta->is_gnb = false;
-  threadCreate(&entity->pdusession_thread, sdap_tun_read_thread, ta, thread_name, -1, OAI_PRIORITY_RT_LOW);
+  threadCreate(&entity->pdusession_thread, sdap_tun_read_thread, entity, thread_name, -1, OAI_PRIORITY_RT_LOW);
 }
 
 
@@ -201,7 +189,7 @@ void create_ue_ip_if(const char *ipv4, const char *ipv6, int ue_id, int pdu_sess
   start_sdap_tun_ue(ue_id, pdu_session_id, sock); // interface name suffix is ue_id+1
 }
 
-void remove_ue_ip_if(nr_sdap_entity_t *entity)
+void remove_ip_if(nr_sdap_entity_t *entity)
 {
   DevAssert(entity != NULL);
   // Stop the read thread
@@ -211,6 +199,11 @@ void remove_ue_ip_if(nr_sdap_entity_t *entity)
   // Bring down the IP interface
   int default_pdu = get_softmodem_params()->default_pdu_session_id;
   char ifname[IFNAMSIZ];
-  tun_generate_ue_ifname(ifname, entity->ue_id, entity->pdusession_id != default_pdu ? entity->pdusession_id : -1);
+  if (entity->is_gnb) {
+    char *ifprefix = get_softmodem_params()->nsa ? "oaitun_gnb" : "oaitun_enb";
+    tun_generate_ifname(ifname, ifprefix, entity->ue_id - 1);
+  } else {
+    tun_generate_ue_ifname(ifname, entity->ue_id, entity->pdusession_id != default_pdu ? entity->pdusession_id : -1);
+  }
   tun_destroy(ifname, entity->pdusession_sock);
 }
