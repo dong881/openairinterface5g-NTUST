@@ -295,6 +295,24 @@ void rrc_add_nsa_user(gNB_RRC_INST *rrc, x2ap_ENDC_sgnb_addition_req_t *m)
   rrc->mac_rrc.ue_context_setup_request(ue_data.du_assoc_id, &req);
 }
 
+static NR_RRCReconfiguration_IEs_t *get_default_reconfig(const NR_CellGroupConfig_t *secondaryCellGroup)
+{
+  NR_RRCReconfiguration_IEs_t *reconfig = calloc(1, sizeof(NR_RRCReconfiguration_IEs_t));
+  AssertFatal(reconfig != NULL, "out of memory\n");
+  AssertFatal(secondaryCellGroup != NULL, "secondaryCellGroup is null\n");
+  reconfig->radioBearerConfig = NULL;
+
+  char scg_buffer[1024];
+  asn_enc_rval_t enc_rval = uper_encode_to_buffer(&asn_DEF_NR_CellGroupConfig, NULL, (void *)secondaryCellGroup, scg_buffer, 1024);
+  AssertFatal(enc_rval.encoded > 0, "ASN1 message encoding failed (%s, %jd)!\n", enc_rval.failed_type->name, enc_rval.encoded);
+  reconfig->secondaryCellGroup = calloc(1, sizeof(*reconfig->secondaryCellGroup));
+  OCTET_STRING_fromBuf(reconfig->secondaryCellGroup, (const char *)scg_buffer, (enc_rval.encoded + 7) >> 3);
+  reconfig->measConfig = NULL;
+  reconfig->lateNonCriticalExtension = NULL;
+  reconfig->nonCriticalExtension = NULL;
+  return reconfig;
+}
+
 void rrc_add_nsa_user_resp(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, const f1ap_ue_context_setup_t *resp)
 {
   DevAssert(resp->crnti != NULL);
