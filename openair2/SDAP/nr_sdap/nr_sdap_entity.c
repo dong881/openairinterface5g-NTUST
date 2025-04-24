@@ -588,6 +588,8 @@ bool nr_sdap_delete_entity(ue_id_t ue_id, int pdusession_id)
 
   if (entityPtr->ue_id == ue_id && entityPtr->pdusession_id == pdusession_id) {
     sdap_info.sdap_entity_llist = sdap_info.sdap_entity_llist->next_entity;
+    if (entityPtr->pdusession_sock != -1)
+      remove_ip_if(entityPtr);
     free(entityPtr);
     LOG_D(SDAP, "Successfully deleted Entity.\n");
     ret = true;
@@ -628,6 +630,8 @@ bool nr_sdap_delete_ue_entities(ue_id_t ue_id)
   /* Handle scenario where ue_id matches the head of the list */
   while (entityPtr != NULL && entityPtr->ue_id == ue_id && upperBound < MAX_DRBS_PER_UE) {
     sdap_info.sdap_entity_llist = entityPtr->next_entity;
+    if (entityPtr->pdusession_sock != -1)
+      remove_ip_if(entityPtr);
     free(entityPtr);
     entityPtr = sdap_info.sdap_entity_llist;
     ret = true;
@@ -639,6 +643,8 @@ bool nr_sdap_delete_ue_entities(ue_id_t ue_id)
       entityPtr = entityPtr->next_entity;
     } else {
       entityPrev->next_entity = entityPtr->next_entity;
+      if (entityPtr->pdusession_sock != -1)
+        remove_ip_if(entityPtr);
       free(entityPtr);
       entityPtr = entityPrev->next_entity;
       LOG_I(SDAP, "Successfully deleted SDAP entity for UE %ld\n", ue_id);
