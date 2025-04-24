@@ -2136,7 +2136,8 @@ gNB_RRC_INST *RCconfig_NRRRC()
     openair_rrc_gNB_configuration(rrc, &nrrrc_config);
   }//End if (num_gnbs>0)
 
-  config_security(rrc);
+  if (!NODE_IS_DU(rrc->node_type))
+    config_security(rrc);
 
   return rrc;
 }
