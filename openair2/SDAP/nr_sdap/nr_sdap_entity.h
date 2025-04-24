@@ -80,6 +80,9 @@ void nr_pdcp_submit_sdap_ctrl_pdu(ue_id_t ue_id, rb_id_t sdap_ctrl_pdu_drb, nr_s
 typedef struct nr_sdap_entity_s {
   ue_id_t ue_id;
   rb_id_t default_drb;
+  /// sdap_tun_read_thread needs to know if we are gNB/UE, so for noS1 mode,
+  /// store which one we are
+  bool is_gnb;
   int pdusession_id;
   int pdusession_sock;
   pthread_t pdusession_thread;
@@ -218,5 +221,5 @@ bool is_sdap_tx(bool is_gnb, NR_SDAP_Config_t *sdap_config);
 void nr_reconfigure_sdap_entity(NR_SDAP_Config_t *sdap_config, ue_id_t ue_id, int pdusession_id, int drb_id);
 
 void set_qfi(uint8_t qfi, uint8_t pduid, ue_id_t ue_id);
-void remove_ue_ip_if(nr_sdap_entity_t *entity);
+void remove_ip_if(nr_sdap_entity_t *entity);
 #endif

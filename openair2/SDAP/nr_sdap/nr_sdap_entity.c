@@ -502,6 +502,7 @@ nr_sdap_entity_t *new_nr_sdap_entity(int is_gnb,
 
   sdap_entity->ue_id = ue_id;
   sdap_entity->pdusession_id = pdusession_id;
+  sdap_entity->is_gnb = is_gnb;
 
   sdap_entity->tx_entity = nr_sdap_tx_entity;
   sdap_entity->rx_entity = nr_sdap_rx_entity;
@@ -600,8 +601,8 @@ bool nr_sdap_delete_entity(ue_id_t ue_id, int pdusession_id)
 
     if (entityPtr->ue_id == ue_id && entityPtr->pdusession_id == pdusession_id) {
       entityPrev->next_entity = entityPtr->next_entity;
-      if (entityPrev->pdusession_sock != -1) {
-        remove_ue_ip_if(entityPrev);
+      if (entityPtr->pdusession_sock != -1) {
+        remove_ip_if(entityPtr);
       }
       free(entityPtr);
       LOG_D(SDAP, "Successfully deleted Entity.\n");
