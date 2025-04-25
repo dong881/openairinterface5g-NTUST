@@ -627,7 +627,7 @@ static inline void nr_polar_rate_matching_int16(int16_t *input,
       memset(output, 0, N * sizeof(*output)); // puncturing
     else { // shortening
       for (int i = 0; i <= N - 1; i++)
-        output[i] = 32767; // instead of INFINITY, to prevent [-Woverflow]
+        output[i] = INT16_MAX;
     }
 
     for (int i = 0; i <= E - 1; i++)

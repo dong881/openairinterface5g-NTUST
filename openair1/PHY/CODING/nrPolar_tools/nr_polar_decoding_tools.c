@@ -306,14 +306,25 @@ static inline void applyGtoright(const t_nrPolar_params *pp, decoder_node_t *nod
   const int sz = 1 << (node->level - 1);
   if (node->right->all_frozen == 0) {
     if (!node->left->betaInit) {
-      for (int i = 0; i < sz; i++) {
-        int temp_alpha_r = alpha_v[i + sz] + alpha_v[i];
-        if (temp_alpha_r > SHRT_MAX) {
-          alpha_r[i] = SHRT_MAX;
-        } else if (temp_alpha_r < -SHRT_MAX) {
-          alpha_r[i] = -SHRT_MAX;
-        } else {
-          alpha_r[i] = temp_alpha_r;
+      int avx2mod = sz & 15;
+      if (avx2mod == 0) {
+        int avx2len = sz / 16;
+        for (int i = 0; i < avx2len; i++) {
+          ((simde__m256i *)alpha_r)[i] =
+              simde_mm256_adds_epi16(((simde__m256i *)alpha_v)[i + avx2len], ((simde__m256i *)alpha_v)[i]);
+        }
+      } else if (avx2mod == 8) {
+        ((simde__m128i *)alpha_r)[0] = simde_mm_adds_epi16(((simde__m128i *)alpha_v)[1], ((simde__m128i *)alpha_v)[0]);
+      } else {
+        for (int i = 0; i < sz; i++) {
+          int temp_alpha_r = alpha_v[i + sz] + alpha_v[i];
+          if (temp_alpha_r > SHRT_MAX) {
+            alpha_r[i] = SHRT_MAX;
+          } else if (temp_alpha_r < -SHRT_MAX) {
+            alpha_r[i] = -SHRT_MAX;
+          } else {
+            alpha_r[i] = temp_alpha_r;
+          }
         }
       }
     } else {
