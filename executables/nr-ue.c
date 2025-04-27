@@ -722,8 +722,10 @@ static int UE_dl_preprocessing(PHY_VARS_NR_UE *UE,
     sampleShift = pbch_pdcch_processing(UE, proc, phy_data);
     if (phy_data->dlsch[0].active && phy_data->dlsch[0].rnti_type == TYPE_C_RNTI_) {
       // indicate to tx thread to wait for DLSCH decoding
-      const int ack_nack_slot = (proc->nr_slot_rx + phy_data->dlsch[0].dlsch_config.k1_feedback) % UE->frame_parms.slots_per_frame;
-      tx_wait_for_dlsch[ack_nack_slot]++;
+      if (phy_data->dlsch[0].dlsch_config.k1_feedback) {  // if feedback is 0 there is no HARQ associated with this DLSCH
+        const int ack_nack_slot = (proc->nr_slot_rx + phy_data->dlsch[0].dlsch_config.k1_feedback) % UE->frame_parms.slots_per_frame;
+        tx_wait_for_dlsch[ack_nack_slot]++;
+      }
     }
   }
   if (fp->frame_type == FDD || !dl_slot) {
