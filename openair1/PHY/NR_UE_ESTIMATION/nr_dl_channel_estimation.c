@@ -826,8 +826,7 @@ void nr_pdcch_channel_estimation(PHY_VARS_NR_UE *ue,
   unsigned short coreset_start_subcarrier = first_carrier_offset+(BWPStart + coreset_start_rb)*12;
 
 #ifdef DEBUG_PDCCH
-  printf("PDCCH Channel Estimation : gNB_id %d ch_offset %d, OFDM size %d, Ncp=%d, slot=%d, symbol %d\n",
-         gNB_id,
+  printf("PDCCH Channel Estimation : ch_offset %d, OFDM size %d, Ncp=%d, slot=%d, symbol %d\n",
          ch_offset,
          ue->frame_parms.ofdm_symbol_size,
          ue->frame_parms.Ncp,

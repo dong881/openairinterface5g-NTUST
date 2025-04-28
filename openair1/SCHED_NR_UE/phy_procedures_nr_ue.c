@@ -980,7 +980,9 @@ int pbch_pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_UE_SLOT_FEP_PDCCH, VCD_FUNCTION_IN);
 
   uint8_t nb_symb_pdcch = phy_pdcch_config->nb_search_space > 0 ? phy_pdcch_config->pdcch_config[0].coreset.duration : 0;
-  for (uint16_t l=0; l<nb_symb_pdcch; l++) {
+  int first_symb_pdcch = phy_pdcch_config->nb_search_space > 0 ? phy_pdcch_config->pdcch_config[0].coreset.StartSymbolIndex : 0;
+  int last_symb_pdcch = first_symb_pdcch + nb_symb_pdcch;
+  for (int l = first_symb_pdcch; l < last_symb_pdcch; l++) {
     nr_slot_fep(ue, fp, proc->nr_slot_rx, l, rxdataF, link_type_dl, 0, ue->common_vars.rxdata);
   }
 
@@ -990,10 +992,8 @@ int pbch_pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_
 
   uint8_t dci_cnt = 0;
   for(int n_ss = 0; n_ss<phy_pdcch_config->nb_search_space; n_ss++) {
-    for (uint16_t l=0; l<nb_symb_pdcch; l++) {
-
+    for (int l = first_symb_pdcch; l < last_symb_pdcch; l++) {
       // note: this only works if RBs for PDCCH are contigous!
-
       nr_pdcch_channel_estimation(ue,
                                   proc,
                                   l,
@@ -1003,7 +1003,6 @@ int pbch_pdcch_processing(PHY_VARS_NR_UE *ue, const UE_nr_rxtx_proc_t *proc, nr_
                                   pdcch_est_size,
                                   pdcch_dl_ch_estimates,
                                   rxdataF);
-
     }
     dci_cnt = dci_cnt + nr_ue_pdcch_procedures(ue, proc, pdcch_est_size, pdcch_dl_ch_estimates, phy_data, n_ss, rxdataF);
   }
