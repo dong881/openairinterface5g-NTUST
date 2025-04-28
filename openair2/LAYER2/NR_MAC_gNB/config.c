@@ -810,8 +810,6 @@ static void config_sched_ctrlCommon(gNB_MAC_INST *nr_mac)
   fill_coresetZero(sched_ctrlCommon->coreset, &type0_PDCCH_CSS_config);
   nr_mac->cset0_bwp_start = type0_PDCCH_CSS_config.cset_start_rb;
   nr_mac->cset0_bwp_size = type0_PDCCH_CSS_config.num_rbs;
-  sched_ctrlCommon->sched_pdcch =
-      set_pdcch_structure(NULL, sched_ctrlCommon->search_space, sched_ctrlCommon->coreset, scc, NULL, &type0_PDCCH_CSS_config);
 }
 
 void nr_mac_config_scc(gNB_MAC_INST *nrmac, NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config)
