@@ -1,5 +1,5 @@
 diff --git a/fhi_lib/app/src/common.h b/fhi_lib/app/src/common.h
-index ac5f471..bbd39fe 100644
+index ac5f471..9ebbcab 100644
 --- a/fhi_lib/app/src/common.h
 +++ b/fhi_lib/app/src/common.h
 @@ -28,7 +28,7 @@
@@ -7,7 +7,7 @@ index ac5f471..bbd39fe 100644
  #include <rte_mbuf.h>
  
 -#define VERSIONX                "oran_f_release_v1.0"
-+#define VERSIONX                "oran_f_release_v1.2"
++#define VERSIONX                "oran_f_release_v1.3"
  
  #define APP_O_DU  0
  #define APP_O_RU  1
@@ -164,9 +164,18 @@ index eccc4ae..b1b8f4b 100644
  CPP_FLAGS_FULL := $(CPP_FLAGS) $(CPP_COMP) $(INC) $(DEF)
  CPP_FLAGS_FULL_SNC := $(CPP_FLAGS) $(CPP_COMP_SNC) $(INC) $(DEF)
 diff --git a/fhi_lib/lib/api/xran_fh_o_du.h b/fhi_lib/lib/api/xran_fh_o_du.h
-index bacf597..90a42a2 100644
+index bacf597..8bd7c66 100644
 --- a/fhi_lib/lib/api/xran_fh_o_du.h
 +++ b/fhi_lib/lib/api/xran_fh_o_du.h
+@@ -141,7 +141,7 @@ extern "C" {
+ #define XRAN_MAX_SECTIONS_PER_SYM    (XRAN_MAX_SECTIONS_PER_SLOT)  /**< Max number of different sections in single slot (section may be equal to RB allocation for UE) */
+ #define XRAN_MIN_SECTIONS_PER_SYM    (XRAN_MIN_SECTIONS_PER_SLOT)  /**< Min number of different sections in single slot (section may be equal to RB allocation for UE) */
+ 
+-#define XRAN_MAX_FRAGMENT            (4)   /**< Max number of fragmentations in single symbol */
++#define XRAN_MAX_FRAGMENT            (6)   /**< Max number of fragmentations in single symbol */
+ #define XRAN_MAX_SET_BFWS            (64)  /**< Assumed 64Ant, BFP 9bit with 9K jumbo frame */
+ 
+ #define XRAN_MAX_PKT_BURST (448+4) /**< 4x14x8 symbols per ms */
 @@ -1193,6 +1193,31 @@ int32_t xran_reg_physide_cb_by_dev_id(void *pHandle, xran_fh_tti_callback_fn Cb,
   */
  int32_t xran_get_slot_idx (uint32_t PortId, uint32_t *nFrameIdx, uint32_t *nSubframeIdx,  uint32_t *nSlotIdx, uint64_t *nSecond);
