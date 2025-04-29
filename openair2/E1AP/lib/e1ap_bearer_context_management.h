@@ -46,6 +46,12 @@ e1ap_bearer_context_setup_failure_t cp_bearer_context_setup_failure(const e1ap_b
 bool eq_bearer_context_setup_failure(const e1ap_bearer_context_setup_failure_t *a, const e1ap_bearer_context_setup_failure_t *b);
 void free_e1_bearer_context_setup_failure(const e1ap_bearer_context_setup_failure_t *msg);
 
+struct E1AP_E1AP_PDU *encode_e1_bearer_context_release_command(const e1ap_bearer_release_cmd_t *msg);
+bool decode_e1_bearer_context_release_command(e1ap_bearer_release_cmd_t *out, const struct E1AP_E1AP_PDU *pdu);
+bool eq_bearer_context_release_command(const e1ap_bearer_release_cmd_t *a, const e1ap_bearer_release_cmd_t *b);
+e1ap_bearer_release_cmd_t cp_bearer_context_release_command(const e1ap_bearer_release_cmd_t *msg);
+void free_e1_bearer_context_release_command(const e1ap_bearer_release_cmd_t *msg);
+
 struct E1AP_E1AP_PDU *encode_E1_bearer_context_mod_request(const e1ap_bearer_mod_req_t *msg);
 bool decode_E1_bearer_context_mod_request(const struct E1AP_E1AP_PDU *pdu, e1ap_bearer_mod_req_t *out);
 void free_e1ap_context_mod_request(const e1ap_bearer_mod_req_t *msg);
