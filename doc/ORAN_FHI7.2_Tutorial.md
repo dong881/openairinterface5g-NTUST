@@ -745,7 +745,7 @@ In the following, we will use these short hands:
 
 - `IF_NAME`: Physical network interface through which you can access the RU
 - `VLAN`: the VLAN tag as recommended by the RU vendor
-- `MTU`: the MTU as specified by the RU vendor, and supported by the NIC
+- `MTU`: this MTU must be higher than supported by the RU vendor due to additional ethernet header of 14 B and DPDK packet header `RTE_PKTMBUF_HEADROOM` of 128 B
 - `DU_U_PLANE_MAC_ADD`: DU U plane MAC address
 - `U_PLANE_PCI_BUS_ADD`: PCI bus address of the VF for U plane
 - `DU_C_PLANE_MAC_ADD`: DU C plane MAC address
