@@ -66,14 +66,15 @@ PTP enabled switches and grandmaster clock we have in are lab:
 
 We have only verified LLS-C3 configuration in our lab, i.e.  using an external
 grandmaster, a switch as a boundary clock, and the gNB/DU and RU.  We haven't
-tested any RU without S-plane. Radio units we are testing/integrating:
+tested any RU without S-plane.
+We tested the category A radio units listed below.
 
 |Vendor           |Software Version                             |
 |-----------------|---------------------------------------------|
 |VVDN LPRU        |03-v3.0.5                                    |
 |LiteON RU        |01.00.08/02.00.03/02.00.10                   |
-|Benetel 650      |RAN650-1v1.0.4-dda1bf5                       |
-|Benetel 550 CAT-A|RAN550-1v1.0.4-605a25a                       |
+|Benetel 650      |RAN650-1v1.0.4-dda1bf5|RAN650-1v1.2.2-2fa04bc|
+|Benetel 550      |RAN550-1v1.0.4-605a25a|RAN550-1v1.2.2-2fa04bc|
 |Foxconn RPQN     |v3.1.15q.551_rc10                            |
 
 Tested libxran releases:
@@ -534,8 +535,6 @@ Contact the RU vendor and get the configuration manual to understand the below c
 
 ### Benetel 650
 
-**Valid only for version RAN650-1v1.0.4-dda1bf5**
-
 The OAI configuration file [`gnb-du.sa.band77.273prb.fhi72.4x4-benetel650.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-du.sa.band77.273prb.fhi72.4x4-benetel650.conf) corresponds to:
 - TDD pattern `DDDSU`, 2.5ms
 - Bandwidth 100MHz
@@ -561,8 +560,6 @@ dl_ul_tuning_special_slot=0xfd00000
 ```
 
 ### Benetel 550
-
-**Valid only for version RAN550-1v1.0.4-605a25a**
 
 The OAI configuration file [`gnb.sa.band78.273prb.fhi72.4x4-benetel550.conf`](../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi72.4x4-benetel550.conf) corresponds to:
 - TDD pattern `DDDDDDDSUU`, 5ms
