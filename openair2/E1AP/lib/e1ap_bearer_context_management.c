@@ -1075,6 +1075,120 @@ void free_e1ap_context_setup_response(const e1ap_bearer_setup_resp_t *msg)
   // Do nothing (no dynamic allocation)
 }
 
+/* =====================================
+ *   E1AP Bearer Context Setup Failure
+ * ===================================== */
+
+/**
+ * @brief Bearer Context Setup Failure encoding (9.2.2.3, 3GPP TS 38.463)
+ *        gNB-CU-UP → gNB-CU-CP
+ */
+E1AP_E1AP_PDU_t *encode_E1_bearer_context_setup_failure(const e1ap_bearer_context_setup_failure_t *msg)
+{
+  E1AP_E1AP_PDU_t *pdu = calloc_or_fail(1, sizeof(*pdu));
+  pdu->present = E1AP_E1AP_PDU_PR_unsuccessfulOutcome;
+
+  // Type (M)
+  asn1cCalloc(pdu->choice.unsuccessfulOutcome, type);
+  type->procedureCode = E1AP_ProcedureCode_id_bearerContextSetup;
+  type->criticality = E1AP_Criticality_reject;
+  type->value.present = E1AP_UnsuccessfulOutcome__value_PR_BearerContextSetupFailure;
+  E1AP_BearerContextSetupFailure_t *out = &pdu->choice.unsuccessfulOutcome->value.choice.BearerContextSetupFailure;
+
+  // gNB-CU-CP UE E1AP ID (M)
+  asn1cSequenceAdd(out->protocolIEs.list, E1AP_BearerContextSetupFailureIEs_t, ie1);
+  ie1->id = E1AP_ProtocolIE_ID_id_gNB_CU_CP_UE_E1AP_ID;
+  ie1->criticality = E1AP_Criticality_reject;
+  ie1->value.present = E1AP_BearerContextSetupFailureIEs__value_PR_GNB_CU_CP_UE_E1AP_ID;
+  ie1->value.choice.GNB_CU_CP_UE_E1AP_ID = msg->gNB_cu_cp_ue_id;
+
+  // gNB-CU-UP UE E1AP ID (O)
+  if (msg->gNB_cu_up_ue_id) {
+    asn1cSequenceAdd(out->protocolIEs.list, E1AP_BearerContextSetupFailureIEs_t, ie2);
+    ie2->id = E1AP_ProtocolIE_ID_id_gNB_CU_UP_UE_E1AP_ID;
+    ie2->criticality = E1AP_Criticality_reject;
+    ie2->value.present = E1AP_BearerContextSetupFailureIEs__value_PR_GNB_CU_UP_UE_E1AP_ID;
+    ie2->value.choice.GNB_CU_UP_UE_E1AP_ID = *msg->gNB_cu_up_ue_id;
+  }
+
+  // Cause (M)
+  asn1cSequenceAdd(out->protocolIEs.list, E1AP_BearerContextSetupFailureIEs_t, ie3);
+  ie3->id = E1AP_ProtocolIE_ID_id_Cause;
+  ie3->criticality = E1AP_Criticality_reject;
+  ie3->value.present = E1AP_BearerContextSetupFailureIEs__value_PR_Cause;
+  ie3->value.choice.Cause = e1_encode_cause_ie(&msg->cause);
+
+  return pdu;
+}
+
+/**
+ * @brief Bearer Context Setup Failure decoding (9.2.2.3, 3GPP TS 38.463)
+ *        gNB-CU-UP → gNB-CU-CP
+ */
+bool decode_E1_bearer_context_setup_failure(e1ap_bearer_context_setup_failure_t *out, const E1AP_E1AP_PDU_t *pdu)
+{
+  DevAssert(pdu != NULL);
+  _E1_EQ_CHECK_INT(pdu->present, E1AP_E1AP_PDU_PR_unsuccessfulOutcome);
+  E1AP_UnsuccessfulOutcome_t *type = pdu->choice.unsuccessfulOutcome;
+  _E1_EQ_CHECK_LONG(type->procedureCode, E1AP_ProcedureCode_id_bearerContextSetup);
+  _E1_EQ_CHECK_INT(type->value.present, E1AP_UnsuccessfulOutcome__value_PR_BearerContextSetupFailure);
+  const E1AP_BearerContextSetupFailure_t *in = &type->value.choice.BearerContextSetupFailure;
+
+  // Check mandatory IEs first
+  E1AP_BearerContextSetupFailureIEs_t *ie;
+  E1AP_LIB_FIND_IE(E1AP_BearerContextSetupFailureIEs_t, ie, in, E1AP_ProtocolIE_ID_id_gNB_CU_CP_UE_E1AP_ID, true);
+  E1AP_LIB_FIND_IE(E1AP_BearerContextSetupFailureIEs_t, ie, in, E1AP_ProtocolIE_ID_id_Cause, true);
+
+  for (int i = 0; i < in->protocolIEs.list.count; i++) {
+    ie = in->protocolIEs.list.array[i];
+    AssertFatal(ie != NULL, "in->protocolIEs.list.array[i] shall not be null");
+    switch (ie->id) {
+      case E1AP_ProtocolIE_ID_id_gNB_CU_CP_UE_E1AP_ID:
+        out->gNB_cu_cp_ue_id = ie->value.choice.GNB_CU_CP_UE_E1AP_ID;
+        break;
+      case E1AP_ProtocolIE_ID_id_gNB_CU_UP_UE_E1AP_ID:
+        out->gNB_cu_up_ue_id = malloc_or_fail(sizeof(*out->gNB_cu_up_ue_id));
+        *out->gNB_cu_up_ue_id = ie->value.choice.GNB_CU_UP_UE_E1AP_ID;
+        break;
+      case E1AP_ProtocolIE_ID_id_Cause:
+        out->cause = e1_decode_cause_ie(&ie->value.choice.Cause);
+        break;
+      default:
+        break;
+    }
+  }
+  return true;
+}
+
+/** @brief Bearer Context Setup Failure deep copy */
+e1ap_bearer_context_setup_failure_t cp_bearer_context_setup_failure(const e1ap_bearer_context_setup_failure_t *msg)
+{
+  // Shallow copy
+  e1ap_bearer_context_setup_failure_t cp = *msg;
+  if (msg->gNB_cu_up_ue_id) {
+    cp.gNB_cu_up_ue_id = malloc_or_fail(sizeof(*cp.gNB_cu_up_ue_id));
+    *cp.gNB_cu_up_ue_id = *msg->gNB_cu_up_ue_id;
+  }
+  return cp;
+}
+
+/** @brief Bearer Context Setup Failure equality check */
+bool eq_bearer_context_setup_failure(const e1ap_bearer_context_setup_failure_t *a, const e1ap_bearer_context_setup_failure_t *b)
+{
+  _E1_EQ_CHECK_INT(a->gNB_cu_cp_ue_id, b->gNB_cu_cp_ue_id);
+  _E1_EQ_CHECK_OPTIONAL_IE(a, b, gNB_cu_up_ue_id, _E1_EQ_CHECK_INT);
+  _E1_EQ_CHECK_INT(a->cause.type, b->cause.type);
+  _E1_EQ_CHECK_INT(a->cause.value, b->cause.value);
+  return true;
+}
+
+/** @brief Bearer Context Setup Failure equality check */
+void free_e1_bearer_context_setup_failure(const e1ap_bearer_context_setup_failure_t *msg)
+{
+  free(msg->gNB_cu_up_ue_id);
+  // do nothing
+}
+
 /* ============================================
  *   E1AP Bearer Context Modification Request
  * ============================================ */

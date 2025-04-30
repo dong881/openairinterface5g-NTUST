@@ -40,6 +40,12 @@ void free_e1ap_context_setup_response(const e1ap_bearer_setup_resp_t *msg);
 e1ap_bearer_setup_resp_t cp_bearer_context_setup_response(const e1ap_bearer_setup_resp_t *msg);
 bool eq_bearer_context_setup_response(const e1ap_bearer_setup_resp_t *a, const e1ap_bearer_setup_resp_t *b);
 
+struct E1AP_E1AP_PDU *encode_E1_bearer_context_setup_failure(const e1ap_bearer_context_setup_failure_t *msg);
+bool decode_E1_bearer_context_setup_failure(e1ap_bearer_context_setup_failure_t *out, const struct E1AP_E1AP_PDU *pdu);
+e1ap_bearer_context_setup_failure_t cp_bearer_context_setup_failure(const e1ap_bearer_context_setup_failure_t *msg);
+bool eq_bearer_context_setup_failure(const e1ap_bearer_context_setup_failure_t *a, const e1ap_bearer_context_setup_failure_t *b);
+void free_e1_bearer_context_setup_failure(const e1ap_bearer_context_setup_failure_t *msg);
+
 struct E1AP_E1AP_PDU *encode_E1_bearer_context_mod_request(const e1ap_bearer_mod_req_t *msg);
 bool decode_E1_bearer_context_mod_request(const struct E1AP_E1AP_PDU *pdu, e1ap_bearer_mod_req_t *out);
 void free_e1ap_context_mod_request(const e1ap_bearer_mod_req_t *msg);
