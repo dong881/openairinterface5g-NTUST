@@ -481,8 +481,6 @@ int get_pusch_tx_power_ue(NR_UE_MAC_INST_t *mac,
   bool has_pusch_config = pusch_Config != NULL;
   bool has_pusch_power_control_config = has_pusch_config && pusch_Config->pusch_PowerControl != NULL;
   bool is_provided_alpha_sets = has_pusch_power_control_config && pusch_Config->pusch_PowerControl->p0_AlphaSets != NULL;
-  AssertFatal(!has_pusch_power_control_config || pusch_Config->pusch_PowerControl->sri_PUSCH_MappingToAddModList == NULL,
-              "SRI-PUSCH-PowerControl handling not implemented\n");
 
   int P_O_NOMINAL_PUSCH;
   float alpha;
