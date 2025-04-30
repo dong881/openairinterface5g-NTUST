@@ -948,7 +948,12 @@ void nr_rlc_test_trigger_reestablishment(int ue_id)
   ent->reestablishment(ent);
   /* Trigger re-establishment on OAI UE */
   nr_rlc_entity_t *drb = ue->drb[0];
-  drb->reestablishment(drb);
+  if (drb) {
+    drb->reestablishment(drb);
+  } else {
+    LOG_W(RLC, "DRB[0] is NULL for UE %04x\n", ue_id);
+  }
+
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 }
 
