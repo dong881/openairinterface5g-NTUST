@@ -571,6 +571,13 @@ void rrc_gNB_process_f1_du_configuration_update(f1ap_gnb_du_configuration_update
     LOG_W(RRC, "du_configuration_update->cells_to_delete_list is not supported yet");
   }
 
+  for (int i = 0; i < conf_up->num_status; ++i) {
+    const f1ap_cell_status_t *cs = &conf_up->status[i];
+    const char *status = cs->service_state == F1AP_STATE_IN_SERVICE ? "in service" : "out of service";
+    const plmn_id_t *p = &cs->plmn;
+    LOG_I(NR_RRC, "cell PLMN %03d.%0*d Cell ID %ld is %s\n", p->mcc, p->mnc_digit_length, p->mnc, cs->nr_cellid, status);
+  }
+
   /* Send DU Configuration Acknowledgement */
   f1ap_gnb_du_configuration_update_acknowledge_t ack = {.transaction_id = conf_up->transaction_id};
   rrc->mac_rrc.gnb_du_configuration_update_acknowledge(assoc_id, &ack);
