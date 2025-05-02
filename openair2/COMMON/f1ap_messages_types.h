@@ -262,6 +262,13 @@ typedef struct f1ap_gnb_cu_configuration_update_failure_s {
   uint16_t criticality_diagnostics; 
 } f1ap_gnb_cu_configuration_update_failure_t;
 
+typedef struct f1ap_cell_status_t {
+  // NR CGI
+  plmn_id_t plmn;
+  uint64_t nr_cellid; // NR Global Cell Id
+  enum { F1AP_STATE_IN_SERVICE, F1AP_STATE_OUT_OF_SERVICE} service_state;
+} f1ap_cell_status_t;
+
 /*DU configuration messages*/
 typedef struct f1ap_gnb_du_configuration_update_s {
   /*TODO UPDATE TO SUPPORT DU CONFIG*/
@@ -291,6 +298,10 @@ typedef struct f1ap_gnb_du_configuration_update_s {
     plmn_id_t plmn;
     uint64_t nr_cellid; // NR Global Cell Id
   } cell_to_delete[F1AP_MAX_NB_CELLS];
+
+  f1ap_cell_status_t status[F1AP_MAX_NB_CELLS];
+  int num_status;
+
   /// gNB-DU unique ID, at least within a gNB-CU (0 .. 2^36 - 1)
   uint64_t *gNB_DU_ID;
 } f1ap_gnb_du_configuration_update_t;

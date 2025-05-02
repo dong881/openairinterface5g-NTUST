@@ -564,6 +564,17 @@ static void test_f1ap_du_configuration_update(void)
       .cell_to_delete[0].plmn.mcc = 1,
       .cell_to_delete[0].plmn.mnc = 1,
       .cell_to_delete[0].plmn.mnc_digit_length = 3,
+      .num_status = 2,
+      .status[0].nr_cellid = 542UL,
+      .status[0].plmn.mcc = 1,
+      .status[0].plmn.mnc = 2,
+      .status[0].plmn.mnc_digit_length = 3,
+      .status[0].service_state = F1AP_STATE_IN_SERVICE,
+      .status[1].nr_cellid = 33UL,
+      .status[1].plmn.mcc = 5,
+      .status[1].plmn.mnc = 13,
+      .status[1].plmn.mnc_digit_length = 2,
+      .status[1].service_state = F1AP_STATE_OUT_OF_SERVICE,
   };
   orig.cell_to_modify[0].sys_info = calloc_or_fail(1, sizeof(*orig.cell_to_modify[0].sys_info));
   *orig.cell_to_modify[0].sys_info = sys_info;

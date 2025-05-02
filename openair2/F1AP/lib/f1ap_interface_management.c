@@ -1455,6 +1455,28 @@ F1AP_F1AP_PDU_t *encode_f1ap_du_configuration_update(const f1ap_gnb_du_configura
     }
   }
 
+  if (msg->num_status > 0) {
+    asn1cSequenceAdd(out->protocolIEs.list, F1AP_GNBDUConfigurationUpdateIEs_t, ie4);
+    ie4->id = F1AP_ProtocolIE_ID_id_Cells_Status_List;
+    ie4->criticality = F1AP_Criticality_reject;
+    ie4->value.present = F1AP_GNBDUConfigurationUpdateIEs__value_PR_Cells_Status_List;
+    for (int i = 0; i < msg->num_status; i++) {
+      const f1ap_cell_status_t *cs = &msg->status[i];
+      asn1cSequenceAdd(ie4->value.choice.Cells_Status_List.list, F1AP_Cells_Status_ItemIEs_t, cell_status);
+      cell_status->id = F1AP_ProtocolIE_ID_id_Cells_Status_Item;
+      cell_status->criticality = F1AP_Criticality_reject;
+      cell_status->value.present = F1AP_Cells_Status_ItemIEs__value_PR_Cells_Status_Item;
+      F1AP_Cells_Status_Item_t *cell_status_item = &cell_status->value.choice.Cells_Status_Item;
+
+      F1AP_NRCGI_t *nrcgi = &cell_status_item->nRCGI;
+      MCC_MNC_TO_PLMNID(cs->plmn.mcc, cs->plmn.mnc, cs->plmn.mnc_digit_length, &nrcgi->pLMN_Identity);
+      NR_CELL_ID_TO_BIT_STRING(cs->nr_cellid, &nrcgi->nRCellIdentity);
+      F1AP_Service_Status_t *ss = &cell_status_item->service_status;
+      ss->service_state =
+          cs->service_state == F1AP_STATE_IN_SERVICE ? F1AP_Service_State_in_service : F1AP_Service_State_out_of_service;
+    }
+  }
+
   /* optional */
   /* c5. GNB_DU_ID (integer value) */
   if (msg->gNB_DU_ID != NULL) {
@@ -1551,7 +1573,21 @@ bool decode_f1ap_du_configuration_update(const F1AP_F1AP_PDU_t *pdu, f1ap_gnb_du
       } break;
       case F1AP_ProtocolIE_ID_id_Cells_Status_List:
         /* Cells Status List (O) */
-        AssertError(1 == 0, return false, "F1AP_ProtocolIE_ID_id_Cells_Status_List is not supported");
+        out->num_status = ie->value.choice.Cells_Status_List.list.count;
+        for (int i = 0; i < out->num_status; ++i) {
+          const F1AP_Cells_Status_ItemIEs_t *csi_ie =
+              (F1AP_Cells_Status_ItemIEs_t *)ie->value.choice.Cells_Status_List.list.array[i];
+          AssertError(csi_ie->value.present == F1AP_Cells_Status_ItemIEs__value_PR_Cells_Status_Item,
+                      return false,
+                      "CellStatus_ItemIE has no cell status\n");
+          const F1AP_Cells_Status_Item_t *f1ap_cell_status = &csi_ie->value.choice.Cells_Status_Item;
+          const F1AP_NRCGI_t *nrcgi = &f1ap_cell_status->nRCGI;
+          f1ap_cell_status_t *cs = &out->status[i];
+          PLMNID_TO_MCC_MNC(&nrcgi->pLMN_Identity, cs->plmn.mcc, cs->plmn.mnc, cs->plmn.mnc_digit_length);
+          BIT_STRING_TO_NR_CELL_IDENTITY(&nrcgi->nRCellIdentity, cs->nr_cellid);
+          F1AP_Service_State_t state = f1ap_cell_status->service_status.service_state;
+          cs->service_state = state == F1AP_Service_State_in_service ? F1AP_STATE_IN_SERVICE : F1AP_STATE_OUT_OF_SERVICE;
+        }
         break;
       case F1AP_ProtocolIE_ID_id_Dedicated_SIDelivery_NeededUE_List:
         /* Dedicated SI Delivery Needed UE List (O) */
@@ -1618,6 +1654,16 @@ bool eq_f1ap_du_configuration_update(const f1ap_gnb_du_configuration_update_t *a
     if (!eq_f1ap_sys_info(a->cell_to_modify[i].sys_info, b->cell_to_modify[i].sys_info))
       return false;
   }
+  /* cell status */
+  _F1_EQ_CHECK_INT(a->num_status, b->num_status);
+  for (int i = 0; i < a->num_status; ++i) {
+    const f1ap_cell_status_t *astatus = &a->status[i];
+    const f1ap_cell_status_t *bstatus = &b->status[i];
+    if (!eq_f1ap_plmn(&astatus->plmn, &bstatus->plmn))
+      return false;
+    _F1_EQ_CHECK_LONG(astatus->nr_cellid, bstatus->nr_cellid);
+    _F1_EQ_CHECK_INT(astatus->service_state, bstatus->service_state);
+  }
   return true;
 }
 
@@ -1654,6 +1700,10 @@ f1ap_gnb_du_configuration_update_t cp_f1ap_du_configuration_update(const f1ap_gn
     cp.cell_to_modify[i].info = copy_f1ap_served_cell_info(&msg->cell_to_modify[i].info);
     cp.cell_to_modify[i].sys_info = copy_f1ap_gnb_du_system_info(msg->cell_to_modify[i].sys_info);
   }
+  /* cell status */
+  cp.num_status  = msg->num_status;
+  for (int i = 0; i < cp.num_status; ++i)
+    cp.status[i] = msg->status[i];
   return cp;
 }
 
