@@ -111,7 +111,7 @@ static bool extract_sys_info(const f1ap_gnb_du_system_info_t *sys_info, NR_MIB_t
 
   asn_dec_rval_t dec_rval = uper_decode_complete(NULL, &asn_DEF_NR_MIB, (void **)mib, sys_info->mib, sys_info->mib_length);
   if (dec_rval.code != RC_OK) {
-    LOG_E(RRC, "Failed to decode NR_MIB (%zu bits) of DU\n", dec_rval.consumed);
+    LOG_E(NR_RRC, "Failed to decode NR_MIB (%zu bits) of DU\n", dec_rval.consumed);
     ASN_STRUCT_FREE(asn_DEF_NR_MIB, *mib);
     return false;
   }
@@ -121,7 +121,7 @@ static bool extract_sys_info(const f1ap_gnb_du_system_info_t *sys_info, NR_MIB_t
     if (dec_rval.code != RC_OK) {
       ASN_STRUCT_FREE(asn_DEF_NR_MIB, *mib);
       ASN_STRUCT_FREE(asn_DEF_NR_SIB1, *sib1);
-      LOG_E(RRC, "Failed to decode NR_SIB1 (%zu bits), rejecting DU\n", dec_rval.consumed);
+      LOG_E(NR_RRC, "Failed to decode NR_SIB1 (%zu bits), rejecting DU\n", dec_rval.consumed);
       return false;
     }
   }
@@ -149,7 +149,7 @@ static NR_MeasurementTimingConfiguration_t *extract_mtc(uint8_t *buf, int buf_le
       || mtc->criticalExtensions.choice.c1->choice.measTimingConf == NULL
       || mtc->criticalExtensions.choice.c1->choice.measTimingConf->measTiming == NULL
       || mtc->criticalExtensions.choice.c1->choice.measTimingConf->measTiming->list.count == 0) {
-    LOG_E(RRC, "error: measurementTimingConfiguration does not have expected format (at least one measTiming entry\n");
+    LOG_E(NR_RRC, "error: measurementTimingConfiguration does not have expected format (at least one measTiming entry\n");
     if (LOG_DEBUGFLAG(DEBUG_ASN1))
       xer_fprint(stdout, &asn_DEF_NR_MeasurementTimingConfiguration, mtc);
     ASN_STRUCT_FREE(asn_DEF_NR_MeasurementTimingConfiguration, mtc);
@@ -370,15 +370,15 @@ void rrc_gNB_process_f1_setup_req(f1ap_setup_req_t *req, sctp_assoc_t assoc_id)
 
   if (sys_info != NULL && sys_info->mib != NULL && !(sys_info->sib1 == NULL && IS_SA_MODE(get_softmodem_params()))) {
     if (!extract_sys_info(sys_info, &mib, &sib1)) {
-      LOG_W(RRC, "rejecting DU ID %ld\n", req->gNB_DU_id);
+      LOG_W(NR_RRC, "rejecting DU ID %ld\n", req->gNB_DU_id);
       fail.cause = F1AP_CauseProtocol_semantic_error;
       rrc->mac_rrc.f1_setup_failure(assoc_id, &fail);
       ASN_STRUCT_FREE(asn_DEF_NR_MeasurementTimingConfiguration, mtc);
       return;
     }
   }
-  LOG_I(RRC, "Accepting DU %ld (%s), sending F1 Setup Response\n", req->gNB_DU_id, req->gNB_DU_name);
-  LOG_I(RRC, "DU uses RRC version %u.%u.%u\n", req->rrc_ver[0], req->rrc_ver[1], req->rrc_ver[2]);
+  LOG_I(NR_RRC, "Accepting DU %ld (%s), sending F1 Setup Response\n", req->gNB_DU_id, req->gNB_DU_name);
+  LOG_I(NR_RRC, "DU uses RRC version %u.%u.%u\n", req->rrc_ver[0], req->rrc_ver[1], req->rrc_ver[2]);
 
   // we accept the DU
   nr_rrc_du_container_t *du = calloc(1, sizeof(*du));
@@ -497,7 +497,7 @@ static void update_cell_info(nr_rrc_du_container_t *du, const f1ap_served_cell_i
     ASN_STRUCT_FREE(asn_DEF_NR_MeasurementTimingConfiguration, du->mtc);
     du->mtc = new_mtc;
   } else {
-    LOG_E(RRC, "error decoding MeasurementTimingConfiguration during cell update, ignoring new config\n");
+    LOG_E(NR_RRC, "error decoding MeasurementTimingConfiguration during cell update, ignoring new config\n");
     ASN_STRUCT_FREE(asn_DEF_NR_MeasurementTimingConfiguration, new_mtc);
   }
 }
@@ -520,7 +520,7 @@ void rrc_gNB_process_f1_du_configuration_update(f1ap_gnb_du_configuration_update
   const f1ap_served_cell_info_t *info = &du->setup_req->cell[0].info;
   if (conf_up->num_cells_to_add > 0) {
     // Here we check if the number of cell limit is respectet, otherwise send failure
-    LOG_W(RRC, "du_configuration_update->cells_to_add_list is not supported yet");
+    LOG_W(NR_RRC, "du_configuration_update->cells_to_add_list is not supported yet");
   }
 
   if (conf_up->num_cells_to_modify > 0) {
@@ -528,13 +528,13 @@ void rrc_gNB_process_f1_du_configuration_update(f1ap_gnb_du_configuration_update
     AssertFatal(conf_up->num_cells_to_modify == 1, "cannot handle more than one cell!\n");
 
     if (info->nr_cellid != conf_up->cell_to_modify[0].old_nr_cellid) {
-      LOG_W(RRC, "no cell with ID %ld found, ignoring gNB-DU configuration update\n", conf_up->cell_to_modify[0].old_nr_cellid);
+      LOG_W(NR_RRC, "no cell with ID %ld found, ignoring gNB-DU configuration update\n", conf_up->cell_to_modify[0].old_nr_cellid);
       return;
     }
 
     // verify the new plmn of the cell
     if (!rrc_gNB_plmn_matches(rrc, &conf_up->cell_to_modify[0].info)) {
-      LOG_W(RRC, "PLMN does not match, ignoring gNB-DU configuration update\n");
+      LOG_W(NR_RRC, "PLMN does not match, ignoring gNB-DU configuration update\n");
       return;
     }
 
@@ -553,11 +553,11 @@ void rrc_gNB_process_f1_du_configuration_update(f1ap_gnb_du_configuration_update
 
       NR_MIB_t *mib = NULL;
       if (!extract_sys_info(sys_info, &mib, &du->sib1)) {
-        LOG_W(RRC, "cannot update sys_info for DU %ld\n", du->setup_req->gNB_DU_id);
+        LOG_W(NR_RRC, "cannot update sys_info for DU %ld\n", du->setup_req->gNB_DU_id);
       } else {
         DevAssert(mib != NULL);
         du->mib = mib;
-        LOG_I(RRC, "update system information of DU %ld\n", du->setup_req->gNB_DU_id);
+        LOG_I(NR_RRC, "update system information of DU %ld\n", du->setup_req->gNB_DU_id);
       }
     }
     if (du->mib != NULL && du->sib1 != NULL) {
@@ -568,7 +568,7 @@ void rrc_gNB_process_f1_du_configuration_update(f1ap_gnb_du_configuration_update
 
   if (conf_up->num_cells_to_delete > 0) {
     // delete the cell and send cell to desactive IE in the response.
-    LOG_W(RRC, "du_configuration_update->cells_to_delete_list is not supported yet");
+    LOG_W(NR_RRC, "du_configuration_update->cells_to_delete_list is not supported yet");
   }
 
   for (int i = 0; i < conf_up->num_status; ++i) {
@@ -596,7 +596,7 @@ void rrc_CU_process_f1_lost_connection(gNB_RRC_INST *rrc, f1ap_lost_connection_t
   }
 
   f1ap_setup_req_t *req = du->setup_req;
-  LOG_I(RRC, "releasing DU ID %ld (%s) on assoc_id %d\n", req->gNB_DU_id, req->gNB_DU_name, assoc_id);
+  LOG_I(NR_RRC, "releasing DU ID %ld (%s) on assoc_id %d\n", req->gNB_DU_id, req->gNB_DU_name, assoc_id);
   ASN_STRUCT_FREE(asn_DEF_NR_MIB, du->mib);
   ASN_STRUCT_FREE(asn_DEF_NR_SIB1, du->sib1);
   ASN_STRUCT_FREE(asn_DEF_NR_MeasurementTimingConfiguration, du->mtc);
