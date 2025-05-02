@@ -2133,10 +2133,8 @@ INPUT                  = \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/CODING/nrLDPC_encoder/ldpc_encode_parity_check.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/CODING/nrLDPC_encoder/ldpc_BG2_Zc176_byte.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/CODING/nrLDPC_encoder/ldpc_BG2_Zc352_byte.c \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/CODING/nrLDPC_encoder/ldpc_encoder_optim.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/CODING/nrLDPC_encoder/ldpc_BG2_Zc128_byte_128.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/CODING/nrLDPC_encoder/ldpc224_byte.c \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/CODING/nrLDPC_encoder/ldpc_encoder_optim8seg.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/CODING/nrLDPC_encoder/ldpc_generate_coefficient.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/CODING/nrLDPC_encoder/ldpc_BG2_Zc104_byte.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/CODING/nrLDPC_encoder/ldpc320_byte_128.c \

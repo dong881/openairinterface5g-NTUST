@@ -120,16 +120,16 @@ By default the function `int load_nrLDPClib(void)` looks for `libldpc.so`, this 
 
 #### Examples of ldpc shared lib selection when running nr softmodem's:
 
-loading `libldpc_optim8seg.so` instead of `libldpc.so`:
+loading `libldpc_orig.so` instead of `libldpc.so`:
 
 ```
-./nr-softmodem -O libconfig:gnb.band78.tm1.106PRB.usrpx300.conf:dbgl5  --loader.ldpc.shlibversion _optim8seg
+./nr-softmodem -O libconfig:gnb.band78.tm1.106PRB.usrpx300.conf:dbgl5  --loader.ldpc.shlibversion _orig
 .......................
 [CONFIG] loader.ldpc.shlibversion set to default value ""
 [LIBCONFIG] loader.ldpc: 2/2 parameters successfully set, (1 to default value)
-[CONFIG] shlibversion set to  _optim8seg from command line
+[CONFIG] shlibversion set to  _orig from command line
 [CONFIG] loader.ldpc 1 options set from command line
-[LOADER] library libldpc_optim8seg.so successfully loaded
+[LOADER] library libldpc_orig.so successfully loaded
 ........................
 ```
 
