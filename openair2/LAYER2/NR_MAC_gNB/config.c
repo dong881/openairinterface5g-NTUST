@@ -942,11 +942,17 @@ void prepare_du_configuration_update(gNB_MAC_INST *mac,
   /* send gNB-DU configuration update to RRC */
   f1ap_gnb_du_configuration_update_t update = {
     .transaction_id = 1,
-    .num_cells_to_modify = 1,
+    .num_status = 1,
+    .status[0].plmn = info->plmn,
+    .status[0].nr_cellid = info->nr_cellid,
+    .status[0].service_state = F1AP_STATE_IN_SERVICE,
   };
-  update.cell_to_modify[0].old_nr_cellid = info->nr_cellid;
-  update.cell_to_modify[0].info = *info;
-  update.cell_to_modify[0].sys_info = get_sys_info(mib, sib1, NULL);
+  if (mib && sib1) {
+    update.num_cells_to_modify = 1,
+    update.cell_to_modify[0].old_nr_cellid = info->nr_cellid;
+    update.cell_to_modify[0].info = *info;
+    update.cell_to_modify[0].sys_info = get_sys_info(mib, sib1, NULL);
+  }
   mac->mac_rrc.gnb_du_configuration_update(&update);
 }
 
