@@ -136,7 +136,7 @@ static void clear_nas_pdu(ngap_pdu_t *pdu)
 
 static void freeDRBlist(NR_DRB_ToAddModList_t *list)
 {
-  //ASN_STRUCT_FREE(asn_DEF_NR_DRB_ToAddModList, list);
+  ASN_STRUCT_FREE(asn_DEF_NR_DRB_ToAddModList, list);
   return;
 }
 
