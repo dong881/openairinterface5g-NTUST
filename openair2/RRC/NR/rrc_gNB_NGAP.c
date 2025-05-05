@@ -1274,9 +1274,11 @@ int rrc_gNB_process_NGAP_UE_CONTEXT_RELEASE_COMMAND(MessageDef *msg_p, instance_
    * session (intentionally, or because of erros) */
   if (ue_associated_to_cuup(rrc, UE)) {
     sctp_assoc_t assoc_id = get_existing_cuup_for_ue(rrc, UE);
+    e1ap_cause_t cause = {.type = E1AP_CAUSE_RADIO_NETWORK, .value = E1AP_RADIO_CAUSE_NORMAL_RELEASE};
     e1ap_bearer_release_cmd_t cmd = {
       .gNB_cu_cp_ue_id = UE->rrc_ue_id,
       .gNB_cu_up_ue_id = UE->rrc_ue_id,
+      .cause = cause,
     };
     rrc->cucp_cuup.bearer_context_release(assoc_id, &cmd);
   }
