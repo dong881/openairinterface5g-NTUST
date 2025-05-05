@@ -39,13 +39,6 @@ int nr_pusch_dmrs_rx(PHY_VARS_gNB *gNB,
                      uint8_t dmrs_type,
                      int16_t dmrs_scaling);
 
-void nr_generate_csi_rs(const NR_DL_FRAME_PARMS *frame_parms,
-                        int32_t **dataF,
-                        const int16_t amp,
-                        const nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *csi_params,
-                        const int slot,
-                        const csi_mapping_parms_t *phy_csi_parms);
-
 void nr_generate_modulation_table(void);
 
 extern simde__m128i byte2m128i[256];

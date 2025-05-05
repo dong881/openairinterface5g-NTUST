@@ -279,11 +279,19 @@ void phy_procedures_gNB_TX(processingData_L1tx_t *msgTx,
                                           csi_bitmap);
 
       nr_generate_csi_rs(&gNB->frame_parms,
-                         (int32_t **)gNB->common_vars.txdataF[beam_nb],
+                         &mapping_parms,
                          gNB->TX_AMP,
-                         csi_params,
                          slot,
-                         &mapping_parms);
+                         csi_params->freq_density,
+                         csi_params->start_rb,
+                         csi_params->nr_of_rbs,
+                         csi_params->symb_l0,
+                         csi_params->symb_l1,
+                         csi_params->row,
+                         csi_params->scramb_id,
+                         csi_params->power_control_offset_ss,
+                         csi_params->cdm_type,
+                         (int32_t **)gNB->common_vars.txdataF[beam_nb]);
       csirs->active = 0;
     }
   }

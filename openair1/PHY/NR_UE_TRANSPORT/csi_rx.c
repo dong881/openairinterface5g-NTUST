@@ -796,66 +796,6 @@ void nr_ue_csi_im_procedures(PHY_VARS_NR_UE *ue,
   ue->nr_csi_info->csi_im_meas_computed = true;
 }
 
-static void nr_ue_generate_csi_rs(const fapi_nr_dl_config_csirs_pdu_rel15_t *csi_params,
-                                  const csi_mapping_parms_t *mapping_parms,
-                                  const NR_DL_FRAME_PARMS *frame_parms,
-                                  const int16_t amp,
-                                  const int slot,
-                                  int32_t **dataF)
-{
-  // setting the frequency density from its index
-  double rho = get_csi_rho(csi_params->freq_density);
-  int csi_length = get_csi_modulation_length(rho,
-                                             csi_params->freq_density,
-                                             mapping_parms->kprime,
-                                             csi_params->start_rb,
-                                             csi_params->nr_of_rbs);
-
-  //*8(max allocation per RB)*2(QPSK))
-  int16_t mod_csi[frame_parms->symbols_per_slot][(frame_parms->N_RB_DL << 4) >> 1] __attribute__((aligned(16)));
-  get_modulated_csi_symbols(frame_parms->symbols_per_slot,
-                            slot,
-                            frame_parms->N_RB_DL,
-                            csi_length,
-                            mod_csi,
-                            mapping_parms->lprime,
-                            csi_params->symb_l0,
-                            csi_params->symb_l1,
-                            csi_params->row,
-                            csi_params->scramb_id);
-
-  uint32_t beta = get_csi_beta_amplitude(amp, csi_params->power_control_offset_ss);
-  double alpha = 0;
-  if (mapping_parms->ports == 1)
-    alpha = rho;
-  else
-    alpha = 2 * rho;
-
-#ifdef NR_CSIRS_DEBUG
-  printf(" rho %f, alpha %f\n", rho, alpha);
-#endif
-
-  // CDM group size from CDM type index
-  int gs = get_cdm_group_size(csi_params->cdm_type);
-
-  int dataF_offset = slot * frame_parms->samples_per_slot_wCP;
-
-  csi_rs_resource_mapping(dataF,
-                          frame_parms->N_RB_DL << 4,
-                          mod_csi,
-                          frame_parms->ofdm_symbol_size,
-                          dataF_offset,
-                          frame_parms->first_carrier_offset,
-                          mapping_parms,
-                          csi_params->start_rb,
-                          csi_params->nr_of_rbs,
-                          alpha,
-                          beta,
-                          rho,
-                          gs,
-                          csi_params->freq_density);
-}
-
 void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
                              const UE_nr_rxtx_proc_t *proc,
                              c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP],
@@ -895,12 +835,20 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
                                                             csirs_config_pdu->symb_l0,
                                                             csirs_config_pdu->symb_l1);
   nr_csi_info_t *csi_info = ue->nr_csi_info;
-  nr_ue_generate_csi_rs(csirs_config_pdu,
-                        &mapping_parms,
-                        frame_parms,
-                        AMP,
-                        proc->nr_slot_rx,
-                        csi_info->csi_rs_generated_signal);
+  nr_generate_csi_rs(frame_parms,
+                     &mapping_parms,
+                     AMP,
+                     proc->nr_slot_rx,
+                     csirs_config_pdu->freq_density,
+                     csirs_config_pdu->start_rb,
+                     csirs_config_pdu->nr_of_rbs,
+                     csirs_config_pdu->symb_l0,
+                     csirs_config_pdu->symb_l1,
+                     csirs_config_pdu->row,
+                     csirs_config_pdu->scramb_id,
+                     csirs_config_pdu->power_control_offset_ss,
+                     csirs_config_pdu->cdm_type,
+                     csi_info->csi_rs_generated_signal);
 
   csi_info->csi_rs_generated_signal_bits = log2_approx(AMP);
 
