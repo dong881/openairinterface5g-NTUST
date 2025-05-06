@@ -291,7 +291,7 @@ void phy_procedures_gNB_TX(processingData_L1tx_t *msgTx,
                          csi_params->scramb_id,
                          csi_params->power_control_offset_ss,
                          csi_params->cdm_type,
-                         (int32_t **)gNB->common_vars.txdataF[beam_nb]);
+                         gNB->common_vars.txdataF[beam_nb]);
       csirs->active = 0;
     }
   }

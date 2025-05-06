@@ -314,7 +314,7 @@ typedef struct {
 
 typedef struct {
   uint8_t csi_rs_generated_signal_bits;
-  int32_t **csi_rs_generated_signal;
+  c16_t **csi_rs_generated_signal;
   bool csi_im_meas_computed;
   uint32_t interference_plus_noise_power;
 } nr_csi_info_t;

@@ -67,6 +67,6 @@ void nr_generate_csi_rs(const NR_DL_FRAME_PARMS *frame_parms,
                         const uint16_t scramb_id,
                         const uint8_t power_control_offset_ss,
                         const uint8_t cdm_type,
-                        int32_t **dataF);
+                        c16_t **dataF);
 
 #endif

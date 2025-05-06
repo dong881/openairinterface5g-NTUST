@@ -173,10 +173,10 @@ static int nr_get_csi_rs_signal(const PHY_VARS_NR_UE *ue,
                                 const nr_csi_info_t *nr_csi_info,
                                 const csi_mapping_parms_t *csi_mapping,
                                 const int CDM_group_size,
-                                int32_t csi_rs_received_signal[][ue->frame_parms.samples_per_slot_wCP],
+                                c16_t csi_rs_received_signal[][ue->frame_parms.samples_per_slot_wCP],
                                 uint32_t *rsrp,
                                 int *rsrp_dBm,
-                                c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP])
+                                const c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP])
 {
   const NR_DL_FRAME_PARMS *fp = &ue->frame_parms;
   uint16_t meas_count = 0;
@@ -203,8 +203,8 @@ static int nr_get_csi_rs_signal(const PHY_VARS_NR_UE *ue,
             for (int lp = 0; lp <= csi_mapping->lprime; lp++) {
               uint16_t symb = lp + csi_mapping->loverline[cdm_id];
               uint64_t symbol_offset = symb * fp->ofdm_symbol_size;
-              c16_t *rx_signal = &rxdataF[ant_rx][symbol_offset];
-              c16_t *rx_csi_rs_signal = (c16_t*)&csi_rs_received_signal[ant_rx][symbol_offset];
+              const c16_t *rx_signal = &rxdataF[ant_rx][symbol_offset];
+              c16_t *rx_csi_rs_signal = &csi_rs_received_signal[ant_rx][symbol_offset];
               rx_csi_rs_signal[k].r = rx_signal[k].r;
               rx_csi_rs_signal[k].i = rx_signal[k].i;
 
@@ -216,7 +216,7 @@ static int nr_get_csi_rs_signal(const PHY_VARS_NR_UE *ue,
 #ifdef NR_CSIRS_DEBUG
               int dataF_offset = proc->nr_slot_rx * fp->samples_per_slot_wCP;
               uint16_t port_tx = s + csi_mapping->j[cdm_id] * CDM_group_size;
-              c16_t *tx_csi_rs_signal = (c16_t*)&nr_csi_info->csi_rs_generated_signal[port_tx][symbol_offset + dataF_offset];
+              c16_t *tx_csi_rs_signal = &nr_csi_info->csi_rs_generated_signal[port_tx][symbol_offset + dataF_offset];
               LOG_I(NR_PHY,
                     "l,k (%2d,%4d) |\tport_tx %d (%4d,%4d)\tant_rx %d (%4d,%4d)\n",
                     symb,
@@ -268,8 +268,8 @@ static int nr_csi_rs_channel_estimation(
     const UE_nr_rxtx_proc_t *proc,
     const fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_config_pdu,
     const nr_csi_info_t *nr_csi_info,
-    const int32_t **csi_rs_generated_signal,
-    const int32_t csi_rs_received_signal[][fp->samples_per_slot_wCP],
+    const c16_t **csi_rs_generated_signal,
+    const c16_t csi_rs_received_signal[][fp->samples_per_slot_wCP],
     const csi_mapping_parms_t *csi_mapping,
     const int CDM_group_size,
     uint8_t mem_offset,
@@ -314,8 +314,8 @@ static int nr_csi_rs_channel_estimation(
             for (int lp = 0; lp <= csi_mapping->lprime; lp++) {
               uint16_t symb = lp + csi_mapping->loverline[cdm_id];
               uint64_t symbol_offset = symb * fp->ofdm_symbol_size;
-              c16_t *tx_csi_rs_signal = (c16_t*)&csi_rs_generated_signal[port_tx][symbol_offset+dataF_offset];
-              c16_t *rx_csi_rs_signal = (c16_t*)&csi_rs_received_signal[ant_rx][symbol_offset];
+              const c16_t *tx_csi_rs_signal = &csi_rs_generated_signal[port_tx][symbol_offset+dataF_offset];
+              const c16_t *rx_csi_rs_signal = &csi_rs_received_signal[ant_rx][symbol_offset];
               c16_t tmp = c16MulConjShift(tx_csi_rs_signal[k], rx_csi_rs_signal[k], nr_csi_info->csi_rs_generated_signal_bits);
               // This is not just the LS estimation for each (k,l), but also the sum of the different contributions
               // for the sake of optimizing the memory used.
@@ -705,7 +705,7 @@ static void nr_csi_im_power_estimation(const PHY_VARS_NR_UE *ue,
                                        const UE_nr_rxtx_proc_t *proc,
                                        const fapi_nr_dl_config_csiim_pdu_rel15_t *csiim_config_pdu,
                                        uint32_t *interference_plus_noise_power,
-                                       c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP])
+                                       const c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP])
 {
   const NR_DL_FRAME_PARMS *frame_parms = &ue->frame_parms;
 
@@ -739,7 +739,7 @@ static void nr_csi_im_power_estimation(const PHY_VARS_NR_UE *ue,
 
     for (int ant_rx = 0; ant_rx < frame_parms->nb_antennas_rx; ant_rx++) {
 
-      c16_t *rx_signal = &rxdataF[ant_rx][symbol_offset];
+      const c16_t *rx_signal = &rxdataF[ant_rx][symbol_offset];
 
       for (int rb = csiim_config_pdu->start_rb; rb < end_rb; rb++) {
 
@@ -778,7 +778,7 @@ static void nr_csi_im_power_estimation(const PHY_VARS_NR_UE *ue,
 
 void nr_ue_csi_im_procedures(PHY_VARS_NR_UE *ue,
                              const UE_nr_rxtx_proc_t *proc,
-                             c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP],
+                             const c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP],
                              const fapi_nr_dl_config_csiim_pdu_rel15_t *csiim_config_pdu)
 {
 
@@ -798,7 +798,7 @@ void nr_ue_csi_im_procedures(PHY_VARS_NR_UE *ue,
 
 void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
                              const UE_nr_rxtx_proc_t *proc,
-                             c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP],
+                             const c16_t rxdataF[][ue->frame_parms.samples_per_slot_wCP],
                              fapi_nr_dl_config_csirs_pdu_rel15_t *csirs_config_pdu)
 {
 
@@ -862,7 +862,7 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
   // Doing >> 2 <=> /sizeof(int32_t), we know what is the index offset of the array.
   uint8_t mem_offset = (((32 - ((long)&csi_rs_estimated_channel_freq[0][0][frame_parms->first_carrier_offset])) & 0x1F) >> 2);
   int CDM_group_size = get_cdm_group_size(csirs_config_pdu->cdm_type);
-  int32_t csi_rs_received_signal[frame_parms->nb_antennas_rx][frame_parms->samples_per_slot_wCP];
+  c16_t csi_rs_received_signal[frame_parms->nb_antennas_rx][frame_parms->samples_per_slot_wCP];
   uint32_t rsrp = 0;
   int rsrp_dBm = 0;
   nr_get_csi_rs_signal(ue,
@@ -886,7 +886,7 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
                                  proc,
                                  csirs_config_pdu,
                                  csi_info,
-                                 (const int32_t **) csi_info->csi_rs_generated_signal,
+                                 (const c16_t **)csi_info->csi_rs_generated_signal,
                                  csi_rs_received_signal,
                                  &mapping_parms,
                                  CDM_group_size,

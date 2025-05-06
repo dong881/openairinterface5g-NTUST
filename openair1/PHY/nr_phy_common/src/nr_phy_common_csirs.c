@@ -21,7 +21,7 @@
 
 #include "PHY/nr_phy_common/inc/nr_phy_common.h"
 
-static void csi_rs_resource_mapping(int32_t **dataF,
+static void csi_rs_resource_mapping(c16_t **dataF,
                                     int csi_rs_length,
                                     int16_t mod_csi[][csi_rs_length >> 1],
                                     int ofdm_symbol_size,
@@ -66,17 +66,17 @@ static void csi_rs_resource_mapping(int32_t **dataF,
                 else
                   wt = -1;
               }
-              int index = ((l * ofdm_symbol_size + k) << 1) + (2 * dataF_offset);
-              ((int16_t*)dataF[p])[index] = (beta * wt * wf * mod_csi[l][mprime << 1]) >> 15;
-              ((int16_t*)dataF[p])[index + 1] = (beta * wt * wf * mod_csi[l][(mprime << 1) + 1]) >> 15;
+              int index = (l * ofdm_symbol_size + k) + dataF_offset;
+              dataF[p][index].r = (beta * wt * wf * mod_csi[l][mprime << 1]) >> 15;
+              dataF[p][index].i = (beta * wt * wf * mod_csi[l][(mprime << 1) + 1]) >> 15;
               LOG_D(PHY,
                     "l,k (%d,%d)  seq. index %d \t port %d \t (%d,%d)\n",
                     l,
                     k,
                     mprime,
                     p + 3000,
-                    ((int16_t*)dataF[p])[index],
-                    ((int16_t*)dataF[p])[index + 1]);
+                    dataF[p][index].r,
+                    dataF[p][index].i);
             }
           }
         }
@@ -574,7 +574,7 @@ void nr_generate_csi_rs(const NR_DL_FRAME_PARMS *frame_parms,
                         const uint16_t scramb_id,
                         const uint8_t power_control_offset_ss,
                         const uint8_t cdm_type,
-                        int32_t **dataF)
+                        c16_t **dataF)
 {
 #ifdef NR_CSIRS_DEBUG
   LOG_I(NR_PHY,
