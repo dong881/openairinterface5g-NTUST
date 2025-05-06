@@ -504,7 +504,8 @@ void fix_scc(NR_ServingCellConfigCommon_t *scc, uint64_t ssbmap)
   }
 
   // fix SS0 and Coreset0
-  NR_PDCCH_ConfigCommon_t *pdcch_cc = scc->downlinkConfigCommon->initialDownlinkBWP->pdcch_ConfigCommon->choice.setup;
+  NR_DownlinkConfigCommon_t *dlcc = scc->downlinkConfigCommon;
+  NR_PDCCH_ConfigCommon_t *pdcch_cc = dlcc->initialDownlinkBWP->pdcch_ConfigCommon->choice.setup;
   if((int)*pdcch_cc->searchSpaceZero == -1) {
     free(pdcch_cc->searchSpaceZero);
     pdcch_cc->searchSpaceZero = NULL;
@@ -520,18 +521,26 @@ void fix_scc(NR_ServingCellConfigCommon_t *scc, uint64_t ssbmap)
      scc->uplinkConfigCommon->frequencyInfoUL->absoluteFrequencyPointA = NULL;
   }
 
+  NR_RACH_ConfigCommon_t *rach_ConfigCommon = scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup;
+  long config_index = rach_ConfigCommon->rach_ConfigGeneric.prach_ConfigurationIndex;
+  frequency_range_t freq_range = get_freq_range_from_arfcn(dlcc->frequencyInfoDL->absoluteFrequencyPointA);
+  frame_type_t frame_type = get_frame_type((int)*dlcc->frequencyInfoDL->frequencyBandList.list.array[0], *scc->ssbSubcarrierSpacing);
+  nr_prach_info_t prach_info =  get_nr_prach_occasion_info_from_index(config_index, freq_range, frame_type);
+  AssertFatal(prach_info.start_symbol + prach_info.N_t_slot * prach_info.N_dur < 14,
+              "PRACH with configuration index %ld goes to the last symbol of the slot, for optimal performance pick another index. "
+              "See Tables 6.3.3.2-2 to 6.3.3.2-4 in 38.211\n",
+              config_index);
   // default value for msg3 precoder is NULL (0 means enabled)
-  if (*scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->msg3_transformPrecoder!=0) {
-    free(scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->msg3_transformPrecoder);
-    scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->msg3_transformPrecoder = NULL;
+  if (*rach_ConfigCommon->msg3_transformPrecoder != 0) {
+    free(rach_ConfigCommon->msg3_transformPrecoder);
+    rach_ConfigCommon->msg3_transformPrecoder = NULL;
   }
 
-  frame_type_t frame_type = get_frame_type((int)*scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList.list.array[0], *scc->ssbSubcarrierSpacing);
-
   // prepare DL Allocation lists
-  nr_rrc_config_dl_tda(scc->downlinkConfigCommon->initialDownlinkBWP->pdsch_ConfigCommon->choice.setup->pdsch_TimeDomainAllocationList,
-                       frame_type, scc->tdd_UL_DL_ConfigurationCommon,
-                       scc->downlinkConfigCommon->frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth);
+  nr_rrc_config_dl_tda(dlcc->initialDownlinkBWP->pdsch_ConfigCommon->choice.setup->pdsch_TimeDomainAllocationList,
+                       frame_type,
+                       scc->tdd_UL_DL_ConfigurationCommon,
+                       dlcc->frequencyInfoDL->scs_SpecificCarrierList.list.array[0]->carrierBandwidth);
 
   if (frame_type == FDD) {
     ASN_STRUCT_FREE(asn_DEF_NR_TDD_UL_DL_ConfigCommon, scc->tdd_UL_DL_ConfigurationCommon);
@@ -540,9 +549,9 @@ void fix_scc(NR_ServingCellConfigCommon_t *scc, uint64_t ssbmap)
     fix_tdd_pattern(scc);
   }
 
-  if ((int)*scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->msg1_SubcarrierSpacing == -1) {
-    free(scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->msg1_SubcarrierSpacing);
-    scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->msg1_SubcarrierSpacing=NULL;
+  if ((int)*rach_ConfigCommon->msg1_SubcarrierSpacing == -1) {
+    free(rach_ConfigCommon->msg1_SubcarrierSpacing);
+    rach_ConfigCommon->msg1_SubcarrierSpacing = NULL;
   }
 
   if (scc->uplinkConfigCommon->initialUplinkBWP->ext1
