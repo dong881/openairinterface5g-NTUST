@@ -460,7 +460,155 @@ int send_mac_subframe_indications(vnf_p7_t* vnf_p7)
 
 	return 0;
 }
+#include <linux/if_packet.h>
+#include <linux/if_ether.h>
+#include <net/ethernet.h>
+#include <linux/net_tstamp.h>
+#include <linux/sockios.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <fcntl.h>
+int vnf_send_p7_msg_rawSocket(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info, uint8_t* msg, const uint32_t len)
+{
+    unsigned char dest_mac[ETH_ALEN] = {0x3c, 0xec, 0xef, 0xe3, 0x7d, 0x8d}; // Fixed destination MAC
+    #define ETH_PROTO 0x1234
+    const char *iface = "ens1f0"; // Make sure this matches your interface
+    static int static_raw_sock = -1;
+    static unsigned char static_src_mac[ETH_ALEN];
+    static int static_ifindex = -1;
+    int raw_sock;
+    
+    // Reuse existing socket if available to improve performance
+    if (static_raw_sock == -1) {
+        // First time initialization
+        raw_sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_PROTO));
+        if (raw_sock < 0) {
+            NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to create raw socket: %s\n", strerror(errno));
+            return -1;
+        }
+        
+        // Keep socket open for future use
+        static_raw_sock = raw_sock;
+        
+        // Enable hardware timestamping capabilities (optional, best effort)
+        int ts_flags = SOF_TIMESTAMPING_TX_HARDWARE |
+                      SOF_TIMESTAMPING_RX_HARDWARE |
+                      SOF_TIMESTAMPING_RAW_HARDWARE |
+                      SOF_TIMESTAMPING_SYS_HARDWARE;
+        
+        if (setsockopt(raw_sock, SOL_SOCKET, SO_TIMESTAMPING, &ts_flags, sizeof(ts_flags)) < 0) {
+            // Only log this as debug since it's not critical and not all interfaces support it
+            NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Hardware timestamping not available on interface: %s\n", strerror(errno));
+        }
 
+        struct ifreq ifr;
+        memset(&ifr, 0, sizeof(ifr));
+        strncpy(ifr.ifr_name, iface, IFNAMSIZ-1);
+
+        // Get interface index
+        if (ioctl(raw_sock, SIOCGIFINDEX, &ifr) < 0) {
+            NFAPI_TRACE(NFAPI_TRACE_ERROR, "ioctl(SIOCGIFINDEX) failed: %s\n", strerror(errno));
+            close(raw_sock);
+            static_raw_sock = -1;
+            return -1;
+        }
+        static_ifindex = ifr.ifr_ifindex;
+
+        // Get MAC address
+        if (ioctl(raw_sock, SIOCGIFHWADDR, &ifr) < 0) {
+            NFAPI_TRACE(NFAPI_TRACE_ERROR, "ioctl(SIOCGIFHWADDR) failed: %s\n", strerror(errno));
+            close(raw_sock);
+            static_raw_sock = -1;
+            return -1;
+        }
+        memcpy(static_src_mac, ifr.ifr_hwaddr.sa_data, ETH_ALEN);
+
+        // Configure hardware timestamping for the interface (optional, best effort)
+        struct hwtstamp_config hwts_config;
+        memset(&hwts_config, 0, sizeof(hwts_config));
+        hwts_config.tx_type = HWTSTAMP_TX_ON;
+        hwts_config.rx_filter = HWTSTAMP_FILTER_ALL;
+        
+        ifr.ifr_data = (void *)&hwts_config;
+        if (ioctl(raw_sock, SIOCSHWTSTAMP, &ifr) < 0) {
+            // Only log this as debug since it's not critical and not all interfaces support it
+            NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Hardware timestamping not supported on interface: %s\n", strerror(errno));
+        }
+        
+        // Remove IP_TOS setting as it's not applicable for layer 2 raw sockets
+        
+        // Set socket to non-blocking mode
+        int flags = fcntl(raw_sock, F_GETFL, 0);
+        fcntl(raw_sock, F_SETFL, flags | O_NONBLOCK);
+    } else {
+        // Use existing socket
+        raw_sock = static_raw_sock;
+    }
+
+    // Allocate and prepare the ethernet frame
+    uint8_t* frame_buffer = malloc(sizeof(struct ethhdr) + len);
+    if (!frame_buffer) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to allocate memory for frame buffer\n");
+        return -1;
+    }
+
+    struct ethhdr *eth = (struct ethhdr *)frame_buffer;
+    memcpy(eth->h_dest, dest_mac, ETH_ALEN);
+    memcpy(eth->h_source, static_src_mac, ETH_ALEN);
+    eth->h_proto = htons(ETH_PROTO);
+
+    // Copy the P7 message into the frame after the ethernet header
+    memcpy(frame_buffer + sizeof(struct ethhdr), msg, len);
+
+    // Prepare destination address
+    struct sockaddr_ll saddr = {0};
+    saddr.sll_family = AF_PACKET;
+    saddr.sll_protocol = htons(ETH_PROTO);
+    saddr.sll_ifindex = static_ifindex;
+    saddr.sll_halen = ETH_ALEN;
+    memcpy(saddr.sll_addr, dest_mac, ETH_ALEN);
+
+    // Send the frame
+    ssize_t sent = sendto(raw_sock, frame_buffer, sizeof(struct ethhdr) + len, 0,
+                         (struct sockaddr *)&saddr, sizeof(saddr));
+
+    if (sent < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s sendto() failed: %s\n", __FUNCTION__, strerror(errno));
+        free(frame_buffer);
+        return -1;
+    } else if (sent != sizeof(struct ethhdr) + len) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s sendto failed to send the entire message %zd != %zu\n", 
+                    __FUNCTION__, sent, sizeof(struct ethhdr) + len);
+    }
+    
+    // Get the hardware timestamp if available (optional, best effort)
+    char control[1024];
+    struct msghdr msg_hdr;
+    struct iovec iov;
+    char buf[1];
+    
+    memset(&msg_hdr, 0, sizeof(msg_hdr));
+    msg_hdr.msg_control = control;
+    msg_hdr.msg_controllen = sizeof(control);
+    msg_hdr.msg_iov = &iov;
+    msg_hdr.msg_iovlen = 1;
+    iov.iov_base = buf;
+    iov.iov_len = sizeof(buf);
+    
+    // Try to receive the timestamp (non-blocking) - this is optional
+    recvmsg(raw_sock, &msg_hdr, MSG_ERRQUEUE | MSG_DONTWAIT);
+
+    free(frame_buffer);
+    // Don't close the socket as we're reusing it
+    
+    return (sent == sizeof(struct ethhdr) + len) ? 0 : -1;
+}
 int vnf_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info, uint8_t* msg, const uint32_t len)
 {
 	int sendto_result = sendto(vnf_p7->socket, msg, len, 0, (struct sockaddr*)&(p7_info->remote_addr), sizeof(p7_info->remote_addr)); 
@@ -542,7 +690,7 @@ int vnf_nr_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_nr_p7_message_header_
 			
 				nfapi_nr_p7_update_transmit_timestamp(buffer, calculate_transmit_timestamp(p7_connection->mu, p7_connection->sfn, p7_connection->slot, vnf_p7->slot_start_time_hr));
 
-				send_result = vnf_send_p7_msg(vnf_p7, p7_connection,  &tx_buffer[0], segment_size);
+				send_result = vnf_send_p7_msg_rawSocket(vnf_p7, p7_connection,  &tx_buffer[0], segment_size);
 
 			}
 		}
@@ -556,7 +704,7 @@ int vnf_nr_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_nr_p7_message_header_
 			nfapi_nr_p7_update_transmit_timestamp(buffer, calculate_transmit_timestamp(p7_connection->mu, p7_connection->sfn, p7_connection->slot, vnf_p7->slot_start_time_hr));
 
 			// simple case that the message fits in a single segement
-			send_result = vnf_send_p7_msg(vnf_p7, p7_connection, &buffer[0], len);
+			send_result = vnf_send_p7_msg_rawSocket(vnf_p7, p7_connection, &buffer[0], len);
 		}
 
 		p7_connection->sequence_number++;
@@ -636,7 +784,7 @@ int vnf_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* hea
 			
 				nfapi_p7_update_transmit_timestamp(buffer, calculate_transmit_timestamp(p7_connection->mu, p7_connection->sfn, p7_connection->slot, vnf_p7->slot_start_time_hr));	
 
-				send_result = vnf_send_p7_msg(vnf_p7, p7_connection,  &tx_buffer[0], segment_size);
+				send_result = vnf_send_p7_msg_rawSocket(vnf_p7, p7_connection,  &tx_buffer[0], segment_size);
 			}
 		}
 		else
@@ -649,7 +797,7 @@ int vnf_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* hea
 			nfapi_p7_update_transmit_timestamp(buffer, calculate_transmit_timestamp(p7_connection->mu, p7_connection->sfn, p7_connection->slot, vnf_p7->slot_start_time_hr));	
 
 			// simple case that the message fits in a single segement
-			send_result = vnf_send_p7_msg(vnf_p7, p7_connection, &buffer[0], len);
+			send_result = vnf_send_p7_msg_rawSocket(vnf_p7, p7_connection, &buffer[0], len);
 		}
 
 		p7_connection->sequence_number++;
@@ -2535,6 +2683,148 @@ void vnf_nr_handle_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		}
 	}
 }
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/socket.h>
+#include <linux/if_packet.h>
+#include <linux/if_ether.h>
+#include <net/ethernet.h>
+#include <arpa/inet.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
+#include <errno.h>
+
+// 建立並綁定raw socket
+int create_and_bind_raw_socket(const char *interface_name) 
+{
+    int sock;
+    struct ifreq ifr;
+    struct sockaddr_ll saddr;
+    #define ETH_PROTO 0x1234
+
+    sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_PROTO));
+    if (sock < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to create raw socket: %s\n", strerror(errno));
+        return -1;
+    }
+
+    memset(&ifr, 0, sizeof(ifr));
+    strncpy(ifr.ifr_name, interface_name, IFNAMSIZ-1);
+    if (ioctl(sock, SIOCGIFINDEX, &ifr) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to get interface index: %s\n", strerror(errno));
+        close(sock);
+        return -1;
+    }
+
+    memset(&saddr, 0, sizeof(saddr));
+    saddr.sll_family = AF_PACKET;
+    saddr.sll_protocol = htons(ETH_PROTO);
+    saddr.sll_ifindex = ifr.ifr_ifindex;
+
+    if (bind(sock, (struct sockaddr*)&saddr, sizeof(saddr)) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to bind socket: %s\n", strerror(errno));
+        close(sock);
+        return -1;
+    }
+
+    int flags = fcntl(sock, F_GETFL, 0);
+    fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "Raw socket created and bound to %s (index: %d)\n", 
+                interface_name, ifr.ifr_ifindex);
+
+    return sock;
+}
+
+// 初始化VNF端socket
+int vnf_nr_p7_socket_init(vnf_p7_t* vnf_p7) 
+{
+    const char *interface_name = "ens1f0";  // 依你的環境調整
+    if (vnf_p7->socket > 0) {
+        close(vnf_p7->socket);
+    }
+    vnf_p7->socket = create_and_bind_raw_socket(interface_name);
+    if (vnf_p7->socket < 0) {
+        return -1;
+    }
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "VNF P7 socket initialized successfully\n");
+    return 0;
+}
+
+// 讀取並分派raw socket訊息
+int vnf_nr_p7_read_dispatch_message_rawSocket(vnf_p7_t* vnf_p7)
+{
+    #define ETH_PROTO 0x1234
+    int recvfrom_result = 0;
+    if (vnf_p7->socket <= 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Invalid socket descriptor\n");
+        return -1;
+    }
+    uint8_t peek_buffer[14 + NFAPI_NR_P7_HEADER_LENGTH];
+    recvfrom_result = recvfrom(vnf_p7->socket, peek_buffer, sizeof(peek_buffer), 
+                              MSG_DONTWAIT | MSG_PEEK, NULL, NULL);
+
+    if (recvfrom_result > 0) {
+        if (recvfrom_result < sizeof(peek_buffer)) {
+            uint8_t dummy[sizeof(peek_buffer)];
+            recvfrom(vnf_p7->socket, dummy, recvfrom_result, 0, NULL, NULL);
+            return -1;
+        }
+        struct ethhdr *eth = (struct ethhdr *)peek_buffer;
+        if (ntohs(eth->h_proto) != ETH_PROTO) {
+            uint8_t dummy[recvfrom_result];
+            recvfrom(vnf_p7->socket, dummy, recvfrom_result, 0, NULL, NULL);
+            return 0;
+        }
+        nfapi_nr_p7_message_header_t header;
+        if (nfapi_nr_p7_message_header_unpack(&peek_buffer[14], NFAPI_NR_P7_HEADER_LENGTH, 
+                                             &header, sizeof(header), 0) < 0) {
+            uint8_t dummy[recvfrom_result];
+            recvfrom(vnf_p7->socket, dummy, recvfrom_result, 0, NULL, NULL);
+            return -1;
+        }
+        int total_payload_size = header.message_length;
+        if (total_payload_size <= 0 || total_payload_size > 65536) {
+            uint8_t dummy[recvfrom_result];
+            recvfrom(vnf_p7->socket, dummy, recvfrom_result, 0, NULL, NULL);
+            return -1;
+        }
+        if (total_payload_size > vnf_p7->rx_message_buffer_size) {
+            void *new_buffer = realloc(vnf_p7->rx_message_buffer, total_payload_size);
+            if (!new_buffer) {
+                return -1;
+            }
+            vnf_p7->rx_message_buffer = new_buffer;
+            vnf_p7->rx_message_buffer_size = total_payload_size;
+        }
+        int frame_size = 14 + total_payload_size;
+        uint8_t *frame_buffer = malloc(frame_size);
+        if (!frame_buffer) return -1;
+        recvfrom_result = recvfrom(vnf_p7->socket, frame_buffer, frame_size, 0, NULL, NULL);
+        if (recvfrom_result == frame_size) {
+            memcpy(vnf_p7->rx_message_buffer, &frame_buffer[14], total_payload_size);
+            free(frame_buffer);
+            vnf_nr_handle_p7_message(vnf_p7->rx_message_buffer, total_payload_size, vnf_p7);
+            return 0;
+        } else {
+            free(frame_buffer);
+            return -1;
+        }
+    } else if (recvfrom_result == -1) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return 0;
+        } else {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+
 
 int vnf_nr_p7_read_dispatch_message(vnf_p7_t* vnf_p7)
 {

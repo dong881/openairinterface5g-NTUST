@@ -447,6 +447,104 @@ static uint32_t get_sf_time(uint32_t now_hr, uint32_t sf_start_hr)
 	}
 }
 
+// Include necessary headers
+#include <linux/if_packet.h>
+#include <linux/if_ether.h>
+#include <net/ethernet.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
+int pnf_p7_send_message_rawSocket(pnf_p7_t* pnf_p7, uint8_t* msg, uint32_t len)
+{
+    // Hardcode the destination MAC address (HPE server MAC address)
+	// unsigned char dest_mac[ETH_ALEN] = {0x98, 0xf2, 0xb3, 0x23, 0x82, 0x37}; // Switch-based Network
+	unsigned char dest_mac[ETH_ALEN] = {0x98, 0xf2, 0xb3, 0x23, 0x82, 0x34}; // Direct RJ45 Connection
+
+    unsigned char src_mac[ETH_ALEN];
+    int ifindex;
+    
+    // Define the ethernet protocol type (must match receiver)
+    #define ETH_PROTO 0x1234
+    
+    // Define interface name (hardcoded for now)
+    const char *iface = "ens1f3";  // Change this to match your interface
+    
+    // Create a raw socket for Ethernet frames
+    int raw_sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_PROTO));
+    if (raw_sock < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to create raw socket: %d\n", errno);
+        return -1;
+    }
+    
+    // Get interface information (MAC address and index)
+    struct ifreq ifr;
+    memset(&ifr, 0, sizeof(ifr));
+    strncpy(ifr.ifr_name, iface, IFNAMSIZ);
+    
+    if (ioctl(raw_sock, SIOCGIFINDEX, &ifr) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "ioctl(SIOCGIFINDEX) failed: %d\n", errno);
+        close(raw_sock);
+        return -1;
+    }
+    ifindex = ifr.ifr_ifindex;
+    
+    if (ioctl(raw_sock, SIOCGIFHWADDR, &ifr) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "ioctl(SIOCGIFHWADDR) failed: %d\n", errno);
+        close(raw_sock);
+        return -1;
+    }
+    memcpy(src_mac, ifr.ifr_hwaddr.sa_data, ETH_ALEN);
+    
+    // Construct buffer for Ethernet frame: header + payload
+    uint8_t* frame_buffer = malloc(sizeof(struct ethhdr) + len);
+    if (!frame_buffer) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to allocate memory for frame buffer\n");
+        close(raw_sock);
+        return -1;
+    }
+    
+    // Setup Ethernet header
+    struct ethhdr *eth = (struct ethhdr *)frame_buffer;
+    
+    // Fill in Ethernet header
+    memcpy(eth->h_dest, dest_mac, ETH_ALEN);
+    memcpy(eth->h_source, src_mac, ETH_ALEN);
+    eth->h_proto = htons(ETH_PROTO);
+    
+    // Copy message data after the header
+    memcpy(frame_buffer + sizeof(struct ethhdr), msg, len);
+    
+    // Set up sockaddr_ll for the destination
+    struct sockaddr_ll saddr = {
+        .sll_family = AF_PACKET,
+        .sll_protocol = htons(ETH_PROTO),
+        .sll_ifindex = ifindex,
+        .sll_halen = ETH_ALEN,
+    };
+    memcpy(saddr.sll_addr, dest_mac, ETH_ALEN);
+    
+    // Send the frame
+    ssize_t sent = sendto(raw_sock, frame_buffer, sizeof(struct ethhdr) + len, 0,
+                         (struct sockaddr *)&saddr, sizeof(saddr));
+    
+    if (sent < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s sendto() failed: %d\n", __FUNCTION__, errno);
+        free(frame_buffer);
+        close(raw_sock);
+        return -1;
+    } else if (sent != sizeof(struct ethhdr) + len) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s sendto failed to send the entire message %zd != %zu\n", 
+                    __FUNCTION__, sent, sizeof(struct ethhdr) + len);
+    } 
+	// else {
+    //     NFAPI_TRACE(NFAPI_TRACE_INFO, "Sent %zd bytes to MAC %02X:%02X:%02X:%02X:%02X:%02X via %s\n",
+    //            sent, dest_mac[0], dest_mac[1], dest_mac[2],
+    //            dest_mac[3], dest_mac[4], dest_mac[5], iface);
+    // }
+    
+    free(frame_buffer);
+    close(raw_sock);
+    return (sent == sizeof(struct ethhdr) + len) ? 0 : -1;
+}
 
 
 int pnf_p7_send_message(pnf_p7_t* pnf_p7, uint8_t* msg, uint32_t len)
@@ -629,7 +727,8 @@ int pnf_nr_p7_pack_and_send_p7_message(pnf_p7_t* pnf_p7, nfapi_nr_p7_message_hea
         nfapi_nr_p7_update_checksum(buffer, segment_size);
       }
 
-      pnf_p7_send_message(pnf_p7, &buffer[0], segment_size);
+	//   pnf_p7_send_message(pnf_p7, &buffer[0], segment_size);
+	  pnf_p7_send_message_rawSocket(pnf_p7, &buffer[0], segment_size);
     }
   } else {
     if (pnf_p7->_public.checksum_enabled) {
@@ -637,7 +736,8 @@ int pnf_nr_p7_pack_and_send_p7_message(pnf_p7_t* pnf_p7, nfapi_nr_p7_message_hea
     }
 
     // simple case that the message fits in a single segment
-    pnf_p7_send_message(pnf_p7, tx_buf, len);
+    // pnf_p7_send_message(pnf_p7, tx_buf, len);
+	pnf_p7_send_message_rawSocket(pnf_p7, tx_buf, len);  
   }
 
   pnf_p7->sequence_number++;

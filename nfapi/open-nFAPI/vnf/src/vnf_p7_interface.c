@@ -108,44 +108,44 @@ int nfapi_nr_vnf_p7_start(nfapi_vnf_p7_config_t* config)
 	// Create p7 receive udp port
 	// todo : this needs updating for Ipv6
 
-	NFAPI_TRACE(NFAPI_TRACE_INFO, "Initialising VNF P7 port:%u\n", config->port);
+	// NFAPI_TRACE(NFAPI_TRACE_INFO, "Initialising VNF P7 port:%u\n", config->port);
 
-	// open the UDP socket
-	if ((vnf_p7->socket = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
-	{
-		NFAPI_TRACE(NFAPI_TRACE_ERROR, "After P7 socket errno: %d\n", errno);
-		return -1;
-	}
+	// // open the UDP socket
+	// if ((vnf_p7->socket = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+	// {
+	// 	NFAPI_TRACE(NFAPI_TRACE_ERROR, "After P7 socket errno: %d\n", errno);
+	// 	return -1;
+	// }
 
-	NFAPI_TRACE(NFAPI_TRACE_INFO, "VNF P7 socket created...\n");
+	// NFAPI_TRACE(NFAPI_TRACE_INFO, "VNF P7 socket created...\n");
 
-	// configure the UDP socket options
-	int iptos_value = FAPI2_IP_DSCP << 2;
-	if (setsockopt(vnf_p7->socket, IPPROTO_IP, IP_TOS, &iptos_value, sizeof(iptos_value)) < 0)
-	{
-		NFAPI_TRACE(NFAPI_TRACE_ERROR, "After setsockopt (IP_TOS) errno: %d\n", errno);
-		return -1;
-	}
+	// // configure the UDP socket options
+	// int iptos_value = FAPI2_IP_DSCP << 2;
+	// if (setsockopt(vnf_p7->socket, IPPROTO_IP, IP_TOS, &iptos_value, sizeof(iptos_value)) < 0)
+	// {
+	// 	NFAPI_TRACE(NFAPI_TRACE_ERROR, "After setsockopt (IP_TOS) errno: %d\n", errno);
+	// 	return -1;
+	// }
 
-	NFAPI_TRACE(NFAPI_TRACE_INFO, "VNF P7 setsockopt succeeded...\n");
+	// NFAPI_TRACE(NFAPI_TRACE_INFO, "VNF P7 setsockopt succeeded...\n");
 
-	// Create the address structure
-	struct sockaddr_in addr;
-	memset(&addr, 0, sizeof(addr));
-	addr.sin_family = AF_INET;
-	addr.sin_port = htons(config->port);
-	addr.sin_addr.s_addr = INADDR_ANY;
+	// // Create the address structure
+	// struct sockaddr_in addr;
+	// memset(&addr, 0, sizeof(addr));
+	// addr.sin_family = AF_INET;
+	// addr.sin_port = htons(config->port);
+	// addr.sin_addr.s_addr = INADDR_ANY;
 
-	// bind to the configured port
-	NFAPI_TRACE(NFAPI_TRACE_INFO, "VNF P7 binding too %s:%d\n", inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
-	if (bind(vnf_p7->socket, (struct sockaddr *)&addr, sizeof(struct sockaddr_in)) < 0)
-	//if (sctp_bindx(config->socket, (struct sockaddr *)&addr, sizeof(struct sockaddr_in), 0) < 0)
-	{
-		NFAPI_TRACE(NFAPI_TRACE_ERROR, "After bind errno: %d\n", errno);
-		return -1;
-	}
+	// // bind to the configured port
+	// NFAPI_TRACE(NFAPI_TRACE_INFO, "VNF P7 binding too %s:%d\n", inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
+	// if (bind(vnf_p7->socket, (struct sockaddr *)&addr, sizeof(struct sockaddr_in)) < 0)
+	// //if (sctp_bindx(config->socket, (struct sockaddr *)&addr, sizeof(struct sockaddr_in), 0) < 0)
+	// {
+	// 	NFAPI_TRACE(NFAPI_TRACE_ERROR, "After bind errno: %d\n", errno);
+	// 	return -1;
+	// }
 
-	NFAPI_TRACE(NFAPI_TRACE_INFO, "VNF P7 bind succeeded...\n");
+	// NFAPI_TRACE(NFAPI_TRACE_INFO, "VNF P7 bind succeeded...\n");
 
 
 	//struct timespec original_pselect_timeout;
@@ -155,6 +155,7 @@ int nfapi_nr_vnf_p7_start(nfapi_vnf_p7_config_t* config)
 
     struct timespec ref_time;
 	clock_gettime(CLOCK_MONOTONIC, &ref_time);
+	vnf_nr_p7_socket_init(vnf_p7);
 	while(vnf_p7->terminate == 0)
 	{	
 		fd_set rfds;
@@ -177,7 +178,8 @@ int nfapi_nr_vnf_p7_start(nfapi_vnf_p7_config_t* config)
 			// have a p7 message
 			if(FD_ISSET(vnf_p7->socket, &rfds))
 			{	
-				vnf_nr_p7_read_dispatch_message(vnf_p7); 				
+				// vnf_nr_p7_read_dispatch_message(vnf_p7); 
+				vnf_nr_p7_read_dispatch_message_rawSocket(vnf_p7);				
 			}
 		}
 		else
