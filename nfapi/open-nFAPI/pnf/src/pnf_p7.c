@@ -447,6 +447,179 @@ static uint32_t get_sf_time(uint32_t now_hr, uint32_t sf_start_hr)
 	}
 }
 
+#include <linux/if_packet.h>
+#include <linux/if_ether.h>
+#include <net/ethernet.h>
+#include <linux/net_tstamp.h>
+#include <linux/sockios.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <sys/socket.h>
+
+/* Define missing constants if they're not available */
+#ifndef NFAPI_TRACE_ERROR
+#define NFAPI_TRACE_ERROR 0
+#endif
+
+#ifndef NFAPI_TRACE_WARN
+#define NFAPI_TRACE_WARN 1
+#endif
+
+#ifndef NFAPI_TRACE_INFO
+#define NFAPI_TRACE_INFO 2
+#endif
+
+#ifndef SOF_TIMESTAMPING_HW_TRANS
+#define SOF_TIMESTAMPING_HW_TRANS (1<<4)
+#endif
+
+/* Static socket for performance - avoid creating/closing for each message */
+static int static_raw_sock = -1;
+static unsigned char static_src_mac[ETH_ALEN];
+static int static_ifindex = -1;
+
+int pnf_p7_send_message_rawSocket(pnf_p7_t* pnf_p7, uint8_t* msg, uint32_t len)
+{
+	unsigned char dest_mac[ETH_ALEN] = {0x98, 0xf2, 0xb3, 0x23, 0x82, 0x34}; // Adjust as needed
+	#define ETH_PROTO 0x1234
+	const char *iface = "eno2"; // Adjust to match your interface
+	int raw_sock;
+	
+	// Reuse existing socket if available to improve performance
+	if (static_raw_sock == -1) {
+		// First time initialization
+		raw_sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_PROTO));
+		if (raw_sock < 0) {
+			NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to create raw socket: %d\n", errno);
+			return -1;
+		}
+		
+		// Keep socket open for future use
+		static_raw_sock = raw_sock;
+		
+		// Enable hardware timestamping capabilities
+		int ts_flags = SOF_TIMESTAMPING_TX_HARDWARE |
+					  SOF_TIMESTAMPING_RX_HARDWARE |
+					  SOF_TIMESTAMPING_RAW_HARDWARE |
+					  SOF_TIMESTAMPING_SYS_HARDWARE |
+					  SOF_TIMESTAMPING_HW_TRANS;
+		
+		if (setsockopt(raw_sock, SOL_SOCKET, SO_TIMESTAMPING, &ts_flags, sizeof(ts_flags)) < 0) {
+			NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to set SO_TIMESTAMPING: %d\n", errno);
+			// Continue anyway, as the socket will still work without timestamping
+		}
+
+		struct ifreq ifr;
+		memset(&ifr, 0, sizeof(ifr));
+		strncpy(ifr.ifr_name, iface, IFNAMSIZ);
+
+		// Get interface index
+		if (ioctl(raw_sock, SIOCGIFINDEX, &ifr) < 0) {
+			NFAPI_TRACE(NFAPI_TRACE_ERROR, "ioctl(SIOCGIFINDEX) failed: %d\n", errno);
+			close(raw_sock);
+			static_raw_sock = -1;
+			return -1;
+		}
+		static_ifindex = ifr.ifr_ifindex;
+
+		// Get MAC address
+		if (ioctl(raw_sock, SIOCGIFHWADDR, &ifr) < 0) {
+			NFAPI_TRACE(NFAPI_TRACE_ERROR, "ioctl(SIOCGIFHWADDR) failed: %d\n", errno);
+			close(raw_sock);
+			static_raw_sock = -1;
+			return -1;
+		}
+		memcpy(static_src_mac, ifr.ifr_hwaddr.sa_data, ETH_ALEN);
+
+		// Configure hardware timestamping for the interface
+		struct hwtstamp_config hwts_config;
+		memset(&hwts_config, 0, sizeof(hwts_config));
+		hwts_config.tx_type = HWTSTAMP_TX_ON;
+		hwts_config.rx_filter = HWTSTAMP_FILTER_ALL;
+		
+		ifr.ifr_data = (void *)&hwts_config;
+		if (ioctl(raw_sock, SIOCSHWTSTAMP, &ifr) < 0) {
+			NFAPI_TRACE(NFAPI_TRACE_WARN, "Failed to set hardware timestamping on interface: %d - may affect timing accuracy\n", errno);
+			// Continue as this may not be supported by all interfaces
+		}
+		
+		// Set the TOS field for QoS prioritization
+		int tos = IPTOS_LOWDELAY | IPTOS_RELIABILITY;
+		if (setsockopt(raw_sock, IPPROTO_IP, IP_TOS, &tos, sizeof(tos)) < 0) {
+			NFAPI_TRACE(NFAPI_TRACE_WARN, "Failed to set IP_TOS: %d\n", errno);
+		}
+	} else {
+		// Use existing socket
+		raw_sock = static_raw_sock;
+	}
+
+	// Allocate and prepare the ethernet frame
+	uint8_t* frame_buffer = malloc(sizeof(struct ethhdr) + len);
+	if (!frame_buffer) {
+		NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to allocate memory for frame buffer\n");
+		return -1;
+	}
+
+	struct ethhdr *eth = (struct ethhdr *)frame_buffer;
+	memcpy(eth->h_dest, dest_mac, ETH_ALEN);
+	memcpy(eth->h_source, static_src_mac, ETH_ALEN);
+	eth->h_proto = htons(ETH_PROTO);
+
+	memcpy(frame_buffer + sizeof(struct ethhdr), msg, len);
+
+	// Prepare destination address
+	struct sockaddr_ll saddr = {
+		.sll_family = AF_PACKET,
+		.sll_protocol = htons(ETH_PROTO),
+		.sll_ifindex = static_ifindex,
+		.sll_halen = ETH_ALEN,
+	};
+	memcpy(saddr.sll_addr, dest_mac, ETH_ALEN);
+
+	// Send the frame with hardware timestamping
+	ssize_t sent = sendto(raw_sock, frame_buffer, sizeof(struct ethhdr) + len, 0,
+						 (struct sockaddr *)&saddr, sizeof(saddr));
+
+	if (sent < 0) {
+		NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s sendto() failed: %d\n", __FUNCTION__, errno);
+		free(frame_buffer);
+		return -1;
+	} else if (sent != sizeof(struct ethhdr) + len) {
+		NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s sendto failed to send the entire message %zd != %zu\n", 
+					__FUNCTION__, sent, sizeof(struct ethhdr) + len);
+	}
+	
+	// Get the hardware timestamp if available
+	char control[1024];
+	struct msghdr msg_hdr;
+	struct iovec iov;
+	char buf[1];
+	
+	memset(&msg_hdr, 0, sizeof(msg_hdr));
+	msg_hdr.msg_control = control;
+	msg_hdr.msg_controllen = sizeof(control);
+	msg_hdr.msg_iov = &iov;
+	msg_hdr.msg_iovlen = 1;
+	iov.iov_base = buf;
+	iov.iov_len = sizeof(buf);
+	
+	// Try to receive the timestamp (non-blocking)
+	int res = recvmsg(raw_sock, &msg_hdr, MSG_ERRQUEUE | MSG_DONTWAIT);
+	// if (res >= 0) {
+	// 	NFAPI_TRACE(NFAPI_TRACE_INFO, "Successfully received hardware timestamp\n");
+	// }
+
+	free(frame_buffer);
+	// Don't close the socket as we're reusing it
+	
+	return (sent == sizeof(struct ethhdr) + len) ? 0 : -1;
+}
 
 
 int pnf_p7_send_message(pnf_p7_t* pnf_p7, uint8_t* msg, uint32_t len)
@@ -629,7 +802,8 @@ int pnf_nr_p7_pack_and_send_p7_message(pnf_p7_t* pnf_p7, nfapi_nr_p7_message_hea
         nfapi_nr_p7_update_checksum(buffer, segment_size);
       }
 
-      pnf_p7_send_message(pnf_p7, &buffer[0], segment_size);
+    //   pnf_p7_send_message(pnf_p7, &buffer[0], segment_size);
+	  pnf_p7_send_message_rawSocket(pnf_p7, &buffer[0], segment_size);
     }
   } else {
     if (pnf_p7->_public.checksum_enabled) {
@@ -637,7 +811,8 @@ int pnf_nr_p7_pack_and_send_p7_message(pnf_p7_t* pnf_p7, nfapi_nr_p7_message_hea
     }
 
     // simple case that the message fits in a single segment
-    pnf_p7_send_message(pnf_p7, tx_buf, len);
+    // pnf_p7_send_message(pnf_p7, tx_buf, len);
+	pnf_p7_send_message_rawSocket(pnf_p7, tx_buf, len);
   }
 
   pnf_p7->sequence_number++;
