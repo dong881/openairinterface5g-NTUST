@@ -166,7 +166,8 @@ void config_uldci(const NR_UE_ServingCell_Info_t *sc_info,
                   int time_domain_assignment,
                   uint8_t tpc,
                   uint8_t ndi,
-                  NR_UE_UL_BWP_t *ul_bwp);
+                  NR_UE_UL_BWP_t *ul_bwp,
+                  NR_SearchSpace__searchSpaceType_PR ss_type);
 
 void nr_schedule_pucch(gNB_MAC_INST *nrmac, frame_t frameP, slot_t slotP);
 

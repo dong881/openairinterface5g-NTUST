@@ -2687,7 +2687,8 @@ void nr_schedule_ulsch(module_id_t module_id, frame_t frame, slot_t slot, nfapi_
                  sched_pusch->time_domain_allocation,
                  UE->UE_sched_ctrl.tpc0,
                  cur_harq->ndi,
-                 current_BWP);
+                 current_BWP,
+                 ss->searchSpaceType->present);
 
     // Reset TPC to 0 dB to not request new gain multiple times before computing new value for SNR
     UE->UE_sched_ctrl.tpc0 = 1;
