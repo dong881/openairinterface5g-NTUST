@@ -1180,9 +1180,20 @@ void nr_schedule_ue_spec(module_id_t module_id,
     AssertFatal(pdsch_Config == NULL || pdsch_Config->resourceAllocation == NR_PDSCH_Config__resourceAllocation_resourceAllocationType1,
                 "Only frequency resource allocation type 1 is currently supported\n");
 
-    dci_payload.frequency_domain_assignment.val = PRBalloc_to_locationandbandwidth0(pdsch_pdu->rbSize,
-                                                                                    pdsch_pdu->rbStart,
-                                                                                    pdsch_pdu->BWPSize);
+    // 3GPP TS 38.214 Section 5.1.2.2.2 Downlink resource allocation type 1
+    uint16_t riv_bwp_size = pdsch_pdu->BWPSize;
+    if (current_BWP->dci_format == NR_DL_DCI_FORMAT_1_0
+        && sched_ctrl->search_space->searchSpaceType->present == NR_SearchSpace__searchSpaceType_PR_common
+        && pdsch_Config->resourceAllocation == NR_PDSCH_Config__resourceAllocation_resourceAllocationType1) {
+      if (gNB_mac->cset0_bwp_size > 0) {
+        riv_bwp_size = gNB_mac->cset0_bwp_size;
+      } else {
+        riv_bwp_size = UE->sc_info.initial_dl_BWPSize;
+      }
+    }
+    dci_payload.frequency_domain_assignment.val =
+        PRBalloc_to_locationandbandwidth0(pdsch_pdu->rbSize, pdsch_pdu->rbStart, riv_bwp_size);
+
     dci_payload.format_indicator = 1;
     dci_payload.time_domain_assignment.val = sched_pdsch->time_domain_allocation;
     dci_payload.mcs = sched_pdsch->mcs;
