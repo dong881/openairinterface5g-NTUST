@@ -2208,9 +2208,12 @@ static void set_sched_pucch_list(NR_UE_sched_ctrl_t *sched_ctrl,
   }
 }
 
-static void create_dl_harq_list(NR_UE_sched_ctrl_t *sched_ctrl, const NR_UE_ServingCell_Info_t *sc_info)
+static void create_dl_harq_list(NR_UE_sched_ctrl_t *sched_ctrl, const NR_UE_ServingCell_Info_t *sc_info, bool dci_00_10)
 {
-  const int nrofHARQ = get_nrofHARQ_ProcessesForPDSCH(sc_info);
+  int nrofHARQ = get_nrofHARQ_ProcessesForPDSCH(sc_info);
+  // limit the number of HARQ PIDs to 16 in case of common search space
+  if (dci_00_10 && nrofHARQ > 16)
+    nrofHARQ = 16;
   // add all available DL HARQ processes for this UE
   AssertFatal(sched_ctrl->available_dl_harq.len == sched_ctrl->feedback_dl_harq.len
               && sched_ctrl->available_dl_harq.len == sched_ctrl->retrans_dl_harq.len,
@@ -2239,9 +2242,12 @@ static void create_dl_harq_list(NR_UE_sched_ctrl_t *sched_ctrl, const NR_UE_Serv
   }
 }
 
-static void create_ul_harq_list(NR_UE_sched_ctrl_t *sched_ctrl, const NR_UE_ServingCell_Info_t *sc_info)
+static void create_ul_harq_list(NR_UE_sched_ctrl_t *sched_ctrl, const NR_UE_ServingCell_Info_t *sc_info, bool dci_00_10)
 {
   int nrofHARQ = get_nrofHARQ_ProcessesForPUSCH(sc_info);
+  // limit the number of HARQ PIDs to 16 in case of common search space
+  if (dci_00_10 && nrofHARQ > 16)
+    nrofHARQ = 16;
   if (sched_ctrl->available_ul_harq.len == 0) {
     create_nr_list(&sched_ctrl->available_ul_harq, nrofHARQ);
     for (int harq = 0; harq < nrofHARQ; harq++)
@@ -2452,8 +2458,6 @@ void configure_UE_BWP(gNB_MAC_INST *nr_mac,
             sc_info->nrofHARQ_ProcessesForPUSCH_r17 = pusch_servingcellconfig->ext3->nrofHARQ_ProcessesForPUSCH_r17;
         }
       }
-      create_dl_harq_list(sched_ctrl, sc_info);
-      create_ul_harq_list(sched_ctrl, sc_info);
     }
 
     if (CellGroup && CellGroup->physicalCellGroupConfig)
@@ -2516,6 +2520,10 @@ void configure_UE_BWP(gNB_MAC_INST *nr_mac,
     DL_BWP->dci_format = NR_DL_DCI_FORMAT_1_0;
   }
 
+  bool format_00_10 = DL_BWP->dci_format == NR_DL_DCI_FORMAT_1_0; // if DL is 10 UL is surely 00
+  create_dl_harq_list(sched_ctrl, sc_info, format_00_10);
+  create_ul_harq_list(sched_ctrl, sc_info, format_00_10);
+
   set_max_fb_time(UL_BWP, DL_BWP);
   set_sched_pucch_list(sched_ctrl, UL_BWP, scc, &nr_mac->frame_structure);
 
@@ -2576,11 +2584,6 @@ NR_UE_info_t *get_new_nr_ue_inst(uid_allocator_t *uia, rnti_t rnti, NR_CellGroup
 
   /* Set default BWPs */
   AssertFatal(UE->sc_info.n_ul_bwp <= NR_MAX_NUM_BWP, "uplinkBWP_ToAddModList has %d BWP!\n", UE->sc_info.n_ul_bwp);
-
-  /* get Number of HARQ processes for this UE */
-  // pdsch_servingcellconfig == NULL in SA -> will create default (8) number of HARQ processes
-  create_dl_harq_list(sched_ctrl, &UE->sc_info);
-  create_ul_harq_list(sched_ctrl, &UE->sc_info);
 
   // initialize LCID structure
   seq_arr_init(&sched_ctrl->lc_config, sizeof(nr_lc_config_t));
