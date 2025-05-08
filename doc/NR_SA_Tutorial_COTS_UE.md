@@ -63,7 +63,7 @@ sudo apt install -y autoconf automake build-essential ccache cmake cpufrequtils 
 
 git clone https://github.com/EttusResearch/uhd.git ~/uhd
 cd ~/uhd
-git checkout v4.7.0.0
+git checkout v4.8.0.0
 cd host
 mkdir build
 cd build
