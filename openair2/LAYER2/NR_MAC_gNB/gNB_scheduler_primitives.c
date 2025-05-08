@@ -497,13 +497,21 @@ NR_sched_pdcch_t set_pdcch_structure(gNB_MAC_INST *gNB_mac,
     pdcch.ShiftIndex = 0;
   }
 
-  int N_rb = 0; // nb of rbs of coreset per symbol
-  for (int i=0;i<6;i++) {
-    for (int t=0;t<8;t++) {
-      N_rb+=((coreset->frequencyDomainResources.buf[i]>>t)&1);
+  uint16_t N_rb = 0; // nb of rbs of coreset per symbol
+  uint16_t rb_start = 0;
+  for (int i = 0; i < 6; i++) {
+    for (int t = 0; t < 8; t++) {
+      if (coreset->frequencyDomainResources.buf[i] >> (7 - t) & 1) {
+        if (N_rb == 0) {
+          rb_start = 48 * i + t * 6;
+        }
+        N_rb++;
+      }
     }
   }
-  pdcch.n_rb = N_rb*=6; // each bit of frequencyDomainResources represents 6 PRBs
+
+  pdcch.rb_start = rb_start;
+  pdcch.n_rb = N_rb *= 6; // each bit of frequencyDomainResources represents 6 PRBs
 
   return pdcch;
 }

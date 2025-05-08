@@ -198,7 +198,8 @@ typedef struct NR_sched_pdcch {
   uint8_t InterleaverSize;
   uint16_t ShiftIndex;
   uint8_t DurationSymbols;
-  int n_rb;
+  uint16_t n_rb;
+  uint16_t rb_start;
 } NR_sched_pdcch_t;
 
 /*! \brief gNB template for the Random access information */
