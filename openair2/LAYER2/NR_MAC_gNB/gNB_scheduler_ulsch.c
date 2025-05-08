@@ -65,6 +65,28 @@ int get_ul_tda(gNB_MAC_INST *nrmac, int frame, int slot)
   return 0; // if FDD or not mixed slot in TDD, for now use default TDA (TODO handle CSI-RS slots)
 }
 
+static bwp_info_t get_pusch_bwp_start_size(NR_UE_info_t *UE)
+{
+  NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  bwp_info_t bwp_info;
+  bwp_info.bwpStart = ul_bwp->BWPStart;
+
+  // 3GPP TS 38.214 Section 6.1.2.2.2 Uplink resource allocation type 1
+  // In uplink resource allocation of type 1, the resource block assignment information indicates to a scheduled UE a set of
+  // contiguously allocated non-interleaved virtual resource blocks within the active bandwidth part of size   PRBs except for the
+  // case when DCI format 0_0 is decoded in any common search space in which case the size of the initial UL bandwidth part shall
+  // be used.
+  if (ul_bwp->dci_format == NR_UL_DCI_FORMAT_0_0 && sched_ctrl->search_space->searchSpaceType
+      && sched_ctrl->search_space->searchSpaceType->present == NR_SearchSpace__searchSpaceType_PR_common
+      && ul_bwp->pusch_Config->resourceAllocation == NR_PUSCH_Config__resourceAllocation_resourceAllocationType1) {
+    bwp_info.bwpSize = min(ul_bwp->BWPSize, UE->sc_info.initial_ul_BWPSize);
+  } else {
+    bwp_info.bwpSize = ul_bwp->BWPSize;
+  }
+  return bwp_info;
+}
+
 static int compute_ph_factor(int mu, int tbs_bits, int rb, int n_layers, int n_symbols, int n_dmrs, long *deltaMCS, bool include_bw)
 {
   // 38.213 7.1.1
@@ -1673,8 +1695,9 @@ static bool allocate_ul_retransmission(gNB_MAC_INST *nrmac,
   NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
 
   int rbStart = 0; // wrt BWP start
-  const uint32_t bwpSize = ul_bwp->BWPSize;
-  const uint32_t bwpStart = ul_bwp->BWPStart;
+  bwp_info_t bwp_info = get_pusch_bwp_start_size(UE);
+  const uint32_t bwpSize = bwp_info.bwpSize;
+  const uint32_t bwpStart = bwp_info.bwpStart;
   const uint8_t nrOfLayers = retInfo->nrOfLayers;
   LOG_D(NR_MAC,"retInfo->time_domain_allocation = %d, tda = %d\n", retInfo->time_domain_allocation, tda);
   LOG_D(NR_MAC,"tbs %d\n",retInfo->tb_size);
@@ -1963,8 +1986,9 @@ static void pf_ul(module_id_t module_id,
             min_rb,
             rbStart,
             sched_pusch->dmrs_info.num_dmrs_cdm_grps_no_data);
-      const uint32_t bwpSize = current_BWP->BWPSize;
-      const uint32_t bwpStart = current_BWP->BWPStart;
+      bwp_info_t bwp_info = get_pusch_bwp_start_size(UE);
+      const uint32_t bwpStart = bwp_info.bwpStart;
+      const uint32_t bwpSize = bwp_info.bwpSize;
       const uint16_t slbitmap = SL_to_bitmap(sched_pusch->tda_info.startSymbolIndex, sched_pusch->tda_info.nrOfSymbols);
       while (rbStart < bwpSize && (rballoc_mask[rbStart + bwpStart] & slbitmap))
         rbStart++;
@@ -2112,8 +2136,9 @@ static void pf_ul(module_id_t module_id,
 
     int rbStart = 0;
     const uint16_t slbitmap = SL_to_bitmap(sched_pusch->tda_info.startSymbolIndex, sched_pusch->tda_info.nrOfSymbols);
-    const uint32_t bwpSize = current_BWP->BWPSize;
-    const uint32_t bwpStart = current_BWP->BWPStart;
+    bwp_info_t bwp_info = get_pusch_bwp_start_size(iterator->UE);
+    const uint32_t bwpStart = bwp_info.bwpStart;
+    const uint32_t bwpSize = bwp_info.bwpSize;
     while (rbStart < bwpSize && (rballoc_mask[rbStart + bwpStart] & slbitmap))
       rbStart++;
     sched_pusch->rbStart = rbStart;
