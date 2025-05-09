@@ -657,33 +657,41 @@ retrieve_ldpc_enc_op(struct rte_bbdev_enc_op **ops,
     int bit_offset = 0;
     int byte_offset = 0;
     p_out = nrLDPC_slot_encoding_parameters->TBs[h].output;
-    for (unsigned int i = 0; i < nrLDPC_slot_encoding_parameters->TBs[h].C; ++i) {
+    for (unsigned int r = 0; r < nrLDPC_slot_encoding_parameters->TBs[h].C; ++r) {
       struct rte_bbdev_op_data *output = &ops[j]->ldpc_enc.output;
       struct rte_mbuf *m = output->data;
       uint16_t data_len = rte_pktmbuf_data_len(m) - output->offset;
-      const char *data = m->buf_addr + m->data_off;
+      uint8_t *data = m->buf_addr + m->data_off;
+      reverse_bits_u8(data, data_len, data);
       if (bit_offset == 0) {
         memcpy(&p_out[byte_offset], data, data_len);
       } else {
-        uint8_t carry = 0;
-        p_out[byte_offset - 1] |= data[0] >> bit_offset;
-        for (size_t i = 0; i < data_len; i++) {
+        size_t i = 0;
+        for (; i < (data_len & ~0x7); i += 8) {
+          uint8_t carry = *data << bit_offset;
+          p_out[byte_offset + i - 1] |= carry;
+
+          simde__m64 current = *((simde__m64 *)data);
+          data += 8;
+          current = simde_mm_srli_si64(current, 8 - bit_offset);
+          *(simde__m64 *)&p_out[byte_offset + i] = current;
+        }
+        for (; i < data_len; i++) {
           uint8_t current = *data++;
-          p_out[byte_offset + i] = (current << (8 - bit_offset));
-          if (i != 0) {
-            carry = current >> bit_offset;
-            p_out[byte_offset + i - 1] |= carry;
-          }
+
+          uint8_t carry = current << bit_offset;
+          p_out[byte_offset + i - 1] |= carry;
+
+          p_out[byte_offset + i] = (current >> (8 - bit_offset));
         }
       }
-      E_sum += nrLDPC_slot_encoding_parameters->TBs[h].segments[i].E;
+      E_sum += nrLDPC_slot_encoding_parameters->TBs[h].segments[r].E;
       byte_offset = (E_sum + 7) / 8;
       bit_offset = E_sum % 8;
       rte_pktmbuf_free(m);
       rte_pktmbuf_free(ops[j]->ldpc_enc.input.data);
       ++j;
     }
-    reverse_bits_u8(p_out, byte_offset, p_out);
   }
   return 0;
 }
