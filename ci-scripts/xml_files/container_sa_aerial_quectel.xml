@@ -108,7 +108,7 @@
         <testCase id="000033">
                 <class>Iperf</class>
                 <desc>iperf (UL/UDP/40M)(30 sec)(single-ue profile)</desc>
-                <iperf_args>-u -b 40M -t 30</iperf_args>
+                <iperf_args>-u -b 40M -t 30 -l 1428</iperf_args>
                 <svr_id>oc-cn5g-20897-aerial</svr_id>
                 <id>up2-aerial</id>
                 <iperf_packetloss_threshold>25</iperf_packetloss_threshold>
