@@ -104,6 +104,7 @@ static void tx_func(processingData_L1tx_t *info)
   }
 
   start_meas(&gNB->slot_indication_stats);
+  log_mmap_entry(0, frame_tx, slot_tx, "PNF");
   ifi->NR_slot_indication(module_id, CC_id, frame_tx, slot_tx);
   stop_meas(&gNB->slot_indication_stats);
   gNB->msgDataTx->timestamp_tx = info->timestamp_tx;
