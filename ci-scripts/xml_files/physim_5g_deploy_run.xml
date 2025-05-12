@@ -25,13 +25,23 @@
 	<htmlTabName>Physical Simulators Check</htmlTabName>
 	<htmlTabIcon>wrench</htmlTabIcon>
 	<TestCaseRequestedList>
- 010201
+          800813
+          010201
 	</TestCaseRequestedList>
 	<TestCaseExclusionList></TestCaseExclusionList>
 
-	<testCase id="010201">
+        <testCase id="800813">
+                <class>Create_Workspace</class>
+                <desc>Create new Workspace</desc>
+                <eNB_instance>0</eNB_instance>
+                <eNB_serverId>0</eNB_serverId>
+        </testCase>
+
+        <testCase id="010201">
 		<class>Deploy_Run_PhySim</class>
-		<desc>Deploy and run physical simulator on openshift</desc>
+                <desc>Deploy and run physical simulator on openshift</desc>
+                <oc_release>physims-5g</oc_release>
+                <svr_id>avra</svr_id>
 	</testCase>
 
 </testCaseList>
