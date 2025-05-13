@@ -58,12 +58,6 @@ def eNBSrvHelp(ipaddr, username, password, sourcepath):
 	print('  --eNBPassword=[eNB\'s Login Password]                    -- ' + password)
 	print('  --eNBSourceCodePath=[eNB\'s Source Code Path]            -- ' + sourcepath)
 
-def OAIUESrvHelp(ipaddr, username, password, sourcepath):
-	print('  --UEIPAddress=[UE\'s IP Address]                         -- ' + ipaddr)
-	print('  --UEUserName=[UE\'s Login User Name]                     -- ' + username)
-	print('  --UEPassword=[UE\'s Login Password]                      -- ' + password)
-	print('  --UESourceCodePath=[UE\'s Source Code Path]              -- ' + sourcepath)
-		
 def XmlHelp(filename):
 	print('  --XMLTestFile=[XML Test File to be run]                  -- ' + filename)
 	print('	Note: multiple xml files can be specified (--XMLFile=File1 ... --XMLTestFile=FileN) when HTML headers are created ("InitiateHtml" mode)')

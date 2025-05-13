@@ -275,11 +275,6 @@ class OaiCiTest():
 		self.iperf_options = ''
 		self.iperf_tcp_rate_target = ''
 		self.finalStatus = False
-		self.UEIPAddress = ''
-		self.UEUserName = ''
-		self.UEPassword = ''
-		self.UESourceCodePath = ''
-		self.UELogFile = ''
 		self.air_interface=''
 		self.ue_ids = []
 		self.nodes = []
@@ -888,7 +883,7 @@ class OaiCiTest():
 	def LogCollectBuild(self,RAN):
 		# Some pipelines are using "none" IP / Credentials
 		# In that case, just forget about it
-		if RAN.eNBIPAddress == 'none' or self.UEIPAddress == 'none':
+		if RAN.eNBIPAddress == 'none':
 			sys.exit(0)
 
 		if (RAN.eNBIPAddress != '' and RAN.eNBUserName != '' and RAN.eNBPassword != ''):
@@ -896,11 +891,6 @@ class OaiCiTest():
 			UserName = RAN.eNBUserName
 			Password = RAN.eNBPassword
 			SourceCodePath = RAN.eNBSourceCodePath
-		elif (self.UEIPAddress != '' and self.UEUserName != '' and self.UEPassword != ''):
-			IPAddress = self.UEIPAddress
-			UserName = self.UEUserName
-			Password = self.UEPassword
-			SourceCodePath = self.UESourceCodePath
 		else:
 			sys.exit('Insufficient Parameter')
 		with cls_cmd.getConnection(IPAddress) as cmd:

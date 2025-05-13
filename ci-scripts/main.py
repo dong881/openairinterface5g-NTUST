@@ -484,9 +484,9 @@ elif re.match('^TerminateMME$', mode, re.IGNORECASE):
 elif re.match('^TerminateSPGW$', mode, re.IGNORECASE):
 	logging.warning("Option TerminateSPGW ignored")
 elif re.match('^LogCollectBuild$', mode, re.IGNORECASE):
-	if (RAN.eNBIPAddress == '' or RAN.eNBUserName == '' or RAN.eNBPassword == '' or RAN.eNBSourceCodePath == '') and (CiTestObj.UEIPAddress == '' or CiTestObj.UEUserName == '' or CiTestObj.UEPassword == '' or CiTestObj.UESourceCodePath == ''):
-		HELP.GenericHelp(CONST.Version)
-		sys.exit('Insufficient Parameter')
+	if RAN.eNBIPAddress == '' or RAN.eNBUserName == '' or RAN.eNBPassword == '' or RAN.eNBSourceCodePath == '':
+		logging.warning("nothing to collect (eNBIPAddress/eNBUserName/eNBPassword/eNBSourceCodePath is '')")
+		sys.exit(0)
 	if RAN.eNBIPAddress == 'none':
 		sys.exit(0)
 	CiTestObj.LogCollectBuild(RAN)
@@ -556,7 +556,7 @@ elif re.match('^TesteNB$', mode, re.IGNORECASE) or re.match('^TestUE$', mode, re
 				HELP.eNBSrvHelp(RAN.eNBIPAddress, RAN.eNBUserName, RAN.eNBPassword, RAN.eNBSourceCodePath)
 			sys.exit('Insufficient Parameter')
 	else:
-		if CiTestObj.UEIPAddress == '' or CiTestObj.ranRepository == '' or CiTestObj.ranBranch == '' or CiTestObj.UEUserName == '' or CiTestObj.UEPassword == '' or CiTestObj.UESourceCodePath == '':
+		if CiTestObj.ranRepository == '' or CiTestObj.ranBranch == '':
 			HELP.GenericHelp(CONST.Version)
 			sys.exit('UE: Insufficient Parameter')
 

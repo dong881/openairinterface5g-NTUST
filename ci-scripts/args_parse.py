@@ -197,17 +197,13 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,CLUSTER):
             HTML.testXMLfiles.append(matchReg.group(1))
             HTML.nbTestXMLfiles=HTML.nbTestXMLfiles+1
         elif re.match(r'^\-\-UEIPAddress=(.+)$', myArgv, re.IGNORECASE): # cleanup
-            matchReg = re.match(r'^\-\-UEIPAddress=(.+)$', myArgv, re.IGNORECASE)
-            CiTestObj.UEIPAddress = matchReg.group(1)
+            print("parameter --UEIPAddress ignored")
         elif re.match(r'^\-\-UEUserName=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match(r'^\-\-UEUserName=(.+)$', myArgv, re.IGNORECASE)
-            CiTestObj.UEUserName = matchReg.group(1)
+            print("parameter --UEUserName ignored")
         elif re.match(r'^\-\-UEPassword=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match(r'^\-\-UEPassword=(.+)$', myArgv, re.IGNORECASE)
-            CiTestObj.UEPassword = matchReg.group(1)
+            print("parameter --UEPassword ignored")
         elif re.match(r'^\-\-UESourceCodePath=(.+)$', myArgv, re.IGNORECASE):
-            matchReg = re.match(r'^\-\-UESourceCodePath=(.+)$', myArgv, re.IGNORECASE)
-            CiTestObj.UESourceCodePath = matchReg.group(1)
+            print("parameter --UESourceCodePath ignored")
         elif re.match(r'^\-\-finalStatus=(.+)$', myArgv, re.IGNORECASE):
             matchReg = re.match(r'^\-\-finalStatus=(.+)$', myArgv, re.IGNORECASE)
             finalStatus = matchReg.group(1)
