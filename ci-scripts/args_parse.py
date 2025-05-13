@@ -191,18 +191,6 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,CLUSTER):
                 matchReg = re.match(r'^\-\-eNB2SourceCodePath=(.+)$', myArgv, re.IGNORECASE)
                 RAN.eNB2SourceCodePath=matchReg.group(1)
                 CONTAINERS.eNB2SourceCodePath=matchReg.group(1)
-        elif re.match(r'^\-\-EPCIPAddress=(.+)$', myArgv, re.IGNORECASE):
-            print("parameter --EPCIPAddress ignored")
-        elif re.match(r'^\-\-EPCUserName=(.+)$', myArgv, re.IGNORECASE):
-            print("parameter --EPCUserName ignored")
-        elif re.match(r'^\-\-EPCPassword=(.+)$', myArgv, re.IGNORECASE):
-            print("parameter --EPCPassword ignored")
-        elif re.match(r'^\-\-EPCSourceCodePath=(.+)$', myArgv, re.IGNORECASE):
-            print("parameter --EPCSourceCodePath ignored")
-        elif re.match(r'^\-\-EPCType=(.+)$', myArgv, re.IGNORECASE):
-            print("parameter --EPCType ignored")
-        elif re.match(r'^\-\-EPCContainerPrefix=(.+)$', myArgv, re.IGNORECASE):
-            print("parameter --EPCContainerPrefix ignored")
         elif re.match(r'^\-\-XMLTestFile=(.+)$', myArgv, re.IGNORECASE):
             matchReg = re.match(r'^\-\-XMLTestFile=(.+)$', myArgv, re.IGNORECASE)
             CiTestObj.testXMLfiles.append(matchReg.group(1))
