@@ -2676,6 +2676,215 @@ void pnf_nfapi_p7_read_dispatch_message(pnf_p7_t* pnf_p7, uint32_t now_hr_time)
 	while(recvfrom_result > 0);
 }
 
+int pnf_nr_p7_socket_init_rawSocket(pnf_p7_t* pnf_p7, const char* interface_name)
+{
+    struct ifreq ifr;
+    int sock;
+    
+    // Create raw socket
+    sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_PROTO));
+    if (sock < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to create raw socket: %s\n", strerror(errno));
+        return -1;
+    }
+    
+    // Get interface index
+    memset(&ifr, 0, sizeof(ifr));
+    strncpy(ifr.ifr_name, interface_name, IFNAMSIZ-1);
+    
+    if (ioctl(sock, SIOCGIFINDEX, &ifr) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to get interface index: %s\n", strerror(errno));
+        close(sock);
+        return -1;
+    }
+    
+    int ifindex = ifr.ifr_ifindex;
+    
+    // Get interface MAC address
+    if (ioctl(sock, SIOCGIFHWADDR, &ifr) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to get interface MAC address: %s\n", strerror(errno));
+        close(sock);
+        return -1;
+    }
+    
+    // Store MAC address for later use
+    unsigned char src_mac[ETH_ALEN];
+    memcpy(src_mac, ifr.ifr_hwaddr.sa_data, ETH_ALEN);
+    
+    // Bind socket to interface
+    struct sockaddr_ll sll;
+    memset(&sll, 0, sizeof(sll));
+    sll.sll_family = AF_PACKET;
+    sll.sll_protocol = htons(ETH_PROTO);
+    sll.sll_ifindex = ifindex;
+    
+    if (bind(sock, (struct sockaddr*)&sll, sizeof(sll)) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to bind to interface: %s\n", strerror(errno));
+        close(sock);
+        return -1;
+    }
+    
+    // Enable hardware timestamping if supported
+    int ts_flags = SOF_TIMESTAMPING_TX_HARDWARE | 
+                   SOF_TIMESTAMPING_RX_HARDWARE | 
+                   SOF_TIMESTAMPING_RAW_HARDWARE | 
+                   SOF_TIMESTAMPING_SYS_HARDWARE | 
+                   SOF_TIMESTAMPING_HW_TRANS;
+                   
+    if (setsockopt(sock, SOL_SOCKET, SO_TIMESTAMPING, &ts_flags, sizeof(ts_flags)) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_WARN, "Hardware timestamping not supported: %s\n", strerror(errno));
+        // Continue without timestamping
+    }
+    
+    // Set socket to non-blocking mode
+    int flags = fcntl(sock, F_GETFL, 0);
+    if (flags == -1) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to get socket flags: %s\n", strerror(errno));
+        close(sock);
+        return -1;
+    }
+    
+    if (fcntl(sock, F_SETFL, flags | O_NONBLOCK) == -1) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to set non-blocking mode: %s\n", strerror(errno));
+        close(sock);
+        return -1;
+    }
+    
+    // Store the interface information in pnf_p7 if needed
+    // You might want to add members to the pnf_p7_t struct to store these
+    
+    pnf_p7->p7_sock = sock;
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "Raw socket initialized on interface %s (index: %d)\n", 
+                interface_name, ifindex);
+    
+    return 0;
+}
+
+void pnf_nr_nfapi_p7_read_dispatch_message_rawSocket(pnf_p7_t* pnf_p7, uint32_t now_hr_time)
+{
+    #define ETH_PROTO 0x1234
+    int recvfrom_result = 0;
+    struct sockaddr_ll remote_addr;
+    socklen_t remote_addr_size = sizeof(remote_addr);
+    
+    do {
+        // Peek at the Ethernet header + NFAPI header
+        uint8_t header_buffer[sizeof(struct ethhdr) + NFAPI_NR_P7_HEADER_LENGTH];
+        recvfrom_result = recvfrom(pnf_p7->p7_sock,
+                                   header_buffer,
+                                   sizeof(header_buffer),
+                                   MSG_DONTWAIT | MSG_PEEK,
+                                   (struct sockaddr*)&remote_addr,
+                                   &remote_addr_size);
+        
+        if (recvfrom_result > 0) {
+            // Check if we received enough data for the headers
+            if (recvfrom_result < sizeof(header_buffer)) {
+                // Not enough data, discard and continue
+                uint8_t discard[recvfrom_result];
+                recvfrom(pnf_p7->p7_sock, discard, recvfrom_result, 0, NULL, NULL);
+                continue;
+            }
+            
+            // Verify it's our protocol
+            struct ethhdr *eth_hdr = (struct ethhdr *)header_buffer;
+            if (ntohs(eth_hdr->h_proto) != ETH_PROTO) {
+                // Not our protocol, discard
+                uint8_t discard[recvfrom_result];
+                recvfrom(pnf_p7->p7_sock, discard, recvfrom_result, 0, NULL, NULL);
+                continue;
+            }
+            
+            // Extract NFAPI header
+            nfapi_nr_p7_message_header_t nfapi_header;
+            if (nfapi_nr_p7_message_header_unpack(
+                    header_buffer + sizeof(struct ethhdr), 
+                    NFAPI_NR_P7_HEADER_LENGTH, 
+                    &nfapi_header, 
+                    34, 
+                    &pnf_p7->_public.codec_config) < 0) {
+                // Failed to unpack header
+                uint8_t discard[recvfrom_result];
+                recvfrom(pnf_p7->p7_sock, discard, recvfrom_result, 0, NULL, NULL);
+                NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack NFAPI header\n");
+                continue;
+            }
+            
+            // Calculate total frame size
+            uint32_t payload_size = nfapi_header.message_length;
+            uint32_t total_frame_size = sizeof(struct ethhdr) + payload_size;
+            
+            // Resize buffer if needed
+            if (payload_size > pnf_p7->rx_message_buffer_size) {
+                NFAPI_TRACE(NFAPI_TRACE_NOTE, "reallocing rx buffer %d\n", payload_size);
+                void *new_buf = realloc(pnf_p7->rx_message_buffer, payload_size);
+                if (!new_buf) {
+                    NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to allocate memory for message buffer\n");
+                    uint8_t discard[recvfrom_result];
+                    recvfrom(pnf_p7->p7_sock, discard, recvfrom_result, 0, NULL, NULL);
+                    continue;
+                }
+                pnf_p7->rx_message_buffer = new_buf;
+                pnf_p7->rx_message_buffer_size = payload_size;
+            }
+            
+            // Read the complete frame
+            uint8_t *frame_buffer = malloc(total_frame_size);
+            if (!frame_buffer) {
+                NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to allocate memory for frame buffer\n");
+                uint8_t discard[recvfrom_result];
+                recvfrom(pnf_p7->p7_sock, discard, recvfrom_result, 0, NULL, NULL);
+                continue;
+            }
+            
+            recvfrom_result = recvfrom(pnf_p7->p7_sock,
+                                      frame_buffer,
+                                      total_frame_size,
+                                      MSG_DONTWAIT,
+                                      (struct sockaddr*)&remote_addr,
+                                      &remote_addr_size);
+            
+            now_hr_time = pnf_get_current_time_hr(); // Get current timestamp
+            
+            if (recvfrom_result > 0) {
+                if (recvfrom_result != total_frame_size) {
+                    NFAPI_TRACE(NFAPI_TRACE_ERROR, "(%d) Received unexpected number of bytes. %d != %d",
+                               __LINE__, recvfrom_result, total_frame_size);
+                    free(frame_buffer);
+                    break;
+                }
+                
+                // Copy payload to message buffer (skip Ethernet header)
+                memcpy(pnf_p7->rx_message_buffer,
+                       frame_buffer + sizeof(struct ethhdr),
+                       payload_size);
+                
+                // Process the message
+                pnf_nr_handle_p7_message(pnf_p7->rx_message_buffer, 
+                                        payload_size, 
+                                        pnf_p7, 
+                                        now_hr_time);
+            }
+            
+            free(frame_buffer);
+            
+        } else if (recvfrom_result == 0) {
+            // recv zero length message
+            recvfrom_result = recvfrom(pnf_p7->p7_sock,
+                                      header_buffer,
+                                      0,
+                                      MSG_DONTWAIT,
+                                      (struct sockaddr*)&remote_addr,
+                                      &remote_addr_size);
+        }
+        
+        if (recvfrom_result == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
+            NFAPI_TRACE(NFAPI_TRACE_WARN, "%s recvfrom failed errno:%d\n", __FUNCTION__, errno);
+        }
+        
+    } while (recvfrom_result > 0);
+}
+
 void pnf_nr_nfapi_p7_read_dispatch_message(pnf_p7_t* pnf_p7, uint32_t now_hr_time)
 {
   int recvfrom_result = 0;
@@ -3068,7 +3277,7 @@ int pnf_nr_p7_message_pump(pnf_p7_t* pnf_p7)
 		if(FD_ISSET(pnf_p7->p7_sock, &rfds)) 
 
 		{
-			pnf_nr_nfapi_p7_read_dispatch_message(pnf_p7, now_hr_time); 
+			pnf_nr_nfapi_p7_read_dispatch_message_rawSocket(pnf_p7, now_hr_time); 
 		}
 	}
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "PNF_P7 Terminating..\n");
