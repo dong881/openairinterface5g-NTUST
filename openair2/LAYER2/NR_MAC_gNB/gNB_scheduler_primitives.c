@@ -3261,6 +3261,9 @@ void reset_beam_status(NR_beam_info_t *beam_info, int frame, int slot, int beam_
 
 void beam_selection_procedures(gNB_MAC_INST *mac, NR_UE_info_t *UE)
 {
+  // do not perform beam procedures if there is no beam information
+  if (!mac->beam_info.beam_allocation)
+    return;
   RSRP_report_t *rsrp_report = &UE->UE_sched_ctrl.CSI_report.ssb_rsrp_report;
   // simple beam switching algorithm -> we select beam with highest RSRP from CSI report
   int new_bf_index = get_fapi_beamforming_index(mac, rsrp_report->resource_id[0]);
