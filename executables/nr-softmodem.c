@@ -728,6 +728,7 @@ void cleanup_mmap_logger() {
 
 int main( int argc, char **argv ) {
   init_mmap_logger("PNF.txt");
+  init_mmap_logger("VNF.txt");
   int ru_id, CC_id = 0;
   start_background_system();
 
