@@ -246,11 +246,11 @@ pipeline {
     stage ("Image Test Processes") {
       when { expression {doBuild} }
       parallel {
-        stage ("PhySim-Cluster") {
-          when { expression {do4Gtest || do5Gtest || do5GUeTest} }
+        stage ("PhySim-Cluster-5G") {
+          when { expression {do5Gtest || do5GUeTest} }
           steps {
             script {
-              triggerSlaveJob ('RAN-PhySim-Cluster', 'PhySim-Cluster')
+              triggerSlaveJob ('RAN-PhySim-Cluster-5G', 'PhySim-Cluster-5G')
             }
           }
           post {
@@ -258,13 +258,36 @@ pipeline {
               script {
                 // Using a unique variable name for each test stage to avoid overwriting on a global variable
                 // due to parallel-time concurrency
-                physimStatus = finalizeSlaveJob('RAN-PhySim-Cluster')
+                physim5GStatus = finalizeSlaveJob('RAN-PhySim-Cluster-5G')
               }
             }
             failure {
               script {
                 currentBuild.result = 'FAILURE'
-                failingStages += physimStatus
+                failingStages += physim5GStatus
+              }
+            }
+          }
+        }
+        stage ("PhySim-Cluster-4G") {
+          when { expression {do4Gtest} }
+          steps {
+            script {
+              triggerSlaveJob ('RAN-PhySim-Cluster-4G', 'PhySim-Cluster-4G')
+            }
+          }
+          post {
+            always {
+              script {
+                // Using a unique variable name for each test stage to avoid overwriting on a global variable
+                // due to parallel-time concurrency
+                physim4GStatus = finalizeSlaveJob('RAN-PhySim-Cluster-4G')
+              }
+            }
+            failure {
+              script {
+                currentBuild.result = 'FAILURE'
+                failingStages += physim4GStatus
               }
             }
           }
