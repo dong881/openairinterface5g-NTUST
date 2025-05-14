@@ -176,13 +176,13 @@ add_physim_test(5g nr_pucchsim test19 "Format 2 64-bit 16/106 PRB" -R 106 -i 1 -
 add_physim_test(5g nr_pucchsim test20 "Format 0 1-bit Ack miss 273 PRB" -R 273 -z8 -i 1 -P 0 -b 1 -s-2 -n3000)
 add_physim_test(5g nr_pucchsim test21 "Format 0 2-bit Ack miss 273 PRB" -R 273 -z8 -i 1 -P 0 -b 2 -s-2 -n3000)
 add_physim_test(5g nr_pucchsim test22 "Format 0 2-bit Ack miss+SR 273 PRB" -R 273 -z8 -i 1 -P 0 -b 2 -s-2 -c -n3000)
-add_physim_test(5g nr_pucchsim test23 "Format 2 4-bit 2/273 PRB" -R 273 -z8 -i 1 -P 2 -b 4 -s-10 -n3000)
+add_physim_test(5g nr_pucchsim test23 "Format 2 4-bit 2/273 PRB" -R 273 -z8 -i 1 -P 2 -b 4 -s-8 -S0 -n3000)
 add_physim_test(5g nr_pucchsim test24 "Format 2 7-bit 2/273 PRB" -R 273 -z8 -i 1 -P 2 -b 7 -s3 -n3000)
 add_physim_test(5g nr_pucchsim test25 "Format 2 11-bit 2/273 PRB" -R 273 -z8 -i 1 -P 2 -b 11 -s6 -n3000)
 add_physim_test(5g nr_pucchsim test26 "Format 2 12-bit 8/273 PRB" -R 273 -z8 -i 1 -P 2 -q8 -b 12 -s-3 -n3000)
 add_physim_test(5g nr_pucchsim test27 "Format 2 19-bit 8/273 PRB" -R 273 -z8 -i 1 -P 2 -q8 -b 19 -s-3 -n3000)
 add_physim_test(5g nr_pucchsim test28 "Format 2 64-bit 16/273 PRB" -R 273 -z8 -i 1 -P 2 -q16 -b 64 -s-3 -n3000)
-add_physim_test(5g nr_pucchsim test29 "Format 2 64-bit 16/273 PRB Delay 2us" -R 273 -z8 -i 1 -P 2 -q16 -b 64 -s-3 -d 2 -n3000)
+add_physim_test(5g nr_pucchsim test29 "Format 2 64-bit 16/273 PRB Delay 2us" -R 273 -z8 -i 1 -P 2 -q16 -b 64 -s0 -S7 -d 2 -n3000)
 
 ####################################################################################
 ######                           nr_ulsim unit test                           ######
