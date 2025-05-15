@@ -1,36 +1,138 @@
-This document describes the physical simulators, also called "unitary
-simulators", or short "physims".
+# Physical Simulators ("Physims") User Guide
+
+This document provides an overview and usage guide for the **physical simulators**, also referred to as **unitary
+simulators** or simply **physims**, used in the OpenAirInterface (OAI) project for LTE and 5G PHY layer validation.
 
 [[_TOC_]]
 
 # Introduction
 
-There are several unitary simulations for the physical layer, testing
-individual L1 transport/control channels using Monte-Carlo simulations, for
-instance:
+**Unitary simulations** are standalone test programs designed to validate individual physical layer (L1) transport or
+control channels. These simulations are based on **Monte Carlo techniques**, enabling statistical evaluation of
+performance metrics such as block error rate (BLER), hybrid automatic repeat request (HARQ) throughput, and decoding
+accuracy under various signal conditions.
 
-- `nr_pucchsim` for 5G PUCCH,
-- `nr_dlsim` for 5G DLSCH/PDSCH,
-- `nr_prachsim` for 5G PRACH,
-- `dlsim` for 4G DLSCH/PDSCH, etc.
+Physims are essential for:
 
-These simulators constitute the starting point for testing any new code in the
-PHY layer, and are required tests to be performed before committing any new
-code to the repository, in the sense that all of these should compile and
-execute correctly. They provide estimates of the transport block error rates
-and HARQ thoughput, DCI error rates, etc. The simulators reside in
-`openair1/SIMULATION/LTE_PHY` and `openair1/SIMULATION/NR_PHY`. For instance,
-`nr_dlsim` is built from `openair1/SIMULATION/NR_PHY/dlsim.c`.
+* Debugging and evaluating new PHY code in isolation
+* Regression testing
+* Ensuring correctness before merging new contributions into the repository
 
-Further unitary simulation of the coding subsystem components also exists in
-`openair1/PHY/CODING/TESTBENCH`, e.g., `ldpctest` for encoding/decoding of
-LDPC.
+## Examples of Simulators
 
-These are the simulators known to work properly and tested in CI:
-- 4G: `dlsim`, `ulsim`
-- 5G: `nr_dlsim`, `nr_ulsim`, `nr_dlschsim`, `nr_ulschsim`, `ldpctest`,
-  `nr_pbchsim`, `nr_prachsim`, `nr_pucchsim`, `polartest`, `smallblocktest`,
-  `nr_psbchsim` (sidelink)
+| Technology | Simulators                                | Description                      |
+|------------|-------------------------------------------|----------------------------------|
+| 4G LTE     | `dlsim`, `ulsim`                          | Downlink and uplink simulators   |
+| 5G NR      | `nr_dlsim`, `nr_ulsim`                    | Downlink and uplink simulators   |
+|            | `nr_dlschsim`, `nr_ulschsim`              | HARQ and TB throughput tests     |
+|            | `nr_pucchsim`                             | Control channel simulation       |
+|            | `nr_pbchsim`                              | Broadcast channel simulation     |
+|            | `nr_prachsim`                             | PRACH simulation                 |
+|            | `nr_psbchsim`                             | Sidelink simulation              |
+| Coding     | `ldpctest`, `polartest`, `smallblocktest` | LDPC, Polar, and other FEC tests |
 
-These tests are run in this pipeline:
-[RAN-PhySim-Cluster](https://jenkins-oai.eurecom.fr/job/RAN-PhySim-Cluster/).
+### Source Locations
+
+* 4G PHY simulators: `openair1/SIMULATION/LTE_PHY/`
+* 5G PHY simulators: `openair1/SIMULATION/NR_PHY/`
+* Coding unit tests: `openair1/PHY/CODING/TESTBENCH/`
+
+Example:
+
+```bash
+# 5G Downlink simulator
+openair1/SIMULATION/NR_PHY/dlsim.c
+```
+
+# How to Run Simulators Using `ctest`
+
+## Option 1: Using CMake
+
+```bash
+cd openairinterface5g
+mkdir build && cd build
+cmake .. -GNinja -DENABLE_PHYSIM_TESTS=ON
+ninja tests
+ctest
+```
+
+## Option 2: Using the `build_oai` script
+
+This method simplifies the process by automatically building the simulators with ctest support.
+
+```bash
+cd openairinterface5g/cmake_targets
+./build_oai --ninja --phy_simulators
+cd ran_build/build
+ctest
+```
+
+# `ctest` Usage Tips
+
+## Useful Options
+
+Use the following options to customize test execution:
+
+| Option           | Description                                          |
+|------------------|------------------------------------------------------|
+| `-R <regex>`     | Run tests matching the regex pattern (by name)       |
+| `-L <regex>`     | Run tests with labels matching the regex pattern     |
+| `-E <regex>`     | Exclude tests matching the regex pattern (by name)   |
+| `-LE <regex>`    | Exclude tests with labels matching the regex pattern |
+| `--print-labels` | Display all available test labels                    |
+| `-j <jobs>`      | Run tests in parallel using specified number of jobs |
+
+For the complete list of `ctest` options, refer to the manual:
+
+```bash
+man ctest
+```
+
+## Example
+
+```bash
+# Run only NR ULSCH simulator tests, in parallel
+ctest -L nr_ulsch -j 4
+```
+
+# Adding a New Physim Test
+
+To define a new test or modify existing ones, update the following file:
+
+```
+openair1/PHY/CODING/tests/CMakeLists.txt
+```
+
+Use the `add_physim_test` macro with the following arguments:
+
+```cmake
+add_physim_test(<test_gen> <test_exec> <test_description> <test_label> <test_cl_options>)
+```
+
+### Arguments:
+
+* `<test_gen>`: Test generation (e.g., `4g` or `5g`)
+* `<test_exec>`: Name of the test executable (e.g., `nr_prachsim`)
+* `<test_description>`: Description shown in `ctest` output, useful for categorization and indexing.
+* `<test_label>`: Label used for filtering tests (via `-L`), shown in the ctest output summary as a descriptive tag.
+* `<test_cl_options>`: Command line options passed to the test
+
+### Example:
+
+```cmake
+# add_physim_test(<test_gen> <test_exec> <test_description> <test_label> <test_cl_options>)
+add_physim_test(5g nr_prachsim test8 "15kHz SCS, 25 PRBs" -a -s -30 -n 300 -p 99 -R 25 -m 0)
+```
+
+These tests are run automatically as part of the following
+pipeline: [RAN-PhySim-Cluster CI](https://jenkins-oai.eurecom.fr/job/RAN-PhySim-Cluster/)
+
+# Legacy Bash Autotest (Deprecated)
+
+> **Note:** Autotest script, configuration, and documentation, are no longer maintained.
+
+For legacy support or archival purposes, you can still find this implementation by checking out the historical tag:
+
+```bash
+git checkout 2025.w18
+```
