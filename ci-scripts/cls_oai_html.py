@@ -564,13 +564,13 @@ class HTMLManagement():
 			self.htmlFile.write('        <th>Nb Pass</th>\n')
 			self.htmlFile.write('      </tr>\n')
 			self.htmlFile.write('      <tr>\n')
-			self.htmlFile.write('        <td colspan="2" bgcolor = "lightcyan" > physim_test.txt  </td>\n')
+			self.htmlFile.write('        <td colspan="2" bgcolor = "lightcyan" > physim_log.txt  </td>\n')
 			self.htmlFile.write('        <td colspan="2" bgcolor = "lightcyan" >' + str(testSummary['Nbtests']) + ' </td>\n')
 			if testSummary['Nbfail'] == 0:
-				self.htmlFile.write('        <td bgcolor = "lightcyan" >' + str(testSummary['Nbfail']) + ' </td>\n')
+				self.htmlFile.write('        <td bgcolor = "lightcyan" >' + str(testSummary['Nbfail']) + '</td>\n')
 			else:
-				self.htmlFile.write('        <td bgcolor = "red" >' + str(testSummary['Nbfail']) + ' </td>\n')
-			self.htmlFile.write('        <td gcolor = "lightcyan" >' + str(testSummary['Nbpass']) + ' </td>\n')
+				self.htmlFile.write('        <td bgcolor = "red" ><font color="white">' + str(testSummary['Nbfail']) + '</font></td>\n')
+			self.htmlFile.write('        <td bgcolor = "lightcyan" >' + str(testSummary['Nbpass']) + ' </td>\n')
 			self.htmlFile.write('      </tr>\n')
 			self.htmlFile.write('      <tr bgcolor = "#F0F0F0" >\n')
 			self.htmlFile.write('        <td colspan="6"><b> ---- PHYSIM TEST DETAIL INFO---- </b></td>\n')
@@ -578,22 +578,24 @@ class HTMLManagement():
 			self.htmlFile.write('      <tr bgcolor = "#33CCFF" >\n')
 			self.htmlFile.write('        <th colspan="2">Test Name</th>\n')
 			self.htmlFile.write('        <th colspan="2">Test Description</th>\n')
-			self.htmlFile.write('        <th colspan="2">Result</th>\n')
+			self.htmlFile.write('        <th>Test Status</th>\n')
+			self.htmlFile.write('        <th>Info</th>\n')
 			self.htmlFile.write('      </tr>\n')
 			y = ''
 			for key, value in testResult.items():
 				x = key.split(".")
-				if x[0] != y:
+				if x[2] != y:
 					self.htmlFile.write('      <tr bgcolor = "lightgreen" >\n')
-					self.htmlFile.write('        <td style="text-align: center;" colspan="6"><b>"' + x[0] + '" series </b></td>\n')
+					self.htmlFile.write('        <td style="text-align: center;" colspan="6"><b>"' + x[2] + '" series </b></td>\n')
 					self.htmlFile.write('      </tr>\n')
-					y = x[0]
+					y = x[2]
 				self.htmlFile.write('      <tr>\n')
 				self.htmlFile.write('        <td colspan="2" bgcolor = "lightcyan" >' + key  + ' </td>\n')
 				self.htmlFile.write('        <td colspan="2" bgcolor = "lightcyan" >' + value[0]  + '</td>\n')
 				if 'PASS' in value:
-					self.htmlFile.write('        <td colspan="2" bgcolor = "green" >' + value[1]  + '</td>\n')
+					self.htmlFile.write('        <td bgcolor = "green" ><font color="white"><b>' + value[2]  + '</b></font></td>\n')
 				else:
-					self.htmlFile.write('        <td colspan="2" bgcolor = "red" >' + value[1]  + '</td>\n')
+					self.htmlFile.write('        <td bgcolor = "red" ><font color="white"><b>' + value[2]  + '</b></font></td>\n')
+				self.htmlFile.write('        <td bgcolor = "lightcyan">' + value[1] + '</td>\n')
 
 		self.htmlFile.close()

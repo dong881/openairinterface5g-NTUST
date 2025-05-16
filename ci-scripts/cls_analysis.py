@@ -20,8 +20,11 @@
 # */
 #---------------------------------------------------------------------
 
-import logging
 import re
+import os
+
+import xml.etree.ElementTree as ET
+import json
 
 # Define the mapping of physim_test values to search patterns
 PHYSIM_PATTERN_MAPPING = {
@@ -80,3 +83,65 @@ class Analysis():
 			msg = f'{time1_match.group(1)}: {time1_match.group(2)} us\n{time2_match.group(1)}: {time2_match.group(2)} us exceeds a limit of {threshold} us'
 
 		return success,msg
+
+	def analyze_oc_physim(result_junit, details_json):
+		try:
+			tree = ET.parse(result_junit)
+			root = tree.getroot()
+			nb_tests = int(root.attrib["tests"])
+			nb_failed = int(root.attrib["failures"])
+		except ET.ParseError as e:
+			return False, False, f'Could not parse XML log file {result_junit}: {e}'
+		except FileNotFoundError as e:
+			return False, False, f'JUnit XML log file {result_junit} not found: {e}'
+		except Exception as e:
+			return False, False, f'While parsing JUnit XML log file: exception: {e}'
+
+		try:
+			with open(details_json) as f:
+				j = json.load(f)
+			# prepare JSON for easier access of strings
+			json_test_desc = {}
+			for e in j["tests"]:
+				json_test_desc[e["name"]] = e
+
+		except json.JSONDecodeError as e:
+			return False, False, f'Could not decode JSON log file {details_json}: {e}'
+		except FileNotFoundError as e:
+			return False, False, f'Physim JSON log file {details_json} not found: {e}'
+		except Exception as e:
+			return False, False, f'While parsing physim JSON log file: exception: {e}'
+
+		test_result = {}
+		for test in root: # for each test
+			test_name = test.attrib["name"]
+			test_exec = json_test_desc[test_name]["properties"][1]["value"][0]
+			desc = json_test_desc[test_name]["properties"][1]["value"][1]
+			# get runtime and checks
+			test_check = test.attrib["status"] == "run"
+			time = round(float(test.attrib["time"]), 1)
+			time_check = time < 150
+			output = test.findtext("system-out")
+			output_check = "exceeds the threshold" not in output
+			# collect logs
+			log_dir = f'../cmake_targets/log/{test_exec}'
+			os.makedirs(log_dir, exist_ok=True)
+			with open(f'{log_dir}/{test_name}.log', 'w') as f:
+				f.write(output)
+			# prepare result and info
+			info = f"Runtime: {f'{time:.3f}'[:5]} s"
+			resultstr = 'PASS' if (test_check and time_check and output_check) else 'FAIL'
+			if test_check:
+				if not output_check:
+					info += " Test log exceeds maximal allowed length 100 kB"
+				if not time_check:
+					info += " Test exceeds 150s"
+				if not (time_check and output_check):
+					nb_failed += 1 # time threshold/output length error, not counted for by ctest as of now
+			test_result[test_name] = [desc, info, resultstr]
+
+		test_summary = {}
+		test_summary['Nbtests'] = nb_tests
+		test_summary['Nbpass'] =  nb_tests - nb_failed
+		test_summary['Nbfail'] =  nb_failed
+		return nb_failed == 0, test_summary, test_result

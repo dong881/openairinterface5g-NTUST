@@ -31,8 +31,10 @@
 import logging
 import re
 import time
+import os
 
 import cls_oai_html
+import cls_analysis
 import constants as CONST
 import helpreadme as HELP
 import cls_containerize
@@ -457,3 +459,38 @@ class Cluster:
 		HTML.CreateHtmlNextTabHeaderTestRow(collectInfo, imageSize)
 
 		return status
+
+	def deploy_oc_physim(self, HTML, oc_release, svr_id):
+		if self.ranRepository == '' or self.ranBranch == '' or self.ranCommitID == '':
+			HELP.GenericHelp(CONST.Version)
+			raise ValueError(f'Insufficient Parameter: ranRepository {self.ranRepository} ranBranch {self.ranBranch} ranCommitID {self.ranCommitID}')
+		image_tag = cls_containerize.CreateTag(self.ranCommitID, self.ranBranch, self.ranAllowMerge)
+		logging.debug(f'Running physims from server: {svr_id}')
+		script = "scripts/oc-deploy-physims.sh"
+		options = f"oaicicd-core-for-ci-ran {oc_release} {image_tag} {self.eNBSourceCodePath}"
+		ret = cls_cmd.runScript(svr_id, script, 600, options)
+		logging.debug(f'"{script}" finished with code {ret.returncode}, output:\n{ret.stdout}')
+		log_dir = f'{os.getcwd()}/../cmake_targets/log'
+		os.makedirs(log_dir, exist_ok=True)
+		result_junit = f'{oc_release}-run.xml'
+		details_json = f'{oc_release}-tests.json'
+		with cls_cmd.getConnection(svr_id) as ssh:
+			ssh.copyin(src=f'{self.eNBSourceCodePath}/ci-scripts/{details_json}', tgt=f'{log_dir}/{details_json}')
+			ssh.copyin(src=f'{self.eNBSourceCodePath}/ci-scripts/{result_junit}', tgt=f'{log_dir}/{result_junit}')
+			ssh.copyin(src=f'{self.eNBSourceCodePath}/ci-scripts/physim_log.txt', tgt=f'{log_dir}/physim_log.txt')
+			ssh.copyin(src=f'{self.eNBSourceCodePath}/ci-scripts/physim_pods_summary.txt', tgt=f'{log_dir}/physim_pods_summary.txt')
+			ssh.copyin(src=f'{self.eNBSourceCodePath}/ci-scripts/LastTestsFailed.log', tgt=f'{log_dir}/LastTestsFailed.log')
+		test_status, test_summary, test_result = cls_analysis.Analysis.analyze_oc_physim(f'{log_dir}/{result_junit}', f'{log_dir}/{details_json}')
+		if test_summary:
+			if test_status:
+				HTML.CreateHtmlTestRow('N/A', 'OK', CONST.ALL_PROCESSES_OK)
+				HTML.CreateHtmlTestRowPhySimTestResult(test_summary, test_result)
+				logging.info('\u001B[1m Physical Simulator Pass\u001B[0m')
+			else:
+				HTML.CreateHtmlTestRow('Some test(s) failed!', 'KO', CONST.OC_PHYSIM_DEPLOY_FAIL)
+				HTML.CreateHtmlTestRowPhySimTestResult(test_summary, test_result)
+				logging.error('\u001B[1m Physical Simulator Fail\u001B[0m')
+		else:
+			HTML.CreateHtmlTestRowQueue('Physical simulator failed', 'KO', [test_result])
+			logging.error('\u001B[1m Physical Simulator Fail\u001B[0m')
+		return test_status
