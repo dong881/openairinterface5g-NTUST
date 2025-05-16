@@ -550,7 +550,6 @@ check_install_additional_tools (){
         libforms-bin \
         libforms-dev \
         libxft-dev \
-        xmlstarlet \
         libpcre3-dev \
         libssh-dev \
         libxml2-dev"
@@ -563,7 +562,6 @@ check_install_additional_tools (){
       libXft-devel \
       xforms \
       xforms-devel \
-      xmlstarlet \
       pcre-devel \
       libssh-devel \
       libxml2-devel"
