@@ -41,7 +41,7 @@ import constants as CONST
 #-----------------------------------------------------------
 
 
-def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
+def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,CLUSTER):
 
 
     py_param_file_present = False
@@ -84,7 +84,6 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
             HTML.ranRepository=matchReg.group(1)
             CONTAINERS.ranRepository=matchReg.group(1)
             SCA.ranRepository=matchReg.group(1)
-            PHYSIM.ranRepository=matchReg.group(1)
             CLUSTER.ranRepository=matchReg.group(1)
         elif re.match(r'^\-\-eNB_AllowMerge=(.+)$|^\-\-ranAllowMerge=(.+)$', myArgv, re.IGNORECASE):
             if re.match(r'^\-\-eNB_AllowMerge=(.+)$', myArgv, re.IGNORECASE):
@@ -98,7 +97,6 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
                 HTML.ranAllowMerge=True
                 CONTAINERS.ranAllowMerge=True
                 SCA.ranAllowMerge=True
-                PHYSIM.ranAllowMerge=True
                 CLUSTER.ranAllowMerge=True
         elif re.match(r'^\-\-eNBBranch=(.+)$|^\-\-ranBranch=(.+)$', myArgv, re.IGNORECASE):
             if re.match(r'^\-\-eNBBranch=(.+)$', myArgv, re.IGNORECASE):
@@ -110,7 +108,6 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
             HTML.ranBranch=matchReg.group(1)
             CONTAINERS.ranBranch=matchReg.group(1)
             SCA.ranBranch=matchReg.group(1)
-            PHYSIM.ranBranch=matchReg.group(1)
             CLUSTER.ranBranch=matchReg.group(1)
         elif re.match(r'^\-\-eNBCommitID=(.*)$|^\-\-ranCommitID=(.*)$', myArgv, re.IGNORECASE):
             if re.match(r'^\-\-eNBCommitID=(.*)$', myArgv, re.IGNORECASE):
@@ -122,7 +119,6 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
             HTML.ranCommitID=matchReg.group(1)
             CONTAINERS.ranCommitID=matchReg.group(1)
             SCA.ranCommitID=matchReg.group(1)
-            PHYSIM.ranCommitID=matchReg.group(1)
             CLUSTER.ranCommitID=matchReg.group(1)
         elif re.match(r'^\-\-eNBTargetBranch=(.*)$|^\-\-ranTargetBranch=(.*)$', myArgv, re.IGNORECASE):
             if re.match(r'^\-\-eNBTargetBranch=(.*)$', myArgv, re.IGNORECASE):
@@ -134,7 +130,6 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
             HTML.ranTargetBranch=matchReg.group(1)
             CONTAINERS.ranTargetBranch=matchReg.group(1)
             SCA.ranTargetBranch=matchReg.group(1)
-            PHYSIM.ranTargetBranch=matchReg.group(1)
             CLUSTER.ranTargetBranch=matchReg.group(1)
         elif re.match(r'^\-\-eNBIPAddress=(.+)$|^\-\-eNB[1-2]IPAddress=(.+)$', myArgv, re.IGNORECASE):
             if re.match(r'^\-\-eNBIPAddress=(.+)$', myArgv, re.IGNORECASE):
@@ -142,7 +137,6 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
                 RAN.eNBIPAddress=matchReg.group(1)
                 CONTAINERS.eNBIPAddress=matchReg.group(1)
                 SCA.eNBIPAddress=matchReg.group(1)
-                PHYSIM.eNBIPAddress=matchReg.group(1)
                 CLUSTER.eNBIPAddress=matchReg.group(1)
             elif re.match(r'^\-\-eNB1IPAddress=(.+)$', myArgv, re.IGNORECASE):
                 matchReg = re.match(r'^\-\-eNB1IPAddress=(.+)$', myArgv, re.IGNORECASE)
@@ -158,7 +152,6 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
                 RAN.eNBUserName=matchReg.group(1)
                 CONTAINERS.eNBUserName=matchReg.group(1)
                 SCA.eNBUserName=matchReg.group(1)
-                PHYSIM.eNBUserName=matchReg.group(1)
                 CLUSTER.eNBUserName=matchReg.group(1)
             elif re.match(r'^\-\-eNB1UserName=(.+)$', myArgv, re.IGNORECASE):
                 matchReg = re.match(r'^\-\-eNB1UserName=(.+)$', myArgv, re.IGNORECASE)
@@ -174,7 +167,6 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
                 RAN.eNBPassword=matchReg.group(1)
                 CONTAINERS.eNBPassword=matchReg.group(1)
                 SCA.eNBPassword=matchReg.group(1)
-                PHYSIM.eNBPassword=matchReg.group(1)
                 CLUSTER.eNBPassword=matchReg.group(1)
             elif re.match(r'^\-\-eNB1Password=(.+)$', myArgv, re.IGNORECASE):
                 matchReg = re.match(r'^\-\-eNB1Password=(.+)$', myArgv, re.IGNORECASE)
@@ -190,7 +182,6 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
                 RAN.eNBSourceCodePath=matchReg.group(1)
                 CONTAINERS.eNBSourceCodePath=matchReg.group(1)
                 SCA.eNBSourceCodePath=matchReg.group(1)
-                PHYSIM.eNBSourceCodePath=matchReg.group(1)
                 CLUSTER.eNBSourceCodePath=matchReg.group(1)
             elif re.match(r'^\-\-eNB1SourceCodePath=(.+)$', myArgv, re.IGNORECASE):
                 matchReg = re.match(r'^\-\-eNB1SourceCodePath=(.+)$', myArgv, re.IGNORECASE)
@@ -236,15 +227,12 @@ def ArgsParse(argvs,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER):
                 CiTestObj.finalStatus = True
         elif re.match(r'^\-\-OCUserName=(.+)$', myArgv, re.IGNORECASE):
             matchReg = re.match(r'^\-\-OCUserName=(.+)$', myArgv, re.IGNORECASE)
-            PHYSIM.OCUserName = matchReg.group(1)
             CLUSTER.OCUserName = matchReg.group(1)
         elif re.match(r'^\-\-OCPassword=(.+)$', myArgv, re.IGNORECASE):
             matchReg = re.match(r'^\-\-OCPassword=(.+)$', myArgv, re.IGNORECASE)
-            PHYSIM.OCPassword = matchReg.group(1)
             CLUSTER.OCPassword = matchReg.group(1)
         elif re.match(r'^\-\-OCProjectName=(.+)$', myArgv, re.IGNORECASE):
             matchReg = re.match(r'^\-\-OCProjectName=(.+)$', myArgv, re.IGNORECASE)
-            PHYSIM.OCProjectName = matchReg.group(1)
             CLUSTER.OCProjectName = matchReg.group(1)
         elif re.match(r'^\-\-OCUrl=(.+)$', myArgv, re.IGNORECASE):
             matchReg = re.match(r'^\-\-OCUrl=(.+)$', myArgv, re.IGNORECASE)

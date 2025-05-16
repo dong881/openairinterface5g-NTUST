@@ -41,7 +41,6 @@ import constants as CONST
 import cls_oaicitest		 #main class for OAI CI test framework
 import cls_containerize	 #class Containerize for all container-based operations on RAN/UE objects
 import cls_static_code_analysis  #class for static code analysis
-import cls_physim1		 #class PhySim for physical simulators deploy and run
 import cls_cluster		 # class for building/deploying on cluster
 import cls_native        # class for all native/source-based operations
 
@@ -97,7 +96,6 @@ def ExecuteActionWithParam(action):
 	global HTML
 	global CONTAINERS
 	global SCA
-	global PHYSIM
 	global CLUSTER
 	if action == 'Build_eNB' or action == 'Build_Image' or action == 'Build_Proxy' or action == "Build_Cluster_Image" or action == "Build_Run_Tests":
 		RAN.Build_eNB_args=test.findtext('Build_eNB_args')
@@ -295,7 +293,9 @@ def ExecuteActionWithParam(action):
 		success = cls_oaicitest.IdleSleep(HTML, int(st))
 
 	elif action == 'Deploy_Run_PhySim':
-		success = PHYSIM.Deploy_PhySim(HTML)
+		oc_release = test.findtext('oc_release')
+		svr_id = test.findtext('svr_id') or None
+		success = CLUSTER.deploy_oc_physim(HTML, oc_release, svr_id)
 
 	elif action == 'DeployCoreNetwork' or action == 'UndeployCoreNetwork':
 		cn_id = test.findtext('cn_id')
@@ -442,7 +442,6 @@ RAN = ran.RANManagement()
 HTML = cls_oai_html.HTMLManagement()
 CONTAINERS = cls_containerize.Containerize()
 SCA = cls_static_code_analysis.StaticCodeAnalysis()
-PHYSIM = cls_physim1.PhySim()
 CLUSTER = cls_cluster.Cluster()
 
 #-----------------------------------------------------------
@@ -452,7 +451,7 @@ CLUSTER = cls_cluster.Cluster()
 import args_parse
 # Force local execution, move all execution targets to localhost
 force_local = False
-py_param_file_present, py_params, mode, force_local = args_parse.ArgsParse(sys.argv,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,PHYSIM,CLUSTER)
+py_param_file_present, py_params, mode, force_local = args_parse.ArgsParse(sys.argv,CiTestObj,RAN,HTML,CONTAINERS,HELP,SCA,CLUSTER)
 
 
 
