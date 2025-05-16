@@ -125,7 +125,30 @@ add_physim_test(5g nr_prachsim test8 "15kHz SCS, 25 PRBs" -a -s -30 -n 300 -p 99
 ```
 
 These tests are run automatically as part of the following
-pipeline: [RAN-PhySim-Cluster CI](https://jenkins-oai.eurecom.fr/job/RAN-PhySim-Cluster/)
+pipelines: [RAN-PhySim-Cluster-4G](https://jenkins-oai.eurecom.fr/job/RAN-PhySim-Cluster-4G/) and [RAN-PhySim-Cluster-5G](https://jenkins-oai.eurecom.fr/job/RAN-PhySim-Cluster-5G/)
+
+### How to rerun failed CI tests using `ctest`
+
+Ctest automatically logs the failed tests in LastTestsFailed.log. This log is archived in
+the CI artifacts and can be reused locally to rerun only those failed tests.
+
+```bash
+# 1. Navigate to the build directory, build physims
+cd ~/openairinterface5g/build
+cmake .. -GNinja -DENABLE_PHYSIM_TESTS=ON && ninja tests
+
+# 2. Create ctest directory structure
+ctest -N --quiet
+
+# 3. Unzip the test logs artifact from the CI run
+unzip /path/to/test_logs_123.zip
+
+# 4. Copy the LastTestsFailed.log file to the expected location
+cp /path/to/test_logs_123/test_logs/LastTestsFailed.log ./Testing/Temporary/
+
+# 5. Rerun only the failed tests using ctest
+ctest --rerun-failed
+```
 
 # Legacy Bash Autotest (Deprecated)
 
