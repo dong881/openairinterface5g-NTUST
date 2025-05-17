@@ -587,10 +587,10 @@ static uint8_t nr_ulsch_mmse_2layers(NR_DL_FRAME_PARMS *frame_parms,
       ch01 = ul_ch_estimates_ext[1][0];
       ch10 = ul_ch_estimates_ext[0][1];
       ch11 = ul_ch_estimates_ext[1][1];
-      ch20 = ul_ch_estimates_ext[2][0];
-      ch21 = ul_ch_estimates_ext[2][1];
-      ch30 = ul_ch_estimates_ext[3][0];
-      ch31 = ul_ch_estimates_ext[3][1];
+      ch20 = ul_ch_estimates_ext[0][2];
+      ch21 = ul_ch_estimates_ext[1][2];
+      ch30 = ul_ch_estimates_ext[0][3];
+      ch31 = ul_ch_estimates_ext[1][3];
       break;
 
     default:
