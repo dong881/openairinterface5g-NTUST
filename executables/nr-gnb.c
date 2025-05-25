@@ -66,7 +66,7 @@
 #include "gnb_paramdef.h"
 
 #include <executables/softmodem-common.h>
-
+#include "executables/nr-softmodem-common.h"
 #include "T.h"
 #include "nfapi/oai_integration/vendor_ext.h"
 #include "executables/softmodem-common.h"
