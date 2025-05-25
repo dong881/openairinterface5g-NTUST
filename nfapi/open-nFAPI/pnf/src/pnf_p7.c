@@ -548,12 +548,8 @@ int pnf_p7_send_message_rawSocket(pnf_p7_t* pnf_p7, uint8_t* msg, uint32_t len)
 			NFAPI_TRACE(NFAPI_TRACE_WARN, "Failed to set hardware timestamping on interface: %d - may affect timing accuracy\n", errno);
 			// Continue as this may not be supported by all interfaces
 		}
-		
-		// Set the TOS field for QoS prioritization
-		int tos = IPTOS_LOWDELAY | IPTOS_RELIABILITY;
-		if (setsockopt(raw_sock, IPPROTO_IP, IP_TOS, &tos, sizeof(tos)) < 0) {
-			NFAPI_TRACE(NFAPI_TRACE_WARN, "Failed to set IP_TOS: %d\n", errno);
-		}
+        // Remove the IP_TOS section entirely - it's not applicable to raw sockets
+        // Raw sockets operate at Layer 2 and don't support IP-level socket options
 	} else {
 		// Use existing socket
 		raw_sock = static_raw_sock;
