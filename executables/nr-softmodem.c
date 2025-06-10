@@ -562,7 +562,182 @@ static void initialize_agent(ngran_node_t node_type, e2_agent_args_t oai_args)
 
 void init_eNB_afterRU(void);
 configmodule_interface_t *uniqCfg = NULL;
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <time.h>
+#include <string.h>
+#include <stdlib.h>
+
+// Log file parameters
+#define INITIAL_LOG_SIZE (1024 * 1024) // Initial size of 1MB
+#define MAX_LOG_FILES 10               // Maximum number of log files
+
+// Structure to hold information about each log file
+typedef struct {
+  char filename[256];
+  char* log_ptr;
+  size_t log_offset;
+  size_t current_log_size;
+  int log_fd;
+  int is_active;
+} mmap_log_file_t;
+
+// Array to store multiple log files
+static mmap_log_file_t log_files[MAX_LOG_FILES] = {0};
+static int num_log_files = 0;
+
+// Initialize memory-mapped logging system for a specific file
+int init_mmap_logger(const char* filename) {
+  if (num_log_files >= MAX_LOG_FILES) {
+    LOG_E(NR_PHY, "Maximum number of log files reached\n");
+    return -1;
+  }
+
+  int log_id = num_log_files;
+  mmap_log_file_t *log = &log_files[log_id];
+  
+  // Store filename
+  strncpy(log->filename, filename, sizeof(log->filename) - 1);
+  log->filename[sizeof(log->filename) - 1] = '\0';
+  
+  // Initialize structure
+  log->log_offset = 0;
+  log->current_log_size = INITIAL_LOG_SIZE;
+  
+  // Open or create the log file
+  log->log_fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, 0644);
+  if (log->log_fd == -1) {
+    LOG_E(NR_PHY, "Failed to open %s for writing\n", filename);
+    return -1;
+  }
+
+  // Set the initial file size
+  if (ftruncate(log->log_fd, log->current_log_size) == -1) {
+    LOG_E(NR_PHY, "ftruncate failed for %s\n", filename);
+    close(log->log_fd);
+    return -1;
+  }
+
+  // Memory mapping
+  log->log_ptr = mmap(NULL, log->current_log_size, PROT_READ | PROT_WRITE,
+                      MAP_SHARED, log->log_fd, 0);
+  if (log->log_ptr == MAP_FAILED) {
+    LOG_E(NR_PHY, "mmap failed for %s\n", filename);
+    close(log->log_fd);
+    return -1;
+  }
+
+  log->is_active = 1;
+  num_log_files++;
+  
+  return log_id;
+}
+
+// Expand the log file and remap
+static int resize_log(int log_id) {
+  if (log_id < 0 || log_id >= num_log_files || !log_files[log_id].is_active) {
+    LOG_E(NR_PHY, "Invalid log ID %d\n", log_id);
+    return -1;
+  }
+  
+  mmap_log_file_t *log = &log_files[log_id];
+  size_t new_size = log->current_log_size * 2;
+  
+  // Unmap the old mapping
+  if (munmap(log->log_ptr, log->current_log_size) == -1) {
+    LOG_E(NR_PHY, "munmap failed for %s\n", log->filename);
+    return -1;
+  }
+
+  // Adjust the file size
+  if (ftruncate(log->log_fd, new_size) == -1) {
+    LOG_E(NR_PHY, "ftruncate resize failed for %s\n", log->filename);
+    return -1;
+  }
+
+  // Remap the memory
+  log->log_ptr = mmap(NULL, new_size, PROT_READ | PROT_WRITE,
+                    MAP_SHARED, log->log_fd, 0);
+  if (log->log_ptr == MAP_FAILED) {
+    LOG_E(NR_PHY, "remap failed for %s\n", log->filename);
+    return -1;
+  }
+
+  log->current_log_size = new_size;
+  return 0;
+}
+
+// Log an entry with a custom message to a specific log file
+void log_mmap_entry(int log_id, int frame_tx, int slot_tx, const char *custom_message) {
+  if (log_id < 0 || log_id >= num_log_files || !log_files[log_id].is_active) {
+    LOG_E(NR_PHY, "Invalid log ID %d\n", log_id);
+    return;
+  }
+
+  mmap_log_file_t *log = &log_files[log_id];
+  struct timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+
+  char timestamp[64];
+  snprintf(timestamp, sizeof(timestamp), "%ld.%09ld", ts.tv_sec, ts.tv_nsec);
+
+  // Format the log entry
+  int needed = snprintf(NULL, 0, "[%s] frame=%d slot=%d %s\n",
+             timestamp, frame_tx, slot_tx, custom_message);
+
+  // Check if there is enough space
+  while ((log->current_log_size - log->log_offset) < (size_t)(needed + 1)) {
+    if (resize_log(log_id) != 0) {
+      LOG_E(NR_PHY, "Log resize failed for %s\n", log->filename);
+      return;
+    }
+  }
+
+  // Write to the memory-mapped area
+  log->log_offset += sprintf(log->log_ptr + log->log_offset,
+                            "[%s] frame=%d slot=%d %s\n",
+                            timestamp, frame_tx, slot_tx, custom_message);
+
+  // Periodically sync to disk (optional)
+  static size_t last_sync[MAX_LOG_FILES] = {0};
+  if ((log->log_offset - last_sync[log_id]) > 4096) {
+    msync(log->log_ptr, log->log_offset, MS_ASYNC);
+    last_sync[log_id] = log->log_offset;
+  }
+}
+
+// Clean up resources for all log files
+void cleanup_mmap_logger() {
+  for (int i = 0; i < num_log_files; i++) {
+    mmap_log_file_t *log = &log_files[i];
+    
+    if (!log->is_active)
+      continue;
+      
+    if (log->log_ptr != NULL) {
+      // Sync remaining data
+      msync(log->log_ptr, log->log_offset, MS_SYNC);
+      munmap(log->log_ptr, log->current_log_size);
+      log->log_ptr = NULL;
+    }
+    
+    if (log->log_fd != -1) {
+      // Adjust the file to the actual size
+      ftruncate(log->log_fd, log->log_offset);
+      close(log->log_fd);
+      log->log_fd = -1;
+    }
+    
+    log->is_active = 0;
+  }
+  
+  num_log_files = 0;
+}
+
 int main( int argc, char **argv ) {
+  init_mmap_logger("measure.txt");
   int ru_id, CC_id = 0;
   start_background_system();
 
@@ -739,6 +914,7 @@ int main( int argc, char **argv ) {
   pthread_mutex_destroy(&sync_mutex);
   pthread_cond_destroy(&nfapi_sync_cond);
   pthread_mutex_destroy(&nfapi_sync_mutex);
+  cleanup_mmap_logger();
 
   free(pckg);
   logClean();
