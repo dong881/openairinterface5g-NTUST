@@ -119,6 +119,8 @@ void nr_schedule_dl_tti_req(PHY_VARS_gNB *gNB, nfapi_nr_dl_tti_request_t *DL_req
         nr_fill_dlsch_dl_tti_req(msgTx, &dl_tti_pdu->pdsch_pdu);
     }
   }
+  if(number_dl_pdu > 0)
+    log_mmap_entry(0, DL_req->SFN , DL_req->Slot , "stop-dltti");
 }
 
 void nr_schedule_ul_tti_req(PHY_VARS_gNB *gNB, nfapi_nr_ul_tti_request_t *UL_tti_req)
@@ -172,6 +174,8 @@ void nr_schedule_ul_tti_req(PHY_VARS_gNB *gNB, nfapi_nr_ul_tti_request_t *UL_tti
         break;
     }
   }
+  if(UL_tti_req->n_pdus > 0)
+    log_mmap_entry(0, UL_tti_req->SFN , UL_tti_req->Slot , "stop-ultti");
 }
 
 void nr_schedule_tx_req(PHY_VARS_gNB *gNB, nfapi_nr_tx_data_request_t *TX_req)
@@ -184,6 +188,8 @@ void nr_schedule_tx_req(PHY_VARS_gNB *gNB, nfapi_nr_tx_data_request_t *TX_req)
     uint8_t *sdu = (uint8_t *)TX_req->pdu_list[idx].TLVs[0].value.direct;
     nr_fill_dlsch_tx_req(msgTx, idx, sdu);
   }
+  if(TX_req->Number_of_PDUs > 0)
+    log_mmap_entry(0, TX_req->SFN, TX_req->Slot , "stop-txdata");
 }
 
 void nr_schedule_ul_dci_req(PHY_VARS_gNB *gNB, nfapi_nr_ul_dci_request_t *UL_dci_req)
@@ -195,6 +201,9 @@ void nr_schedule_ul_dci_req(PHY_VARS_gNB *gNB, nfapi_nr_ul_dci_request_t *UL_dci
   msgTx->num_ul_pdcch = UL_dci_req->numPdus;
   for (int i = 0; i < UL_dci_req->numPdus; i++)
     msgTx->ul_pdcch_pdu[i] = UL_dci_req->ul_dci_pdu_list[i];
+
+  if(UL_dci_req->numPdus > 0)
+    log_mmap_entry(0, UL_dci_req->SFN , UL_dci_req->Slot , "stop-uldci");
 }
 
 void nr_schedule_response(NR_Sched_Rsp_t *Sched_INFO)
