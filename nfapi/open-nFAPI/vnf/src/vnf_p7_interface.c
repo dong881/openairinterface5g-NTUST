@@ -155,6 +155,7 @@ int nfapi_nr_vnf_p7_start(nfapi_vnf_p7_config_t* config)
 
     struct timespec ref_time;
 	clock_gettime(CLOCK_MONOTONIC, &ref_time);
+	vnf_nr_p7_socket_init(vnf_p7);
 	while(vnf_p7->terminate == 0)
 	{	
 		fd_set rfds;
@@ -177,7 +178,8 @@ int nfapi_nr_vnf_p7_start(nfapi_vnf_p7_config_t* config)
 			// have a p7 message
 			if(FD_ISSET(vnf_p7->socket, &rfds))
 			{	
-				vnf_nr_p7_read_dispatch_message(vnf_p7); 				
+				// vnf_nr_p7_read_dispatch_message(vnf_p7); 
+				vnf_nr_p7_read_dispatch_message_rawSocket(vnf_p7);				
 			}
 		}
 		else
@@ -198,6 +200,7 @@ int nfapi_nr_vnf_p7_start(nfapi_vnf_p7_config_t* config)
 			}
 		}
 	}
+	vnf_cleanup_raw_socket();
 	NFAPI_TRACE(NFAPI_TRACE_INFO, "Closing p7 socket\n");
 	close(vnf_p7->socket);
 

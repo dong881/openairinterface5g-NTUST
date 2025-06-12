@@ -133,6 +133,10 @@ int send_mac_subframe_indications(vnf_p7_t* config);
 int send_mac_slot_indications(vnf_p7_t* config);
 int vnf_p7_read_dispatch_message(vnf_p7_t* vnf_p7 );
 int vnf_nr_p7_read_dispatch_message(vnf_p7_t* vnf_p7 );
+int vnf_nr_p7_read_dispatch_message_rawSocket(vnf_p7_t* vnf_p7 );
+int vnf_nr_p7_socket_init(vnf_p7_t* vnf_p7);
+int vnf_send_p7_msg_rawSocket(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info, uint8_t* msg, const uint32_t len);
+void vnf_cleanup_raw_socket(void);
 
 void vnf_p7_connection_info_list_add(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* node);
 nfapi_vnf_p7_connection_info_t* vnf_p7_connection_info_list_find(vnf_p7_t* vnf_p7, uint16_t phy_id);

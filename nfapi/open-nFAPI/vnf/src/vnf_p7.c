@@ -460,7 +460,227 @@ int send_mac_subframe_indications(vnf_p7_t* vnf_p7)
 
 	return 0;
 }
+#include <linux/if_packet.h>
+#include <linux/if_ether.h>
+#include <net/ethernet.h>
+#include <linux/net_tstamp.h>
+#include <linux/sockios.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 
+#define ETH_PROTO 0x1234
+#define PACKET_RING_SIZE (1024 * 64) // 64KB ring buffer
+
+// Check if hardware timestamping constants are available
+#ifndef SOF_TIMESTAMPING_HW_TRANS
+#define SOF_TIMESTAMPING_HW_TRANS 0x00000008
+#endif
+
+#ifndef SOF_TIMESTAMPING_TX_HARDWARE
+#define SOF_TIMESTAMPING_TX_HARDWARE 0x00000001
+#endif
+
+#ifndef SOF_TIMESTAMPING_RAW_HARDWARE
+#define SOF_TIMESTAMPING_RAW_HARDWARE 0x00000040
+#endif
+
+// Global static variables for socket reuse and optimization
+static int g_raw_sock = -1;
+static unsigned char g_src_mac[ETH_ALEN];
+static unsigned char g_dest_mac[ETH_ALEN] = {0x3c, 0xec, 0xef, 0xe3, 0x7d, 0x8d};
+static int g_ifindex = -1;
+static struct sockaddr_ll g_saddr;
+static uint8_t *g_frame_pool = NULL;
+static size_t g_frame_pool_size = 0;
+
+// Initialize raw socket with maximum performance settings
+static int init_raw_socket_once(const char *iface)
+{
+    if (g_raw_sock != -1) {
+        return 0; // Already initialized
+    }
+    
+    // Create raw socket with highest priority
+    g_raw_sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_PROTO));
+    if (g_raw_sock < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to create raw socket: %s\n", strerror(errno));
+        return -1;
+    }
+    
+    // Set socket priority to highest
+    int priority = 7;
+    if (setsockopt(g_raw_sock, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority)) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_WARN, "Failed to set socket priority: %s\n", strerror(errno));
+    }
+    
+    // Enable packet loss notification
+    int val = 1;
+    if (setsockopt(g_raw_sock, SOL_PACKET, PACKET_LOSS, &val, sizeof(val)) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_WARN, "Failed to enable packet loss notification: %s\n", strerror(errno));
+    }
+    
+    // Get interface information
+    struct ifreq ifr;
+    memset(&ifr, 0, sizeof(ifr));
+    strncpy(ifr.ifr_name, iface, IFNAMSIZ-1);
+    
+    // Get interface index
+    if (ioctl(g_raw_sock, SIOCGIFINDEX, &ifr) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "ioctl(SIOCGIFINDEX) failed: %s\n", strerror(errno));
+        close(g_raw_sock);
+        g_raw_sock = -1;
+        return -1;
+    }
+    g_ifindex = ifr.ifr_ifindex;
+    
+    // Get source MAC address
+    if (ioctl(g_raw_sock, SIOCGIFHWADDR, &ifr) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "ioctl(SIOCGIFHWADDR) failed: %s\n", strerror(errno));
+        close(g_raw_sock);
+        g_raw_sock = -1;
+        return -1;
+    }
+    memcpy(g_src_mac, ifr.ifr_hwaddr.sa_data, ETH_ALEN);
+    
+    // Configure hardware timestamping - use only commonly available flags
+    int ts_flags = SOF_TIMESTAMPING_TX_HARDWARE |
+                   SOF_TIMESTAMPING_RAW_HARDWARE;
+    
+    if (setsockopt(g_raw_sock, SOL_SOCKET, SO_TIMESTAMPING, &ts_flags, sizeof(ts_flags)) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Hardware timestamping not available: %s\n", strerror(errno));
+    }
+    
+    // Configure hardware timestamping for interface
+    struct hwtstamp_config hwts_config;
+    memset(&hwts_config, 0, sizeof(hwts_config));
+    hwts_config.tx_type = HWTSTAMP_TX_ON;
+    hwts_config.rx_filter = HWTSTAMP_FILTER_ALL;
+    
+    ifr.ifr_data = (void *)&hwts_config;
+    if (ioctl(g_raw_sock, SIOCSHWTSTAMP, &ifr) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Hardware timestamping not supported: %s\n", strerror(errno));
+    }
+    
+    // Set socket buffer sizes for minimum latency
+    int sndbuf = 65536;
+    if (setsockopt(g_raw_sock, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf)) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_WARN, "Failed to set send buffer size: %s\n", strerror(errno));
+    }
+    
+    // Disable Nagle algorithm equivalent for raw sockets
+    int nodelay = 1;
+    if (setsockopt(g_raw_sock, SOL_SOCKET, SO_REUSEADDR, &nodelay, sizeof(nodelay)) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_WARN, "Failed to set socket options: %s\n", strerror(errno));
+    }
+    
+    // Pre-configure destination address structure
+    memset(&g_saddr, 0, sizeof(g_saddr));
+    g_saddr.sll_family = AF_PACKET;
+    g_saddr.sll_protocol = htons(ETH_PROTO);
+    g_saddr.sll_ifindex = g_ifindex;
+    g_saddr.sll_halen = ETH_ALEN;
+    memcpy(g_saddr.sll_addr, g_dest_mac, ETH_ALEN);
+    
+    // Pre-allocate frame pool for zero-copy operations
+    g_frame_pool_size = sizeof(struct ethhdr) + 65536; // Max frame size
+    g_frame_pool = mmap(NULL, g_frame_pool_size, PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
+    if (g_frame_pool == MAP_FAILED) {
+        g_frame_pool = malloc(g_frame_pool_size);
+        if (!g_frame_pool) {
+            NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to allocate frame pool\n");
+            close(g_raw_sock);
+            g_raw_sock = -1;
+            return -1;
+        }
+    }
+    
+    // Pre-fill Ethernet header template
+    struct ethhdr *eth = (struct ethhdr *)g_frame_pool;
+    memcpy(eth->h_dest, g_dest_mac, ETH_ALEN);
+    memcpy(eth->h_source, g_src_mac, ETH_ALEN);
+    eth->h_proto = htons(ETH_PROTO);
+    
+    // 加入除錯：檢查 Ethernet header 中的 MAC 地址
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "Ethernet header dest MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
+                eth->h_dest[0], eth->h_dest[1], eth->h_dest[2], 
+                eth->h_dest[3], eth->h_dest[4], eth->h_dest[5]);
+    
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "Raw socket initialized on %s (index: %d) with optimizations\n", 
+                iface, g_ifindex);
+    return 0;
+}
+
+int vnf_send_p7_msg_rawSocket(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info, uint8_t* msg, const uint32_t len)
+{
+    const char *iface = "ens1f0"; // Configure as needed
+    
+    // Initialize socket on first call
+    if (init_raw_socket_once(iface) < 0) {
+        return -1;
+    }
+    
+    // Validate message length
+    if (len == 0 || len > (g_frame_pool_size - sizeof(struct ethhdr))) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Invalid message length: %u\n", len);
+        return -1;
+    }
+    
+    // Use pre-allocated frame buffer (Ethernet header already set)
+    // Only need to copy the payload
+    memcpy(g_frame_pool + sizeof(struct ethhdr), msg, len);
+    
+    const size_t total_frame_size = sizeof(struct ethhdr) + len;
+    
+    // Send with minimum system calls
+    ssize_t sent = sendto(g_raw_sock, g_frame_pool, total_frame_size, 
+                         MSG_DONTWAIT, // Non-blocking for minimum latency
+                         (struct sockaddr *)&g_saddr, sizeof(g_saddr));
+    
+    if (sent < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // Socket buffer full, could implement retry logic here
+            NFAPI_TRACE(NFAPI_TRACE_WARN, "%s sendto() would block\n", __FUNCTION__);
+            return -1;
+        }
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s sendto() failed: %s\n", __FUNCTION__, strerror(errno));
+        return -1;
+    }
+    
+    if (sent != total_frame_size) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s sendto() partial send %zd != %zu\n", 
+                    __FUNCTION__, sent, total_frame_size);
+        return -1;
+    }
+    
+    return 0;
+}
+
+// Cleanup function (call at shutdown)
+void vnf_cleanup_raw_socket(void)
+{
+    if (g_raw_sock != -1) {
+        close(g_raw_sock);
+        g_raw_sock = -1;
+    }
+    
+    if (g_frame_pool && g_frame_pool != MAP_FAILED) {
+        if (munmap(g_frame_pool, g_frame_pool_size) == 0) {
+            // Successfully unmapped
+        } else {
+            free(g_frame_pool);
+        }
+        g_frame_pool = NULL;
+    }
+}
 int vnf_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info, uint8_t* msg, const uint32_t len)
 {
 	int sendto_result = sendto(vnf_p7->socket, msg, len, 0, (struct sockaddr*)&(p7_info->remote_addr), sizeof(p7_info->remote_addr)); 
@@ -542,7 +762,7 @@ int vnf_nr_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_nr_p7_message_header_
 			
 				nfapi_nr_p7_update_transmit_timestamp(buffer, calculate_transmit_timestamp(p7_connection->mu, p7_connection->sfn, p7_connection->slot, vnf_p7->slot_start_time_hr));
 
-				send_result = vnf_send_p7_msg(vnf_p7, p7_connection,  &tx_buffer[0], segment_size);
+				send_result = vnf_send_p7_msg_rawSocket(vnf_p7, p7_connection,  &tx_buffer[0], segment_size);
 
 			}
 		}
@@ -556,7 +776,7 @@ int vnf_nr_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_nr_p7_message_header_
 			nfapi_nr_p7_update_transmit_timestamp(buffer, calculate_transmit_timestamp(p7_connection->mu, p7_connection->sfn, p7_connection->slot, vnf_p7->slot_start_time_hr));
 
 			// simple case that the message fits in a single segement
-			send_result = vnf_send_p7_msg(vnf_p7, p7_connection, &buffer[0], len);
+			send_result = vnf_send_p7_msg_rawSocket(vnf_p7, p7_connection, &buffer[0], len);
 		}
 
 		p7_connection->sequence_number++;
@@ -636,7 +856,7 @@ int vnf_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* hea
 			
 				nfapi_p7_update_transmit_timestamp(buffer, calculate_transmit_timestamp(p7_connection->mu, p7_connection->sfn, p7_connection->slot, vnf_p7->slot_start_time_hr));	
 
-				send_result = vnf_send_p7_msg(vnf_p7, p7_connection,  &tx_buffer[0], segment_size);
+				send_result = vnf_send_p7_msg_rawSocket(vnf_p7, p7_connection,  &tx_buffer[0], segment_size);
 			}
 		}
 		else
@@ -649,7 +869,7 @@ int vnf_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* hea
 			nfapi_p7_update_transmit_timestamp(buffer, calculate_transmit_timestamp(p7_connection->mu, p7_connection->sfn, p7_connection->slot, vnf_p7->slot_start_time_hr));	
 
 			// simple case that the message fits in a single segement
-			send_result = vnf_send_p7_msg(vnf_p7, p7_connection, &buffer[0], len);
+			send_result = vnf_send_p7_msg_rawSocket(vnf_p7, p7_connection, &buffer[0], len);
 		}
 
 		p7_connection->sequence_number++;
@@ -2535,6 +2755,148 @@ void vnf_nr_handle_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		}
 	}
 }
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/socket.h>
+#include <linux/if_packet.h>
+#include <linux/if_ether.h>
+#include <net/ethernet.h>
+#include <arpa/inet.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
+#include <errno.h>
+
+// 建立並綁定raw socket
+int create_and_bind_raw_socket(const char *interface_name) 
+{
+    int sock;
+    struct ifreq ifr;
+    struct sockaddr_ll saddr;
+    #define ETH_PROTO 0x1234
+
+    sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_PROTO));
+    if (sock < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to create raw socket: %s\n", strerror(errno));
+        return -1;
+    }
+
+    memset(&ifr, 0, sizeof(ifr));
+    strncpy(ifr.ifr_name, interface_name, IFNAMSIZ-1);
+    if (ioctl(sock, SIOCGIFINDEX, &ifr) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to get interface index: %s\n", strerror(errno));
+        close(sock);
+        return -1;
+    }
+
+    memset(&saddr, 0, sizeof(saddr));
+    saddr.sll_family = AF_PACKET;
+    saddr.sll_protocol = htons(ETH_PROTO);
+    saddr.sll_ifindex = ifr.ifr_ifindex;
+
+    if (bind(sock, (struct sockaddr*)&saddr, sizeof(saddr)) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to bind socket: %s\n", strerror(errno));
+        close(sock);
+        return -1;
+    }
+
+    int flags = fcntl(sock, F_GETFL, 0);
+    fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "Raw socket created and bound to %s (index: %d)\n", 
+                interface_name, ifr.ifr_ifindex);
+
+    return sock;
+}
+
+// 初始化VNF端socket
+int vnf_nr_p7_socket_init(vnf_p7_t* vnf_p7) 
+{
+    const char *interface_name = "ens1f0";  // 依你的環境調整
+    if (vnf_p7->socket > 0) {
+        close(vnf_p7->socket);
+    }
+    vnf_p7->socket = create_and_bind_raw_socket(interface_name);
+    if (vnf_p7->socket < 0) {
+        return -1;
+    }
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "VNF P7 socket initialized successfully\n");
+    return 0;
+}
+
+// 讀取並分派raw socket訊息
+int vnf_nr_p7_read_dispatch_message_rawSocket(vnf_p7_t* vnf_p7)
+{
+    #define ETH_PROTO 0x1234
+    int recvfrom_result = 0;
+    if (vnf_p7->socket <= 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Invalid socket descriptor\n");
+        return -1;
+    }
+    uint8_t peek_buffer[14 + NFAPI_NR_P7_HEADER_LENGTH];
+    recvfrom_result = recvfrom(vnf_p7->socket, peek_buffer, sizeof(peek_buffer), 
+                              MSG_DONTWAIT | MSG_PEEK, NULL, NULL);
+
+    if (recvfrom_result > 0) {
+        if (recvfrom_result < sizeof(peek_buffer)) {
+            uint8_t dummy[sizeof(peek_buffer)];
+            recvfrom(vnf_p7->socket, dummy, recvfrom_result, 0, NULL, NULL);
+            return -1;
+        }
+        struct ethhdr *eth = (struct ethhdr *)peek_buffer;
+        if (ntohs(eth->h_proto) != ETH_PROTO) {
+            uint8_t dummy[recvfrom_result];
+            recvfrom(vnf_p7->socket, dummy, recvfrom_result, 0, NULL, NULL);
+            return 0;
+        }
+        nfapi_nr_p7_message_header_t header;
+        if (nfapi_nr_p7_message_header_unpack(&peek_buffer[14], NFAPI_NR_P7_HEADER_LENGTH, 
+                                             &header, sizeof(header), 0) < 0) {
+            uint8_t dummy[recvfrom_result];
+            recvfrom(vnf_p7->socket, dummy, recvfrom_result, 0, NULL, NULL);
+            return -1;
+        }
+        int total_payload_size = header.message_length;
+        if (total_payload_size <= 0 || total_payload_size > 65536) {
+            uint8_t dummy[recvfrom_result];
+            recvfrom(vnf_p7->socket, dummy, recvfrom_result, 0, NULL, NULL);
+            return -1;
+        }
+        if (total_payload_size > vnf_p7->rx_message_buffer_size) {
+            void *new_buffer = realloc(vnf_p7->rx_message_buffer, total_payload_size);
+            if (!new_buffer) {
+                return -1;
+            }
+            vnf_p7->rx_message_buffer = new_buffer;
+            vnf_p7->rx_message_buffer_size = total_payload_size;
+        }
+        int frame_size = 14 + total_payload_size;
+        uint8_t *frame_buffer = malloc(frame_size);
+        if (!frame_buffer) return -1;
+        recvfrom_result = recvfrom(vnf_p7->socket, frame_buffer, frame_size, 0, NULL, NULL);
+        if (recvfrom_result == frame_size) {
+            memcpy(vnf_p7->rx_message_buffer, &frame_buffer[14], total_payload_size);
+            free(frame_buffer);
+            vnf_nr_handle_p7_message(vnf_p7->rx_message_buffer, total_payload_size, vnf_p7);
+            return 0;
+        } else {
+            free(frame_buffer);
+            return -1;
+        }
+    } else if (recvfrom_result == -1) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return 0;
+        } else {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+
 
 int vnf_nr_p7_read_dispatch_message(vnf_p7_t* vnf_p7)
 {
