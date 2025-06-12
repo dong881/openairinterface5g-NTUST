@@ -146,6 +146,7 @@ int pnf_nr_p7_message_pump(pnf_p7_t* pnf_p7);
 int pnf_p7_pack_and_send_p7_message(pnf_p7_t* pnf_p7, nfapi_p7_message_header_t* msg, uint32_t msg_len);
 int pnf_nr_p7_pack_and_send_p7_message(pnf_p7_t* pnf_p7, nfapi_nr_p7_message_header_t* header, uint32_t msg_len);
 int pnf_p7_send_message(pnf_p7_t* pnf_p7, uint8_t* msg, uint32_t msg_len);
+int pnf_p7_send_message_rawSocket(pnf_p7_t* pnf_p7, uint8_t* msg, uint32_t msg_len);
 
 
 int pnf_p7_slot_ind(pnf_p7_t* config, uint16_t phy_id, uint16_t sfn, uint16_t slot);

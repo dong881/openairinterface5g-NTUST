@@ -137,4 +137,10 @@ extern int emulate_rf;
 extern int numerology;
 extern int usrp_tx_thread;
 void wait_gNBs(void);
+
+// Function declarations for memory-mapped logging
+int init_mmap_logger(const char* filename);
+void log_mmap_entry(int log_id, int frame_tx, int slot_tx, const char *custom_message);
+void cleanup_mmap_logger(void);
+
 #endif
