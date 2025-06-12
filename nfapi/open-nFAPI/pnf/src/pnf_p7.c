@@ -447,6 +447,175 @@ static uint32_t get_sf_time(uint32_t now_hr, uint32_t sf_start_hr)
 	}
 }
 
+#include <linux/if_packet.h>
+#include <linux/if_ether.h>
+#include <net/ethernet.h>
+#include <linux/net_tstamp.h>
+#include <linux/sockios.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <netinet/in.h>
+#include <netinet/ip.h>
+#include <sys/socket.h>
+
+/* Define missing constants if they're not available */
+#ifndef NFAPI_TRACE_ERROR
+#define NFAPI_TRACE_ERROR 0
+#endif
+
+#ifndef NFAPI_TRACE_WARN
+#define NFAPI_TRACE_WARN 1
+#endif
+
+#ifndef NFAPI_TRACE_INFO
+#define NFAPI_TRACE_INFO 2
+#endif
+
+#ifndef SOF_TIMESTAMPING_HW_TRANS
+#define SOF_TIMESTAMPING_HW_TRANS (1<<4)
+#endif
+
+/* Static socket for performance - avoid creating/closing for each message */
+static int static_raw_sock = -1;
+static unsigned char static_src_mac[ETH_ALEN];
+static int static_ifindex = -1;
+
+int pnf_p7_send_message_rawSocket(pnf_p7_t* pnf_p7, uint8_t* msg, uint32_t len)
+{
+	unsigned char dest_mac[ETH_ALEN] = {0x98, 0xf2, 0xb3, 0x23, 0x82, 0x34}; // Adjust as needed
+	#define ETH_PROTO 0x1234
+	const char *iface = "eno2"; // Adjust to match your interface
+	int raw_sock;
+	
+	// Reuse existing socket if available to improve performance
+	if (static_raw_sock == -1) {
+		// First time initialization
+		raw_sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_PROTO));
+		if (raw_sock < 0) {
+			NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to create raw socket: %d\n", errno);
+			return -1;
+		}
+		
+		// Keep socket open for future use
+		static_raw_sock = raw_sock;
+		
+		// Enable hardware timestamping capabilities
+		int ts_flags = SOF_TIMESTAMPING_TX_HARDWARE |
+					  SOF_TIMESTAMPING_RX_HARDWARE |
+					  SOF_TIMESTAMPING_RAW_HARDWARE |
+					  SOF_TIMESTAMPING_SYS_HARDWARE |
+					  SOF_TIMESTAMPING_HW_TRANS;
+		
+		if (setsockopt(raw_sock, SOL_SOCKET, SO_TIMESTAMPING, &ts_flags, sizeof(ts_flags)) < 0) {
+			NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to set SO_TIMESTAMPING: %d\n", errno);
+			// Continue anyway, as the socket will still work without timestamping
+		}
+
+		struct ifreq ifr;
+		memset(&ifr, 0, sizeof(ifr));
+		strncpy(ifr.ifr_name, iface, IFNAMSIZ);
+
+		// Get interface index
+		if (ioctl(raw_sock, SIOCGIFINDEX, &ifr) < 0) {
+			NFAPI_TRACE(NFAPI_TRACE_ERROR, "ioctl(SIOCGIFINDEX) failed: %d\n", errno);
+			close(raw_sock);
+			static_raw_sock = -1;
+			return -1;
+		}
+		static_ifindex = ifr.ifr_ifindex;
+
+		// Get MAC address
+		if (ioctl(raw_sock, SIOCGIFHWADDR, &ifr) < 0) {
+			NFAPI_TRACE(NFAPI_TRACE_ERROR, "ioctl(SIOCGIFHWADDR) failed: %d\n", errno);
+			close(raw_sock);
+			static_raw_sock = -1;
+			return -1;
+		}
+		memcpy(static_src_mac, ifr.ifr_hwaddr.sa_data, ETH_ALEN);
+
+		// Configure hardware timestamping for the interface
+		struct hwtstamp_config hwts_config;
+		memset(&hwts_config, 0, sizeof(hwts_config));
+		hwts_config.tx_type = HWTSTAMP_TX_ON;
+		hwts_config.rx_filter = HWTSTAMP_FILTER_ALL;
+		
+		ifr.ifr_data = (void *)&hwts_config;
+		if (ioctl(raw_sock, SIOCSHWTSTAMP, &ifr) < 0) {
+			NFAPI_TRACE(NFAPI_TRACE_WARN, "Failed to set hardware timestamping on interface: %d - may affect timing accuracy\n", errno);
+			// Continue as this may not be supported by all interfaces
+		}
+        // Remove the IP_TOS section entirely - it's not applicable to raw sockets
+        // Raw sockets operate at Layer 2 and don't support IP-level socket options
+	} else {
+		// Use existing socket
+		raw_sock = static_raw_sock;
+	}
+
+	// Allocate and prepare the ethernet frame
+	uint8_t* frame_buffer = malloc(sizeof(struct ethhdr) + len);
+	if (!frame_buffer) {
+		NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to allocate memory for frame buffer\n");
+		return -1;
+	}
+
+	struct ethhdr *eth = (struct ethhdr *)frame_buffer;
+	memcpy(eth->h_dest, dest_mac, ETH_ALEN);
+	memcpy(eth->h_source, static_src_mac, ETH_ALEN);
+	eth->h_proto = htons(ETH_PROTO);
+
+	memcpy(frame_buffer + sizeof(struct ethhdr), msg, len);
+
+	// Prepare destination address
+	struct sockaddr_ll saddr = {
+		.sll_family = AF_PACKET,
+		.sll_protocol = htons(ETH_PROTO),
+		.sll_ifindex = static_ifindex,
+		.sll_halen = ETH_ALEN,
+	};
+	memcpy(saddr.sll_addr, dest_mac, ETH_ALEN);
+
+	// Send the frame with hardware timestamping
+	ssize_t sent = sendto(raw_sock, frame_buffer, sizeof(struct ethhdr) + len, 0,
+						 (struct sockaddr *)&saddr, sizeof(saddr));
+
+	if (sent < 0) {
+		NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s sendto() failed: %d\n", __FUNCTION__, errno);
+		free(frame_buffer);
+		return -1;
+	} else if (sent != sizeof(struct ethhdr) + len) {
+		NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s sendto failed to send the entire message %zd != %zu\n", 
+					__FUNCTION__, sent, sizeof(struct ethhdr) + len);
+	}
+	
+	// Get the hardware timestamp if available
+	char control[1024];
+	struct msghdr msg_hdr;
+	struct iovec iov;
+	char buf[1];
+	
+	memset(&msg_hdr, 0, sizeof(msg_hdr));
+	msg_hdr.msg_control = control;
+	msg_hdr.msg_controllen = sizeof(control);
+	msg_hdr.msg_iov = &iov;
+	msg_hdr.msg_iovlen = 1;
+	iov.iov_base = buf;
+	iov.iov_len = sizeof(buf);
+	
+	// Try to receive the timestamp (non-blocking)
+	int res = recvmsg(raw_sock, &msg_hdr, MSG_ERRQUEUE | MSG_DONTWAIT);
+	// if (res >= 0) {
+	// 	NFAPI_TRACE(NFAPI_TRACE_INFO, "Successfully received hardware timestamp\n");
+	// }
+
+	free(frame_buffer);
+	// Don't close the socket as we're reusing it
+	
+	return (sent == sizeof(struct ethhdr) + len) ? 0 : -1;
+}
 
 
 int pnf_p7_send_message(pnf_p7_t* pnf_p7, uint8_t* msg, uint32_t len)
@@ -629,7 +798,8 @@ int pnf_nr_p7_pack_and_send_p7_message(pnf_p7_t* pnf_p7, nfapi_nr_p7_message_hea
         nfapi_nr_p7_update_checksum(buffer, segment_size);
       }
 
-      pnf_p7_send_message(pnf_p7, &buffer[0], segment_size);
+    //   pnf_p7_send_message(pnf_p7, &buffer[0], segment_size);
+	  pnf_p7_send_message_rawSocket(pnf_p7, &buffer[0], segment_size);
     }
   } else {
     if (pnf_p7->_public.checksum_enabled) {
@@ -637,7 +807,8 @@ int pnf_nr_p7_pack_and_send_p7_message(pnf_p7_t* pnf_p7, nfapi_nr_p7_message_hea
     }
 
     // simple case that the message fits in a single segment
-    pnf_p7_send_message(pnf_p7, tx_buf, len);
+    // pnf_p7_send_message(pnf_p7, tx_buf, len);
+	pnf_p7_send_message_rawSocket(pnf_p7, tx_buf, len);
   }
 
   pnf_p7->sequence_number++;
@@ -2500,6 +2671,237 @@ void pnf_nfapi_p7_read_dispatch_message(pnf_p7_t* pnf_p7, uint32_t now_hr_time)
 	}
 	while(recvfrom_result > 0);
 }
+#include <linux/if_packet.h>
+#include <linux/if_ether.h>
+#include <net/ethernet.h>
+#include <linux/net_tstamp.h>
+#include <linux/sockios.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+
+#define ETH_PROTO 0x1234
+#define RX_RING_SIZE 2048
+
+int pnf_nr_p7_socket_init_rawSocket(pnf_p7_t* pnf_p7, const char* interface_name)
+{
+    struct ifreq ifr;
+    int sock;
+    
+    // Create raw socket with highest priority
+    sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_PROTO));
+    if (sock < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to create raw socket: %s\n", strerror(errno));
+        return -1;
+    }
+    
+    // Set socket priority
+    int priority = 7;
+    if (setsockopt(sock, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority)) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_WARN, "Failed to set socket priority: %s\n", strerror(errno));
+    }
+    
+    // Get interface information
+    memset(&ifr, 0, sizeof(ifr));
+    strncpy(ifr.ifr_name, interface_name, IFNAMSIZ-1);
+    
+    if (ioctl(sock, SIOCGIFINDEX, &ifr) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to get interface index: %s\n", strerror(errno));
+        close(sock);
+        return -1;
+    }
+    
+    int ifindex = ifr.ifr_ifindex;
+    
+    // Get interface MAC address
+    if (ioctl(sock, SIOCGIFHWADDR, &ifr) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to get interface MAC address: %s\n", strerror(errno));
+        close(sock);
+        return -1;
+    }
+    
+    // Bind socket to interface
+    struct sockaddr_ll sll;
+    memset(&sll, 0, sizeof(sll));
+    sll.sll_family = AF_PACKET;
+    sll.sll_protocol = htons(ETH_PROTO);
+    sll.sll_ifindex = ifindex;
+    
+    if (bind(sock, (struct sockaddr*)&sll, sizeof(sll)) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to bind to interface: %s\n", strerror(errno));
+        close(sock);
+        return -1;
+    }
+    
+    // Enable hardware timestamping
+    int ts_flags = SOF_TIMESTAMPING_RX_HARDWARE | 
+                   SOF_TIMESTAMPING_RAW_HARDWARE | 
+                   SOF_TIMESTAMPING_HW_TRANS;
+                   
+    if (setsockopt(sock, SOL_SOCKET, SO_TIMESTAMPING, &ts_flags, sizeof(ts_flags)) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Hardware timestamping not supported: %s\n", strerror(errno));
+    }
+    
+    // Configure hardware timestamping for interface
+    struct hwtstamp_config hwts_config;
+    memset(&hwts_config, 0, sizeof(hwts_config));
+    hwts_config.tx_type = HWTSTAMP_TX_ON;
+    hwts_config.rx_filter = HWTSTAMP_FILTER_ALL;
+    
+    ifr.ifr_data = (void *)&hwts_config;
+    if (ioctl(sock, SIOCSHWTSTAMP, &ifr) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Hardware timestamping not supported: %s\n", strerror(errno));
+    }
+    
+    // Set receive buffer size for minimum latency
+    int rcvbuf = 2 * 1024 * 1024; // 2MB
+    if (setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_WARN, "Failed to set receive buffer size: %s\n", strerror(errno));
+    }
+    
+    // Enable packet loss notification
+    int val = 1;
+    if (setsockopt(sock, SOL_PACKET, PACKET_LOSS, &val, sizeof(val)) < 0) {
+        NFAPI_TRACE(NFAPI_TRACE_WARN, "Failed to enable packet loss notification: %s\n", strerror(errno));
+    }
+    
+    // Set non-blocking mode
+    int flags = fcntl(sock, F_GETFL, 0);
+    if (flags == -1) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to get socket flags: %s\n", strerror(errno));
+        close(sock);
+        return -1;
+    }
+    
+    if (fcntl(sock, F_SETFL, flags | O_NONBLOCK) == -1) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to set non-blocking mode: %s\n", strerror(errno));
+        close(sock);
+        return -1;
+    }
+    
+    pnf_p7->p7_sock = sock;
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "Raw socket initialized on interface %s (index: %d)\n", 
+                interface_name, ifindex);
+    
+    return 0;
+}
+
+void pnf_nr_nfapi_p7_read_dispatch_message_rawSocket(pnf_p7_t* pnf_p7, uint32_t now_hr_time)
+{
+    int recvfrom_result = 0;
+    struct sockaddr_ll remote_addr;
+    socklen_t remote_addr_size = sizeof(remote_addr);
+    static uint8_t *frame_buffer = NULL;
+    static size_t frame_buffer_size = 0;
+    
+    // Allocate frame buffer once
+    if (!frame_buffer) {
+        frame_buffer_size = 65536; // Max Ethernet frame
+        frame_buffer = mmap(NULL, frame_buffer_size, PROT_READ | PROT_WRITE,
+                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, -1, 0);
+        if (frame_buffer == MAP_FAILED) {
+            frame_buffer = malloc(frame_buffer_size);
+            if (!frame_buffer) {
+                NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to allocate frame buffer\n");
+                return;
+            }
+        }
+    }
+    
+    do {
+        // Use MSG_TRUNC to avoid partial reads
+        recvfrom_result = recvfrom(pnf_p7->p7_sock,
+                                   frame_buffer,
+                                   frame_buffer_size,
+                                   MSG_DONTWAIT | MSG_TRUNC,
+                                   (struct sockaddr*)&remote_addr,
+                                   &remote_addr_size);
+        
+        if (recvfrom_result > 0) {
+            // Check if frame was truncated
+            if (recvfrom_result > frame_buffer_size) {
+                NFAPI_TRACE(NFAPI_TRACE_ERROR, "Frame truncated: %d > %zu\n", 
+                           recvfrom_result, frame_buffer_size);
+                continue;
+            }
+            
+            // Minimum frame check (Ethernet header + minimal NFAPI header)
+            if (recvfrom_result < sizeof(struct ethhdr) + NFAPI_NR_P7_HEADER_LENGTH) {
+                continue;
+            }
+            
+            // Verify Ethernet header
+            struct ethhdr *eth_hdr = (struct ethhdr *)frame_buffer;
+            if (ntohs(eth_hdr->h_proto) != ETH_PROTO) {
+                continue; // Not our protocol
+            }
+            
+            // Extract NFAPI payload
+            uint8_t *nfapi_payload = frame_buffer + sizeof(struct ethhdr);
+            uint32_t payload_size = recvfrom_result - sizeof(struct ethhdr);
+            
+            // Quick header validation
+            nfapi_nr_p7_message_header_t nfapi_header;
+            if (nfapi_nr_p7_message_header_unpack(nfapi_payload, 
+                                                 NFAPI_NR_P7_HEADER_LENGTH, 
+                                                 &nfapi_header, 
+                                                 sizeof(nfapi_header), 
+                                                 &pnf_p7->_public.codec_config) < 0) {
+                NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Failed to unpack NFAPI header\n");
+                continue;
+            }
+            
+            // Validate message length
+            if (nfapi_header.message_length != payload_size) {
+                NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Message length mismatch: %u != %u\n",
+                           nfapi_header.message_length, payload_size);
+                continue;
+            }
+            
+            // Resize PNF buffer if needed
+            if (payload_size > pnf_p7->rx_message_buffer_size) {
+                NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Reallocating rx buffer %u -> %u\n", 
+                           pnf_p7->rx_message_buffer_size, payload_size);
+                void *new_buf = realloc(pnf_p7->rx_message_buffer, payload_size);
+                if (!new_buf) {
+                    NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to allocate message buffer\n");
+                    continue;
+                }
+                pnf_p7->rx_message_buffer = new_buf;
+                pnf_p7->rx_message_buffer_size = payload_size;
+            }
+            
+            // Zero-copy: use payload directly if possible, otherwise copy
+            uint8_t *msg_buffer = nfapi_payload;
+            if (payload_size <= pnf_p7->rx_message_buffer_size) {
+                memcpy(pnf_p7->rx_message_buffer, nfapi_payload, payload_size);
+                msg_buffer = pnf_p7->rx_message_buffer;
+            }
+            
+            // Get current timestamp for processing
+            now_hr_time = pnf_get_current_time_hr();
+            
+            // Process the message
+            pnf_nr_handle_p7_message(msg_buffer, 
+                                    payload_size, 
+                                    pnf_p7, 
+                                    now_hr_time);
+            
+        } else if (recvfrom_result == -1) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                NFAPI_TRACE(NFAPI_TRACE_WARN, "%s recvfrom failed errno:%d (%s)\n", 
+                           __FUNCTION__, errno, strerror(errno));
+            }
+            break; // No more data or error
+        }
+        
+    } while (recvfrom_result > 0);
+}
 
 void pnf_nr_nfapi_p7_read_dispatch_message(pnf_p7_t* pnf_p7, uint32_t now_hr_time)
 {
@@ -2820,7 +3222,7 @@ int pnf_nr_p7_message_pump(pnf_p7_t* pnf_p7)
 	struct timespec slot_duration;
 	slot_duration.tv_sec = 0;
 	slot_duration.tv_nsec = 0.5e6;
-
+	pnf_nr_p7_socket_init_rawSocket(pnf_p7, "eno2");
 	//Infinite loop 
 
 	while(pnf_p7->terminate == 0)
@@ -2893,7 +3295,7 @@ int pnf_nr_p7_message_pump(pnf_p7_t* pnf_p7)
 		if(FD_ISSET(pnf_p7->p7_sock, &rfds)) 
 
 		{
-			pnf_nr_nfapi_p7_read_dispatch_message(pnf_p7, now_hr_time); 
+			pnf_nr_nfapi_p7_read_dispatch_message_rawSocket(pnf_p7, now_hr_time); 
 		}
 	}
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "PNF_P7 Terminating..\n");
