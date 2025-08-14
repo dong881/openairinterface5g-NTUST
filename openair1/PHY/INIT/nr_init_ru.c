@@ -116,12 +116,12 @@ void nr_phy_init_RU(RU_t *ru)
     //    AssertFatal(ru->nb_rx <= sizeof(ru->prach_rxsigF) / sizeof(ru->prach_rxsigF[0]),
     //		"nb_antennas_rx too large");
     for (int j = 0; j < NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX; j++) {
-      ru->prach_rxsigF[j] = (int16_t**)malloc(nb_rx_streams * sizeof(int16_t*));
-      
+      ru->prach_rxsigF[j] = malloc(nb_rx_streams * sizeof(*ru->prach_rxsigF));
+
       for (int i = 0; i < nb_rx_streams; i++) {
 	// largest size for PRACH FFT is 4x98304 (16*24576)
-	ru->prach_rxsigF[j][i] = (int16_t*)malloc16_clear(4 * 98304 * 2 * sizeof(int16_t));
-	LOG_D(PHY,"[INIT] prach_vars->rxsigF[%d] = %p\n", i, ru->prach_rxsigF[j][i]);
+        ru->prach_rxsigF[j][i] = malloc16_clear(4 * 98304 * 2 * sizeof(**ru->prach_rxsigF));
+        LOG_D(PHY, "[INIT] prach_vars->rxsigF[%d] = %p\n", i, ru->prach_rxsigF[j][i]);
       }
     }
 

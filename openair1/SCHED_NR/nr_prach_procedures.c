@@ -52,10 +52,6 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
   uint16_t max_preamble[4]={0},max_preamble_energy[4]={0},max_preamble_delay[4]={0};
 
   RU_t *ru;
-  int aa=0;
-  int ru_aa;
-
- 
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_ENB_PRACH_RX,1);
   rach_ind->sfn = frame;
   rach_ind->slot = slot;
@@ -63,7 +59,7 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
 
   ru=gNB->RU_list[0];
 
-  prach_item_t *prach_id = find_nr_prach(&gNB->prach_vars.list, frame, slot, SEARCH_EXIST);
+  prach_item_t *prach_id = find_nr_prach(&gNB->prach_list, frame, slot, SEARCH_EXIST);
   if (!prach_id) {
     return;
   }
@@ -75,16 +71,15 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
   int N_dur = get_nr_prach_duration(prach_pdu->prach_format);
 
   for (int prach_oc = 0; prach_oc < prach_pdu->num_prach_ocas; prach_oc++) {
-    for (ru_aa = 0, aa = 0; ru_aa < ru->nb_rx; ru_aa++, aa++) {
-      gNB->prach_vars.rxsigF[aa] = ru->prach_rxsigF[prach_oc][ru_aa];
-    }
-
     prachStartSymbol = prach_pdu->prach_start_symbol + prach_oc * N_dur;
     // comment FK: the standard 38.211 section 5.3.2 has one extra term +14*N_RA_slot. This is because there prachStartSymbol is
     // given wrt to start of the 15kHz slot or 60kHz slot. Here we work slot based, so this function is anyway only called in slots
     // where there is PRACH. Its up to the MAC to schedule another PRACH PDU in the case there are there N_RA_slot \in {0,1}.
 
-    rx_nr_prach(gNB, prach_pdu, prach_oc, frame, slot, &max_preamble[0], &max_preamble_energy[0], &max_preamble_delay[0]);
+    c16_t *rxsigF[ru->nb_rx];
+    for (int i = 0; i < ru->nb_rx; ++i)
+      rxsigF[i] = (c16_t *)ru->prach_rxsigF[prach_oc][i];
+    rx_nr_prach(gNB, prach_pdu, prach_oc, frame, slot, &max_preamble[0], &max_preamble_energy[0], &max_preamble_delay[0], rxsigF);
     LOG_D(NR_PHY,
           "[RAPROC] Frame %d, slot %d, occasion %d (prachStartSymbol %d) : Most likely preamble %d, energy %d.%d dB delay %d "
           "(prach_energy counter %d)\n",
@@ -145,6 +140,6 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
   } // if prach_id>0
   rach_ind->slot = prach_start_slot;
   LOG_D(NR_PHY, "Freeing PRACH entry\n");
-  free_nr_prach_entry(&gNB->prach_vars.list, prach_id);
+  free_nr_prach_entry(&gNB->prach_list, prach_id);
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_ENB_PRACH_RX,0);
 }

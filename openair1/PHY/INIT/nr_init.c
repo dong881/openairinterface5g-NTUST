@@ -104,9 +104,7 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
   // shortcuts
   NR_DL_FRAME_PARMS *const fp       = &gNB->frame_parms;
   nfapi_nr_config_request_scf_t *cfg = &gNB->gNB_config;
-  NR_gNB_COMMON *const common_vars  = &gNB->common_vars;
-  NR_gNB_PRACH *const prach_vars   = &gNB->prach_vars;
-
+  NR_gNB_COMMON *const common_vars = &gNB->common_vars;
   common_vars->analog_bf = cfg->analog_beamforming_ve.analog_bf_vendor_ext.value;
   LOG_I(PHY, "L1 configured with%s analog beamforming\n", common_vars->analog_bf ? "" : "out");
   if (common_vars->analog_bf) {
@@ -190,9 +188,7 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
   common_vars->debugBuff_sample_offset = 0; 
 
   // PRACH
-  prach_vars->rxsigF = (int16_t **)malloc16_clear(Prx * sizeof(int16_t *));
-
-  init_prach_list(&gNB->prach_vars.list, prach_upper);
+  init_prach_list(&gNB->prach_list, prach_upper);
 
   int N_RB_UL = cfg->carrier_config.ul_grid_size[cfg->ssb_config.scs_common.value].value;
   int n_buf = Prx*max_ul_mimo_layers;

@@ -81,7 +81,7 @@ prach_item_t *find_nr_prach(prach_list_t *l, int frame, int slot, find_type_t ty
 
 prach_item_t *nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu)
 {
-  prach_item_t *prach = find_nr_prach(&gNB->prach_vars.list, SFN, Slot, SEARCH_EXIST_OR_FREE);
+  prach_item_t *prach = find_nr_prach(&gNB->prach_list, SFN, Slot, SEARCH_EXIST_OR_FREE);
   if (!prach) {
     LOG_W(PHY, "no free space for a new detected rach, discarding\n");
     return NULL;
@@ -171,7 +171,7 @@ void rx_nr_prach_ru(RU_t *ru,
         prachStartSymbol,
         prachOccasion);
 
-  int16_t **rxsigF = ru->prach_rxsigF[prachOccasion];
+  c16_t **rxsigF = (c16_t **)ru->prach_rxsigF[prachOccasion];
 
   AssertFatal(ru->if_south == LOCAL_RF || ru->if_south == REMOTE_IF5,
               "we shouldn't call this if if_south != LOCAL_RF or REMOTE_IF5\n");
@@ -392,23 +392,25 @@ void rx_nr_prach_ru(RU_t *ru,
     // do DFT
     int16_t *prach2 = prach[aa] + (2*Ncp); // times 2 for complex samples
     for (int i = 0; i < reps; i++)
-      dft(dftsize, prach2 + 2*dftlen*i, rxsigF[aa] + 2*dftlen*i, 1);
+      dft(dftsize, prach2 + 2 * dftlen * i, (int16_t *)rxsigF[aa] + 2 * dftlen * i, 1);
 
     //LOG_M("ru_rxsigF_tmp.m","rxsFtmp", rxsigF[aa], dftlen*2*reps, 1, 1);
 
     //Coherent combining of PRACH repetitions (assumes channel does not change, to be revisted for "long" PRACH)
     LOG_D(PHY,"Doing PRACH combining of %d reptitions N_ZC %d\n",reps,N_ZC);
-    int16_t rxsigF_tmp[N_ZC<<1];
-    //    if (k+N_ZC > dftlen) { // PRACH signal is split around DC 
-    int16_t *rxsigF2=rxsigF[aa];
-    int k2=k<<1;
+    c16_t rxsigF_tmp[N_ZC];
+    //    if (k+N_ZC > dftlen) { // PRACH signal is split around DC
+    c16_t *rxsigF2 = rxsigF[aa];
+    int k2 = k;
 
-    for (int j=0;j<N_ZC<<1;j++,k2++) {
-      if (k2==(dftlen<<1)) k2=0;
+    for (int j = 0; j < N_ZC; j++, k2++) {
+      if (k2 == dftlen)
+        k2 = 0;
       rxsigF_tmp[j] = rxsigF2[k2];
-      for (int i=1;i<reps;i++) rxsigF_tmp[j] += rxsigF2[k2+(i*dftlen<<1)];
+      for (int i = 1; i < reps; i++)
+        rxsigF_tmp[j] = c16add(rxsigF_tmp[j], rxsigF2[k2 + i * dftlen]);
     }
-    memcpy((void*)rxsigF2,(void *)rxsigF_tmp,N_ZC<<2);
+    memcpy(rxsigF2, rxsigF_tmp, N_ZC * sizeof(*rxsigF2));
   }
 }
 
@@ -419,11 +421,11 @@ void rx_nr_prach(PHY_VARS_gNB *gNB,
                  int slot,
                  uint16_t *max_preamble,
                  uint16_t *max_preamble_energy,
-                 uint16_t *max_preamble_delay)
+                 uint16_t *max_preamble_delay,
+                 c16_t **rxsigF)
 {
   AssertFatal(gNB != NULL, "Can only be called from gNB\n");
   nfapi_nr_prach_config_t *cfg = &gNB->gNB_config.prach_config;
-  c16_t **rxsigF = (c16_t **)gNB->prach_vars.rxsigF;
   uint16_t preamble_index0 = 0;
   uint16_t numshift = 0;
   int first_nonzero_root_idx = 0;

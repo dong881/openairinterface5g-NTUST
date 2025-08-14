@@ -209,7 +209,8 @@ void rx_nr_prach(PHY_VARS_gNB *gNB,
                  int subframe,
                  uint16_t *max_preamble,
                  uint16_t *max_preamble_energy,
-                 uint16_t *max_preamble_delay);
+                 uint16_t *max_preamble_delay,
+                 c16_t **rxsigF);
 
 void rx_nr_prach_ru(RU_t *ru,
                     int prach_fmt,
