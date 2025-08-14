@@ -1208,8 +1208,8 @@ void *ru_thread(void *param)
                      proc->tti_rx * gNB->frame_parms.samples_per_slot_wCP);
 
         // Do PRACH RU processing
-        int prach_id = find_nr_prach_ru(ru, proc->frame_rx, proc->tti_rx, SEARCH_EXIST);
-        if (prach_id >= 0) {
+        RU_PRACH_list_t *p = find_nr_prach_ru(ru, proc->frame_rx, proc->tti_rx, SEARCH_EXIST);
+        if (p) {
           VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME( VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_RU_PRACH_RX, 1 );
 
           T(T_GNB_PHY_PRACH_INPUT_SIGNAL,
@@ -1218,12 +1218,11 @@ void *ru_thread(void *param)
             T_INT(0),
             T_BUFFER(&ru->common.rxdata[0][fp->get_samples_slot_timestamp(proc->tti_rx - 1, fp, 0) /*-ru->N_TA_offset*/],
                      (fp->get_samples_per_slot(proc->tti_rx - 1, fp) + fp->get_samples_per_slot(proc->tti_rx, fp)) * 4));
-          RU_PRACH_list_t *p = ru->prach_list + prach_id;
           int N_dur = get_nr_prach_duration(p->fmt);
 
           for (int prach_oc = 0; prach_oc < p->num_prach_ocas; prach_oc++) {
             int prachStartSymbol = p->prachStartSymbol + prach_oc * N_dur;
-            int beam_id = ru->prach_list[prach_id].beam ? ru->prach_list[prach_id].beam[prach_oc] : 0;
+            int beam_id = p->beam ? p->beam[prach_oc] : 0;
             //comment FK: the standard 38.211 section 5.3.2 has one extra term +14*N_RA_slot. This is because there prachStartSymbol is given wrt to start of the 15kHz slot or 60kHz slot. Here we work slot based, so this function is anyway only called in slots where there is PRACH. Its up to the MAC to schedule another PRACH PDU in the case there are there N_RA_slot \in {0,1}.
             rx_nr_prach_ru(ru,
                            p->fmt, // could also use format
@@ -1235,7 +1234,7 @@ void *ru_thread(void *param)
                            proc->frame_rx,
                            proc->tti_rx);
           }
-          free_nr_ru_prach_entry(ru,prach_id);
+          free_nr_ru_prach_entry(ru, p);
           VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_RU_PRACH_RX, 0);
         } // end if (prach_id >= 0)
       } // end if (ru->feprx)

@@ -37,15 +37,13 @@ void nr_fill_pucch(PHY_VARS_gNB *gNB,
                    int frame,
                    int slot,
                    nfapi_nr_pucch_pdu_t *pucch_pdu){}
-void nr_fill_prach(PHY_VARS_gNB *gNB,
-                   int SFN,
-                   int Slot,
-                   nfapi_nr_prach_pdu_t *prach_pdu){}
-void nr_fill_prach_ru(RU_t *ru,
-                      int SFN,
-                      int Slot,
-                      nfapi_nr_prach_pdu_t *prach_pdu){}
-                   
+gNB_PRACH_list_t nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu)
+{
+}
+RU_PRACH_list_t nr_fill_prach_ru(RU_t *ru, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu)
+{
+}
+
 void  nr_phy_config_request(NR_PHY_Config_t *gNB){}
 
 void install_nr_schedule_handlers(NR_IF_Module_t *if_inst){}
