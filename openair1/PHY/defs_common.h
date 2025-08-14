@@ -1006,11 +1006,11 @@ typedef struct {
   int frame;
   int slot;
   int num_slots; // prach duration in slots
+  int beams[NFAPI_MAX_NUM_BG_IF];
   prach_type_t type;
   union {
     struct {
       // identifier for concurrent beams
-      int *beam_nb;
       nfapi_nr_prach_pdu_t pdu;
     } upper;
     struct {
@@ -1018,7 +1018,6 @@ typedef struct {
       int numRA;
       int prachStartSymbol;
       int num_prach_ocas;
-      int *beam;
     } lower;
   };
   nfapi_nr_prach_pdu_t pdu;

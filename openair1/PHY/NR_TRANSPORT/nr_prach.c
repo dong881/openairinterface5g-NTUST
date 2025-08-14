@@ -46,8 +46,6 @@ void init_prach_list(prach_list_t *l, prach_type_t t)
 void free_nr_prach_entry(prach_list_t *l, prach_item_t *p)
 {
   pthread_mutex_lock(&l->prach_list_mutex);
-  if (p->type == prach_upper)
-    free_and_zero(p->upper.beam_nb);
   *p = (prach_item_t){.frame = -1, .slot = -1, .num_slots = -1};
   pthread_mutex_unlock(&l->prach_list_mutex);
 }
@@ -91,25 +89,27 @@ prach_item_t *nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach
   prach->num_slots = (format < 4) ? get_long_prach_dur(format, gNB->frame_parms.numerology_index) : 1;
   if (gNB->common_vars.beam_id) {
     int n_symb = get_nr_prach_duration(prach_pdu->prach_format);
-    prach->upper.beam_nb = calloc(prach_pdu->beamforming.dig_bf_interface, sizeof(*prach->upper.beam_nb));
+    AssertFatal(prach_pdu->beamforming.dig_bf_interface < NFAPI_MAX_NUM_BG_IF,
+                "impossible beams size %d\n",
+                prach_pdu->beamforming.dig_bf_interface);
     for (int i = 0; i < prach_pdu->beamforming.dig_bf_interface; i++) {
       int fapi_beam_idx = prach_pdu->beamforming.prgs_list[0].dig_bf_interface_list[i].beam_idx;
       int start_symb = prach_pdu->prach_start_symbol + i * n_symb;
       int bitmap = SL_to_bitmap(start_symb, n_symb);
-      prach->upper.beam_nb[i] = beam_index_allocation(gNB->enable_analog_das,
-                                                      fapi_beam_idx,
-                                                      &gNB->gNB_config.analog_beamforming_ve,
-                                                      &gNB->common_vars,
-                                                      Slot,
-                                                      NR_NUMBER_OF_SYMBOLS_PER_SLOT,
-                                                      bitmap);
+      prach->beams[i] = beam_index_allocation(gNB->enable_analog_das,
+                                              fapi_beam_idx,
+                                              &gNB->gNB_config.analog_beamforming_ve,
+                                              &gNB->common_vars,
+                                              Slot,
+                                              NR_NUMBER_OF_SYMBOLS_PER_SLOT,
+                                              bitmap);
     }
   }
   prach->pdu = *prach_pdu;
   return prach;
 }
 
-void nr_fill_prach_ru(RU_t *ru, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu, int *beam_id)
+void nr_fill_prach_ru(RU_t *ru, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu, int *beams)
 {
   prach_item_t *prach = find_nr_prach(&ru->prach_list, SFN, Slot, SEARCH_EXIST_OR_FREE);
   if (!prach) {
@@ -123,9 +123,9 @@ void nr_fill_prach_ru(RU_t *ru, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_p
                           .num_slots = (fmt < 4) ? get_long_prach_dur(fmt, ru->nr_frame_parms->numerology_index) : 1,
                           .lower = {.fmt = fmt,
                                     .numRA = prach_pdu->num_ra,
-                                    .beam = beam_id,
                                     .prachStartSymbol = prach_pdu->prach_start_symbol,
                                     .num_prach_ocas = prach_pdu->num_prach_ocas}};
+  memcpy(prach->beams, beams, sizeof(prach->beams));
 }
 
 void rx_nr_prach_ru(RU_t *ru,

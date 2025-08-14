@@ -1222,7 +1222,7 @@ void *ru_thread(void *param)
 
           for (int prach_oc = 0; prach_oc < p->lower.num_prach_ocas; prach_oc++) {
             int prachStartSymbol = p->lower.prachStartSymbol + prach_oc * N_dur;
-            int beam_id = p->lower.beam ? p->lower.beam[prach_oc] : 0;
+            int beam_id = p->beams[prach_oc];
             //comment FK: the standard 38.211 section 5.3.2 has one extra term +14*N_RA_slot. This is because there prachStartSymbol is given wrt to start of the 15kHz slot or 60kHz slot. Here we work slot based, so this function is anyway only called in slots where there is PRACH. Its up to the MAC to schedule another PRACH PDU in the case there are there N_RA_slot \in {0,1}.
             rx_nr_prach_ru(ru,
                            p->lower.fmt, // could also use format
