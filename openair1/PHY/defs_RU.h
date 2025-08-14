@@ -592,10 +592,7 @@ typedef struct RU_t_s {
   int32_t *bw_list[NUMBER_OF_eNB_MAX+1];
   /// beamforming weight vectors
   int32_t **beam_weights[NUMBER_OF_eNB_MAX+1][15];
-  /// prach commands
-  prach_item_t prach_list[NUMBER_OF_NR_PRACH_MAX];
-  /// mutex for prach_list access
-  pthread_mutex_t prach_list_mutex;
+  prach_list_t prach_list;
   /// received frequency-domain signal for PRACH (IF4p5 RRU) 
   int16_t **prach_rxsigF[NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX];
   /// received frequency-domain signal for PRACH BR (IF4p5 RRU)

@@ -1208,7 +1208,7 @@ void *ru_thread(void *param)
                      proc->tti_rx * gNB->frame_parms.samples_per_slot_wCP);
 
         // Do PRACH RU processing
-        prach_item_t *p = find_nr_prach_ru(ru, proc->frame_rx, proc->tti_rx, SEARCH_EXIST);
+        prach_item_t *p = find_nr_prach(&ru->prach_list, proc->frame_rx, proc->tti_rx, SEARCH_EXIST);
         if (p) {
           VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME( VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_RU_PRACH_RX, 1 );
 
@@ -1234,7 +1234,7 @@ void *ru_thread(void *param)
                            proc->frame_rx,
                            proc->tti_rx);
           }
-          free_nr_ru_prach_entry(ru, p);
+          free_nr_prach_entry(&ru->prach_list, p);
           VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_RU_PRACH_RX, 0);
         } // end if (prach_id >= 0)
       } // end if (ru->feprx)

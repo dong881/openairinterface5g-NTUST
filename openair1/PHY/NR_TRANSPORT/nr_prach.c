@@ -36,51 +36,57 @@
 #include "PHY/NR_TRANSPORT/nr_transport_common_proto.h"
 #include "openair1/PHY/NR_TRANSPORT/nr_prach.h"
 
-void init_prach_list(PHY_VARS_gNB *gNB)
+void init_prach_list(prach_list_t *l, prach_type_t t)
 {
-  AssertFatal(gNB != NULL, "gNB is null\n");
-  for (int i = 0; i < NUMBER_OF_NR_PRACH_MAX; i++){
-    gNB->prach_vars.list[i].frame = -1;
-    gNB->prach_vars.list[i].slot = -1;
-    gNB->prach_vars.list[i].num_slots = -1;
-  }
+  pthread_mutex_init(&l->prach_list_mutex, NULL);
+  for (prach_item_t *p = l->list; p < l->list + NUMBER_OF_NR_PRACH_MAX; p++)
+    *p = (prach_item_t){.frame = -1, .slot = -1, .type = t};
 }
 
-void free_nr_prach_entry(PHY_VARS_gNB *gNB, prach_item_t *p)
+void free_nr_prach_entry(prach_list_t *l, prach_item_t *p)
 {
-  for (uint16_t i = 0; i < NUMBER_OF_NR_PRACH_MAX; i++) {
-    if (p == gNB->prach_vars.list + i) {
-      p->frame = -1;
-      p->slot = -1;
-      p->num_slots = -1;
-      free_and_zero(p->upper.beam_nb);
+  pthread_mutex_lock(&l->prach_list_mutex);
+  if (p->type == prach_upper)
+    free_and_zero(p->upper.beam_nb);
+  *p = (prach_item_t){.frame = -1, .slot = -1, .num_slots = -1};
+  pthread_mutex_unlock(&l->prach_list_mutex);
+}
+
+prach_item_t *find_nr_prach(prach_list_t *l, int frame, int slot, find_type_t type)
+{
+  pthread_mutex_lock(&l->prach_list_mutex);
+  prach_item_t *p = l->list;
+  prach_item_t *end = p + NUMBER_OF_NR_PRACH_MAX;
+  for (; p < end; p++)
+    if (p->frame == frame && (p->slot + p->num_slots - 1) == slot)
       break;
+  if (p == end) {
+    if (type == SEARCH_EXIST) {
+      pthread_mutex_unlock(&l->prach_list_mutex);
+      return NULL;
     }
+    for (p = l->list; p < end; p++)
+      if (p->frame == -1 && p->slot == -1)
+        break;
   }
-}
-
-prach_item_t *find_nr_prach(PHY_VARS_gNB *gNB, int frame, int slot, find_type_t type)
-{
-  AssertFatal(gNB!=NULL,"gNB is null\n");
-  for (uint16_t i=0; i<NUMBER_OF_NR_PRACH_MAX; i++) {
-    prach_item_t *p = gNB->prach_vars.list + i;
-    LOG_D(PHY, "searching for PRACH in %d.%d prach_index %d=> %d.%d\n", frame, slot, i, p->frame, p->slot);
-    if ((type == SEARCH_EXIST_OR_FREE) && (p->frame == -1) && (p->slot == -1)) {
-      return p;
-    } else if ((type == SEARCH_EXIST) && (p->frame == frame) && (p->slot + p->num_slots - 1 == slot)) {
-      return p;
-    }
+  if (p == end) {
+    pthread_mutex_unlock(&l->prach_list_mutex);
+    return NULL;
   }
-  return NULL;
+  // mark it used, it will be filled later
+  p->frame = frame;
+  pthread_mutex_unlock(&l->prach_list_mutex);
+  return p;
 }
 
 prach_item_t *nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu)
 {
-  prach_item_t *prach = find_nr_prach(gNB, SFN, Slot, SEARCH_EXIST_OR_FREE);
-  AssertFatal(prach, "prach list full!!!\n");
-  prach->frame = SFN;
-  prach->slot = Slot;
-  prach->type=prach_upper;
+  prach_item_t *prach = find_nr_prach(&gNB->prach_vars.list, SFN, Slot, SEARCH_EXIST_OR_FREE);
+  if (!prach) {
+    LOG_W(PHY, "no free space for a new detected rach, discarding\n");
+    return NULL;
+  }
+  *prach = (prach_item_t){.frame = SFN, .slot = Slot, .type = prach_upper};
   const int format = prach_pdu->prach_format;
   prach->num_slots = (format < 4) ? get_long_prach_dur(format, gNB->frame_parms.numerology_index) : 1;
   if (gNB->common_vars.beam_id) {
@@ -103,66 +109,23 @@ prach_item_t *nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach
   return prach;
 }
 
-void init_prach_ru_list(RU_t *ru)
-{
-  AssertFatal(ru != NULL, "ru is null\n");
-  for (int i = 0; i < NUMBER_OF_NR_PRACH_MAX; i++) {
-    ru->prach_list[i].frame = -1;
-    ru->prach_list[i].slot = -1;
-    ru->prach_list[i].num_slots = -1;
-  }
-  pthread_mutex_init(&ru->prach_list_mutex, NULL);
-}
-
-prach_item_t *find_nr_prach_ru(RU_t *ru, int frame, int slot, find_type_t type)
-{
-  AssertFatal(ru != NULL, "ru is null\n");
-  pthread_mutex_lock(&ru->prach_list_mutex);
-  for (int i = 0; i < NUMBER_OF_NR_PRACH_MAX; i++) {
-    prach_item_t *p = ru->prach_list + i;
-    LOG_D(PHY, "searching for PRACH in %d.%d : prach_index %d=> %d.%d\n", frame, slot, i, p->frame, p->slot);
-    if ((type == SEARCH_EXIST_OR_FREE) && (p->frame == -1) && (p->slot == -1)) {
-      pthread_mutex_unlock(&ru->prach_list_mutex);
-      return p;
-    } else if ((type == SEARCH_EXIST) && (p->frame == frame) && (p->slot + p->num_slots - 1 == slot)) {
-      pthread_mutex_unlock(&ru->prach_list_mutex);
-      return p;
-    }
-  }
-  pthread_mutex_unlock(&ru->prach_list_mutex);
-  return NULL;
-}
-
 void nr_fill_prach_ru(RU_t *ru, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu, int *beam_id)
 {
-  prach_item_t *prach = find_nr_prach_ru(ru, SFN, Slot, SEARCH_EXIST_OR_FREE);
-  AssertFatal(prach, "ru prach list full\n");
-
-  pthread_mutex_lock(&ru->prach_list_mutex);
-  prach->frame = SFN;
-  prach->slot = Slot;
-  const int fmt = prach_pdu->prach_format;
-  prach->num_slots = (fmt < 4) ? get_long_prach_dur(fmt, ru->nr_frame_parms->numerology_index) : 1;
-  prach->type=prach_lower;
-  prach->lower.fmt = fmt;
-  prach->lower.numRA = prach_pdu->num_ra;
-  prach->lower.beam = beam_id;
-  prach->lower.prachStartSymbol = prach_pdu->prach_start_symbol;
-  prach->lower.num_prach_ocas = prach_pdu->num_prach_ocas;
-  pthread_mutex_unlock(&ru->prach_list_mutex);
-}
-
-void free_nr_ru_prach_entry(RU_t *ru, prach_item_t *p)
-{
-  pthread_mutex_lock(&ru->prach_list_mutex);
-  for (int i = 0; i < NUMBER_OF_NR_PRACH_MAX; i++) {
-    if (p == ru->prach_list + i) {
-      p->frame = -1;
-      p->slot = -1;
-      break;
-    }
+  prach_item_t *prach = find_nr_prach(&ru->prach_list, SFN, Slot, SEARCH_EXIST_OR_FREE);
+  if (!prach) {
+    LOG_E(PHY, "no prach memory found\n");
+    return;
   }
-  pthread_mutex_unlock(&ru->prach_list_mutex);
+  const int fmt = prach_pdu->prach_format;
+  *prach = (prach_item_t){.frame = SFN,
+                          .slot = Slot,
+                          .type = prach_lower,
+                          .num_slots = (fmt < 4) ? get_long_prach_dur(fmt, ru->nr_frame_parms->numerology_index) : 1,
+                          .lower = {.fmt = fmt,
+                                    .numRA = prach_pdu->num_ra,
+                                    .beam = beam_id,
+                                    .prachStartSymbol = prach_pdu->prach_start_symbol,
+                                    .num_prach_ocas = prach_pdu->num_prach_ocas}};
 }
 
 void rx_nr_prach_ru(RU_t *ru,

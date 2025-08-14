@@ -63,7 +63,7 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
 
   ru=gNB->RU_list[0];
 
-  prach_item_t *prach_id = find_nr_prach(gNB, frame, slot, SEARCH_EXIST);
+  prach_item_t *prach_id = find_nr_prach(&gNB->prach_vars.list, frame, slot, SEARCH_EXIST);
   if (!prach_id) {
     return;
   }
@@ -145,6 +145,6 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
   } // if prach_id>0
   rach_ind->slot = prach_start_slot;
   LOG_D(NR_PHY, "Freeing PRACH entry\n");
-  free_nr_prach_entry(gNB, prach_id);
+  free_nr_prach_entry(&gNB->prach_vars.list, prach_id);
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_ENB_PRACH_RX,0);
 }
