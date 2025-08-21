@@ -828,6 +828,17 @@ typedef struct {
 #define UE_iterator(BaSe, VaR) for (NR_UE_info_t **VaR##pptr=BaSe, *VaR=*VaR##pptr; VaR; VaR=*(++VaR##pptr))
 
 typedef struct {
+  /// current frame
+  frame_t frame;
+  /// current slot
+  slot_t slot;
+  /// FAPI DL req in which allocations are made
+  nfapi_nr_dl_tti_request_body_t *dl_req;
+  /// TX_data request holds the actual data
+  nfapi_nr_tx_data_request_t *TX_req;
+} post_process_pdsch_t;
+
+typedef struct {
   /// current frame for DCI
   frame_t frame;
   /// current slot for DCI
