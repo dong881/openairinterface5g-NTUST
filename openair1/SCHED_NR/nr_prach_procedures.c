@@ -79,7 +79,7 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
     c16_t *rxsigF[ru->nb_rx];
     for (int i = 0; i < ru->nb_rx; ++i)
       rxsigF[i] = (c16_t *)ru->prach_rxsigF[prach_oc][i];
-    rx_nr_prach(gNB, prach_pdu, prach_oc, frame, slot, &max_preamble[0], &max_preamble_energy[0], &max_preamble_delay[0], rxsigF);
+    rx_nr_prach(gNB, prach_pdu, frame, slot, max_preamble, max_preamble_energy, max_preamble_delay, rxsigF);
     LOG_D(NR_PHY,
           "[RAPROC] Frame %d, slot %d, occasion %d (prachStartSymbol %d) : Most likely preamble %d, energy %d.%d dB delay %d "
           "(prach_energy counter %d)\n",

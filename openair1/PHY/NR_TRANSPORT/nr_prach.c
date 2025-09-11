@@ -133,8 +133,6 @@ void rx_nr_prach_ru(RU_t *ru,
   AssertFatal(ru != NULL,"ru is null\n");
 
   NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
-  int slot2 = slot;
-  int16_t *prach[ru->nb_rx];
   int prach_sequence_length = ru->config.prach_config.prach_sequence_length.value;
   int msg1_frequencystart = ru->config.prach_config.num_prach_fd_occasions_list[numRA].k1.value;
   const uint8_t prach_mu = ru->config.prach_config.prach_sub_c_spacing.value;
@@ -162,19 +160,8 @@ void rx_nr_prach_ru(RU_t *ru,
         numRA,
         prachStartSymbol,
         prachOccasion);
-
-  c16_t **rxsigF = (c16_t **)ru->prach_rxsigF[prachOccasion];
-
   AssertFatal(ru->if_south == LOCAL_RF || ru->if_south == REMOTE_IF5,
               "we shouldn't call this if if_south != LOCAL_RF or REMOTE_IF5\n");
-
-  for (int aa = 0; aa < ru->nb_rx; aa++) { 
-    if (prach_sequence_length == 0)
-      slot2 = prachStartSlot;
-    int idx = aa + beam * ru->nb_rx;
-    prach[aa] = (int16_t*)&ru->common.rxdata[idx][fp->get_samples_slot_timestamp(slot2, fp, 0) + sample_offset_slot - ru->N_TA_offset];
-  } 
-
   int reps;
   int Ncp;
   int dftlen;
@@ -183,11 +170,11 @@ void rx_nr_prach_ru(RU_t *ru,
   if (prach_sequence_length == 0) {
     LOG_D(PHY,
           "PRACH (ru %d) in %d.%d, format %d, msg1_frequencyStart %d\n",
-	  ru->idx,
-	  frame,
-	  slot2,
-	  prachFormat,
-	  msg1_frequencystart);
+          ru->idx,
+          frame,
+          prachStartSlot,
+          prachFormat,
+          msg1_frequencystart);
     switch (prachFormat) {
     case 0:
       reps = 1;
@@ -371,7 +358,7 @@ void rx_nr_prach_ru(RU_t *ru,
   int n_ra_prb            = msg1_frequencystart;
   int k                   = (12*n_ra_prb) - 6*fp->N_RB_UL;
 
-  int N_ZC = (prach_sequence_length==0)?839:139;
+  int N_ZC = (prach_sequence_length == 0) ? 839 : 139;
 
   if (k<0) k+=(fp->ofdm_symbol_size);
   
@@ -379,36 +366,34 @@ void rx_nr_prach_ru(RU_t *ru,
   k+=kbar;
 
   for (int aa=0; aa<ru->nb_rx; aa++) {
-    AssertFatal(prach[aa]!=NULL,"prach[%d] is null\n",aa);
+    int slot2 = prach_sequence_length ? slot : prachStartSlot;
+    int idx = aa + beam * ru->nb_rx;
+    c16_t *prach =
+        (c16_t *)&ru->common.rxdata[idx][fp->get_samples_slot_timestamp(slot2, fp, 0) + sample_offset_slot - ru->N_TA_offset];
 
     // do DFT
-    int16_t *prach2 = prach[aa] + (2*Ncp); // times 2 for complex samples
-    for (int i = 0; i < reps; i++)
-      dft(dftsize, prach2 + 2 * dftlen * i, (int16_t *)rxsigF[aa] + 2 * dftlen * i, 1);
-
-    //LOG_M("ru_rxsigF_tmp.m","rxsFtmp", rxsigF[aa], dftlen*2*reps, 1, 1);
-
-    //Coherent combining of PRACH repetitions (assumes channel does not change, to be revisted for "long" PRACH)
-    LOG_D(PHY,"Doing PRACH combining of %d reptitions N_ZC %d\n",reps,N_ZC);
+    c16_t *prach2 = prach + Ncp;
     c16_t rxsigF_tmp[N_ZC];
-    //    if (k+N_ZC > dftlen) { // PRACH signal is split around DC
-    c16_t *rxsigF2 = rxsigF[aa];
-    int k2 = k;
-
-    for (int j = 0; j < N_ZC; j++, k2++) {
-      if (k2 == dftlen)
-        k2 = 0;
-      rxsigF_tmp[j] = rxsigF2[k2];
-      for (int i = 1; i < reps; i++)
-        rxsigF_tmp[j] = c16add(rxsigF_tmp[j], rxsigF2[k2 + i * dftlen]);
+    memset(rxsigF_tmp, 0, sizeof(rxsigF_tmp));
+    for (int i = 0; i < reps; i++, prach2 += dftlen) {
+      c16_t tmp[dftlen] __attribute__((aligned(32)));
+      dft(dftsize, (int16_t *)prach2, (int16_t *)tmp, 1);
+      // Coherent combining of PRACH repetitions (assumes channel does not change, to be revisted for "long" PRACH)
+      LOG_D(PHY, "Doing PRACH combining of %d reptitions N_ZC %d\n", reps, N_ZC);
+      //    if (k+N_ZC > dftlen) { // PRACH signal is split around DC
+      int k2 = k;
+      for (int j = 0; j < N_ZC; j++, k2++) {
+        if (k2 == dftlen)
+          k2 = 0;
+        rxsigF_tmp[j] = c16add(rxsigF_tmp[j], tmp[k2]);
+      }
     }
-    memcpy(rxsigF2, rxsigF_tmp, N_ZC * sizeof(*rxsigF2));
+    memcpy(ru->prach_rxsigF[prachOccasion][aa], rxsigF_tmp, sizeof(rxsigF_tmp));
   }
 }
 
 void rx_nr_prach(PHY_VARS_gNB *gNB,
                  nfapi_nr_prach_pdu_t *prach_pdu,
-                 int prachOccasion,
                  int frame,
                  int slot,
                  uint16_t *max_preamble,
@@ -658,4 +643,3 @@ void rx_nr_prach(PHY_VARS_gNB *gNB,
   stop_meas(&gNB->rx_prach);
 
 }
-

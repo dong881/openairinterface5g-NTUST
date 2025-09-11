@@ -204,7 +204,6 @@ prach_item_t *nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach
 
 void rx_nr_prach(PHY_VARS_gNB *gNB,
                  nfapi_nr_prach_pdu_t *prach_pdu,
-                 int prachOccasion,
                  int frame,
                  int subframe,
                  uint16_t *max_preamble,
