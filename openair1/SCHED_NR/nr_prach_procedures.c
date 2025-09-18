@@ -87,8 +87,6 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
 		  &max_preamble[0],
 		  &max_preamble_energy[0],
 		  &max_preamble_delay[0]);
-      LOG_D(NR_PHY,"Freeing PRACH entry %d\n",prach_id);
-      free_nr_prach_entry(gNB,prach_id);
       LOG_D(NR_PHY,"[RAPROC] Frame %d, slot %d, occasion %d (prachStartSymbol %d) : Most likely preamble %d, energy %d.%d dB delay %d (prach_energy counter %d)\n",
 	    frame,slot,prach_oc,prachStartSymbol,
 	    max_preamble[0],
@@ -142,6 +140,8 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
         gNB->prach_energy_counter++;
     } //if prach_id>0
     rach_ind->slot = prach_start_slot;
+    LOG_D(NR_PHY,"Freeing PRACH entry %d\n",prach_id);
+    free_nr_prach_entry(gNB,prach_id);
   } // for NUMBER_OF_NR_PRACH_OCCASION_MAX
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_ENB_PRACH_RX,0);
 }
