@@ -1007,6 +1007,17 @@ typedef struct {
   int num_slots; // prach duration in slots
   int beams[NFAPI_MAX_NUM_BG_IF];
   nfapi_nr_prach_pdu_t pdu;
+  int rootSequenceIndex;
+  int numrootSequenceIndex;
+  int msg1_frequencystart;
+  int mu;
+  int prach_sequence_length;
+  int restricted_set;
+  int numerology_index;
+  int nb_rx;
+  c16_t ***rxsigF;
+  c16_t (*Xu)[839];
+  time_stats_t *rx_prach;
 } prach_item_t;
 
 typedef struct {

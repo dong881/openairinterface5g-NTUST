@@ -202,24 +202,14 @@ void nr_fill_ulsch(PHY_VARS_gNB *gNB,
 
 prach_item_t *nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu);
 
-void rx_nr_prach(PHY_VARS_gNB *gNB,
-                 nfapi_nr_prach_pdu_t *prach_pdu,
-                 int frame,
-                 int subframe,
-                 uint16_t *max_preamble,
-                 uint16_t *max_preamble_energy,
-                 uint16_t *max_preamble_delay,
-                 c16_t **rxsigF);
+typedef struct rx_prach_out {
+  uint16_t max_preamble;
+  uint16_t max_preamble_energy;
+  uint16_t max_preamble_delay;
+} rx_prach_out_t;
+rx_prach_out_t rx_nr_prach(const prach_item_t *, int occasion);
 
-void rx_nr_prach_ru(RU_t *ru,
-                    int prach_fmt,
-                    int numRA,
-                    int beam,
-                    int prachStartSymbol,
-                    int prachStartSlot,
-                    int prachOccasion,
-                    int frame,
-                    int subframe);
+void rx_nr_prach_ru(prach_item_t *, int32_t **, NR_DL_FRAME_PARMS *frame_parms, int N_TA_offset);
 
 void nr_fill_prach_ru(RU_t *ru,prach_item_t * );
 prach_item_t *find_nr_prach(prach_list_t *, int frame, int slot, find_type_t type);

@@ -1430,7 +1430,12 @@ static void nr_generate_Msg2(module_id_t module_idP,
       scc->uplinkConfigCommon->initialUplinkBWP->rach_ConfigCommon->choice.setup->rach_ConfigGeneric.ra_ResponseWindow;
   const int n_slots_frame = nr_mac->frame_structure.numb_slots_frame;
   if (!msg2_in_response_window(ra->preamble_frame, ra->preamble_slot, n_slots_frame, rrc_ra_ResponseWindow, frameP, slotP)) {
-    LOG_E(NR_MAC, "UE RA-RNTI %04x TC-RNTI %04x: exceeded RA window, cannot schedule Msg2\n", ra->RA_rnti, UE->rnti);
+    LOG_E(NR_MAC,
+          "sfn: %d.%d UE RA-RNTI %04x TC-RNTI %04x: exceeded RA window, cannot schedule Msg2\n",
+          frameP,
+          slotP,
+          ra->RA_rnti,
+          UE->rnti);
     nr_release_ra_UE(nr_mac, UE->rnti);
     return;
   }

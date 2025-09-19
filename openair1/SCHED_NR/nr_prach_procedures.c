@@ -49,15 +49,10 @@ int get_nr_prach_duration(uint8_t prach_format)
 
 void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rach_indication_t *rach_ind)
 {
-  uint16_t max_preamble[4]={0},max_preamble_energy[4]={0},max_preamble_delay[4]={0};
-
-  RU_t *ru;
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_ENB_PRACH_RX,1);
   rach_ind->sfn = frame;
   rach_ind->slot = slot;
   rach_ind->number_of_pdus = 0;
-
-  ru=gNB->RU_list[0];
 
   prach_item_t *prach_id = find_nr_prach(&gNB->prach_list, frame, slot, SEARCH_EXIST);
   if (!prach_id) {
@@ -74,11 +69,7 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
     // comment FK: the standard 38.211 section 5.3.2 has one extra term +14*N_RA_slot. This is because there prachStartSymbol is
     // given wrt to start of the 15kHz slot or 60kHz slot. Here we work slot based, so this function is anyway only called in slots
     // where there is PRACH. Its up to the MAC to schedule another PRACH PDU in the case there are there N_RA_slot \in {0,1}.
-
-    c16_t *rxsigF[ru->nb_rx];
-    for (int i = 0; i < ru->nb_rx; ++i)
-      rxsigF[i] = (c16_t *)ru->prach_rxsigF[prach_oc][i];
-    rx_nr_prach(gNB, prach_pdu, frame, slot, max_preamble, max_preamble_energy, max_preamble_delay, rxsigF);
+    rx_prach_out_t res = rx_nr_prach(prach_id, prach_oc);
     LOG_D(NR_PHY,
           "[RAPROC] Frame %d, slot %d, occasion %d (prachStartSymbol %d) : Most likely preamble %d, energy %d.%d dB delay %d "
           "(prach_energy counter %d)\n",
@@ -86,26 +77,26 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
           slot,
           prach_oc,
           prachStartSymbol,
-          max_preamble[0],
-          max_preamble_energy[0] / 10,
-          max_preamble_energy[0] % 10,
-          max_preamble_delay[0],
+          res.max_preamble,
+          res.max_preamble_energy / 10,
+          res.max_preamble_energy % 10,
+          res.max_preamble_delay,
           gNB->prach_energy_counter);
 
     if ((gNB->prach_energy_counter == NUM_PRACH_RX_FOR_NOISE_ESTIMATE)
-        && (max_preamble_energy[0] > gNB->measurements.prach_I0 + gNB->prach_thres)
+        && (res.max_preamble_energy > gNB->measurements.prach_I0 + gNB->prach_thres)
         && (rach_ind->number_of_pdus < MAX_NUM_NR_RX_RACH_PDUS)) {
       LOG_A(NR_PHY,
             "[RAPROC] %d.%d Initiating RA procedure with preamble %d, energy %d.%d dB (I0 %d, thres %d), delay %d start symbol "
             "%u freq index %u\n",
             frame,
             prach_start_slot,
-            max_preamble[0],
-            max_preamble_energy[0] / 10,
-            max_preamble_energy[0] % 10,
+            res.max_preamble,
+            res.max_preamble_energy / 10,
+            res.max_preamble_energy % 10,
             gNB->measurements.prach_I0,
             gNB->prach_thres,
-            max_preamble_delay[0],
+            res.max_preamble_delay,
             prachStartSymbol,
             prach_pdu->num_ra);
 
@@ -113,9 +104,9 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
         T_INT(gNB->Mod_id),
         T_INT(frame),
         T_INT(slot),
-        T_INT(max_preamble[0]),
-        T_INT(max_preamble_energy[0]),
-        T_INT(max_preamble_delay[0]));
+        T_INT(res.max_preamble),
+        T_INT(res.max_preamble_energy),
+        T_INT(res.max_preamble_delay));
 
       nfapi_nr_prach_indication_pdu_t *ind = rach_ind->pdu_list + rach_ind->number_of_pdus;
       *ind = (nfapi_nr_prach_indication_pdu_t){
@@ -123,14 +114,14 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
           .symbol_index = prachStartSymbol,
           .slot_index = slot,
           .freq_index = prach_pdu->num_ra,
-          .avg_rssi = (max_preamble_energy[0] < 631) ? (128 + (max_preamble_energy[0] / 5)) : 254,
+          .avg_rssi = (res.max_preamble_energy < 631) ? (128 + (res.max_preamble_energy / 5)) : 254,
           .avg_snr = 0xff, // invalid for now
           .num_preamble = 1,
           .preamble_list = {
-              {.preamble_index = max_preamble[0], .timing_advance = max_preamble_delay[0], .preamble_pwr = 0xffffffff}}};
+              {.preamble_index = res.max_preamble, .timing_advance = res.max_preamble_delay, .preamble_pwr = 0xffffffff}}};
       rach_ind->number_of_pdus++;
     }
-    gNB->measurements.prach_I0 = ((gNB->measurements.prach_I0 * 900) >> 10) + ((max_preamble_energy[0] * 124) >> 10);
+    gNB->measurements.prach_I0 = ((gNB->measurements.prach_I0 * 900) >> 10) + ((res.max_preamble_energy * 124) >> 10);
     if (frame == 0)
       LOG_I(PHY, "prach_I0 = %d.%d dB\n", gNB->measurements.prach_I0 / 10, gNB->measurements.prach_I0 % 10);
     if (gNB->prach_energy_counter < NUM_PRACH_RX_FOR_NOISE_ESTIMATE)

@@ -135,10 +135,11 @@ int main(int argc, char **argv){
   double **s_re, **s_im, **r_re, **r_im, iqim = 0.0, delay_avg = 0, ue_speed = 0, fs=-1, bw;
   int i, l, aa, aarx, trial, n_frames = 1, rx_prach_start; //, ntrials=1;
   c16_t **txdata;
-  int N_RB_UL = 106, delay = 0, NCS_config = 13, rootSequenceIndex = 1, threequarter_fs = 0, mu = 1, fd_occasion = 0, loglvl = OAILOG_INFO, numRA = 0, prachStartSymbol = 0;
+  int N_RB_UL = 106, delay = 0, NCS_config = 13, rootSequenceIndex = 1, threequarter_fs = 0, mu = 1, fd_occasion = 0,
+      loglvl = OAILOG_INFO;
   uint8_t snr1set = 0, ue_speed1set = 0, transmission_mode = 1, n_tx = 1, n_rx = 1, awgn_flag = 0, msg1_frequencystart = 0, num_prach_fd_occasions = 1, prach_format=0;
   uint8_t config_index = 98, prach_sequence_length = 1, restrictedSetConfig = 0;
-  uint16_t Nid_cell = 0, preamble_tx = 0, preamble_delay, format0, format1;
+  uint16_t Nid_cell = 0, preamble_tx = 0, format0, format1;
   uint32_t tx_lev = 10000, prach_errors = 0; //,tx_lev_dB;
   uint64_t SSB_positions = 0x01;
   uint16_t RA_sfn_index;
@@ -714,9 +715,17 @@ int main(int argc, char **argv){
   }
 
   rx_prach_start = subframe*frame_parms->samples_per_subframe;
-  if (n_frames==1) printf("slot %d, rx_prach_start %d\n",slot,rx_prach_start);
-  uint16_t preamble_rx, preamble_energy;
+  if (n_frames == 1)
+    printf("slot %d, rx_prach_start %d\n", slot, rx_prach_start);
 
+  c16_t **rxsigF[NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX];
+  for (int j = 0; j < NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX; j++) {
+    rxsigF[j] = malloc(ru->nb_rx * sizeof(*rxsigF));
+    for (int i = 0; i < ru->nb_rx; i++) {
+      // largest size for PRACH FFT is 4x98304 (16*24576)
+      rxsigF[j][i] = malloc16_clear(4 * 98304 * sizeof(**rxsigF));
+    }
+  }
 
   for (SNR = snr0; SNR < snr1 && !stop; SNR += .1) {
     for (ue_speed = ue_speed0; ue_speed < ue_speed1 && !stop; ue_speed += 10) {
@@ -727,8 +736,7 @@ int main(int argc, char **argv){
       prach_errors=0;
 
       for (trial = 0; trial < n_frames && !stop; trial++) {
-
-	if (input_fd==NULL) {
+        if (input_fd == NULL) {
           sigma2_dB = 10*log10((double)tx_lev) - SNR - 10*log10(N_RB_UL*12/N_ZC);
 
           if (n_frames==1)
@@ -755,52 +763,72 @@ int main(int argc, char **argv){
               tmp->i = (short)(.167 * (r_im[aa][i] + (iqim * r_re[aa][i]) + sqrt(sigma2 / 2) * gaussdouble(0.0, 1.0)));
             }
           }
-	} else {
-	  n_bytes = fread(&ru->common.rxdata[0][rx_prach_start],sizeof(int32_t),frame_parms->samples_per_subframe,input_fd);
-	  printf("fread %d bytes from file %s\n",n_bytes,input_file);
-	  if (n_bytes!=frame_parms->samples_per_subframe) {
-	    printf("expected %d bytes\n",frame_parms->samples_per_subframe);
-	    exit(-1);
-	  }
-	}
+        } else {
+          n_bytes = fread(&ru->common.rxdata[0][rx_prach_start], sizeof(int32_t), frame_parms->samples_per_subframe, input_fd);
+          printf("fread %d bytes from file %s\n", n_bytes, input_file);
+          if (n_bytes != frame_parms->samples_per_subframe) {
+            printf("expected %d bytes\n", frame_parms->samples_per_subframe);
+            exit(-1);
+          }
+        }
 
-	for (l = 0; l < frame_parms->symbols_per_slot; l++) {
-	  for (aa = 0; aa < frame_parms->nb_antennas_rx; aa++) {
-      nr_slot_fep_ul(frame_parms, ru->common.rxdata[aa], ru->common.rxdataF[aa], l, slot, ru->N_TA_offset);
-    }
-  }
-  rx_nr_prach_ru(ru, prach_format, numRA, 0, prachStartSymbol, slot, prachOccasion, frame, slot);
-  c16_t *rxsigF[ru->nb_rx];
-  for (int i = 0; i < ru->nb_rx; ++i)
-    rxsigF[i] = (c16_t *)ru->prach_rxsigF[prachOccasion][i];
-  if (n_frames == 1)
-    LOG_I(PHY,
-          "ncs %d,num_seq %d\n",
-          prach_pdu->num_cs,
-          prach_config->num_prach_fd_occasions_list[fd_occasion].num_root_sequences.value);
-  rx_nr_prach(gNB, prach_pdu, frame, subframe, &preamble_rx, &preamble_energy, &preamble_delay, rxsigF);
+        for (l = 0; l < frame_parms->symbols_per_slot; l++) {
+          for (aa = 0; aa < frame_parms->nb_antennas_rx; aa++) {
+            nr_slot_fep_ul(frame_parms, ru->common.rxdata[aa], ru->common.rxdataF[aa], l, slot, ru->N_TA_offset);
+          }
+        }
 
-  //        printf(" preamble_energy %d preamble_rx %d preamble_tx %d \n", preamble_energy, preamble_rx, preamble_tx);
+        nfapi_nr_prach_config_t *cfg = &gNB->gNB_config.prach_config;
+        nfapi_nr_num_prach_fd_occasions_t *occ = &cfg->num_prach_fd_occasions_list[prach_pdu->num_ra];
+        prach_pdu->num_prach_ocas=1;
+        prach_item_t in = {.frame = frame,
+                           .slot = slot,
+                           .pdu = *prach_pdu,
+                           .rootSequenceIndex = occ->prach_root_sequence_index.value,
+                           .numrootSequenceIndex = occ->num_root_sequences.value,
+                           .msg1_frequencystart = occ->k1.value,
+                           .mu = cfg->prach_sub_c_spacing.value,
+                           .prach_sequence_length = cfg->prach_sequence_length.value,
+                           .restricted_set = cfg->restricted_set_config.value,
+                           .numerology_index = gNB->frame_parms.numerology_index,
+                           .nb_rx = gNB->gNB_config.carrier_config.num_rx_ant.value,
+                           .rxsigF = rxsigF,
+                           .Xu = gNB->X_u,
+                           .rx_prach = &gNB->rx_prach};
+        rx_nr_prach_ru(&in, ru->common.rxdata, ru->nr_frame_parms, ru->N_TA_offset);
+        if (n_frames == 1)
+          LOG_I(PHY,
+                "ncs %d,num_seq %d\n",
+                prach_pdu->num_cs,
+                prach_config->num_prach_fd_occasions_list[fd_occasion].num_root_sequences.value);
+        rx_prach_out_t out = rx_nr_prach(&in, prachOccasion);
 
-  if (preamble_rx != preamble_tx)
-    prach_errors++;
-  else
-    delay_avg += (double)preamble_delay;
+        //        printf(" preamble_energy %d preamble_rx %d preamble_tx %d \n", out.max_preamble_energy, out.max_preamble,
+        //        preamble_tx);
 
-  N_ZC = (prach_sequence_length) ? 139 : 839;
+        if (out.max_preamble != preamble_tx)
+          prach_errors++;
+        else
+          delay_avg += (double)out.max_preamble_delay;
 
-  if (n_frames == 1) {
-    printf("preamble %d (tx %d) : energy %d, delay %d\n", preamble_rx, preamble_tx, preamble_energy, preamble_delay);
+        N_ZC = (prach_sequence_length) ? 139 : 839;
+
+        if (n_frames == 1) {
+          printf("preamble %d (tx %d) : energy %d, delay %d\n",
+                 out.max_preamble,
+                 preamble_tx,
+                 out.max_preamble_energy,
+                 out.max_preamble_delay);
 #ifdef NR_PRACH_DEBUG
           LOG_M("prach0.m","prach0", &txdata[0][prach_start], frame_parms->samples_per_subframe, 1, 1);
           LOG_M("rxsig0.m","rxs0", &ru->common.rxdata[0][subframe*frame_parms->samples_per_subframe], frame_parms->samples_per_subframe, 1, 1);
           LOG_M("ru_rxsig0.m","rxs0", &ru->common.rxdata[0][subframe*frame_parms->samples_per_subframe], frame_parms->samples_per_subframe, 1, 1);
           LOG_M("ru_rxsigF0.m","rxsF0", ru->common.rxdataF[0], frame_parms->ofdm_symbol_size*frame_parms->symbols_per_slot, 1, 1);
-          LOG_M("ru_prach_rxsigF0.m","rxsF0", ru->prach_rxsigF[0][0], N_ZC, 1, 1);
+          LOG_M("ru_prach_rxsigF0.m", "rxsF0", rxsigF[0][0], N_ZC, 1, 1);
           LOG_M("prach_preamble.m","prachp", &gNB->X_u[0], N_ZC, 1, 1);
           LOG_M("ue_prach_preamble.m","prachp", &UE->X_u[0], N_ZC, 1, 1);
 #endif
-  }
+        }
       }
 
       printf("SNR %f dB, UE Speed %f km/h: errors %u/%d (delay %f)\n", SNR, ue_speed, prach_errors, n_frames, delay_avg/(double)(n_frames-prach_errors));
@@ -817,7 +845,13 @@ int main(int argc, char **argv){
     if (input_fd)
       break;
   } //SNR loop
-
+  for (int j = 0; j < NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX; j++) {
+    for (int i = 0; i < ru->nb_rx; i++) {
+      // largest size for PRACH FFT is 4x98304 (16*24576)
+      free(rxsigF[j][i]);
+    }
+    free(rxsigF[j]);
+  }
   free_channel_desc_scm(UE2gNB);
 
   nr_phy_free_RU(ru);
