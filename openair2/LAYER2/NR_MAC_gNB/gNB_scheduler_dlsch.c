@@ -632,9 +632,8 @@ static void pf_dl(module_id_t module_id,
       continue;
 
     const NR_mac_dir_stats_t *stats = &UE->mac_stats.dl;
-    NR_sched_pdsch_t *sched_pdsch = &sched_ctrl->sched_pdsch;
     /* get the PID of a HARQ process awaiting retrnasmission, or -1 otherwise */
-    sched_pdsch->dl_harq_pid = sched_ctrl->retrans_dl_harq.head;
+    int harq_pid = sched_ctrl->retrans_dl_harq.head;
 
     /* Calculate Throughput */
     const float a = 0.01f;
@@ -653,12 +652,12 @@ static void pf_dl(module_id_t module_id,
       continue;
 
     /* retransmission */
-    if (sched_pdsch->dl_harq_pid >= 0) {
+    if (harq_pid >= 0) {
       NR_beam_alloc_t beam = beam_allocation_procedure(&mac->beam_info, frame, slot, UE->UE_beam_index, slots_per_frame);
       bool sch_ret = beam.idx >= 0;
       /* Allocate retransmission */
       if (sch_ret)
-        sch_ret = allocate_dl_retransmission(module_id, frame, slot, &n_rb_sched[beam.idx], UE, beam.idx, sched_pdsch->dl_harq_pid);
+        sch_ret = allocate_dl_retransmission(module_id, frame, slot, &n_rb_sched[beam.idx], UE, beam.idx, harq_pid);
       if (!sch_ret) {
         LOG_D(NR_MAC, "[UE %04x][%4d.%2d] DL retransmission could not be allocated\n", UE->rnti, frame, slot);
         reset_beam_status(&mac->beam_info, frame, slot, UE->UE_beam_index, slots_per_frame, beam.new_beam);
