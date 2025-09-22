@@ -437,15 +437,15 @@ static bool allocate_dl_retransmission(module_id_t module_id,
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   NR_UE_DL_BWP_t *dl_bwp = &UE->current_DL_BWP;
   NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
-  NR_sched_pdsch_t *retInfo = &sched_ctrl->harq_processes[current_harq_pid].sched_pdsch;
+  NR_sched_pdsch_t new_sched = sched_ctrl->harq_processes[current_harq_pid].sched_pdsch;
   int layers = get_dl_nrOfLayers(sched_ctrl, dl_bwp->dci_format);
   int pm_index = get_pm_index(nr_mac, UE, dl_bwp->dci_format, layers, nr_mac->radio_config.pdsch_AntennaPorts.XP);
 
   // If the RI changed between current rtx and a previous transmission
   // we need to verify if it is not decreased
   // othwise it wouldn't be possible to transmit the same TBS
-  layers = (layers < retInfo->nrOfLayers) ? layers : retInfo->nrOfLayers;
-  pm_index = (layers < retInfo->nrOfLayers) ? pm_index : retInfo->pm_index;
+  layers = (layers < new_sched.nrOfLayers) ? layers : new_sched.nrOfLayers;
+  pm_index = (layers < new_sched.nrOfLayers) ? pm_index : new_sched.pm_index;
 
   const int coresetid = sched_ctrl->coreset->controlResourceSetId;
   const int tda = get_dl_tda(nr_mac, slot);
@@ -464,11 +464,11 @@ static bool allocate_dl_retransmission(module_id_t module_id,
   if (!temp_tda.valid_tda)
     return false;
 
-  bool reuse_old_tda = (retInfo->tda_info.startSymbolIndex == temp_tda.startSymbolIndex) && (retInfo->tda_info.nrOfSymbols <= temp_tda.nrOfSymbols);
+  bool reuse_old_tda = (new_sched.tda_info.startSymbolIndex == temp_tda.startSymbolIndex) && (new_sched.tda_info.nrOfSymbols <= temp_tda.nrOfSymbols);
   LOG_D(NR_MAC, "[UE %x] %s old TDA, %s number of layers\n",
         UE->rnti,
         reuse_old_tda ? "reuse" : "do not reuse",
-        layers == retInfo->nrOfLayers ? "same" : "different");
+        layers == new_sched.nrOfLayers ? "same" : "different");
 
   uint16_t *rballoc_mask = nr_mac->common_channels[CC_id].vrb_map[beam_idx];
 
@@ -477,13 +477,13 @@ static bool allocate_dl_retransmission(module_id_t module_id,
   int rbStop = bwp_info.bwpStart + bwp_info.bwpSize - 1;
   int rbSize = 0;
 
-  if (reuse_old_tda && layers == retInfo->nrOfLayers) {
+  if (reuse_old_tda && layers == new_sched.nrOfLayers) {
     /* Check that there are enough resources for retransmission */
-    while (rbSize < retInfo->rbSize) {
+    while (rbSize < new_sched.rbSize) {
       rbStart += rbSize; /* last iteration rbSize was not enough, skip it */
       rbSize = 0;
 
-      const uint16_t slbitmap = SL_to_bitmap(retInfo->tda_info.startSymbolIndex, retInfo->tda_info.nrOfSymbols);
+      const uint16_t slbitmap = SL_to_bitmap(new_sched.tda_info.startSymbolIndex, new_sched.tda_info.nrOfSymbols);
       while (rbStart < rbStop && (rballoc_mask[rbStart] & slbitmap))
         rbStart++;
 
@@ -492,7 +492,7 @@ static bool allocate_dl_retransmission(module_id_t module_id,
         return false;
       }
 
-      while (rbStart + rbSize <= rbStop && !(rballoc_mask[rbStart + rbSize] & slbitmap) && rbSize < retInfo->rbSize)
+      while (rbStart + rbSize <= rbStop && !(rballoc_mask[rbStart + rbSize] & slbitmap) && rbSize < new_sched.rbSize)
         rbSize++;
     }
   } else {
@@ -509,37 +509,37 @@ static bool allocate_dl_retransmission(module_id_t module_id,
 
     uint32_t new_tbs;
     uint16_t new_rbSize;
-    bool success = nr_find_nb_rb(retInfo->Qm,
-                                 retInfo->R,
+    bool success = nr_find_nb_rb(new_sched.Qm,
+                                 new_sched.R,
                                  1, // no transform precoding for DL
                                  layers,
                                  temp_tda.nrOfSymbols,
                                  temp_dmrs.N_PRB_DMRS * temp_dmrs.N_DMRS_SLOT,
-                                 retInfo->tb_size,
+                                 new_sched.tb_size,
                                  1, /* minimum of 1RB: need to find exact TBS, don't preclude any number */
                                  rbSize,
                                  &new_tbs,
                                  &new_rbSize);
 
-    if (!success || new_tbs != retInfo->tb_size) {
+    if (!success || new_tbs != new_sched.tb_size) {
       LOG_D(NR_MAC, "[UE %04x][%4d.%2d] allocation of DL retransmission failed: new TBS %d of new TDA does not match old TBS %d\n",
             UE->rnti,
             frame,
             slot,
             new_tbs,
-            retInfo->tb_size);
+            new_sched.tb_size);
       return false; /* the maximum TBsize we might have is smaller than what we need */
     }
 
     /* we can allocate it. Overwrite the time_domain_allocation, the number
      * of RBs, and the new TB size. The rest is done below */
-    retInfo->tb_size = new_tbs;
-    retInfo->rbSize = new_rbSize;
-    retInfo->time_domain_allocation = tda;
-    retInfo->nrOfLayers = layers;
-    retInfo->pm_index = pm_index;
-    retInfo->dmrs_parms = temp_dmrs;
-    retInfo->tda_info = temp_tda;
+    new_sched.tb_size = new_tbs;
+    new_sched.rbSize = new_rbSize;
+    new_sched.time_domain_allocation = tda;
+    new_sched.nrOfLayers = layers;
+    new_sched.pm_index = pm_index;
+    new_sched.dmrs_parms = temp_dmrs;
+    new_sched.tda_info = temp_tda;
   }
 
   /* Find a free CCE */
@@ -574,16 +574,17 @@ static bool allocate_dl_retransmission(module_id_t module_id,
 
   sched_ctrl->cce_index = CCEIndex;
   fill_pdcch_vrb_map(nr_mac, CC_id, &sched_ctrl->sched_pdcch, CCEIndex, sched_ctrl->aggregation_level, beam_idx);
-  /* just reuse from previous scheduling opportunity, set new start RB */
-  sched_ctrl->sched_pdsch = *retInfo;
-  sched_ctrl->sched_pdsch.rbStart = rbStart - bwp_info.bwpStart;
-  sched_ctrl->sched_pdsch.pucch_allocation = alloc;
-  sched_ctrl->sched_pdsch.bwp_info = bwp_info;
-  /* retransmissions: directly allocate */
-  *n_rb_sched -= sched_ctrl->sched_pdsch.rbSize;
 
-  for (int rb = rbStart; rb < sched_ctrl->sched_pdsch.rbSize; rb++)
-    rballoc_mask[rb] |= SL_to_bitmap(retInfo->tda_info.startSymbolIndex, retInfo->tda_info.nrOfSymbols);
+  new_sched.rbStart = rbStart - bwp_info.bwpStart;
+  new_sched.pucch_allocation = alloc;
+  new_sched.bwp_info = bwp_info;
+  sched_ctrl->sched_pdsch = new_sched;
+
+  /* retransmissions: directly allocate */
+  *n_rb_sched -= new_sched.rbSize;
+
+  for (int rb = rbStart; rb < new_sched.rbSize; rb++)
+    rballoc_mask[rb] |= SL_to_bitmap(new_sched.tda_info.startSymbolIndex, new_sched.tda_info.nrOfSymbols);
 
   return true;
 }
