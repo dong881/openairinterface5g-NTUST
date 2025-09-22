@@ -759,33 +759,28 @@ static void pf_dl(module_id_t module_id,
       continue;
     }
 
-    NR_sched_pdsch_t *sched_pdsch = &sched_ctrl->sched_pdsch;
-    sched_pdsch->dl_harq_pid = sched_ctrl->available_dl_harq.head;
-
     /* MCS has been set above */
-    sched_pdsch->time_domain_allocation = get_dl_tda(mac, slot);
-    AssertFatal(sched_pdsch->time_domain_allocation>=0,"Unable to find PDSCH time domain allocation in list\n");
+    int tda = get_dl_tda(mac, slot);
+    AssertFatal(tda >= 0,"Unable to find PDSCH time domain allocation in list\n");
 
     const int coresetid = sched_ctrl->coreset->controlResourceSetId;
-    sched_pdsch->tda_info = get_dl_tda_info(dl_bwp,
+    NR_tda_info_t tda_info = get_dl_tda_info(dl_bwp,
                                             sched_ctrl->search_space->searchSpaceType->present,
-                                            sched_pdsch->time_domain_allocation,
+                                            tda,
                                             scc->dmrs_TypeA_Position,
                                             1,
                                             TYPE_C_RNTI_,
                                             coresetid,
                                             false);
-    AssertFatal(sched_pdsch->tda_info.valid_tda, "Invalid TDA from get_dl_tda_info\n");
+    AssertFatal(tda_info.valid_tda, "Invalid TDA from get_dl_tda_info\n");
 
-    NR_tda_info_t *tda_info = &sched_pdsch->tda_info;
-
-    const uint16_t slbitmap = SL_to_bitmap(tda_info->startSymbolIndex, tda_info->nrOfSymbols);
+    const uint16_t slbitmap = SL_to_bitmap(tda_info.startSymbolIndex, tda_info.nrOfSymbols);
 
     uint16_t *rballoc_mask = mac->common_channels[CC_id].vrb_map[beam.idx];
-    sched_pdsch->bwp_info = get_pdsch_bwp_start_size(mac, iterator->UE);
+    bwp_info_t bwp_info = get_pdsch_bwp_start_size(mac, iterator->UE);
     int rbStart = 0; // WRT BWP start
-    int rbStop = sched_pdsch->bwp_info.bwpSize - 1;
-    int bwp_start = sched_pdsch->bwp_info.bwpStart;
+    int rbStop = bwp_info.bwpSize - 1;
+    int bwp_start = bwp_info.bwpStart;
     // Freq-demain allocation
     while (rbStart < rbStop && (rballoc_mask[rbStart + bwp_start] & slbitmap))
       rbStart++;
@@ -831,7 +826,7 @@ static void pf_dl(module_id_t module_id,
     * allocation after CCE alloc fail would be more complex) */
 
     int alloc = -1;
-    if (!get_FeedbackDisabled(iterator->UE->sc_info.downlinkHARQ_FeedbackDisabled_r17, sched_pdsch->dl_harq_pid)) {
+    if (!get_FeedbackDisabled(iterator->UE->sc_info.downlinkHARQ_FeedbackDisabled_r17, sched_ctrl->available_dl_harq.head)) {
       int r_pucch = nr_get_pucch_resource(sched_ctrl->coreset, ul_bwp->pucch_Config, CCEIndex);
       alloc = nr_acknack_scheduling(mac, iterator->UE, frame, slot, iterator->UE->UE_beam_index, r_pucch, 0);
       if (alloc < 0) {
@@ -846,40 +841,48 @@ static void pf_dl(module_id_t module_id,
     fill_pdcch_vrb_map(mac, CC_id, &sched_ctrl->sched_pdcch, CCEIndex, sched_ctrl->aggregation_level, beam.idx);
 
     int l = get_dl_nrOfLayers(sched_ctrl, dl_bwp->dci_format);
-    sched_pdsch->nrOfLayers = l;
-    sched_pdsch->mcs = iterator->selected_mcs;
-    sched_pdsch->pm_index = get_pm_index(mac, iterator->UE, dl_bwp->dci_format, l, mac->radio_config.pdsch_AntennaPorts.XP);
-    sched_pdsch->dmrs_parms = get_dl_dmrs_params(scc, dl_bwp, tda_info, sched_pdsch->nrOfLayers);
-    sched_pdsch->Qm = nr_get_Qm_dl(sched_pdsch->mcs, dl_bwp->mcsTableIdx);
-    sched_pdsch->R = nr_get_code_rate_dl(sched_pdsch->mcs, dl_bwp->mcsTableIdx);
-    sched_pdsch->pucch_allocation = alloc;
-    uint32_t TBS = 0;
-    uint16_t rbSize;
+    NR_sched_pdsch_t sched_pdsch = {
+      // rbSize below
+      .rbStart = rbStart,
+      .mcs = iterator->selected_mcs,
+      .R = nr_get_code_rate_dl(iterator->selected_mcs, dl_bwp->mcsTableIdx),
+      .Qm = nr_get_Qm_dl(iterator->selected_mcs, dl_bwp->mcsTableIdx),
+      // tb_size below
+      .dl_harq_pid = sched_ctrl->available_dl_harq.head,
+      .pucch_allocation = alloc,
+      .pm_index = get_pm_index(mac, iterator->UE, dl_bwp->dci_format, l, mac->radio_config.pdsch_AntennaPorts.XP),
+      .nrOfLayers = l,
+      .bwp_info = bwp_info,
+      .dmrs_parms = get_dl_dmrs_params(scc, dl_bwp, &tda_info, l),
+      .time_domain_allocation = tda,
+      .tda_info = tda_info,
+    };
+
     // Fix me: currently, the RLC does not give us the total number of PDUs
     // awaiting. Therefore, for the time being, we put a fixed overhead of 12
     // (for 4 PDUs) and optionally + 2 for TA. Once RLC gives the number of
     // PDUs, we replace with 3 * numPDUs
     const int oh = 3 * 4 + 2 * (frame == (sched_ctrl->ta_frame + 100) % 1024);
     //const int oh = 3 * sched_ctrl->dl_pdus_total + 2 * (frame == (sched_ctrl->ta_frame + 100) % 1024);
-    nr_find_nb_rb(sched_pdsch->Qm,
-                  sched_pdsch->R,
+    nr_find_nb_rb(sched_pdsch.Qm,
+                  sched_pdsch.R,
                   1, // no transform precoding for DL
-                  sched_pdsch->nrOfLayers,
-                  tda_info->nrOfSymbols,
-                  sched_pdsch->dmrs_parms.N_PRB_DMRS * sched_pdsch->dmrs_parms.N_DMRS_SLOT,
+                  sched_pdsch.nrOfLayers,
+                  tda_info.nrOfSymbols,
+                  sched_pdsch.dmrs_parms.N_PRB_DMRS * sched_pdsch.dmrs_parms.N_DMRS_SLOT,
                   sched_ctrl->num_total_bytes + oh,
                   min_rbSize,
                   max_rbSize,
-                  &TBS,
-                  &rbSize);
-    sched_pdsch->rbSize = rbSize;
-    sched_pdsch->rbStart = rbStart;
-    sched_pdsch->tb_size = TBS;
-    /* transmissions: directly allocate */
-    n_rb_sched[beam.idx] -= sched_pdsch->rbSize;
+                  &sched_pdsch.tb_size,
+                  &sched_pdsch.rbSize);
 
-    for (int rb = bwp_start; rb < sched_pdsch->rbSize; rb++)
-      rballoc_mask[rb + sched_pdsch->rbStart] |= slbitmap;
+    sched_ctrl->sched_pdsch = sched_pdsch;
+
+    /* transmissions: directly allocate */
+    n_rb_sched[beam.idx] -= sched_pdsch.rbSize;
+
+    for (int rb = bwp_start; rb < sched_pdsch.rbSize; rb++)
+      rballoc_mask[rb + sched_pdsch.rbStart] |= slbitmap;
 
     remainUEs[beam.idx]--;
     iterator++;
