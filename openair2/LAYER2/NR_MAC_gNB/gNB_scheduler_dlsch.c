@@ -438,13 +438,14 @@ static bool allocate_dl_retransmission(module_id_t module_id,
   NR_UE_DL_BWP_t *dl_bwp = &UE->current_DL_BWP;
   NR_UE_UL_BWP_t *ul_bwp = &UE->current_UL_BWP;
   NR_sched_pdsch_t *retInfo = &sched_ctrl->harq_processes[current_harq_pid].sched_pdsch;
-  NR_sched_pdsch_t *curInfo = &sched_ctrl->sched_pdsch;
+  int layers = get_dl_nrOfLayers(sched_ctrl, dl_bwp->dci_format);
+  int pm_index = get_pm_index(nr_mac, UE, dl_bwp->dci_format, layers, nr_mac->radio_config.pdsch_AntennaPorts.XP);
 
   // If the RI changed between current rtx and a previous transmission
   // we need to verify if it is not decreased
   // othwise it wouldn't be possible to transmit the same TBS
-  int layers = (curInfo->nrOfLayers < retInfo->nrOfLayers) ? curInfo->nrOfLayers : retInfo->nrOfLayers;
-  int pm_index = (curInfo->nrOfLayers < retInfo->nrOfLayers) ? curInfo->pm_index : retInfo->pm_index;
+  layers = (layers < retInfo->nrOfLayers) ? layers : retInfo->nrOfLayers;
+  pm_index = (layers < retInfo->nrOfLayers) ? pm_index : retInfo->pm_index;
 
   const int coresetid = sched_ctrl->coreset->controlResourceSetId;
   const int tda = get_dl_tda(nr_mac, slot);
