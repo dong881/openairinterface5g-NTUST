@@ -590,6 +590,7 @@ static bool allocate_dl_retransmission(module_id_t module_id,
 typedef struct UEsched_s {
   float coef;
   NR_UE_info_t * UE;
+  int selected_mcs;
 } UEsched_t;
 
 static int comparator(const void *p, const void *q)
@@ -686,17 +687,16 @@ static void pf_dl(module_id_t module_id,
       const NR_bler_options_t *bo = &mac->dl_bler;
       const int max_mcs_table = current_BWP->mcsTableIdx == 1 ? 27 : 28;
       const int max_mcs = min(sched_ctrl->dl_max_mcs, max_mcs_table);
+      int selected_mcs;
       if (bo->harq_round_max == 1) {
         int new_mcs = min(bo->max_mcs, max_mcs);
-        sched_pdsch->mcs = max(bo->min_mcs, new_mcs);
-        sched_ctrl->dl_bler_stats.mcs = sched_pdsch->mcs;
+        selected_mcs = max(bo->min_mcs, new_mcs);
+        sched_ctrl->dl_bler_stats.mcs = selected_mcs;
       } else
-        sched_pdsch->mcs = get_mcs_from_bler(bo, stats, &sched_ctrl->dl_bler_stats, max_mcs, frame);
-      sched_pdsch->nrOfLayers = get_dl_nrOfLayers(sched_ctrl, current_BWP->dci_format);
-      sched_pdsch->pm_index =
-          get_pm_index(mac, UE, current_BWP->dci_format, sched_pdsch->nrOfLayers, mac->radio_config.pdsch_AntennaPorts.XP);
-      const uint8_t Qm = nr_get_Qm_dl(sched_pdsch->mcs, current_BWP->mcsTableIdx);
-      const uint16_t R = nr_get_code_rate_dl(sched_pdsch->mcs, current_BWP->mcsTableIdx);
+        selected_mcs = get_mcs_from_bler(bo, stats, &sched_ctrl->dl_bler_stats, max_mcs, frame);
+      int l = get_dl_nrOfLayers(sched_ctrl, current_BWP->dci_format);
+      const uint8_t Qm = nr_get_Qm_dl(selected_mcs, current_BWP->mcsTableIdx);
+      const uint16_t R = nr_get_code_rate_dl(selected_mcs, current_BWP->mcsTableIdx);
       uint32_t tbs = nr_compute_tbs(Qm,
                                     R,
                                     1, /* rbSize */
@@ -704,7 +704,7 @@ static void pf_dl(module_id_t module_id,
                                     0, /* N_PRB_DMRS * N_DMRS_SLOT */
                                     0 /* N_PRB_oh, 0 for initialBWP */,
                                     0 /* tb_scaling */,
-                                    sched_pdsch->nrOfLayers) >> 3;
+                                    l) >> 3;
       float coeff_ue = (float) tbs / UE->dl_thr_ue;
       LOG_D(NR_MAC, "[UE %04x][%4d.%2d] b %d, thr_ue %f, tbs %d, coeff_ue %f\n",
             UE->rnti,
@@ -717,6 +717,7 @@ static void pf_dl(module_id_t module_id,
       /* Create UE_sched list for UEs eligible for new transmission*/
       UE_sched[numUE].coef = coeff_ue;
       UE_sched[numUE].UE = UE;
+      UE_sched[numUE].selected_mcs = selected_mcs;
       numUE++;
     }
   }
@@ -843,6 +844,10 @@ static void pf_dl(module_id_t module_id,
     sched_ctrl->cce_index = CCEIndex;
     fill_pdcch_vrb_map(mac, CC_id, &sched_ctrl->sched_pdcch, CCEIndex, sched_ctrl->aggregation_level, beam.idx);
 
+    int l = get_dl_nrOfLayers(sched_ctrl, dl_bwp->dci_format);
+    sched_pdsch->nrOfLayers = l;
+    sched_pdsch->mcs = iterator->selected_mcs;
+    sched_pdsch->pm_index = get_pm_index(mac, iterator->UE, dl_bwp->dci_format, l, mac->radio_config.pdsch_AntennaPorts.XP);
     sched_pdsch->dmrs_parms = get_dl_dmrs_params(scc, dl_bwp, tda_info, sched_pdsch->nrOfLayers);
     sched_pdsch->Qm = nr_get_Qm_dl(sched_pdsch->mcs, dl_bwp->mcsTableIdx);
     sched_pdsch->R = nr_get_code_rate_dl(sched_pdsch->mcs, dl_bwp->mcsTableIdx);
