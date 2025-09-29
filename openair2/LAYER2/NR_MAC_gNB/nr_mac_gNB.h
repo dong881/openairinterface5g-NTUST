@@ -794,7 +794,7 @@ typedef struct NR_UE_info {
   NR_UE_NR_Capability_t *capability;
   measgap_config_t measgap_config;
   // UE selected beam index
-  uint8_t UE_beam_index;
+  uint16_t UE_beam_index;
   float ul_thr_ue;
   float dl_thr_ue;
   long pdsch_HARQ_ACK_Codebook;

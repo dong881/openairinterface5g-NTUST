@@ -94,7 +94,8 @@ static void nr_fill_nfapi_pucch(gNB_MAC_INST *nrmac, frame_t frame, slot_t slot,
                      pucch->csi_bits,
                      pucch->dai_c,
                      pucch->sr_flag,
-                     pucch->r_pucch);
+                     pucch->r_pucch,
+                     nrmac->beam_info.beam_mode);
 }
 
 #define MIN_RSRP_VALUE -141

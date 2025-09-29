@@ -1634,6 +1634,7 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
         beam_info->beam_duration = *MacRLC_ParamList.paramarray[j][MACRLC_ANALOG_BEAM_DURATION_IDX].u8ptr;
         beam_info->beams_per_period = beams_per_period;
         beam_info->beam_allocation_size = -1; // to be initialized once we have information on frame configuration
+        // TODO: Indicate this to MAC via FAPI TLV 0x0164.
         beam_info->beam_mode = ab == 1 ? PRECONFIGURED_BEAM_IDX : LOPHY_BEAM_IDX;
       } else {
         RC.nrmac[j]->beam_info.beam_mode = NO_BEAM_MODE;
