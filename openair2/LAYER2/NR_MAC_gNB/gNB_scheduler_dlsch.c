@@ -687,6 +687,8 @@ static void pf_dl(gNB_MAC_INST *mac,
         continue;
       }
 
+      update_dlsch_buffer(pp_pdsch->frame, pp_pdsch->slot, UE);
+
       /* Check DL buffer and skip this UE if no bytes and no TA necessary */
       if (sched_ctrl->num_total_bytes == 0 && frame != (sched_ctrl->ta_frame + 100) % 1024)
         continue;
@@ -909,11 +911,6 @@ static void nr_dlsch_preprocessor(gNB_MAC_INST *mac, post_process_pdsch_t *pp_pd
   int n_rb_sched[num_beams];
   for (int i = 0; i < num_beams; i++)
     n_rb_sched[i] = bw;
-
-  /* Retrieve amount of data to send for this UE */
-  UE_iterator(mac->UE_info.connected_ue_list, UE) {
-    update_dlsch_buffer(pp_pdsch->frame, pp_pdsch->slot, UE);
-  }
 
   int average_agg_level = 4; // TODO find a better estimation
   int max_sched_ues = bw / (average_agg_level * NR_NB_REG_PER_CCE);
