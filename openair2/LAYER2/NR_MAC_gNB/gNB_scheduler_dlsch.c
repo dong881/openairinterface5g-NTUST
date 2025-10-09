@@ -321,46 +321,41 @@ int nr_write_ce_dlsch_pdu(module_id_t module_idP,
   return offset;
 }
 
-static void nr_store_dlsch_buffer(module_id_t module_id, frame_t frame, slot_t slot)
+static uint32_t update_dlsch_buffer(frame_t frame, slot_t slot, NR_UE_info_t *UE)
 {
-  UE_iterator(RC.nrmac[module_id]->UE_info.connected_ue_list, UE) {
-    NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
-    sched_ctrl->num_total_bytes = 0;
-    sched_ctrl->dl_pdus_total = 0;
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  sched_ctrl->num_total_bytes = 0;
+  sched_ctrl->dl_pdus_total = 0;
 
-    /* loop over all activated logical channels */
-    // Note: DL_SCH_LCID_DCCH, DL_SCH_LCID_DCCH1, DL_SCH_LCID_DTCH
-    for (int i = 0; i < seq_arr_size(&sched_ctrl->lc_config); ++i) {
-      const nr_lc_config_t *c = seq_arr_at(&sched_ctrl->lc_config, i);
-      const int lcid = c->lcid;
-      const uint16_t rnti = UE->rnti;
-      LOG_D(NR_MAC, "In %s: UE %x: LCID %d\n", __FUNCTION__, rnti, lcid);
-      memset(&sched_ctrl->rlc_status[lcid], 0, sizeof(sched_ctrl->rlc_status[lcid]));
-      if (c->suspended)
-        continue;
-      if (lcid == DL_SCH_LCID_DTCH && nr_timer_is_active(&sched_ctrl->transm_interrupt))
-        continue;
-      sched_ctrl->rlc_status[lcid] = nr_mac_rlc_status_ind(rnti, frame, lcid);
+  /* loop over all activated logical channels */
+  for (int i = 0; i < seq_arr_size(&sched_ctrl->lc_config); ++i) {
+    const nr_lc_config_t *c = seq_arr_at(&sched_ctrl->lc_config, i);
+    const int lcid = c->lcid;
+    const uint16_t rnti = UE->rnti;
+    LOG_D(NR_MAC, "UE %x: LCID %d\n", rnti, lcid);
+    memset(&sched_ctrl->rlc_status[lcid], 0, sizeof(sched_ctrl->rlc_status[lcid]));
+    if (c->suspended)
+      continue;
+    if (lcid == DL_SCH_LCID_DTCH && nr_timer_is_active(&sched_ctrl->transm_interrupt))
+      continue;
+    sched_ctrl->rlc_status[lcid] = nr_mac_rlc_status_ind(rnti, frame, lcid);
 
-      if (sched_ctrl->rlc_status[lcid].bytes_in_buffer == 0)
-        continue;
+    if (sched_ctrl->rlc_status[lcid].bytes_in_buffer == 0)
+      continue;
 
-      sched_ctrl->dl_pdus_total += sched_ctrl->rlc_status[lcid].pdus_in_buffer;
-      sched_ctrl->num_total_bytes += sched_ctrl->rlc_status[lcid].bytes_in_buffer;
-      LOG_D(MAC,
-            "[gNB %d][%4d.%2d] %s%d->DLSCH, RLC status for UE %d: %d bytes in buffer, total DL buffer size = %d bytes, %d total PDU bytes, %s TA command\n",
-            module_id,
-            frame,
-            slot,
-            lcid < 4 ? "DCCH":"DTCH",
-            lcid,
-            UE->rnti,
-            sched_ctrl->rlc_status[lcid].bytes_in_buffer,
-            sched_ctrl->num_total_bytes,
-            sched_ctrl->dl_pdus_total,
-            sched_ctrl->ta_apply ? "send":"do not send");
-    }
+    sched_ctrl->dl_pdus_total += sched_ctrl->rlc_status[lcid].pdus_in_buffer;
+    sched_ctrl->num_total_bytes += sched_ctrl->rlc_status[lcid].bytes_in_buffer;
+    LOG_D(MAC,
+          "%4d.%2d UE %04x LCID %d status: %d bytes, total buffer %d bytes %d PDUs\n",
+          frame,
+          slot,
+          UE->rnti,
+          lcid,
+          sched_ctrl->rlc_status[lcid].bytes_in_buffer,
+          sched_ctrl->num_total_bytes,
+          sched_ctrl->dl_pdus_total);
   }
+  return sched_ctrl->num_total_bytes;
 }
 
 void finish_nr_dl_harq(NR_UE_sched_ctrl_t *sched_ctrl, int harq_pid)
@@ -903,7 +898,6 @@ static void pf_dl(gNB_MAC_INST *mac,
 
 static void nr_dlsch_preprocessor(gNB_MAC_INST *mac, post_process_pdsch_t *pp_pdsch)
 {
-  module_id_t module_id = 0;
   NR_UEs_t *UE_info = &mac->UE_info;
 
   if (UE_info->connected_ue_list[0] == NULL)
@@ -917,7 +911,9 @@ static void nr_dlsch_preprocessor(gNB_MAC_INST *mac, post_process_pdsch_t *pp_pd
     n_rb_sched[i] = bw;
 
   /* Retrieve amount of data to send for this UE */
-  nr_store_dlsch_buffer(module_id, pp_pdsch->frame, pp_pdsch->slot);
+  UE_iterator(mac->UE_info.connected_ue_list, UE) {
+    update_dlsch_buffer(pp_pdsch->frame, pp_pdsch->slot, UE);
+  }
 
   int average_agg_level = 4; // TODO find a better estimation
   int max_sched_ues = bw / (average_agg_level * NR_NB_REG_PER_CCE);
