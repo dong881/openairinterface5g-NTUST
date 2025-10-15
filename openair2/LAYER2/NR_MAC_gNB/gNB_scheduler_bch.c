@@ -747,10 +747,10 @@ static void other_sib_sched_control(module_id_t module_idP,
   // Data to be transmitted
   memcpy(tx_req->TLVs[0].value.direct, sib_bcch_pdu, sched_pdsch_otherSI.tb_size);
 
-  tx_req->PDU_length = sched_pdsch_otherSI.tb_size;
   tx_req->PDU_index = pdu_index;
   tx_req->num_TLV = 1;
-  tx_req->TLVs[0].length = sched_pdsch_otherSI.tb_size + 2;
+  tx_req->TLVs[0].length = sched_pdsch_otherSI.tb_size;
+  tx_req->PDU_length = compute_PDU_length(tx_req->num_TLV, tx_req->TLVs[0].length);
   TX_req->Number_of_PDUs++;
   TX_req->SFN = frame;
   TX_req->Slot = slot;
