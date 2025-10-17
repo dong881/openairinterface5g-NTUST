@@ -825,7 +825,7 @@ typedef struct {
   nr_beam_mode_t beam_mode;
 } NR_beam_info_t;
 
-#define UE_iterator(BaSe, VaR) NR_UE_info_t ** VaR##pptr=BaSe, *VaR; while ((VaR=*(VaR##pptr++)))
+#define UE_iterator(BaSe, VaR) for (NR_UE_info_t **VaR##pptr=BaSe, *VaR=*VaR##pptr; VaR; VaR=*(++VaR##pptr))
 
 typedef struct {
   /// current frame for DCI
