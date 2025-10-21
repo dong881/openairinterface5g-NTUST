@@ -3698,6 +3698,16 @@ uint16_t convert_to_fapi_beam(const uint16_t beam_idx, const nr_beam_mode_t mode
   return (mode == LOPHY_BEAM_IDX) ? SET_BIT(beam_idx, 15) : beam_idx;
 }
 
+int16_t get_allocated_beam(const NR_beam_info_t *beam_info, int frame, int slot, int slots_per_frame, int beam_number_in_period)
+{
+  int16_t beam_idx = 0;
+  if (beam_info->beam_mode != NO_BEAM_MODE) {
+    const int index = get_beam_index(beam_info, frame, slot, slots_per_frame);
+    beam_idx = beam_info->beam_allocation[beam_number_in_period][index];
+  }
+  return beam_idx;
+}
+
 void reset_beam_status(NR_beam_info_t *beam_info, int frame, int slot, int16_t beam_index, int slots_per_frame, bool new_beam)
 {
   if(!new_beam) // need to reset only if the beam was allocated specifically for this instance

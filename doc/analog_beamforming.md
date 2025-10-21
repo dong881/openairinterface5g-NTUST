@@ -34,6 +34,15 @@ To this goal, we extended the virtual resource block (VRB) map by one dimension 
 
 It is important to note that in current implementation, there are several periodical channels, e.g. PRACH or PUCCH for CSI et cetera, that have the precendence in being assigned a beam, that is because the scheduling is automatic, set in RRC configuration, and not up to the scheduler. For these instances, we assume the beam is available (if not there are assertions to stop the process). For data channels, the currently implemented PF scheduler is used. The only modification is that a UE can be served only if there is a free beam available or the one of the beams already in use correspond to that UE beam.
 
+## Beams in phy-test scheduler
+
+In phy-test mode, beams are assigned to PDSCH slots in the same manner as SSB slots with the only addition that it repeats for every TDD period in a frame. For example if PDSCH is scheduled on all DL slot for TDD format DDDDDDDSUU, and with SSB bit map = `0b1010101` and the following beam parameters in config file,
+- `beam_weights` = [10,11,12,13]
+- `beam_duration` = 1
+- `beams_per_period` = 1
+
+The DL slots in every TDD period will have beams 10,11,12,13,0,0,0
+
 # FAPI implementation
 
 To be noted that in our implementation analog beamforming is only supported in non-split/monolithic mode because we don't support yet SCF P19 interface that would be needed to manage these procedure in a split scenario with SCF FAPI.

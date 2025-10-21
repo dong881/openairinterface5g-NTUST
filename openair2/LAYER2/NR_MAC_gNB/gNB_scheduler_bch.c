@@ -136,10 +136,11 @@ static void schedule_one_ssb(gNB_MAC_INST *gNB,
   uint8_t ssbSubcarrierOffset = gNB->ssb_SubcarrierOffset;
 
   uint16_t ssb_start_symbol = get_ssb_start_symbol(band, scs, i_ssb);
-  int beam_index = get_fapi_beamforming_index(gNB, i_ssb);
-  NR_beam_alloc_t beam = beam_allocation_procedure(&gNB->beam_info, frameP, slotP, beam_index, slots_per_frame);
+  NR_beam_alloc_t beam =
+      beam_allocation_procedure(&gNB->beam_info, frameP, slotP, get_fapi_beamforming_index(gNB, i_ssb), slots_per_frame);
   AssertFatal(beam.idx >= 0, "Cannot allocate SSB %d in any available beam\n", i_ssb);
-  beam_index = convert_to_fapi_beam(beam_index, gNB->beam_info.beam_mode);
+  const uint16_t beam_index =
+      convert_to_fapi_beam(get_allocated_beam(&gNB->beam_info, frameP, slotP, slots_per_frame, beam.idx), gNB->beam_info.beam_mode);
   const int prb_offset = (FR == FR2) ? offset_pointa >> (scs - 2) : offset_pointa >> scs;
   schedule_ssb(frameP, slotP, scc, dl_req, i_ssb, beam_index, ssbSubcarrierOffset, offset_pointa, mib_pdu);
   fill_ssb_vrb_map(cc,
