@@ -236,6 +236,9 @@ In the `MACRLCs` section of the gNB/DU configuration file:
    case RSSI reaches the threshold and prevents ADC railing. Unit depends on
    RSSI reporting config.
 * `pucch_RSSI_Threshold`: Same as above but for PUCCH
+* `stats_max_ue` (default 8): maximum number of UEs to show in periodical
+  stats; beyond this number, periodical statistics will be disabled (it can
+  still be seen in `nrMAC_stats.log`. Use `0` to disable periodical stats.
 
 In the `gNBs` section of the gNB/DU configuration file: some of the parameters
 affect RRC configuration (CellGroupConfig) of a UE, and are therefore listed

@@ -980,6 +980,11 @@ typedef struct gNB_MAC_INST_s {
   f1_config_t f1_config;
   int16_t frame;
 
+  /// number of UEs to exceed to disable stats
+  int stats_max_ue;
+  /// if stats are currently enabled
+  bool print_ue_stats;
+
   pthread_mutex_t sched_lock;
 
   mac_stats_t mac_stats;

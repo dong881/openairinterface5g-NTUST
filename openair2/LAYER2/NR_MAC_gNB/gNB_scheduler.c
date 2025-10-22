@@ -195,10 +195,23 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, frame_t frame, slot_t slo
   }
 
   bool wait_prach_completed = gNB->num_scheduled_prach_rx >= NUM_PRACH_RX_FOR_NOISE_ESTIMATE;
-  if ((wait_prach_completed || get_softmodem_params()->phy_test) && (slot == 0) && (frame & 127) == 0) {
+  if (gNB->print_ue_stats && (wait_prach_completed || get_softmodem_params()->phy_test) && (slot == 0) && (frame & 127) == 0) {
     char stats_output[32656] = {0};
     dump_mac_stats(gNB, stats_output, sizeof(stats_output), true);
     LOG_I(NR_MAC, "Frame.Slot %d.%d\n%s\n", frame, slot, stats_output);
+
+    // TODO: this should be replaced with a size() operation on connected_ue_list
+    int num_ue = 0;
+    UE_iterator(gNB->UE_info.connected_ue_list, it) {
+      (void) it; // not used
+      num_ue++;
+    }
+    if (gNB->print_ue_stats && num_ue > gNB->stats_max_ue) {
+      gNB->print_ue_stats = false;
+      LOG_W(NR_MAC,
+            "periodical UE stats deactivated after reaching %d UEs, please check nrMAC_stats.log, or increase MACRLCs.[0].stats_max_ue\n",
+            gNB->stats_max_ue);
+    }
   }
 
   nr_measgap_scheduling(gNB, frame, slot);
