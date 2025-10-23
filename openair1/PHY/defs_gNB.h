@@ -464,6 +464,9 @@ typedef struct PHY_VARS_gNB_s {
 
   bool enable_analog_das;
 
+  time_stats_t l1_tx_proc;
+  time_stats_t l1_rx_proc;
+
   time_stats_t phy_proc_tx;
   time_stats_t phy_proc_rx;
   time_stats_t rx_prach;

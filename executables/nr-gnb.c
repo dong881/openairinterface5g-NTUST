@@ -150,7 +150,9 @@ void *L1_rx_thread(void *arg)
      if (res == NULL)
        break;
      processingData_L1_t *info = (processingData_L1_t *)NotifiedFifoData(res);
+     start_meas(&gNB->l1_rx_proc);
      rx_func(info);
+     stop_meas(&gNB->l1_rx_proc);
      delNotifiedFIFO_elt(res);
   }
   return NULL;
@@ -164,7 +166,9 @@ void *L1_tx_thread(void *arg) {
      if (res == NULL) // stopping condition, happens only when queue is freed
        break;
      processingData_L1tx_t *info = (processingData_L1tx_t *)NotifiedFifoData(res);
+     start_meas(&gNB->l1_tx_proc);
      tx_func(info);
+     stop_meas(&gNB->l1_tx_proc);
      delNotifiedFIFO_elt(res);
   }
   return NULL;
@@ -229,6 +233,8 @@ static void rx_func(processingData_L1_t *info)
 static size_t dump_L1_meas_stats(PHY_VARS_gNB *gNB, RU_t *ru, char *output, size_t outputlen) {
   const char *begin = output;
   const char *end = output + outputlen;
+  output += print_meas_log(&gNB->l1_tx_proc, "L1 Tx job", NULL, NULL, output, end - output);
+  output += print_meas_log(&gNB->l1_rx_proc, "L1 Rx job", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->phy_proc_tx, "L1 Tx processing", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->dlsch_encoding_stats, "DLSCH encoding", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->dlsch_scrambling_stats, "DLSCH scrambling", NULL, NULL, output, end-output);
@@ -293,6 +299,8 @@ void *nrL1_stats_thread(void *param) {
     return NULL;
   }
 
+  reset_meas(&gNB->l1_tx_proc);
+  reset_meas(&gNB->l1_rx_proc);
   reset_meas(&gNB->phy_proc_tx);
   reset_meas(&gNB->dlsch_encoding_stats);
   reset_meas(&gNB->phy_proc_rx);
