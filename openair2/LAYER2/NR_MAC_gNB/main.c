@@ -87,7 +87,6 @@ void *nrmac_stats_thread(void *arg) {
     char *p = output;
     NR_SCHED_LOCK(&gNB->sched_lock);
     p += dump_mac_stats(gNB, p, end - p, false);
-    NR_SCHED_UNLOCK(&gNB->sched_lock);
     p += snprintf(p, end - p, "\n");
     p += print_meas_log(&gNB->gNB_scheduler, "gNB_scheduler", NULL, NULL, p, end - p);
     p += print_meas_log(&gNB->rx_ulsch_sdu, "rx_ulsch_sdu", NULL, NULL, p, end - p);
@@ -97,6 +96,7 @@ void *nrmac_stats_thread(void *arg) {
     p += print_meas_log(&gNB->rlc_data_req, "rlc_data_req", NULL, NULL, p, end - p);
     p += print_meas_log(&gNB->nr_srs_ri_computation_timer, "UL-RI computation time", NULL, NULL, p, end - p);
     p += print_meas_log(&gNB->nr_srs_tpmi_computation_timer, "UL-TPMI computation time", NULL, NULL, p, end - p);
+    NR_SCHED_UNLOCK(&gNB->sched_lock);
     fwrite(output, p - output, 1, file);
     fflush(file);
     sleep(1);
