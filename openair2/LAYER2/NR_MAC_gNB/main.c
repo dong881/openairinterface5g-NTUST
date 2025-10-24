@@ -97,10 +97,16 @@ void *nrmac_stats_thread(void *arg) {
     p += print_meas_log(&gNB->nr_srs_ri_computation_timer, "UL-RI computation time", NULL, NULL, p, end - p);
     p += print_meas_log(&gNB->nr_srs_tpmi_computation_timer, "UL-TPMI computation time", NULL, NULL, p, end - p);
     NR_SCHED_UNLOCK(&gNB->sched_lock);
-    fwrite(output, p - output, 1, file);
-    fflush(file);
+    size_t len = p - output;
+    if (fwrite(output, len, 1, file) != 1 || fflush(file) != 0) {
+      LOG_E(NR_MAC, "error while writing nrMAC_stats.log: %d, %s\n", errno, strerror(errno));
+      break;
+    }
     sleep(1);
-    fseek(file,0,SEEK_SET);
+    if (ftruncate(fileno(file), 0) != 0 || fseek(file, 0, SEEK_SET) != 0) {
+      LOG_E(NR_MAC, "error while writing nrMAC_stats.log: %d, %s\n", errno, strerror(errno));
+      break;
+    }
   }
   fclose(file);
   return NULL;
