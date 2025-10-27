@@ -664,6 +664,9 @@ int main(int argc, char *argv[])
         success = false;
   }
 
+  free(ng_ip);
+  free(f1_ip);
+
   if (success)
     LOG_A(GNB_APP, "test succeeded\n");
   else
