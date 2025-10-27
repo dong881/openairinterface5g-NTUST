@@ -152,6 +152,7 @@ class gtpEndPoint {
   }
 };
 
+static void gtpv1uReceiverCancel(pthread_t t);
 class gtpEndPoints {
  public:
   pthread_mutex_t gtp_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -168,8 +169,10 @@ class gtpEndPoints {
   ~gtpEndPoints()
   {
     // automatically close all sockets on quit
-    for (const auto &p : instances)
+    for (const auto &p : instances) {
+      gtpv1uReceiverCancel(p.second.thrData.t);
       close(p.first);
+    }
   }
 };
 
@@ -1349,6 +1352,15 @@ static void* gtpv1uReceiver(void *thr)
   return NULL;
 }
 
+static void gtpv1uReceiverCancel(pthread_t t)
+{
+  int rc;
+  rc = pthread_cancel(t);
+  DevAssert(rc == 0);
+  rc = pthread_join(t, NULL);
+  DevAssert(rc == 0);
+}
+
 #include <openair2/ENB_APP/enb_paramdef.h>
 
 void *gtpv1uTask(void *args)
@@ -1370,6 +1382,8 @@ void *gtpv1uTask(void *args)
           // DATA TO BE SENT TO UDP
 
         case TERMINATE_MESSAGE:
+          LOG_W(GTPU, "Exiting GTP instance %ld\n", myInstance);
+          itti_exit_task();
           break;
 
         case TIMER_HAS_EXPIRED:
