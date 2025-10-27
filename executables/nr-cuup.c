@@ -150,7 +150,8 @@ int main(int argc, char **argv)
   time_manager_start(tick_functions, tick_functions_count, TIME_SOURCE_REALTIME);
 
   // strdup to put the sring in the core file for post mortem identification
-  LOG_I(HW, "Version: %s\n", strdup(OAI_PACKAGE_VERSION));
+  char *v = strdup(OAI_PACKAGE_VERSION);
+  LOG_I(HW, "Version: %s\n", v);
   set_softmodem_sighandler();
   itti_init(TASK_MAX, tasks_info);
   int rc;
@@ -188,6 +189,8 @@ int main(int argc, char **argv)
   itti_wait_tasks_end(NULL);
 
   time_manager_finish();
+
+  free(v);
 
   logClean();
   printf("Bye.\n");
