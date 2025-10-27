@@ -1283,7 +1283,7 @@ static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const st
   return !GTPNOK;
 }
 
-static void gtpv1uReceiveHandleMessage(int h)
+static bool gtpv1uReceiveHandleMessage(int h)
 {
   uint8_t udpData[65536];
   int udpDataLen;
@@ -1293,19 +1293,19 @@ static void gtpv1uReceiveHandleMessage(int h)
 
   if ((udpDataLen = recvfrom(h, udpData, sizeof(udpData), 0, (struct sockaddr *)&addr, &from_len)) < 0) {
     LOG_E(GTPU, "[%d] Recvfrom failed (%s)\n", h, strerror(errno));
-    return;
+    return false;
   } else if (udpDataLen == 0) {
     LOG_W(GTPU, "[%d] Recvfrom returned 0\n", h);
-    return;
+    return true;
   } else {
     if (udpDataLen < (int)sizeof(Gtpv1uMsgHeaderT)) {
       LOG_W(GTPU, "[%d] received malformed gtp packet \n", h);
-      return;
+      return true;
     }
     Gtpv1uMsgHeaderT *msg = (Gtpv1uMsgHeaderT *)udpData;
     if ((int)(ntohs(msg->msgLength) + sizeof(Gtpv1uMsgHeaderT)) != udpDataLen) {
       LOG_W(GTPU, "[%d] received malformed gtp packet length\n", h);
-      return;
+      return true;
     }
     LOG_D(GTPU, "[%d] Received GTP data, msg type: %x\n", h, msg->msgType);
     switch (msg->msgType) {
@@ -1337,13 +1337,13 @@ static void gtpv1uReceiveHandleMessage(int h)
         break;
     }
   }
+  return true;
 }
 
 static void* gtpv1uReceiver(void *thr)
 {
   gtpThread_t *gt = (gtpThread_t *)thr;
-  while (true) {
-    gtpv1uReceiveHandleMessage(gt->h);
+  while (gtpv1uReceiveHandleMessage(gt->h)) {
   }
   LOG_W(GTPU, "exiting thread\n");
   return NULL;
