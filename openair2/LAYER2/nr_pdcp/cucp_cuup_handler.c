@@ -153,7 +153,7 @@ static void e1_add_bearers(const int ue_id, const NR_DRB_ToAddModList_t *addMod,
     // get SDAP config
     sdap_config_t sdap = nr_sdap_get_config(GNB_FLAG_YES, drb->cnAssociation->choice.sdap_Config, drb->drb_Identity);
     // add SDAP entity
-    nr_sdap_addmod_entity(GNB_FLAG_YES, ue_id, sdap);
+    nr_sdap_addmod_entity(GNB_FLAG_YES, ue_id, &sdap);
     // add PDCP entity
     nr_pdcp_add_drb(GNB_FLAG_YES, ue_id, drb->pdcp_Config, &sdap, sp);
   }

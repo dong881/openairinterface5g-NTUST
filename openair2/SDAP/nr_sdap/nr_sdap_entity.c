@@ -487,13 +487,13 @@ static void nr_sdap_qfi2drb_map_update(nr_sdap_entity_t *entity, const sdap_conf
  * @param   is_gnb, indicates whether it is for gNB or UE
  * @param   ue_id, UE ID
  * @param   sdap, SDAP configuration */
-static void nr_sdap_add_entity(const int is_gnb, const ue_id_t ue_id, const sdap_config_t sdap)
+static void nr_sdap_add_entity(const int is_gnb, const ue_id_t ue_id, const sdap_config_t *sdap)
 {
   nr_sdap_entity_t *sdap_entity = calloc_or_fail(1, sizeof(*sdap_entity));
 
   // SDAP entity ids
   sdap_entity->ue_id = ue_id;
-  sdap_entity->pdusession_id = sdap.pdusession_id;
+  sdap_entity->pdusession_id = sdap->pdusession_id;
   sdap_entity->is_gnb = is_gnb;
 
   // rx/tx entities
@@ -513,13 +513,13 @@ static void nr_sdap_add_entity(const int is_gnb, const ue_id_t ue_id, const sdap
   sdap_entity->pdusession_sock = -1;
 
   // set default DRB
-  if (sdap.defaultDRB) {
-    sdap_entity->default_drb = sdap.drb_id;
+  if (sdap->defaultDRB) {
+    sdap_entity->default_drb = sdap->drb_id;
     LOG_I(SDAP, "Default DRB for the created SDAP entity: DRB %d \n", sdap_entity->default_drb);
   }
 
   // Add QoS flows to the DRB (initial configuration)
-  nr_sdap_add_qos_flows_to_drb(sdap_entity, &sdap);
+  nr_sdap_add_qos_flows_to_drb(sdap_entity, sdap);
 
   // update SDAP entity list pointers
   sdap_entity->next_entity = sdap_info.sdap_entity_llist;
@@ -533,11 +533,11 @@ static void nr_sdap_add_entity(const int is_gnb, const ue_id_t ue_id, const sdap
 }
 
 /** @brief Add or modify an SDAP entity if it already exists */
-void nr_sdap_addmod_entity(const int is_gnb, const ue_id_t ue_id, const sdap_config_t sdap)
+void nr_sdap_addmod_entity(const int is_gnb, const ue_id_t ue_id, const sdap_config_t *sdap)
 {
-  nr_sdap_entity_t *sdap_entity = nr_sdap_get_entity(ue_id, sdap.pdusession_id);
+  nr_sdap_entity_t *sdap_entity = nr_sdap_get_entity(ue_id, sdap->pdusession_id);
   if (sdap_entity) {
-    sdap_entity->qfi2drb_map_update(sdap_entity, &sdap);
+    sdap_entity->qfi2drb_map_update(sdap_entity, sdap);
   } else {
     nr_sdap_add_entity(is_gnb, ue_id, sdap);
   }
