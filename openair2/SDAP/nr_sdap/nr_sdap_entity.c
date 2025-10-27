@@ -210,8 +210,8 @@ static void nr_sdap_rx_entity(nr_sdap_entity_t *entity,
 {
   /* The offset of the SDAP header, it might be 0 if has_sdap_rx is not true in the pdcp entity. */
   int offset=0;
-  int qfi = buf[0] & 0x3F; // QFI is always the first 6 bits in the first octet
-  if (qfi <= 0 || qfi >= SDAP_MAX_QFI) {
+  uint8_t qfi = buf[0] & 0x3F; // QFI is always the first 6 bits in the first octet
+  if (qfi >= SDAP_MAX_QFI) {
     LOG_E(SDAP, "Invalid QFI %d received in SDAP header\n", qfi);
     return;
   }
@@ -450,7 +450,7 @@ static void nr_sdap_add_qos_flows_to_drb(nr_sdap_entity_t *entity, const sdap_co
   for (int i = 0; i < sdap->mappedQFIs2AddCount; i++) {
     uint8_t qfi = sdap->mappedQFIs2Add[i];
     LOG_D(SDAP, "Adding QFI to DRB mapping rules: %d mapped QFIs for DRB %d\n", sdap->mappedQFIs2AddCount, sdap->drb_id);
-    if (qfi < SDAP_MAX_QFI && qfi > SDAP_MAP_RULE_EMPTY && sdap->drb_id > 0 && sdap->drb_id <= MAX_DRBS_PER_UE) {
+    if (qfi < SDAP_MAX_QFI && sdap->drb_id > SDAP_MAP_RULE_EMPTY && sdap->drb_id <= MAX_DRBS_PER_UE) {
       entity->qfi2drb_map_add(entity, qfi, sdap->drb_id, sdap->role);
     } else {
       LOG_E(SDAP, "Failed to add qfi2drb mapping: QFI=%d, DRB=%d\n", qfi, sdap->drb_id);
