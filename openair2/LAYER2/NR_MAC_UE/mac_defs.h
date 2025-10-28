@@ -307,8 +307,8 @@ typedef struct {
   NR_PUCCH_Resource_t *pucch_resource;
   uint32_t ack_payload;
   uint8_t sr_payload;
-  uint32_t csi_part1_payload;
-  uint32_t csi_part2_payload;
+  uint64_t csi_part1_payload;
+  uint64_t csi_part2_payload;
   int n_sr;
   int n_csi;
   int n_harq;
