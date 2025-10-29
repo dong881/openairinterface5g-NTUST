@@ -64,8 +64,8 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
     return;
   }
 
-  LOG_D(NR_PHY, "%d.%d Got prach entry\n", frame, slot);
   nfapi_nr_prach_pdu_t *prach_pdu = &prach_id->pdu;
+  LOG_D(NR_PHY_RACH, "%d.%d, prachstart slot %d prach entry occas %d\n", frame, slot, prach_id->slot, prach_pdu->num_prach_ocas);
   const int prach_start_slot = prach_id->slot;
   int N_dur = get_nr_prach_duration(prach_pdu->prach_format);
 
@@ -137,7 +137,7 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
       gNB->prach_energy_counter++;
   } // if prach_id>0
   rach_ind->slot = prach_start_slot;
-  LOG_D(NR_PHY, "Freeing PRACH entry\n");
+  LOG_D(NR_PHY_RACH, "Freeing PRACH entry\n");
   free_nr_prach_entry(&gNB->prach_list, prach_id);
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_ENB_PRACH_RX,0);
 }

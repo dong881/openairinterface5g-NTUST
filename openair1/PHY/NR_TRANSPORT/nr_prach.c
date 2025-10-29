@@ -46,6 +46,8 @@ void init_prach_list(prach_list_t *l)
 void free_nr_prach_entry(prach_list_t *l, prach_item_t *p)
 {
   pthread_mutex_lock(&l->prach_list_mutex);
+  if (p->frame == -1)
+    LOG_E(NR_PHY_RACH, "Freeing a not allocated prach entry\n");
   *p = (prach_item_t){.frame = -1, .slot = -1, .num_slots = -1};
   pthread_mutex_unlock(&l->prach_list_mutex);
 }
@@ -421,7 +423,7 @@ void rx_nr_prach(PHY_VARS_gNB *gNB,
   const int prach_fmt = prach_pdu->prach_format;
   const int N_ZC = prach_sequence_length == 0 ? 839 : 139;
 
-  LOG_D(PHY,
+  LOG_D(NR_PHY_RACH,
         "L1 PRACH RX: rooSequenceIndex %d, numRootSeqeuences %d, NCS %d, N_ZC %d, format %d \n",
         rootSequenceIndex,
         numrootSequenceIndex,
@@ -550,7 +552,12 @@ void rx_nr_prach(PHY_VARS_gNB *gNB,
               en);
     }
 
-    LOG_D(PHY,"PRACH RX preamble_index %d, preamble_offset %d\n",preamble_index,preamble_offset);
+    LOG_D(NR_PHY_RACH,
+          "PRACH RX preamble_index %d, preamble_offset %d, preamb shift %d new dft %d\n",
+          preamble_index,
+          preamble_offset,
+          preamble_shift,
+          new_dft);
 
     if (new_dft) {
       new_dft = false;
@@ -606,8 +613,8 @@ void rx_nr_prach(PHY_VARS_gNB *gNB,
     for (int i = 0; i < NCS2; i++) {
       int lev = prach_ifft[preamble_shift2 + i];
       int levdB = dB_fixed_times10(lev);
-      if (levdB>*max_preamble_energy) {
-        LOG_D(PHY,"preamble_index %d, delay %d en %d dB > %d dB\n",preamble_index,i,levdB,*max_preamble_energy);
+      if (levdB > *max_preamble_energy || (levdB == *max_preamble_energy && *max_preamble_delay > i)) {
+        LOG_D(NR_PHY_RACH, "preamble_index %d, delay %d en %d dB > %d dB\n", preamble_index, i, levdB, *max_preamble_energy);
         *max_preamble_energy = levdB;
         *max_preamble_delay = i; // Note: This has to be normalized to the 30.72 Ms/s sampling rate
         *max_preamble = preamble_index;

@@ -1219,7 +1219,7 @@ void *ru_thread(void *param)
             T_BUFFER(&ru->common.rxdata[0][fp->get_samples_slot_timestamp(proc->tti_rx - 1, fp, 0) /*-ru->N_TA_offset*/],
                      (fp->get_samples_per_slot(proc->tti_rx - 1, fp) + fp->get_samples_per_slot(proc->tti_rx, fp)) * 4));
           int N_dur = get_nr_prach_duration(p->pdu.prach_format);
-
+          LOG_D(NR_PHY_RACH, "%d.%d try to decode %d occasions \n", frame, slot, p->pdu.num_prach_ocas);
           for (int prach_oc = 0; prach_oc < p->pdu.num_prach_ocas; prach_oc++) {
             int prachStartSymbol = p->pdu.prach_start_symbol + prach_oc * N_dur;
             int beam_id = p->beams[prach_oc];

@@ -168,8 +168,9 @@ static const char *const flag_name[] = {FOREACH_FLAG(FLAG_TEXT) ""};
   COMP_DEF(GNB_APP, log)        \
   COMP_DEF(NR_RRC, log)         \
   COMP_DEF(NR_MAC, log)         \
-  COMP_DEF(NR_MAC_DCI, log)         \
-  COMP_DEF(NR_PHY_DCI, log)         \
+  COMP_DEF(NR_MAC_DCI, log)     \
+  COMP_DEF(NR_PHY_DCI, log)     \
+  COMP_DEF(NR_PHY_RACH, log)    \
   COMP_DEF(NR_PHY, log)         \
   COMP_DEF(LOADER, log)         \
   COMP_DEF(ASN1, log)           \
