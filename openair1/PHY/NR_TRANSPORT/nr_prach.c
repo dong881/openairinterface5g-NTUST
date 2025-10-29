@@ -409,7 +409,6 @@ void rx_nr_prach_ru(prach_item_t *p, int32_t **rxdata, NR_DL_FRAME_PARMS *fp, in
 rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
 {
   rx_prach_out_t out = {};
-  c16_t **input = in->rxsigF[occasion];
   uint16_t preamble_index0 = 0;
   uint16_t numshift = 0;
   int first_nonzero_root_idx = 0;
@@ -453,7 +452,7 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
   int32_t prach_ifft[dft_sz] __attribute__((aligned(32)));
   for (int preamble_index = 0; preamble_index < 64; preamble_index++) {
     if (LOG_DEBUGFLAG(DEBUG_PRACH)) {
-      int en = dB_fixed(signal_energy((int32_t *)input[0], N_ZC == 839 ? 840 : 140));
+      int en = dB_fixed(signal_energy((int32_t *)in->rxsigF[occasion][0], N_ZC == 839 ? 840 : 140));
       if (en > 60)
         LOG_D(PHY, "frame %d, slot %d : Trying preamble %d \n", in->frame, in->slot, preamble_index);
     }
@@ -527,9 +526,9 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
         first_nonzero_root_idx = preamble_offset;
     }
 
-    // Compute DFT of RX signal (conjugate input, results in conjugate output) for each new rootSequenceIndex
+    // Compute DFT of RX signal (conjugate in->rxsigF[occasion], results in conjugate output) for each new rootSequenceIndex
     if (LOG_DEBUGFLAG(DEBUG_PRACH)) {
-      int en = dB_fixed(signal_energy((int32_t *)input[0], 840));
+      int en = dB_fixed(signal_energy((int32_t *)in->rxsigF[occasion][0], 840));
       if (en>60)
         LOG_D(PHY,
               "frame %d, slot %d : preamble index %d, NCS %d, N_ZC/NCS %d: offset %d, preamble shift %d , en %d)\n",
@@ -558,14 +557,14 @@ rx_prach_out_t rx_nr_prach(const prach_item_t *in, int occasion)
 
       memset(prach_ifft, 0, sizeof(prach_ifft));
       if (LOG_DUMPFLAG(DEBUG_PRACH)) {
-        LOG_M("prach_rxF0.m", "prach_rxF0", input[0], N_ZC, 1, 1);
-        LOG_M("prach_rxF1.m", "prach_rxF1", input[1], 6144, 1, 1);
+        LOG_M("prach_rxF0.m", "prach_rxF0", in->rxsigF[occasion][0], N_ZC, 1, 1);
+        LOG_M("prach_rxF1.m", "prach_rxF1", in->rxsigF[occasion][1], 6144, 1, 1);
       }
       c16_t prachF[dft_sz] __attribute__((aligned(32)));
       for (int aa = 0; aa < nb_rx; aa++) {
         // Do componentwise product with Xu* on each antenna
         for (int offset = 0; offset < N_ZC; offset++) {
-          prachF[offset] = c16MulConjShift(Xu[offset], input[aa][offset], 15);
+          prachF[offset] = c16MulConjShift(Xu[offset], in->rxsigF[occasion][aa][offset], 15);
         }
         memset(prachF + N_ZC, 0, sizeof(*prachF) * (dft_sz - N_ZC));
         // Now do IFFT of size 1024 (N_ZC=839) or 256 (N_ZC=139)
