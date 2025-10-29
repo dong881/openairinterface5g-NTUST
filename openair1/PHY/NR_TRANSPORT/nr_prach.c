@@ -79,7 +79,7 @@ prach_item_t *find_nr_prach(prach_list_t *l, int frame, int slot, find_type_t ty
   return p;
 }
 
-prach_item_t *nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu)
+prach_item_t *nr_schedule_rx_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu)
 {
   prach_item_t *prach = find_nr_prach(&gNB->prach_list, SFN, Slot, SEARCH_EXIST_OR_FREE);
   if (!prach) {

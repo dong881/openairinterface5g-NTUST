@@ -155,7 +155,7 @@ void nr_schedule_ul_tti_req(PHY_VARS_gNB *gNB, nfapi_nr_ul_tti_request_t *UL_tti
               UL_tti_req->Slot);
         nfapi_nr_prach_pdu_t *prach_pdu = &UL_tti_req->pdus_list[i].prach_pdu;
         LOG_D(NR_PHY_RACH, "Add prach decoding request for %d.%d\n", UL_tti_req->SFN, UL_tti_req->Slot);
-        prach_item_t *prach = nr_fill_prach(gNB, UL_tti_req->SFN, UL_tti_req->Slot, prach_pdu);
+        prach_item_t *prach = nr_schedule_rx_prach(gNB, UL_tti_req->SFN, UL_tti_req->Slot, prach_pdu);
         if (!prach)
           LOG_W(NR_PHY_RACH, "Error in scheduling rach\n");
         /* the present design is not supporting multiple gNB in one RU

@@ -200,7 +200,7 @@ void nr_fill_ulsch(PHY_VARS_gNB *gNB,
                    int slot,
                    nfapi_nr_pusch_pdu_t *ulsch_pdu);
 
-prach_item_t *nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu);
+prach_item_t *nr_schedule_rx_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu);
 
 typedef struct rx_prach_out {
   uint16_t max_preamble;
