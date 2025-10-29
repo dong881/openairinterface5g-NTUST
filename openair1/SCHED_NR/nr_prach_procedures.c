@@ -67,11 +67,10 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
   LOG_D(NR_PHY, "%d.%d Got prach entry\n", frame, slot);
   nfapi_nr_prach_pdu_t *prach_pdu = &prach_id->pdu;
   const int prach_start_slot = prach_id->slot;
-  uint8_t prachStartSymbol;
   int N_dur = get_nr_prach_duration(prach_pdu->prach_format);
 
   for (int prach_oc = 0; prach_oc < prach_pdu->num_prach_ocas; prach_oc++) {
-    prachStartSymbol = prach_pdu->prach_start_symbol + prach_oc * N_dur;
+    uint prachStartSymbol = prach_pdu->prach_start_symbol + prach_oc * N_dur;
     // comment FK: the standard 38.211 section 5.3.2 has one extra term +14*N_RA_slot. This is because there prachStartSymbol is
     // given wrt to start of the 15kHz slot or 60kHz slot. Here we work slot based, so this function is anyway only called in slots
     // where there is PRACH. Its up to the MAC to schedule another PRACH PDU in the case there are there N_RA_slot \in {0,1}.
@@ -119,17 +118,16 @@ void L1_nr_prach_procedures(PHY_VARS_gNB *gNB, int frame, int slot, nfapi_nr_rac
         T_INT(max_preamble_delay[0]));
 
       nfapi_nr_prach_indication_pdu_t *ind = rach_ind->pdu_list + rach_ind->number_of_pdus;
-      ind->phy_cell_id = gNB->gNB_config.cell_config.phy_cell_id.value;
-      ind->symbol_index = prachStartSymbol;
-      ind->slot_index = slot;
-      ind->freq_index = prach_pdu->num_ra;
-      ind->avg_rssi = (max_preamble_energy[0] < 631) ? (128 + (max_preamble_energy[0] / 5)) : 254;
-      ind->avg_snr = 0xff; // invalid for now
-
-      ind->num_preamble = 1;
-      ind->preamble_list[0].preamble_index = max_preamble[0];
-      ind->preamble_list[0].timing_advance = max_preamble_delay[0];
-      ind->preamble_list[0].preamble_pwr = 0xffffffff;
+      *ind = (nfapi_nr_prach_indication_pdu_t){
+          .phy_cell_id = gNB->gNB_config.cell_config.phy_cell_id.value,
+          .symbol_index = prachStartSymbol,
+          .slot_index = slot,
+          .freq_index = prach_pdu->num_ra,
+          .avg_rssi = (max_preamble_energy[0] < 631) ? (128 + (max_preamble_energy[0] / 5)) : 254,
+          .avg_snr = 0xff, // invalid for now
+          .num_preamble = 1,
+          .preamble_list = {
+              {.preamble_index = max_preamble[0], .timing_advance = max_preamble_delay[0], .preamble_pwr = 0xffffffff}}};
       rach_ind->number_of_pdus++;
     }
     gNB->measurements.prach_I0 = ((gNB->measurements.prach_I0 * 900) >> 10) + ((max_preamble_energy[0] * 124) >> 10);
