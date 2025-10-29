@@ -718,15 +718,6 @@ int main(int argc, char **argv){
   if (n_frames == 1)
     printf("slot %d, rx_prach_start %d\n", slot, rx_prach_start);
 
-  c16_t **rxsigF[NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX];
-  for (int j = 0; j < NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX; j++) {
-    rxsigF[j] = malloc(ru->nb_rx * sizeof(*rxsigF));
-    for (int i = 0; i < ru->nb_rx; i++) {
-      // largest size for PRACH FFT is 4x98304 (16*24576)
-      rxsigF[j][i] = malloc16_clear(4 * 98304 * sizeof(**rxsigF));
-    }
-  }
-
   for (SNR = snr0; SNR < snr1 && !stop; SNR += .1) {
     for (ue_speed = ue_speed0; ue_speed < ue_speed1 && !stop; ue_speed += 10) {
       delay_avg = 0.0;
@@ -792,7 +783,6 @@ int main(int argc, char **argv){
                            .restricted_set = cfg->restricted_set_config.value,
                            .numerology_index = gNB->frame_parms.numerology_index,
                            .nb_rx = gNB->gNB_config.carrier_config.num_rx_ant.value,
-                           .rxsigF = rxsigF,
                            .Xu = gNB->X_u,
                            .rx_prach = &gNB->rx_prach};
         rx_nr_prach_ru(&in, ru->common.rxdata, ru->nr_frame_parms, ru->N_TA_offset);
@@ -824,7 +814,7 @@ int main(int argc, char **argv){
           LOG_M("rxsig0.m","rxs0", &ru->common.rxdata[0][subframe*frame_parms->samples_per_subframe], frame_parms->samples_per_subframe, 1, 1);
           LOG_M("ru_rxsig0.m","rxs0", &ru->common.rxdata[0][subframe*frame_parms->samples_per_subframe], frame_parms->samples_per_subframe, 1, 1);
           LOG_M("ru_rxsigF0.m","rxsF0", ru->common.rxdataF[0], frame_parms->ofdm_symbol_size*frame_parms->symbols_per_slot, 1, 1);
-          LOG_M("ru_prach_rxsigF0.m", "rxsF0", rxsigF[0][0], N_ZC, 1, 1);
+          LOG_M("ru_prach_rxsigF0.m", "rxsF0", in.rxsigF[0][0], N_ZC, 1, 1);
           LOG_M("prach_preamble.m","prachp", &gNB->X_u[0], N_ZC, 1, 1);
           LOG_M("ue_prach_preamble.m","prachp", &UE->X_u[0], N_ZC, 1, 1);
 #endif
@@ -844,14 +834,7 @@ int main(int argc, char **argv){
     }
     if (input_fd)
       break;
-  } //SNR loop
-  for (int j = 0; j < NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX; j++) {
-    for (int i = 0; i < ru->nb_rx; i++) {
-      // largest size for PRACH FFT is 4x98304 (16*24576)
-      free(rxsigF[j][i]);
-    }
-    free(rxsigF[j]);
-  }
+  } // SNR loop
   free_channel_desc_scm(UE2gNB);
 
   nr_phy_free_RU(ru);

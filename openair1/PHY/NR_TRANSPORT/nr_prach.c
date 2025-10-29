@@ -88,7 +88,10 @@ prach_item_t *nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach
   }
   const int fmt = prach_pdu->prach_format;
   NR_DL_FRAME_PARMS *fp = &gNB->frame_parms;
-  *prach = (prach_item_t){.frame = SFN, .slot = Slot, .num_slots = (fmt < 4) ? get_long_prach_dur(fmt, fp->numerology_index) : 1};
+  // we set only elements as the whole structure has been cleaned when we release it
+  prach->frame = SFN;
+  prach->slot = Slot;
+  prach->num_slots = fmt < 4 ? get_long_prach_dur(fmt, fp->numerology_index) : 1;
   if (gNB->common_vars.beam_id) {
     int n_symb = get_nr_prach_duration(prach_pdu->prach_format);
     AssertFatal(prach_pdu->beamforming.dig_bf_interface < NFAPI_MAX_NUM_BG_IF,
@@ -121,16 +124,6 @@ prach_item_t *nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach
   prach->Xu = gNB->X_u;
   prach->rx_prach = &gNB->rx_prach;
   return prach;
-}
-
-void nr_fill_prach_ru(RU_t *ru, prach_item_t *gnb_prach)
-{
-  prach_item_t *prach = find_nr_prach(&ru->prach_list, gnb_prach->frame, gnb_prach->slot, SEARCH_EXIST_OR_FREE);
-  if (!prach) {
-    LOG_E(PHY, "no prach memory found\n");
-    return;
-  }
-  *prach = *gnb_prach;
 }
 
 static void rx_nr_prach_ru_internal(prach_item_t *p,

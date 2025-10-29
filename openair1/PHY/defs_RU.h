@@ -190,7 +190,6 @@ typedef struct {
  task_ans_t *ans;
 } feptx_cmd_t;
 
-#define NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX 12
 #define RU_RX_SLOT_DEPTH 4
 typedef struct RU_proc_t_s {
   /// Pointer to associated RU descriptor
@@ -592,7 +591,6 @@ typedef struct RU_t_s {
   int32_t *bw_list[NUMBER_OF_eNB_MAX+1];
   /// beamforming weight vectors
   int32_t **beam_weights[NUMBER_OF_eNB_MAX+1][15];
-  prach_list_t prach_list;
   /// received frequency-domain signal for PRACH (IF4p5 RRU)
   int16_t **prach_rxsigF[NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX];
   /// received frequency-domain signal for PRACH BR (IF4p5 RRU)

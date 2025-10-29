@@ -993,40 +993,13 @@ extern int sync_var;
 #define MBSFN_FDD_SF6 0x10
 #define MBSFN_FDD_SF7 0x08
 #define MBSFN_FDD_SF8 0x04
+
+#define NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX 12
+
 typedef struct {
   pthread_mutex_t mutex_failure;
   bool failed;
 } decode_abort_t;
-
-// TODO will be removed in a late commit
-#include "nfapi/open-nFAPI/nfapi/public_inc/nfapi_nr_interface_scf.h"
-#define NUMBER_OF_NR_PRACH_MAX 8
-typedef struct {
-  int frame;
-  int slot;
-  int num_slots; // prach duration in slots
-  int beams[NFAPI_MAX_NUM_BG_IF];
-  nfapi_nr_prach_pdu_t pdu;
-  int rootSequenceIndex;
-  int numrootSequenceIndex;
-  int msg1_frequencystart;
-  int mu;
-  int prach_sequence_length;
-  int restricted_set;
-  int numerology_index;
-  int nb_rx;
-  c16_t ***rxsigF;
-  c16_t (*Xu)[839];
-  time_stats_t *rx_prach;
-} prach_item_t;
-
-typedef struct {
-  /// prach commands
-  prach_item_t list[NUMBER_OF_NR_PRACH_MAX];
-  /// mutex for prach_list access
-  pthread_mutex_t prach_list_mutex;
-} prach_list_t;
-void init_prach_list(prach_list_t *);
 
 static inline void init_abort(decode_abort_t *ab)
 {

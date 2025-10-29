@@ -112,25 +112,10 @@ void nr_phy_init_RU(RU_t *ru)
       LOG_D(PHY, "rxdataF[%d] %p for RU %d\n", i, ru->common.rxdataF[i], ru->idx);
     }
 
-    /* number of elements of an array X is computed as sizeof(X) / sizeof(X[0]) */
-    //    AssertFatal(ru->nb_rx <= sizeof(ru->prach_rxsigF) / sizeof(ru->prach_rxsigF[0]),
-    //		"nb_antennas_rx too large");
-    for (int j = 0; j < NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX; j++) {
-      ru->prach_rxsigF[j] = malloc(nb_rx_streams * sizeof(*ru->prach_rxsigF));
-
-      for (int i = 0; i < nb_rx_streams; i++) {
-	// largest size for PRACH FFT is 4x98304 (16*24576)
-        ru->prach_rxsigF[j][i] = malloc16_clear(4 * 98304 * 2 * sizeof(**ru->prach_rxsigF));
-        LOG_D(PHY, "[INIT] prach_vars->rxsigF[%d] = %p\n", i, ru->prach_rxsigF[j][i]);
-      }
-    }
-
     AssertFatal(ru->num_gNB <= NUMBER_OF_gNB_MAX, "gNB instances %d > %d\n", ru->num_gNB,NUMBER_OF_gNB_MAX);
 
     LOG_D(PHY, "[INIT] %s() ru->num_gNB:%d \n", __FUNCTION__, ru->num_gNB);
   } // !=IF5
-
-  init_prach_list(&ru->prach_list);
 }
 
 void nr_phy_free_RU(RU_t *ru)
@@ -172,11 +157,6 @@ void nr_phy_free_RU(RU_t *ru)
       free_and_zero(ru->common.rxdataF[i]);
     free_and_zero(ru->common.rxdataF);
 
-    for (int j = 0; j < NUMBER_OF_NR_RU_PRACH_OCCASIONS_MAX; j++) {
-      for (int i = 0; i < nb_rx_streams; i++)
-	free_and_zero(ru->prach_rxsigF[j][i]);
-      free_and_zero(ru->prach_rxsigF[j]);
-    }
     for(int i = 0; i < ru->num_beams_period; ++i)
       free_and_zero(ru->common.beam_id[i]);
     free_and_zero(ru->common.beam_id);

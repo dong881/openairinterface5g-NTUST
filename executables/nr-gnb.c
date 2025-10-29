@@ -387,7 +387,6 @@ void init_eNB_afterRU(void)
     int aa = 0;
     for (int ru_id = 0; ru_id < gNB->num_RU; ru_id++) {
       AssertFatal(gNB->RU_list[ru_id]->common.rxdataF != NULL, "RU %d : common.rxdataF is NULL\n", gNB->RU_list[ru_id]->idx);
-      AssertFatal(gNB->RU_list[ru_id]->prach_rxsigF != NULL, "RU %d : prach_rxsigF is NULL\n", gNB->RU_list[ru_id]->idx);
       for (int i = 0; i < gNB->RU_list[ru_id]->nb_rx; aa++, i++) {
         LOG_I(PHY, "Attaching RU %d antenna %d to gNB antenna %d\n", gNB->RU_list[ru_id]->idx, i, aa);
         for (int b = 0; b < gNB->RU_list[ru_id]->num_beams_period; b++) {
