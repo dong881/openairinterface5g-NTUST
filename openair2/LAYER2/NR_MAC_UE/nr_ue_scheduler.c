@@ -1918,7 +1918,6 @@ uint8_t set_csirs_measurement_bitmap(NR_CSI_MeasConfig_t *csi_measconfig, NR_CSI
         AssertFatal(false, "Unexpected measurement report type %d\n", report_config->reportQuantity.present);
     }
   }
-  AssertFatal(meas_bitmap > 0, "Expected to have at least 1 measurement configured for CSI-RS\n");
   return meas_bitmap;
 }
 

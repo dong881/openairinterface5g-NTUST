@@ -905,6 +905,11 @@ void nr_ue_csi_rs_procedures(PHY_VARS_NR_UE *ue,
                        rxdataF);
 
 
+  if (csirs_config_pdu->measurement_bitmap == 0) {
+    LOG_D(NR_PHY, "No CSI-RS measurements configured\n");
+    return;
+  }
+
   uint32_t noise_power = 0;
   int16_t log2_re = 0;
   int16_t log2_maxh = 0;
