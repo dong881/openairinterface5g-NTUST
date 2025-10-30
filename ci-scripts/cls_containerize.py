@@ -119,7 +119,7 @@ def ExistEnvFilePrint(ssh, wd, prompt='env vars in existing'):
 
 def WriteEnvFile(ssh, services, wd, tag, flexric_tag):
 	ret = ssh.run(f'cat {wd}/.env', silent=True, reportNonZero=False)
-	registry = "oai-ci" # pull_images() gives us this registry path
+	registry = "oai-ci/" # pull_images() gives us this registry path
 	envs = {"REGISTRY":registry, "TAG": tag, "FLEXRIC_TAG": flexric_tag}
 	if ret.returncode == 0: # it exists, we have to update
 		# transforms env file to dictionary
@@ -134,7 +134,8 @@ def WriteEnvFile(ssh, services, wd, tag, flexric_tag):
 		# or -asan images. We need to detect which kind we did pull.
 		fullImageName = GetImageName(ssh, svc, f"{wd}/docker-compose.y*ml")
 		image = fullImageName.split("/")[-1].split(":")[0]
-		checkimg = f"{registry}/{image}-asan:{tag}"
+		# registry now includes the trailing slash ("oai-ci/")
+		checkimg = f"{registry}{image}-asan:{tag}"
 		ret = ssh.run(f'docker image inspect {checkimg}', reportNonZero=False)
 		if ret.returncode == 0:
 			logging.info(f"detected pulled image {checkimg}")
