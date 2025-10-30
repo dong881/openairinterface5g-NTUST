@@ -87,7 +87,7 @@
     <class>Custom_Command</class>
     <desc>Set initial attenuation on target gNB</desc>
     <node>rocket</node>
-    <command>python3 %%workspace%%/ci-scripts/attenuatorctl.py -s 1,2 0 -s 3,4 15</command>
+    <command>python3 %%workspace%%/ci-scripts/attenuatorctl.py -s 1,2 0 -s 3,4 25</command>
   </testCase>
 
   <testCase id="000005">
@@ -154,7 +154,7 @@
     <class>Custom_Command</class>
     <desc>Gradually attenuate gNB-PCI0 (ch1-2=0dB) and gNB-PCI1 (ch3-4=15dB) over 5s to trigger N2 Handover back to gNB-PCI0</desc>
     <node>rocket</node>
-    <command>python3 %%workspace%%/ci-scripts/attenuatorctl.py -r 1,2 0 -r 3,4 15 -d 5</command>
+    <command>python3 %%workspace%%/ci-scripts/attenuatorctl.py -r 1,2 0 -r 3,4 25 -d 5</command>
   </testCase>
 
   <testCase id="000014">
