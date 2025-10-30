@@ -494,6 +494,7 @@ static bool allocate_dl_retransmission(gNB_MAC_INST *nr_mac,
 
       while (rbStart + rbSize <= rbStop && !(rballoc_mask[rbStart + rbSize] & slbitmap) && rbSize < new_sched.rbSize)
         rbSize++;
+      DevAssert(rbSize > 0);
     }
   } else {
     /* the retransmission will use a different time domain allocation, check
@@ -504,8 +505,14 @@ static bool allocate_dl_retransmission(gNB_MAC_INST *nr_mac,
     while (rbStart < rbStop && (rballoc_mask[rbStart] & slbitmap))
       rbStart++;
 
+    if (rbStart >= rbStop) {
+      LOG_D(NR_MAC, "[UE %04x][%4d.%2d] could not allocate DL retransmission: no resources\n", UE->rnti, frame, slot);
+      return false;
+    }
+
     while (rbStart + rbSize <= rbStop && !(rballoc_mask[rbStart + rbSize] & slbitmap))
       rbSize++;
+    DevAssert(rbSize > 0);
 
     uint32_t new_tbs;
     uint16_t new_rbSize;
@@ -1079,6 +1086,7 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pdsch, NR_UE
         pucch ? pucch->ul_slot : 0,
         sched_pdsch->pucch_allocation,
         sched_ctrl->tpc1);
+  DevAssert(sched_pdsch->rbSize > 0);
 
   const int bwp_id = current_BWP->bwp_id;
   const int coresetid = sched_ctrl->coreset->controlResourceSetId;

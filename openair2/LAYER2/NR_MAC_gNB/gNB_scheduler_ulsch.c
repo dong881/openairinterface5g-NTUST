@@ -1834,6 +1834,10 @@ static bool allocate_ul_retransmission(gNB_MAC_INST *nrmac,
     const uint16_t slbitmap = SL_to_bitmap(tda_info->startSymbolIndex, tda_info->nrOfSymbols);
     while (rbStart < bwpSize && (rballoc_mask[rbStart + bwpStart] & slbitmap))
       rbStart++;
+    if (rbStart >= bwpSize) {
+      LOG_D(NR_MAC, "[UE %04x][%4d.%2d] could not allocate UL retransmission: no resources\n", UE->rnti, frame, slot);
+      return false;
+    }
     int rbSize = 0;
     while (rbStart + rbSize < bwpSize && !(rballoc_mask[rbStart + bwpStart + rbSize] & slbitmap))
       rbSize++;
