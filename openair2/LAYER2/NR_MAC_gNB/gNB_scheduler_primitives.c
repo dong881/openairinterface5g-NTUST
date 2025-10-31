@@ -3622,45 +3622,48 @@ void UL_tti_req_ahead_initialization(gNB_MAC_INST *gNB, int n, int CCid, frame_t
   }
 }
 
-int get_fapi_beamforming_index(gNB_MAC_INST *mac, int ssb_idx)
+int get_beam_from_ssbidx(gNB_MAC_INST *mac, int ssb_idx)
 {
-  int beam_idx = mac->fapi_beam_index[ssb_idx];
+  int beam_idx = mac->beam_index_list[ssb_idx];
   AssertFatal(beam_idx >= 0, "Invalid beamforming index %d\n", beam_idx);
   return beam_idx;
 }
 
-// TODO this is a placeholder for a possibly more complex function
-// for now the fapi beam index is the number of SSBs transmitted before ssb_index i
-void fapi_beam_index_allocation(NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config, gNB_MAC_INST *mac)
+uint64_t get_ssb_bitmap_and_len(const NR_ServingCellConfigCommon_t *scc, uint8_t *len)
 {
-  if (mac->beam_info.beam_mode == NO_BEAM_MODE)
-    return;
-  int len = 0;
-  uint8_t* buf = NULL;
   switch (scc->ssb_PositionsInBurst->present) {
     case NR_ServingCellConfigCommon__ssb_PositionsInBurst_PR_shortBitmap:
-      len = 4;
-      buf = scc->ssb_PositionsInBurst->choice.shortBitmap.buf;
+      *len = 4;
       break;
     case NR_ServingCellConfigCommon__ssb_PositionsInBurst_PR_mediumBitmap:
-      len = 8;
-      buf = scc->ssb_PositionsInBurst->choice.mediumBitmap.buf;
+      *len = 8;
       break;
     case NR_ServingCellConfigCommon__ssb_PositionsInBurst_PR_longBitmap:
-      len = 64;
-      buf = scc->ssb_PositionsInBurst->choice.longBitmap.buf;
+      *len = 64;
       break;
     default :
       AssertFatal(false, "Invalid configuration\n");
   }
+  return get_ssb_bitmap(scc);
+}
+
+// TODO this is a placeholder for a possibly more complex function
+// for now the fapi beam index is the number of SSBs transmitted before ssb_index i
+void fill_beam_index_list(NR_ServingCellConfigCommon_t *scc, const nr_mac_config_t *config, gNB_MAC_INST *mac)
+{
+  if (mac->beam_info.beam_mode == NO_BEAM_MODE)
+    return;
+
+  uint8_t len = 0;
+  const uint64_t ssbBitmap = get_ssb_bitmap_and_len(scc, &len);
   int index = 0;
   for (int i = 0; i < len; ++i) {
-    if ((buf[i / 8] >> (7 - i % 8)) & 0x1) {
+    if (IS_BIT_SET(ssbBitmap, (63 - i))) {
       int fapi_index = mac->beam_info.beam_mode == LOPHY_BEAM_IDX ? config->bw_list[index] : index;
-      mac->fapi_beam_index[i] = fapi_index;
+      mac->beam_index_list[i] = fapi_index;
       index++;
     } else
-      mac->fapi_beam_index[i] = -1;
+      mac->beam_index_list[i] = -1;
   }
 }
 
@@ -3726,7 +3729,7 @@ void beam_selection_procedures(gNB_MAC_INST *mac, NR_UE_info_t *UE)
     return;
   RSRP_report_t *rsrp_report = &UE->UE_sched_ctrl.CSI_report.ssb_rsrp_report;
   // simple beam switching algorithm -> we select beam with highest RSRP from CSI report
-  int new_bf_index = get_fapi_beamforming_index(mac, rsrp_report->resource_id[0]);
+  int new_bf_index = get_beam_from_ssbidx(mac, rsrp_report->resource_id[0]);
   if (UE->UE_beam_index == new_bf_index)
     return; // no beam change needed
 

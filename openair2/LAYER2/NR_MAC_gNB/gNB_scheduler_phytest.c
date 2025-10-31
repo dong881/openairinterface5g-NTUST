@@ -95,25 +95,11 @@ void nr_preprocessor_phytest(gNB_MAC_INST *mac, post_process_pdsch_t *pp_pdsch)
   /* This is a primitive beam allocation procedure for PDSCH in phytest mode which is
   intended to be used to verify the beamformed signal in VSA. The beam allocation of PDSCH
   slots follows the SSB slots even in slots that don't have SSB. */
-  int num_ssb = 0;
-  BIT_STRING_t *ssbBitmap = NULL;
-  switch (scc->ssb_PositionsInBurst->present) {
-    case 1:
-      num_ssb = 4;
-      ssbBitmap = &scc->ssb_PositionsInBurst->choice.shortBitmap;
-      break;
-
-    case 2:
-      num_ssb = 8;
-      ssbBitmap = &scc->ssb_PositionsInBurst->choice.mediumBitmap;
-      break;
-
-    default:
-      AssertFatal(0, "SSB burst len in burst not supported\n");
-  }
+  uint8_t num_ssb = 0;
+  const uint64_t ssbBitmap = get_ssb_bitmap_and_len(scc, &num_ssb);
   int ssb_idx_beam = 0;
   for (int i_ssb = 0; i_ssb < num_ssb; i_ssb++) {
-    if (IS_BIT_SET(ssbBitmap->buf[0], (7 - i_ssb))) {
+    if (IS_BIT_SET(ssbBitmap, (63 - i_ssb))) {
       NR_SubcarrierSpacing_t scs = *scc->ssbSubcarrierSpacing;
       const long band = *scc->downlinkConfigCommon->frequencyInfoDL->frequencyBandList.list.array[0];
       uint16_t ssb_start_symbol = get_ssb_start_symbol(band, scs, i_ssb);
@@ -124,7 +110,7 @@ void nr_preprocessor_phytest(gNB_MAC_INST *mac, post_process_pdsch_t *pp_pdsch)
       }
     }
   }
-  int beam_idx = get_fapi_beamforming_index(mac, ssb_idx_beam);
+  int beam_idx = get_beam_from_ssbidx(mac, ssb_idx_beam);
   NR_beam_alloc_t beam = beam_allocation_procedure(&mac->beam_info, frame, slot, beam_idx, mac->frame_structure.numb_slots_frame);
   AssertFatal(beam.idx > -1, "Can't allocate beam %d in phytest scheduler\n", beam_idx);
   UE->UE_beam_index = get_allocated_beam(&mac->beam_info, frame, slot, mac->frame_structure.numb_slots_frame, beam.idx);

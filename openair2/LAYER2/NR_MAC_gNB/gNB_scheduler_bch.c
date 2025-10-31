@@ -137,7 +137,7 @@ static void schedule_one_ssb(gNB_MAC_INST *gNB,
 
   uint16_t ssb_start_symbol = get_ssb_start_symbol(band, scs, i_ssb);
   NR_beam_alloc_t beam =
-      beam_allocation_procedure(&gNB->beam_info, frameP, slotP, get_fapi_beamforming_index(gNB, i_ssb), slots_per_frame);
+      beam_allocation_procedure(&gNB->beam_info, frameP, slotP, get_beam_from_ssbidx(gNB, i_ssb), slots_per_frame);
   AssertFatal(beam.idx >= 0, "Cannot allocate SSB %d in any available beam\n", i_ssb);
   const uint16_t beam_index =
       convert_to_fapi_beam(get_allocated_beam(&gNB->beam_info, frameP, slotP, slots_per_frame, beam.idx), gNB->beam_info.beam_mode);
@@ -509,7 +509,7 @@ void schedule_nr_sib1(module_id_t module_idP,
                   "Trying to schedule SIB1 in slot %d which is not DL. Check searchSpaceZero configuration.\n",
                   slotP);
       const int n_slots_frame = gNB_mac->frame_structure.numb_slots_frame;
-      int beam_index = get_fapi_beamforming_index(gNB_mac, i);
+      int beam_index = get_beam_from_ssbidx(gNB_mac, i);
       NR_beam_alloc_t beam = beam_allocation_procedure(&gNB_mac->beam_info, frameP, slotP, beam_index, n_slots_frame);
       AssertFatal(beam.idx >= 0, "Cannot allocate SIB1 corresponding to SSB %d in any available beam\n", i);
       LOG_D(NR_MAC,"(%d.%d) SIB1 transmission: ssb_index %d\n", frameP, slotP, type0_PDCCH_CSS_config->ssb_index);
@@ -617,7 +617,7 @@ static void other_sib_sched_control(module_id_t module_idP,
               slot);
   NR_ServingCellConfigCommon_t *scc = gNB_mac->common_channels[0].ServingCellConfigCommon;
   int n_slots_frame = gNB_mac->frame_structure.numb_slots_frame;
-  beam_index = get_fapi_beamforming_index(gNB_mac, beam_index);
+  beam_index = get_beam_from_ssbidx(gNB_mac, beam_index);
   NR_beam_alloc_t beam = beam_allocation_procedure(&gNB_mac->beam_info, frame, slot, beam_index, n_slots_frame);
   AssertFatal(beam.idx >= 0, "Cannot allocate otherSIB corresponding for SSB number %d in any available beam\n", beam_index);
   LOG_D(NR_MAC, "(%d.%d) otherSIB payload %d transmission for ssb number %d\n", frame, slot, payload_idx, beam_index);

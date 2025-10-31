@@ -309,7 +309,7 @@ static NR_ControlResourceSet_t *get_coreset_config(int bwp_id, int curr_bwp, uin
   return coreset;
 }
 
-static uint64_t get_ssb_bitmap(const NR_ServingCellConfigCommon_t *scc)
+uint64_t get_ssb_bitmap(const NR_ServingCellConfigCommon_t *scc)
 {
   uint64_t bitmap=0;
   switch (scc->ssb_PositionsInBurst->present) {
