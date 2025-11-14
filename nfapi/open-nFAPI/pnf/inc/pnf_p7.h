@@ -24,6 +24,7 @@
 #define TIME2TIMEHR(_time) (((uint32_t)(_time.tv_sec) & 0xFFF) << 20 | ((uint32_t)(_time.tv_usec) & 0xFFFFF))
 
 #include "nfapi_pnf_interface.h"
+#include "nfapi/oai_integration/nfapi_delay_mgmt.h"
 
 
 typedef struct {
@@ -98,7 +99,6 @@ struct pnf_p7_t {
 	pthread_mutex_t pack_mutex; // should we allow the client to specifiy
 
 	nfapi_pnf_p7_subframe_buffer_t subframe_buffer[30/*NFAPI_MAX_TIMING_WINDOW_SIZE*/];
-    nfapi_pnf_p7_slot_buffer_t slot_buffer[30/*NFAPI_MAX_TIMING_WINDOW_SIZE*/];
 	uint32_t sequence_number;
 	uint16_t max_num_segments;
 
@@ -116,7 +116,6 @@ struct pnf_p7_t {
   int mu;
 	uint16_t sfn_slot;
 	uint32_t slot_start_time_hr;
-	int32_t slot_shift;
 
 	uint8_t timing_info_period_counter;
 	uint8_t timing_info_aperiodic_send; // 0:false 1:true
@@ -137,6 +136,8 @@ struct pnf_p7_t {
 	uint32_t tick;
 	pnf_p7_stats_t stats;
 	pnf_p7_nr_stats_t nr_stats;
+
+	nfapi_delay_mgmt_state_t delay_state;
 
 };
 
@@ -163,5 +164,9 @@ uint32_t pnf_get_current_time_hr(void);
 struct timespec pnf_timespec_add(struct timespec lhs, struct timespec rhs);
 void pnf_p7_free(pnf_p7_t* pnf_p7, void* ptr);
 void* pnf_p7_malloc(pnf_p7_t* pnf_p7, size_t size);
+void pnf_p7_configure_delay_state(pnf_p7_t *pnf_p7,
+								 uint8_t timing_window_slots,
+								 uint8_t timing_info_mode,
+								 uint8_t timing_info_period);
 #endif /* _PNF_P7_H_ */
 

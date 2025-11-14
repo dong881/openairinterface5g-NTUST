@@ -240,38 +240,38 @@ following way:
 
 - In the handler function, the SFN and Slot are peeked from the message
 - The SFN and slot are checked to determine if the message is inside the appropriate timing window
-- If so, the message is unpacked into the P7 Slot buffer:
+- If so, the message is unpacked and immediately dispatched to the configured callback:
 
 ```
-      pnf_p7->slot_buffer[buffer_index].sfn = frame;
-      pnf_p7->slot_buffer[buffer_index].slot = slot;
-      nfapi_nr_dl_tti_request_t *req = &pnf_p7->slot_buffer[buffer_index].dl_tti_req;
+      nfapi_nr_dl_tti_request_t req;
+      memset(&req, 0, sizeof(req));
       pnf_p7->nr_stats.dl_tti.ontime++;
 
       NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-                  "POPULATE DL_TTI_REQ current tx sfn/slot:%d.%d p7 msg sfn/slot: %d.%d buffer_index:%d\n",
+                  "DISPATCH DL_TTI_REQ current tx sfn/slot:%d.%d p7 msg sfn/slot:%d.%d\n",
                   pnf_p7->sfn,
                   pnf_p7->slot,
                   frame,
-                  slot,
-                  buffer_index);
-      const bool result = pnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, req, sizeof(*req), &(pnf_p7->_public.codec_config));
+                  slot);
+      const bool result = pnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, &req, sizeof(req), &(pnf_p7->_public.codec_config));
+      if (result) {
+        (pnf_p7->_public.dl_tti_req_fn)(NULL, &(pnf_p7->_public), &req);
+      }
       
   ```
 
-- The messages are later processed in the NR_slot_indication function, which is called in the tx_func function (
-  L1_tx_thread )
+- The NR_slot_indication callback now only updates clocks/timing because the NR messages are executed eagerly when they arrive on P7.
 
 ## PNF functional flowchart
 
 ```mermaid
 
 graph TD
-    softmodem_start[nr-softmodem init] --> init_l1_tx_thread[Init L1 TX Thread] --> tx_func[Call tx_func] --> nr_slot_ind[Call NR_slot_indication] --> pnf_slot_ind[Call handle_nr_slot_ind] --> send_slot_ind[Send SLOT.ind to VNF] --> get_from_slot_buffer[Get P7 messages from slot_buffer] --> proc_p7_dl[Process P7 messages from VNF] --> tx_func
+  softmodem_start[nr-softmodem init] --> init_l1_tx_thread[Init L1 TX Thread] --> tx_func[Call tx_func] --> nr_slot_ind[Call NR_slot_indication] --> pnf_slot_ind[Call handle_nr_slot_ind] --> send_slot_ind[Send SLOT.ind to VNF] --> timing_update[Update timing info / stats] --> tx_func
     softmodem_start[nr-softmodem init] --> init_l1_rx_thread[Init L1 RX Thread] --> rx_func[Call rx_func] --> nr_ul_ind[Call NR_UL_indication] --> send_p7_vnf[Send P7 messages to VNF] --> rx_func
     softmodem_start[nr-softmodem init] --> P5_configuration[configure_nr_nfapi_pnf] --> transport_init[Transport mechanism init] --> p5_loop[P5 Loop] -- Process P5 messages --> p5_loop
     p5_loop -- START.request callback called --> p7_config[P7 Configuration] --> l1_north_init_gnb[Call l1_north_init_gNB] --> nr_if_module_init[Call NR_IF_Module_Init] --> install_slot_ind_cb[Install NR_slot_indication callback]
-    p7_config[P7 Configuration] --> p7_loop[P7 Loop] --> p7_recv[Receive P7 message] --> pnf_handle_p7[Call pnf_nr_handle_p7_message] --> hdr_unpack[Unpack header with hdr_unpack] --> p7_handler[Call pnf_handle_<msg_type>] --> peek_sfn[Peek SFN/Slot and check if in timing window] --> p7_unpack[Unpack message into slot_buffer] --> p7_loop
+    p7_config[P7 Configuration] --> p7_loop[P7 Loop] --> p7_recv[Receive P7 message] --> pnf_handle_p7[Call pnf_nr_handle_p7_message] --> hdr_unpack[Unpack header with hdr_unpack] --> p7_handler[Call pnf_handle_<msg_type>] --> peek_sfn[Peek SFN/Slot and check if in timing window] --> dispatch_p7[Unpack and dispatch message immediately] --> p7_loop
 ```
  
 

@@ -1792,6 +1792,14 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nf
   DevAssert(scs->tl.tag == NFAPI_NR_CONFIG_SCS_COMMON_TAG);
   pnf_p7_t* pnf_p7 = (pnf_p7_t*)(p7_config);
   pnf_p7->mu = scs->value;
+  pnf_p7_configure_delay_state(pnf_p7,
+                              phy_info->timing_window,
+                              phy_info->timing_info_mode,
+                              phy_info->timing_info_period);
+  pnf_p7_configure_delay_state(pnf_p7,
+                               phy_info->timing_window,
+                               phy_info->timing_info_mode,
+                               phy_info->timing_info_period);
 
   // Need to wait for main thread to create RU structures
   while (config_sync_var < 0) {
@@ -1823,14 +1831,6 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nf
 #ifndef ENABLE_WLS
   printf("[PNF] Sending PNF_START_RESP\n");
   nfapi_nr_send_pnf_start_resp(config, p7_config->phy_id);
-  printf("[PNF] Sending first P7 slot indication\n");
-#endif
-#if 1
-  nfapi_pnf_p7_slot_ind(p7_config, p7_config->phy_id, 0, 0);
-  printf("[PNF] Sent first P7 slot ind\n");
-#else
-  nfapi_pnf_p7_subframe_ind(p7_config, p7_config->phy_id, 0); // SFN_SF set to zero - correct???
-  printf("[PNF] Sent first P7 subframe ind\n");
 #endif
 
   return 0;
@@ -2324,37 +2324,17 @@ static void maybe_slow_down_pnf(int mu)
 void handle_nr_slot_ind(uint16_t sfn, uint16_t slot)
 {
   nfapi_pnf_p7_config_t *config = p7_config_g;
+  if (!config || sync_var != 0)
+    return;
+
   pnf_p7_t *_this = (pnf_p7_t *)(config);
   int mu = _this->mu;
 
   if (IS_SOFTMODEM_RFSIM) {
-    // RFsim can run faster than realtime. However, we need to give the VNF
-    // some time to send an answer, so the PNF can run faster than realtime,
-    // but it should not too much. This function will "maybe" slow down, up to
-    // a slot length
     maybe_slow_down_pnf(mu);
   }
 
-    //send VNF slot indication, which is aligned with TX thread, so that it can call the scheduler
-    //we give four additional slots (2ms) which should be enough time for the VNF to
-    //answer
-#ifndef ENABLE_WLS
-  int slot_ahead = 2 << mu;
-#else
-  int slot_ahead = 1;
-#endif
-  uint16_t sfn_tx = sfn;
-  uint16_t slot_tx = slot;
-  sfnslot_add_slot(mu, &sfn_tx, &slot_tx, slot_ahead); // modify: do in place
-
-  // printf("send slot indication for sfn/slot:%4d.%2d current:%4d.%2d\n", sfn_tx, slot_tx, sfn, slot);
-  nfapi_nr_slot_indication_scf_t ind = {.sfn = sfn_tx, .slot = slot_tx};
-  oai_nfapi_nr_slot_indication(&ind);
-
-  // copy data from appropriate p7 slot buffers into channel structures for PHY processing
   nfapi_pnf_p7_slot_ind(config, config->phy_id, sfn, slot);
-
-  return;
 }
 
 int oai_nfapi_rach_ind(nfapi_rach_indication_t *rach_ind) {
@@ -2411,7 +2391,8 @@ int oai_nfapi_sr_indication(nfapi_sr_indication_t *ind) {
 int oai_nfapi_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind) {
   ind->header.phy_id = 1;
   ind->header.message_id = NFAPI_NR_PHY_MSG_TYPE_SLOT_INDICATION;
-  return nfapi_pnf_p7_nr_slot_ind(p7_config_g, ind);
+  // Legacy SLOT.ind messages are suppressed; keep return success for compatibility
+  return 0;
 }
 
 int oai_nfapi_nr_rx_data_indication(nfapi_nr_rx_data_indication_t *ind) {

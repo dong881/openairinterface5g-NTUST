@@ -747,6 +747,7 @@ set(NFAPI_USER_SRC
   ${NFAPI_USER_DIR}/nfapi.c
   ${NFAPI_USER_DIR}/nfapi_pnf.c
   ${NFAPI_USER_DIR}/nfapi_vnf.c
+${NFAPI_USER_DIR}/nfapi_delay_mgmt.c
   ${NFAPI_USER_DIR}/gnb_ind_vars.c
 )
 add_library(NFAPI_USER_LIB ${NFAPI_USER_SRC})
