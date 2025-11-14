@@ -103,7 +103,6 @@ prach_item_t *nr_schedule_rx_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_n
       int bitmap = SL_to_bitmap(start_symb, n_symb);
       prach->beams[i] = beam_index_allocation(gNB->enable_analog_das,
                                               fapi_beam_idx,
-                                              &gNB->gNB_config.analog_beamforming_ve,
                                               &gNB->common_vars,
                                               Slot,
                                               NR_NUMBER_OF_SYMBOLS_PER_SLOT,

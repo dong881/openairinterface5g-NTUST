@@ -45,15 +45,15 @@ The DL slots in every TDD period will have beams 10,11,12,13,0,0,0
 
 # FAPI implementation
 
-To be noted that in our implementation analog beamforming is only supported in non-split/monolithic mode because we don't support yet SCF P19 interface that would be needed to manage these procedure in a split scenario with SCF FAPI.
+To be noted that in our implementation analog beamforming is only partially supported in split mode.
+The index based beamforming relies on the Tx precoding and beamforming PDU definition of beam-ID, where MSB is used to signal if the ID can be directly used or is it a pointer to a pre-stored vector of weights.
+This definition of beam-ID is present only in the most recent versions of SCF PHY API specifications (at least from v8 and later, possibly from v6).
 
-In `config_request` structure, a vendor extension (`nfapi_nr_analog_beamforming_ve_t`) configures the lower layers at initialization with the following information:
+In addition to that, a `config_request` structure defined as vendor extension (`nfapi_nr_analog_beamforming_ve_t`) configures the lower layers at initialization with the following information:
 - `analog_bf_vendor_ext` which can assume values 1 or 0 for enabling or disabling analog beamforming
 - `num_beams_period_vendor_ext` which corresponds to the configuration parameter `beams_per_period`
-- `total_num_beams_vendor_ext` which corresponds to the number of beams configured in `beam_weights`
-- `analog_beam_list` which contains the RU beamforming indices configured in `beam_weights`
 
-Additionally, L2 provides in each channel FAPI message information about the beam index. Small Cell Forum (SCF) FAPI provides in its PHY API specifications for the channels only a field for digital beamforming as part of the `precoding_and_beamforming` stucture. Therefore without a better option, we are currently using that one to store the internal analog beamforming index. This is the index used internally by the code to progressively identify the beam with a value from 0 to `total_num_beams_vendor_ext`.
+Therefore, in case of analog beamforming, L2 provides in each channel FAPI message information about the beam index via the beam-ID parameter with MSB set to 1.
 
 # L1 implementation
 

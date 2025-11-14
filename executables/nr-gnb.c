@@ -117,10 +117,9 @@ static void tx_func(processingData_L1tx_t *info)
   pushNotifiedFIFO(&gNB->resp_L1, res);
 
   int tx_slot_type = nr_slot_select(cfg, frame_tx, slot_tx);
-  // TODO check for analog_beam_list is a workaround while no beam API for beam
-  // selection is implemented
-  if (tx_slot_type == NR_DOWNLINK_SLOT || tx_slot_type == NR_MIXED_SLOT || get_softmodem_params()->continuous_tx || IS_SOFTMODEM_RFSIM 
-    || cfg->analog_beamforming_ve.analog_beam_list) {
+  // TODO check for analog_bf_vendor_ext set to 1 is a workaround while no beam API for beam selection is implemented
+  if (tx_slot_type == NR_DOWNLINK_SLOT || tx_slot_type == NR_MIXED_SLOT || get_softmodem_params()->continuous_tx
+      || IS_SOFTMODEM_RFSIM || cfg->analog_beamforming_ve.analog_bf_vendor_ext.value) {
     start_meas(&info->gNB->phy_proc_tx);
     phy_procedures_gNB_TX(info->gNB,
                           &sched_response.DL_req,

@@ -66,7 +66,6 @@ static void nr_fill_indication(PHY_VARS_gNB *gNB,
 
 int beam_index_allocation(bool das,
                           int fapi_beam_index,
-                          const nfapi_nr_analog_beamforming_ve_t *analog_bf,
                           NR_gNB_COMMON *common_vars,
                           int slot,
                           int symbols_per_slot,
@@ -77,7 +76,8 @@ int beam_index_allocation(bool das,
   if (das)
     return fapi_beam_index;
 
-  int ru_beam_idx = analog_bf->analog_beam_list[fapi_beam_index].value & 0x7fff;
+  AssertFatal(IS_BIT_SET(fapi_beam_index, 15), "Can't handle preconfigured DBM yet\n");
+  int ru_beam_idx = fapi_beam_index & 0x7fff;
   int idx = -1;
   for (int j = 0; j < common_vars->num_beams_period; j++) {
     // L2 analog beam implementation is slot based, so we need to verify occupancy for the whole slot
@@ -160,7 +160,6 @@ void nr_common_signal_procedures(PHY_VARS_gNB *gNB, int frame, int slot, const n
   int bitmap = SL_to_bitmap(ssb_start_symbol, 4); // 4 ssb symbols
   int beam_nb = beam_index_allocation(gNB->enable_analog_das,
                                       pb->prgs_list[0].dig_bf_interface_list[0].beam_idx,
-                                      &cfg->analog_beamforming_ve,
                                       &gNB->common_vars,
                                       slot,
                                       fp->symbols_per_slot,
@@ -229,7 +228,6 @@ static void nr_generate_csi_rs_gNB(PHY_VARS_gNB *gNB,
     csi_bitmap |= ((1 << lprime_num) - 1) << mapping_parms.loverline[j];
   int beam_nb = beam_index_allocation(gNB->enable_analog_das,
                                       pb->prgs_list[0].dig_bf_interface_list[0].beam_idx,
-                                      &cfg->analog_beamforming_ve,
                                       &gNB->common_vars,
                                       slot,
                                       gNB->frame_parms.symbols_per_slot,

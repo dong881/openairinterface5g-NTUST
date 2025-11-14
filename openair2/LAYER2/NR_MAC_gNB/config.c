@@ -708,7 +708,6 @@ static void config_common(gNB_MAC_INST *nrmac, const nr_mac_config_t *config, NR
   // precoding matrix configuration (to be improved)
   cfg->pmi_list = init_DL_MIMO_codebook(nrmac, pdsch_AntennaPorts);
 
-  int nb_beams = config->nb_bfw[1]; // number of beams
   if (nrmac->beam_info.beam_mode == PRECONFIGURED_BEAM_IDX) {
     LOG_I(NR_MAC, "Configuring analog beamforming in config_request message\n");
     cfg->analog_beamforming_ve.num_beams_period_vendor_ext.tl.tag = NFAPI_NR_FAPI_NUM_BEAMS_PERIOD_VENDOR_EXTENSION_TAG;
@@ -717,14 +716,6 @@ static void config_common(gNB_MAC_INST *nrmac, const nr_mac_config_t *config, NR
     cfg->analog_beamforming_ve.analog_bf_vendor_ext.tl.tag = NFAPI_NR_FAPI_ANALOG_BF_VENDOR_EXTENSION_TAG;
     cfg->analog_beamforming_ve.analog_bf_vendor_ext.value = 1;  // analog BF enabled
     cfg->num_tlv++;
-    cfg->analog_beamforming_ve.total_num_beams_vendor_ext.tl.tag = NFAPI_NR_FAPI_TOTAL_NUM_BEAMS_VENDOR_EXTENSION_TAG;
-    cfg->analog_beamforming_ve.total_num_beams_vendor_ext.value = nb_beams;
-    cfg->num_tlv++;
-    cfg->analog_beamforming_ve.analog_beam_list = malloc16(nb_beams * sizeof(*cfg->analog_beamforming_ve.analog_beam_list));
-    for (int i = 0; i < nb_beams; i++) {
-      cfg->analog_beamforming_ve.analog_beam_list[i].tl.tag = NFAPI_NR_FAPI_ANALOG_BEAM_VENDOR_EXTENSION_TAG;
-      cfg->analog_beamforming_ve.analog_beam_list[i].value = config->bw_list[i];
-    }
   } else {
     cfg->analog_beamforming_ve.analog_bf_vendor_ext.value = 0;  // analog BF disabled
     if (NFAPI_MODE == NFAPI_MONOLITHIC) {
