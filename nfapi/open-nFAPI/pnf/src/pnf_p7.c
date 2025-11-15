@@ -676,12 +676,14 @@ static void pnf_p7_handle_msg_arrival(pnf_p7_t *pnf_p7,
 	if(pnf_p7 == NULL || rx_time == NULL)
 		return;
 
+	int32_t delta_us = 0;
 	nfapi_msg_arrival_result_e result = nfapi_delay_mgmt_check_message_arrival(&pnf_p7->delay_state,
 		type,
 		sfn,
 		slot,
 		transmit_timestamp,
-		(struct timeval *)rx_time);
+		(struct timeval *)rx_time,
+		&delta_us);
 	if(result != NFAPI_MSG_ARRIVAL_ON_TIME)
 		pnf_p7->timing_info_aperiodic_send = 1;
 

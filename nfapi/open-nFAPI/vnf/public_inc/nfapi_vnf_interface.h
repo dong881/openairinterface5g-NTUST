@@ -772,6 +772,19 @@ typedef struct nfapi_vnf_p7_config
 	int (*subframe_indication)(struct nfapi_vnf_p7_config* config, uint16_t phy_id, uint16_t sfn_sf);
 	int (*slot_indication)(struct nfapi_vnf_p7_config* config, uint16_t phy_id, uint16_t sfn, uint16_t slot);
 
+	/*! A callback for the legacy Timing Info indication (LTE)
+	 * \param config A pointer to the vnf p7 configuration
+	 * \param ind Decoded timing info payload
+	 * \return not currently used.
+	 */
+	int (*timing_info_indication)(struct nfapi_vnf_p7_config* config, nfapi_timing_info_t* ind);
+
+	/*! A callback for the NR Timing Info indication
+	 * \param ind Decoded timing info payload
+	 * \return not currently used.
+	 */
+	int (*nr_timing_info_indication)(nfapi_nr_timing_info_t* ind);
+
 	/*! A callback for the HARQ.indication
      *  \param config A pointer to the vnf p7 configuration
 	 *  \param ind A data structure for the decoded HARQ.indication This will 

@@ -175,12 +175,13 @@ uint32_t nfapi_delay_mgmt_get_transmit_timestamp(nfapi_delay_mgmt_state_t *state
  * @return Message arrival result (on-time, too early, too late)
  */
 nfapi_msg_arrival_result_e nfapi_delay_mgmt_check_message_arrival(
-    nfapi_delay_mgmt_state_t *state,
-    nfapi_msg_type_e msg_type,
-    uint16_t sfn,
-    uint16_t slot,
-    uint32_t transmit_timestamp,
-    struct timeval *receive_time);
+  nfapi_delay_mgmt_state_t *state,
+  nfapi_msg_type_e msg_type,
+  uint16_t sfn,
+  uint16_t slot,
+  uint32_t transmit_timestamp,
+  struct timeval *receive_time,
+  int32_t *delta_out);
 
 /**
  * @brief Update jitter calculation for message type

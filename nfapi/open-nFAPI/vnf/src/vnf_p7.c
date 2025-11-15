@@ -1975,6 +1975,9 @@ void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		return;
 	}
 
+	if(vnf_p7->_public.timing_info_indication)
+		vnf_p7->_public.timing_info_indication(&vnf_p7->_public, &ind);
+
         if (vnf_p7 && vnf_p7->p7_connections)
         {
           int16_t vnf_pnf_sfnsf_delta = NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf) - NFAPI_SFNSF2DEC(ind.last_sfn_sf);
@@ -2009,6 +2012,9 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack timing_info\n");
 		return;
 	}
+
+	if(vnf_p7->_public.nr_timing_info_indication)
+		vnf_p7->_public.nr_timing_info_indication(&ind);
 
         if (vnf_p7 && vnf_p7->p7_connections)
         {
@@ -2324,6 +2330,7 @@ void vnf_handle_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 			NFAPI_TRACE(NFAPI_TRACE_INFO, "Unknown phy id %d\n", messageHeader.phy_id);
 		}
 	}
+
 }
 
 

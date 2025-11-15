@@ -178,7 +178,8 @@ nfapi_msg_arrival_result_e nfapi_delay_mgmt_check_message_arrival(
     uint16_t sfn,
     uint16_t slot,
     uint32_t transmit_timestamp,
-    struct timeval *receive_time)
+    struct timeval *receive_time,
+    int32_t *delta_out)
 {
   nfapi_timing_window_config_t *cfg = get_window_config(state, msg_type);
   nfapi_message_stats_t *stats = get_stats(state, msg_type);
@@ -205,6 +206,8 @@ nfapi_msg_arrival_result_e nfapi_delay_mgmt_check_message_arrival(
     result = NFAPI_MSG_ARRIVAL_TOO_EARLY;
 
   update_stats(stats, delta, result);
+  if (delta_out)
+    *delta_out = delta;
   (void)transmit_timestamp;
   return result;
 }

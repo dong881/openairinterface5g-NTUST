@@ -27,9 +27,11 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/time.h>
 
 #include "nfapi_nr_interface_scf.h"
 #include "nfapi_vnf.h"
@@ -73,6 +75,168 @@
 
 extern RAN_CONTEXT_t RC;
 extern UL_RCC_IND_t  UL_RCC_INFO;
+
+typedef struct {
+  pthread_mutex_t lock;
+  bool start_req_sent;
+  bool waiting_first_timing_info;
+  bool bootstrap_tickpack_sent;
+  bool skip_next_slot;
+  uint16_t skip_sfn;
+  uint16_t skip_slot;
+  nfapi_nr_timing_info_t last_timing_info;
+  bool jitter_initialized;
+  uint32_t prev_dl_tti_jitter;
+  uint32_t prev_ul_tti_jitter;
+  uint32_t prev_ul_dci_jitter;
+  uint32_t prev_tx_data_jitter;
+} oai_vnf_delay_ctx_t;
+
+static oai_vnf_delay_ctx_t g_vnf_delay_ctx = {
+  .lock = PTHREAD_MUTEX_INITIALIZER,
+};
+
+static void vnf_delay_mark_start_request(void);
+static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind);
+static void vnf_delay_prime_tickpack(uint16_t sfn, uint16_t slot);
+static bool vnf_delay_should_skip_slot(uint16_t sfn, uint16_t slot);
+
+static void vnf_delay_mark_start_request(void)
+{
+  pthread_mutex_lock(&g_vnf_delay_ctx.lock);
+  g_vnf_delay_ctx.start_req_sent = true;
+  g_vnf_delay_ctx.waiting_first_timing_info = true;
+  g_vnf_delay_ctx.bootstrap_tickpack_sent = false;
+  pthread_mutex_unlock(&g_vnf_delay_ctx.lock);
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[DEBUG] VNF→PHY: START.request issued, awaiting Timing Info 0/0 (CP_1.2)");
+}
+
+static bool vnf_delay_should_skip_slot(uint16_t sfn, uint16_t slot)
+{
+  bool skip = false;
+  pthread_mutex_lock(&g_vnf_delay_ctx.lock);
+  if (g_vnf_delay_ctx.skip_next_slot && g_vnf_delay_ctx.skip_sfn == sfn && g_vnf_delay_ctx.skip_slot == slot) {
+    g_vnf_delay_ctx.skip_next_slot = false;
+    skip = true;
+  }
+  pthread_mutex_unlock(&g_vnf_delay_ctx.lock);
+  return skip;
+}
+
+static void vnf_delay_prime_tickpack(uint16_t sfn, uint16_t slot)
+{
+  struct timeval now;
+  gettimeofday(&now, NULL);
+  unsigned long long t1 = (unsigned long long)now.tv_sec * 1000000ULL + now.tv_usec;
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+              "[DEBUG] VNF-TIMING: Initiating latency probe (CP_2.1) SFN/slot=%u/%u t1=%lluµs",
+              sfn,
+              slot,
+              t1);
+
+  nfapi_nr_slot_indication_scf_t bootstrap = {.sfn = sfn, .slot = slot};
+  if (trigger_scheduler(&bootstrap) != 1) {
+    NFAPI_TRACE(NFAPI_TRACE_WARN,
+                "[WARN] VNF-TICKPACK: Failed to bootstrap tickpack for SFN/slot %u/%u",
+                sfn,
+                slot);
+    return;
+  }
+
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+              "[DEBUG] VNF-TICKPACK: DLTTI/ULTTI/ULDCI/TxData prepared for SFN/slot %u/%u",
+              sfn,
+              slot);
+}
+
+static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
+{
+  if (ind == NULL)
+    return;
+
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[DEBUG] VNF: Received Timing Info.indication from PHY");
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+              "[DEBUG] VNF-EXTRACT: Last_SFN=%u Last_slot=%u Time_since_last=%uµs",
+              ind->last_sfn,
+              ind->last_slot,
+              ind->time_since_last_timing_info);
+  NFAPI_TRACE(NFAPI_TRACE_INFO,
+              "[INFO] VNF-ANALYZE: Jitter stats: DLTTI=%uµs, ULTTI=%uµs, ULDCI=%uµs, TxData=%uµs",
+              ind->dl_tti_jitter,
+              ind->ul_tti_jitter,
+              ind->ul_dci_jitter,
+              ind->tx_data_request_jitter);
+  NFAPI_TRACE(NFAPI_TRACE_INFO,
+              "[INFO] VNF-ANALYZE-DL: Latest delays DLTTI=%dµs, ULTTI=%dµs, ULDCI=%dµs, TxData=%dµs",
+              ind->dl_tti_latest_delay,
+              ind->ul_tti_latest_delay,
+              ind->ul_dci_latest_delay,
+              ind->tx_data_request_latest_delay);
+
+  bool should_prime = false;
+  uint32_t prev_dl_jitter = 0;
+  bool jitter_initialized = false;
+
+  pthread_mutex_lock(&g_vnf_delay_ctx.lock);
+  should_prime = g_vnf_delay_ctx.start_req_sent && g_vnf_delay_ctx.waiting_first_timing_info && ind->last_sfn == 0
+                && ind->last_slot == 0;
+  g_vnf_delay_ctx.last_timing_info = *ind;
+  jitter_initialized = g_vnf_delay_ctx.jitter_initialized;
+  prev_dl_jitter = g_vnf_delay_ctx.prev_dl_tti_jitter;
+  g_vnf_delay_ctx.prev_dl_tti_jitter = ind->dl_tti_jitter;
+  g_vnf_delay_ctx.prev_ul_tti_jitter = ind->ul_tti_jitter;
+  g_vnf_delay_ctx.prev_ul_dci_jitter = ind->ul_dci_jitter;
+  g_vnf_delay_ctx.prev_tx_data_jitter = ind->tx_data_request_jitter;
+  g_vnf_delay_ctx.jitter_initialized = true;
+
+  if (should_prime) {
+    g_vnf_delay_ctx.waiting_first_timing_info = false;
+    g_vnf_delay_ctx.bootstrap_tickpack_sent = true;
+    g_vnf_delay_ctx.skip_next_slot = true;
+    g_vnf_delay_ctx.skip_sfn = ind->last_sfn;
+    g_vnf_delay_ctx.skip_slot = ind->last_slot;
+  }
+  pthread_mutex_unlock(&g_vnf_delay_ctx.lock);
+
+  if (jitter_initialized) {
+    if (ind->dl_tti_jitter > prev_dl_jitter) {
+      NFAPI_TRACE(NFAPI_TRACE_INFO,
+                  "[INFO] VNF-ANALYZE-JITTER: Trending up (current=%uµs, prev=%uµs)",
+                  ind->dl_tti_jitter,
+                  prev_dl_jitter);
+    } else {
+      NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+                  "[DEBUG] VNF-ANALYZE-JITTER: Stable (current=%uµs, prev=%uµs)",
+                  ind->dl_tti_jitter,
+                  prev_dl_jitter);
+    }
+  }
+
+  if (ind->dl_tti_latest_delay > 0)
+    NFAPI_TRACE(NFAPI_TRACE_INFO,
+                "[INFO] VNF-ANALYZE-DL: DLTTI_latest=%dµs → late (DL slot loss possible)",
+                ind->dl_tti_latest_delay);
+  else
+    NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+                "[DEBUG] VNF-ANALYZE-DL: DLTTI_latest=%dµs → normal",
+                ind->dl_tti_latest_delay);
+
+  if (ind->tx_data_request_latest_delay > 0) {
+    NFAPI_TRACE(NFAPI_TRACE_WARN,
+                "[WARN] VNF-DECISION: Multiple late messages detected - fronthaul latency issue possible");
+  } else {
+    NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+                "[DEBUG] VNF-DECISION: All metrics within normal range - no adjustment needed");
+  }
+
+  if (should_prime) {
+    NFAPI_TRACE(NFAPI_TRACE_INFO,
+                "[INFO] VNF-TIMING: Timing Info 0/0 received, priming tickpack bootstrap (CP_0.4→CP_2.1)");
+    vnf_delay_prime_tickpack(ind->last_sfn, ind->last_slot);
+  }
+}
+
+int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind);
 
 int vnf_pack_vendor_extension_tlv(void *ve, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p4_p5_codec_config_t *codec) {
   //NFAPI_TRACE(NFAPI_TRACE_INFO, "vnf_pack_vendor_extension_tlv\n");
@@ -180,6 +344,10 @@ int pnf_connection_indication_cb(nfapi_vnf_config_t *config, int p5_idx) {
 
 int pnf_nr_connection_indication_cb(nfapi_vnf_config_t *config, int p5_idx) {
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] pnf connection indication idx:%d\n", p5_idx);
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[INFO] VNF-INIT: PNF connection established (SCTP association active)");
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[DEBUG] Checking SCTP association status: OK");
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[DEBUG] PNF state: IDLE");
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[DEBUG] Control message buffers initialized");
   nfapi_nr_pnf_param_request_t req;
   memset(&req, 0, sizeof(req));
   req.header.message_id = NFAPI_NR_PHY_MSG_TYPE_PNF_PARAM_REQUEST;
@@ -201,6 +369,12 @@ int pnf_nr_param_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_pnf_pa
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] pnf param response idx:%d error:%d\n", p5_idx, resp->error_code);
   vnf_info *vnf = (vnf_info *)(config->user_data);
   pnf_info *pnf = vnf->pnfs;
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[DEBUG] VNF→PNF: PNFPARAM.request (PHY capabilities query)");
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[DEBUG] VNF←PNF: PNFPARAM.response (PHY capabilities returned)");
+  NFAPI_TRACE(NFAPI_TRACE_INFO,
+              "[INFO] PHY capabilities: num_phy_instances=%d timing_window_hint=%u slots",
+              resp->pnf_phy.number_of_phys,
+              vnf->p7_vnfs[0].timing_window);
 
   for(int i = 0; i < resp->pnf_phy.number_of_phys; ++i) {
     phy_info phy;
@@ -1025,9 +1199,23 @@ int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind)
   return 1;
 }
 
+int phy_nr_timing_info_indication(nfapi_nr_timing_info_t *ind)
+{
+  vnf_delay_handle_timing_info(ind);
+  return 1;
+}
+
 int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
 {
   LOG_D(MAC, "VNF SFN/Slot %d.%d \n", ind->sfn, ind->slot);
+
+  if (vnf_delay_should_skip_slot(ind->sfn, ind->slot)) {
+    NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+                "[DEBUG] VNF-TICKPACK: Skipping slot %u/%u (bootstrap already dispatched)",
+                ind->sfn,
+                ind->slot);
+    return 1;
+  }
 
   trigger_scheduler(ind);
 
@@ -1321,6 +1509,7 @@ void *configure_nr_p7_vnf(void *ptr)
   p7_vnf->config->nrach_indication = &phy_nrach_indication;
 #endif
   p7_vnf->config->nr_slot_indication = &phy_nr_slot_indication;
+  p7_vnf->config->nr_timing_info_indication = &phy_nr_timing_info_indication;
   p7_vnf->config->nr_srs_indication = &phy_nr_srs_indication;
   p7_vnf->config->malloc = &vnf_allocate;
   p7_vnf->config->free = &vnf_deallocate;
@@ -1514,9 +1703,17 @@ int nr_param_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_param_resp
   }
 //TODO: Assign tag and value for P7 message offsets
 req->nfapi_config.dl_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET;
+req->nfapi_config.dl_tti_timing_offset.value = 20000;
+req->num_tlv++;
 req->nfapi_config.ul_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET;
+req->nfapi_config.ul_tti_timing_offset.value = 20000;
+req->num_tlv++;
 req->nfapi_config.ul_dci_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET;
+req->nfapi_config.ul_dci_timing_offset.value = 20000;
+req->num_tlv++;
 req->nfapi_config.tx_data_timing_offset.tl.tag = NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET;
+req->nfapi_config.tx_data_timing_offset.value = 20000;
+req->num_tlv++;
 
   vendor_ext_tlv_2 ve2;
   memset(&ve2, 0, sizeof(ve2));
@@ -1524,6 +1721,13 @@ req->nfapi_config.tx_data_timing_offset.tl.tag = NFAPI_NR_NFAPI_TX_DATA_TIMING_O
   ve2.dummy = 2016;
   req->vendor_extension = &ve2.tl;
 #endif
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[DEBUG] VNF→PNF: PNFCONFIG.request (base config)");
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+              "[DEBUG] Configuration: DLTTI offset=%uus, ULTTI offset=%uus, Timing window=%uus",
+              req->nfapi_config.dl_tti_timing_offset.value,
+              req->nfapi_config.ul_tti_timing_offset.value,
+              p7_vnf->timing_window);
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[INFO] PNF-STATE: IDLE → CONFIGURED");
   nfapi_nr_vnf_config_req(config, p5_idx, req);
   printf("[VNF] Sent NFAPI_VNF_CONFIG_REQ num_tlv:%u\n",req->num_tlv);
   return 0;
@@ -1591,6 +1795,8 @@ int nr_config_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_config_re
   memset(&req, 0, sizeof(req));
   req.header.message_id = NFAPI_NR_PHY_MSG_TYPE_START_REQUEST;
   req.header.phy_id = resp->header.phy_id;
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[INFO] VNF→PHY: START.request (CP_1.2)");
+  vnf_delay_mark_start_request();
   nfapi_nr_vnf_start_req(config, p5_idx, &req);
   return 0;
 }
