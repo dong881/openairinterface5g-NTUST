@@ -615,10 +615,9 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 
 	nfapi_nr_timing_info_t timing_info;
 	memset(&timing_info, 0, sizeof(timing_info));
-	timing_info.header.message_id = NFAPI_TIMING_INFO;
-	timing_info.header.phy_id = pnf_p7->_public.phy_id;
-
 	nfapi_delay_mgmt_build_timing_info(&pnf_p7->delay_state, &timing_info);
+	timing_info.header.message_id = NFAPI_NR_PHY_MSG_TYPE_TIMING_INFO;
+	timing_info.header.phy_id = pnf_p7->_public.phy_id;
 	AssertFatal(pnf_p7->_public.send_p7_msg, "The function pointer to pack and send P7 messages must be set");
 	pnf_p7->_public.send_p7_msg(pnf_p7, &(timing_info.header), sizeof(timing_info));
 }
