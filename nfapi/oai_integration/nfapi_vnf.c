@@ -1581,6 +1581,18 @@ static vnf_tick_state_t g_vnf_tick_state = {
 };
 
 // VNF autonomous tick thread - this is the VNF's own independent clock
+// 
+// Per nFAPI spec SCF-225 Section 3.4.2 "Timing and Delay Management":
+// - The VNF must have its own timing source (tick) independent of the PNF
+// - SLOT.indication messages should be suppressed when delay management is active
+// - The VNF sends DL_TTI/UL_TTI/UL_DCI/TX_DATA based on its own clock
+// - The PNF sends TIMING.indication to report early/late message arrivals
+// - The VNF adjusts timing offsets based on TIMING.indication feedback
+//
+// This implementation creates an independent tick thread that:
+// 1. Progresses slots autonomously based on numerology (subcarrier spacing)
+// 2. Calls trigger_scheduler() for each slot to generate P7 messages
+// 3. Does NOT wait for SLOT.indication from PNF
 void *vnf_tick_thread(void *ptr)
 {
   pthread_setname_np(pthread_self(), "VNF_TICK");
