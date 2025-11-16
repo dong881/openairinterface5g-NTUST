@@ -2035,6 +2035,11 @@ int pnf_read_dispatch_message(pnf_t* pnf)
 		{
 			NFAPI_TRACE(NFAPI_TRACE_INFO, "Failed to read sctp message size errno:%d\n", errno);
 		}
+		else if(recvmsg_result == 0)
+		{
+			NFAPI_TRACE(NFAPI_TRACE_INFO, "Connection closed by peer\n");
+			socket_connected = 0;
+		}
 		else
 		{
 #if 0
@@ -2066,16 +2071,17 @@ int pnf_read_dispatch_message(pnf_t* pnf)
 						flags);
 				*/
 
-				// handle now if complete message in one or more segments
-				if ((flags & 0x80) == 0x80)
+				// Handle complete message: has MSG_EOR flag or received expected bytes
+				// SCTP can deliver complete messages with flags=0 when message fits in single segment
+				if ((flags & 0x80) == 0x80 || recvmsg_result == message_size)
 				{
 					pnf_handle_p5_message(pnf, read_buffer, message_size);
 				}
 				else
 				{
-					NFAPI_TRACE(NFAPI_TRACE_WARN, "sctp_recvmsg: unhandled mode with flags 0x%x\n", flags);
+					NFAPI_TRACE(NFAPI_TRACE_WARN, "sctp_recvmsg: incomplete message with flags 0x%x received %d expected %d\n", flags, recvmsg_result, message_size);
 
-					// assume socket disconnected
+					// Message incomplete, likely need reassembly or connection issue
 					NFAPI_TRACE(NFAPI_TRACE_WARN, "Disconnected socket\n");
 					socket_connected =  0;
 				}
