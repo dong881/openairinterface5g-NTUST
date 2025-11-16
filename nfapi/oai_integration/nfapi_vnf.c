@@ -120,7 +120,16 @@ static oai_vnf_delay_ctx_t g_vnf_delay_ctx = {
 
 static uint8_t g_vnf_mu;
 
-// Forward declarations for VNF tick state (defined later in file)
+// VNF tick state structure definition
+struct vnf_tick_state_s {
+  pthread_mutex_t lock;
+  bool running;
+  uint16_t sfn;
+  uint16_t slot;
+  uint8_t mu;  // subcarrier spacing (numerology)
+  nfapi_vnf_p7_config_t *config;
+};
+
 typedef struct vnf_tick_state_s vnf_tick_state_t;
 extern vnf_tick_state_t g_vnf_tick_state;
 
@@ -146,6 +155,7 @@ static void vnf_delay_mark_start_request(void)
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[DEBUG] VNF→PHY: START.request issued, awaiting Timing Info 0/0 (CP_1.2)");
 }
 
+static bool vnf_delay_should_skip_slot(uint16_t sfn, uint16_t slot) __attribute__((unused));
 static bool vnf_delay_should_skip_slot(uint16_t sfn, uint16_t slot)
 {
   bool skip = false;
@@ -158,6 +168,7 @@ static bool vnf_delay_should_skip_slot(uint16_t sfn, uint16_t slot)
   return skip;
 }
 
+static void vnf_delay_prime_tickpack(uint16_t sfn, uint16_t slot) __attribute__((unused));
 static void vnf_delay_prime_tickpack(uint16_t sfn, uint16_t slot)
 {
   struct timeval now;
@@ -1652,16 +1663,7 @@ static pthread_t vnf_p5_init_and_receive_pthread;
 static pthread_t vnf_p7_start_pthread;
 static pthread_t vnf_p7_tick_pthread;
 
-// VNF tick state
-struct vnf_tick_state_s {
-  pthread_mutex_t lock;
-  bool running;
-  uint16_t sfn;
-  uint16_t slot;
-  uint8_t mu;  // subcarrier spacing (numerology)
-  nfapi_vnf_p7_config_t *config;
-};
-
+// VNF tick state - initialization
 vnf_tick_state_t g_vnf_tick_state = {
   .lock = PTHREAD_MUTEX_INITIALIZER,
   .running = false,
