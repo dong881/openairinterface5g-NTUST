@@ -736,19 +736,35 @@ static void pnf_p7_maybe_send_timing_info(pnf_p7_t *pnf_p7, uint16_t sfn, uint16
 	if(pnf_p7->_public.send_p7_msg == NULL)
 		return;
 
-	if(!pnf_p7_delay_stats_ready(&pnf_p7->delay_state))
+	// CRITICAL FIX: Allow sending timing info even without stats for initial synchronization
+	// The first few timing info messages are needed by VNF to synchronize its tick with PNF
+	// Without this, if VNF and PNF start desynchronized, no messages arrive in window,
+	// no stats accumulate, and no timing info is sent - creating a deadlock
+	const bool stats_ready = pnf_p7_delay_stats_ready(&pnf_p7->delay_state);
+	if(!stats_ready)
 	{
-		NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-		            "[P7:%d] Timing info pending stats (DL:%d UL:%d ULDCI:%d TX:%d)",
+		// Check if this is early in the session (slot_counter < 100 slots ~= first 5-10 frames)
+		// If so, send timing info anyway to help VNF synchronize
+		if(pnf_p7->delay_state.slot_counter > 100)
+		{
+			NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+			            "[P7:%d] Timing info pending stats after initial period (DL:%d UL:%d ULDCI:%d TX:%d)",
+			            pnf_p7->_public.phy_id,
+			            pnf_p7->delay_state.dl_tti_stats.latest_delay,
+			            pnf_p7->delay_state.ul_tti_stats.latest_delay,
+			            pnf_p7->delay_state.ul_dci_stats.latest_delay,
+			            pnf_p7->delay_state.tx_data_stats.latest_delay);
+			return;
+		}
+		NFAPI_TRACE(NFAPI_TRACE_INFO,
+		            "[P7:%d] Sending timing info without stats for initial VNF synchronization (slot_counter=%u)",
 		            pnf_p7->_public.phy_id,
-		            pnf_p7->delay_state.dl_tti_stats.latest_delay,
-		            pnf_p7->delay_state.ul_tti_stats.latest_delay,
-		            pnf_p7->delay_state.ul_dci_stats.latest_delay,
-		            pnf_p7->delay_state.tx_data_stats.latest_delay);
-		return;
+		            pnf_p7->delay_state.slot_counter);
 	}
 
-	pnf_p7_log_delay_snapshot(pnf_p7);
+	if(stats_ready)
+		pnf_p7_log_delay_snapshot(pnf_p7);
+	
 	pnf_nr_pack_and_send_timing_info(pnf_p7);
 	pnf_p7->timing_info_aperiodic_send = 0;
 }
