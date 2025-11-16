@@ -1905,6 +1905,15 @@ void vnf_start_autonomous_tick(uint8_t mu, nfapi_vnf_p7_config_t *config)
   g_vnf_tick_state.running = true;
   pthread_mutex_unlock(&g_vnf_tick_state.lock);
   
+  // Configure timing parameters based on numerology (per SCF-222 spec)
+  // Use default values stored in g_vnf_delay_ctx (can be overridden via TLV config)
+  pthread_mutex_lock(&g_vnf_delay_ctx.lock);
+  uint32_t timing_offset_us = g_vnf_delay_ctx.dl_tti_timing_offset_us;
+  uint16_t timing_window_us = g_vnf_delay_ctx.timing_window_us;
+  pthread_mutex_unlock(&g_vnf_delay_ctx.lock);
+  
+  vnf_delay_configure_timing_params(timing_offset_us, timing_window_us, mu);
+  
   NFAPI_TRACE(NFAPI_TRACE_INFO, 
               "[VNF] Starting autonomous tick with mu=%u (SCS=%ukHz)\n",
               mu, 15 << mu);
@@ -2822,4 +2831,16 @@ int oai_nfapi_ue_release_req(nfapi_ue_release_request_t *release_req){
         release_req->ue_release_request_body.number_of_TLVs = 0;
     }
     return retval;
+}
+
+/**
+ * @brief Public API to configure VNF timing parameters per SCF-222 spec
+ * 
+ * This function allows external configuration of VNF timing window parameters
+ * according to SCF-222 specification TLVs 0x0106-0x011E. It should be called
+ * during VNF initialization or when timing parameters change via P5 config.
+ */
+void nfapi_vnf_configure_timing_params(uint32_t timing_offset_us, uint16_t timing_window_us, uint8_t mu)
+{
+  vnf_delay_configure_timing_params(timing_offset_us, timing_window_us, mu);
 }
