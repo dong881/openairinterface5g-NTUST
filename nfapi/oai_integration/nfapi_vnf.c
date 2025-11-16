@@ -76,6 +76,8 @@
 extern RAN_CONTEXT_t RC;
 extern UL_RCC_IND_t  UL_RCC_INFO;
 
+int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind);
+
 typedef struct {
   pthread_mutex_t lock;
   bool start_req_sent;
@@ -90,16 +92,34 @@ typedef struct {
   uint32_t prev_ul_tti_jitter;
   uint32_t prev_ul_dci_jitter;
   uint32_t prev_tx_data_jitter;
+  bool slot_clock_valid;
+  uint16_t slot_clock_sfn;
+  uint16_t slot_clock_slot;
+  struct timeval slot_clock_tv;
+  uint32_t slot_clock_time_hr;
 } oai_vnf_delay_ctx_t;
 
 static oai_vnf_delay_ctx_t g_vnf_delay_ctx = {
   .lock = PTHREAD_MUTEX_INITIALIZER,
+  .slot_clock_valid = false,
+  .slot_clock_sfn = 0,
+  .slot_clock_slot = 0,
+  .slot_clock_time_hr = 0,
 };
+
+static uint8_t g_vnf_mu;
 
 static void vnf_delay_mark_start_request(void);
 static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind);
 static void vnf_delay_prime_tickpack(uint16_t sfn, uint16_t slot);
 static bool vnf_delay_should_skip_slot(uint16_t sfn, uint16_t slot);
+static void vnf_delay_update_slot_clock(uint16_t sfn, uint16_t slot);
+static uint32_t vnf_delay_resolve_slot_start(uint16_t sfn, uint16_t slot, bool *estimated_out);
+static void vnf_delay_tag_nr_message(nfapi_vnf_p7_config_t *config,
+                                     uint16_t phy_id,
+                                     uint16_t sfn,
+                                     uint16_t slot,
+                                     uint16_t message_id);
 
 static void vnf_delay_mark_start_request(void)
 {
@@ -127,7 +147,7 @@ static void vnf_delay_prime_tickpack(uint16_t sfn, uint16_t slot)
 {
   struct timeval now;
   gettimeofday(&now, NULL);
-  unsigned long long t1 = (unsigned long long)now.tv_sec * 1000000ULL + now.tv_usec;
+  const unsigned long long t1 = (unsigned long long)now.tv_sec * 1000000ULL + now.tv_usec;
   NFAPI_TRACE(NFAPI_TRACE_DEBUG,
               "[DEBUG] VNF-TIMING: Initiating latency probe (CP_2.1) SFN/slot=%u/%u t1=%lluµs",
               sfn,
@@ -147,6 +167,68 @@ static void vnf_delay_prime_tickpack(uint16_t sfn, uint16_t slot)
               "[DEBUG] VNF-TICKPACK: DLTTI/ULTTI/ULDCI/TxData prepared for SFN/slot %u/%u",
               sfn,
               slot);
+}
+
+static void vnf_delay_update_slot_clock(uint16_t sfn, uint16_t slot)
+{
+  struct timeval now;
+  gettimeofday(&now, NULL);
+
+  pthread_mutex_lock(&g_vnf_delay_ctx.lock);
+  g_vnf_delay_ctx.slot_clock_valid = true;
+  g_vnf_delay_ctx.slot_clock_sfn = sfn;
+  g_vnf_delay_ctx.slot_clock_slot = slot;
+  g_vnf_delay_ctx.slot_clock_tv = now;
+  g_vnf_delay_ctx.slot_clock_time_hr = TIME2TIMEHR(now);
+  pthread_mutex_unlock(&g_vnf_delay_ctx.lock);
+}
+
+static uint32_t vnf_delay_resolve_slot_start(uint16_t sfn, uint16_t slot, bool *estimated_out)
+{
+  uint32_t slot_start_hr = vnf_get_current_time_hr();
+  bool estimated = true;
+
+  pthread_mutex_lock(&g_vnf_delay_ctx.lock);
+  const bool have_ref = g_vnf_delay_ctx.slot_clock_valid && g_vnf_mu <= 4; // numerology sanity (NR supports up to mu=4)
+  if (have_ref) {
+    const uint32_t ref_dec = NFAPI_SFNSLOT2DEC(g_vnf_mu, g_vnf_delay_ctx.slot_clock_sfn, g_vnf_delay_ctx.slot_clock_slot);
+    uint32_t target_dec = NFAPI_SFNSLOT2DEC(g_vnf_mu, sfn, slot);
+    if (target_dec < ref_dec)
+      target_dec += NFAPI_MAX_SFNSLOTDEC(g_vnf_mu);
+    const uint32_t delta_slots = target_dec - ref_dec;
+    const double slot_len_us = NFAPI_SLOTLEN(g_vnf_mu);
+    const uint64_t ref_us = (uint64_t)g_vnf_delay_ctx.slot_clock_tv.tv_sec * 1000000ULL + g_vnf_delay_ctx.slot_clock_tv.tv_usec;
+    const uint64_t target_us = ref_us + (uint64_t)(slot_len_us * delta_slots);
+    struct timeval tv = {
+        .tv_sec = (time_t)(target_us / 1000000ULL),
+        .tv_usec = (suseconds_t)(target_us % 1000000ULL)};
+    slot_start_hr = TIME2TIMEHR(tv);
+    estimated = false;
+  }
+  pthread_mutex_unlock(&g_vnf_delay_ctx.lock);
+
+  if (estimated_out)
+    *estimated_out = estimated;
+
+  return slot_start_hr;
+}
+
+static void vnf_delay_tag_nr_message(nfapi_vnf_p7_config_t *config,
+                                     uint16_t phy_id,
+                                     uint16_t sfn,
+                                     uint16_t slot,
+                                     uint16_t message_id)
+{
+  bool estimated = true;
+  const uint32_t slot_start_hr = vnf_delay_resolve_slot_start(sfn, slot, &estimated);
+  nfapi_vnf_p7_set_slot_time(config, phy_id, sfn, slot, slot_start_hr);
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+              "[DEBUG] VNF-TIMESTAMP: Tagging msg=0x%04x SFN/slot=%u/%u time_hr=0x%08x %s",
+              message_id,
+              sfn,
+              slot,
+              slot_start_hr,
+              estimated ? "(estimated)" : "");
 }
 
 static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
@@ -235,8 +317,6 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
     vnf_delay_prime_tickpack(ind->last_sfn, ind->last_slot);
   }
 }
-
-int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind);
 
 int vnf_pack_vendor_extension_tlv(void *ve, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p4_p5_codec_config_t *codec) {
   //NFAPI_TRACE(NFAPI_TRACE_INFO, "vnf_pack_vendor_extension_tlv\n");
@@ -1209,6 +1289,8 @@ int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
 {
   LOG_D(MAC, "VNF SFN/Slot %d.%d \n", ind->sfn, ind->slot);
 
+  vnf_delay_update_slot_clock(ind->sfn, ind->slot);
+
   if (vnf_delay_should_skip_slot(ind->sfn, ind->slot)) {
     NFAPI_TRACE(NFAPI_TRACE_DEBUG,
                 "[DEBUG] VNF-TICKPACK: Skipping slot %u/%u (bootstrap already dispatched)",
@@ -1668,6 +1750,7 @@ int nr_param_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_param_resp
   const nfapi_uint8_tlv_t *scs = &req->ssb_config.scs_common;
   DevAssert(scs->tl.tag == NFAPI_NR_CONFIG_SCS_COMMON_TAG);
   int mu = scs->value;
+  g_vnf_mu = mu;
   nfapi_vnf_p7_add_pnf((p7_vnf->config), phy->remote_addr, phy->remote_port, phy->id, mu);
 
   req->header.message_id = NFAPI_NR_PHY_MSG_TYPE_CONFIG_REQUEST;
@@ -2156,6 +2239,12 @@ int oai_nfapi_dl_tti_req(nfapi_nr_dl_tti_request_t *dl_config_req)
   dl_config_req->header.message_id= NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST;
   dl_config_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
 
+  vnf_delay_tag_nr_message(p7_config,
+                           dl_config_req->header.phy_id,
+                           dl_config_req->SFN,
+                           dl_config_req->Slot,
+                           dl_config_req->header.message_id);
+
   bool retval = nfapi_vnf_p7_nr_dl_config_req(p7_config, dl_config_req);
 
   dl_config_req->dl_tti_request_body.nPDUs                        = 0;
@@ -2174,6 +2263,11 @@ int oai_nfapi_tx_data_req(nfapi_nr_tx_data_request_t *tx_data_req)
   nfapi_vnf_p7_config_t *p7_config = vnf.p7_vnfs[0].config;
   tx_data_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
   tx_data_req->header.message_id = NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST;
+  vnf_delay_tag_nr_message(p7_config,
+                           tx_data_req->header.phy_id,
+                           tx_data_req->SFN,
+                           tx_data_req->Slot,
+                           tx_data_req->header.message_id);
   //LOG_D(PHY, "[VNF] %s() TX_REQ sfn_sf:%d number_of_pdus:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(tx_req->sfn_sf), tx_req->tx_request_body.number_of_pdus);
   bool retval = nfapi_vnf_p7_tx_data_req(p7_config, tx_data_req);
 
@@ -2207,6 +2301,11 @@ int oai_nfapi_ul_dci_req(nfapi_nr_ul_dci_request_t *ul_dci_req) {
   nfapi_vnf_p7_config_t *p7_config = vnf.p7_vnfs[0].config;
   ul_dci_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
   ul_dci_req->header.message_id = NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST;
+  vnf_delay_tag_nr_message(p7_config,
+                           ul_dci_req->header.phy_id,
+                           ul_dci_req->SFN,
+                           ul_dci_req->Slot,
+                           ul_dci_req->header.message_id);
   //LOG_D(PHY, "[VNF] %s() HI_DCI0_REQ sfn_sf:%d dci:%d hi:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(hi_dci0_req->sfn_sf), hi_dci0_req->hi_dci0_request_body.number_of_dci, hi_dci0_req->hi_dci0_request_body.number_of_hi);
   bool retval = nfapi_vnf_p7_ul_dci_req(p7_config, ul_dci_req);
 
@@ -2260,6 +2359,11 @@ int oai_nfapi_ul_tti_req(nfapi_nr_ul_tti_request_t *ul_tti_req) {
 
   ul_tti_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
   ul_tti_req->header.message_id = NFAPI_NR_PHY_MSG_TYPE_UL_TTI_REQUEST;
+  vnf_delay_tag_nr_message(p7_config,
+                           ul_tti_req->header.phy_id,
+                           ul_tti_req->SFN,
+                           ul_tti_req->Slot,
+                           ul_tti_req->header.message_id);
 
   bool retval = nfapi_vnf_p7_ul_tti_req(p7_config, ul_tti_req);
 

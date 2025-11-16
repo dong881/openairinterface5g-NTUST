@@ -946,6 +946,17 @@ typedef struct nfapi_vnf_p7_config
 
 	/*! Optional userdata that will be passed back in the callbacks*/
 	void* user_data;
+
+	/*! Initial slot lead (in slots) used before dynamic adjustments */
+	uint8_t default_slot_lead;
+	/*! Minimum slot lead (clamped when auto-adjusting) */
+	uint8_t min_slot_lead;
+	/*! Maximum slot lead (clamped when auto-adjusting) */
+	uint8_t max_slot_lead;
+	/*! Optional callback invoked whenever the slot lead changes */
+	void (*slot_lead_update)(struct nfapi_vnf_p7_config* config,
+						 uint16_t phy_id,
+						 uint8_t new_lead);
 	
 	/*! A callback to allocate a memory for a vendor extension message
 	 *  \param message_id The message is taken from the p7 message header
@@ -1077,6 +1088,12 @@ int nfapi_vnf_p7_add_pnf(nfapi_vnf_p7_config_t* config, const char* pnf_p7_addr,
  */
 int nfapi_vnf_p7_del_pnf(nfapi_vnf_p7_config_t* config, int phy_id);
 
+/*! Update the slot lead (in slots) used for the specified PHY. */
+int nfapi_vnf_p7_set_slot_lead(nfapi_vnf_p7_config_t* config, uint16_t phy_id, uint8_t slot_lead);
+
+/*! Retrieve the current slot lead (in slots) used for the specified PHY. */
+int nfapi_vnf_p7_get_slot_lead(nfapi_vnf_p7_config_t* config, uint16_t phy_id, uint8_t* slot_lead);
+
 /*! Send the DL_CONFIG.request
  *  \param config A pointer to the vnf p7 configuration
  *  \param req A data structure for the decoded DL_CONFIG.request.
@@ -1098,6 +1115,11 @@ bool nfapi_vnf_p7_nr_dl_config_req(nfapi_vnf_p7_config_t* config, nfapi_nr_dl_tt
  */
 int nfapi_vnf_p7_ul_config_req(nfapi_vnf_p7_config_t* config, nfapi_ul_config_request_t* req);
 bool nfapi_vnf_p7_ul_tti_req(nfapi_vnf_p7_config_t* config, nfapi_nr_ul_tti_request_t* req);
+void nfapi_vnf_p7_set_slot_time(nfapi_vnf_p7_config_t* config,
+								uint16_t phy_id,
+								uint16_t sfn,
+								uint16_t slot,
+								uint32_t slot_start_time_hr);
 /*! Send the HI_DCI0.request
  *  \param config A pointer to the vnf p7 configuration
  *  \param req A data structure for the decoded HI_DCI0.request.

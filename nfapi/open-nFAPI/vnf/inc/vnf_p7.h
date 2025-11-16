@@ -82,6 +82,10 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t adjustment;
 	int32_t insync_minor_adjustment;
 	int32_t insync_minor_adjustment_duration;
+	uint32_t slot_start_time_hr;
+	int32_t slot_lead_slots;
+	uint8_t slot_lead_late_counter;
+	uint8_t slot_lead_early_counter;
 
 	uint32_t previous_t1;
 	uint32_t previous_t2;

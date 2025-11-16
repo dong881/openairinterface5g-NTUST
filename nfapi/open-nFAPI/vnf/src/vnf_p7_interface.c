@@ -23,6 +23,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <stdint.h>
 
 #include "vnf_p7.h"
 #include "nfapi_vnf.h"
@@ -51,6 +52,10 @@ nfapi_vnf_p7_config_t* nfapi_vnf_p7_config_create()
 
 	_this->_public.codec_config.allocate = &malloc;
 	_this->_public.codec_config.deallocate = &free;
+
+	_this->_public.default_slot_lead = 0;
+	_this->_public.min_slot_lead = 0;
+	_this->_public.max_slot_lead = UINT8_MAX;
 
 
 	return (nfapi_vnf_p7_config_t*)_this;
@@ -92,6 +97,19 @@ struct timespec timespec_sub(struct timespec lhs, struct timespec rhs)
 		result.tv_nsec = lhs.tv_nsec-rhs.tv_nsec;
 	}
 	return result;
+}
+
+static uint8_t nfapi_vnf_p7_sanitize_slot_lead(const nfapi_vnf_p7_config_t* config, uint8_t slot_lead)
+{
+	uint8_t min_slot_lead = config->min_slot_lead;
+	uint8_t max_slot_lead = config->max_slot_lead;
+	if(max_slot_lead < min_slot_lead)
+		max_slot_lead = min_slot_lead;
+	if(slot_lead < min_slot_lead)
+		slot_lead = min_slot_lead;
+	if(slot_lead > max_slot_lead)
+		slot_lead = max_slot_lead;
+	return slot_lead;
 }
 
 // monitor the p7 endpoints and the timing loop and
@@ -450,6 +468,10 @@ int nfapi_vnf_p7_add_pnf(nfapi_vnf_p7_config_t* config, const char* pnf_p7_addr,
     node->slot = 0;
 	node->min_sync_cycle_count = 8;
   node->mu = mu;
+	node->slot_start_time_hr = vnf_get_current_time_hr();
+	node->slot_lead_slots = nfapi_vnf_p7_sanitize_slot_lead(config, config->default_slot_lead);
+	node->slot_lead_late_counter = 0;
+	node->slot_lead_early_counter = 0;
 #ifndef ENABLE_AERIAL
 	// save the remote endpoint information
 	node->remote_addr.sin_family = AF_INET;
@@ -478,6 +500,43 @@ int nfapi_vnf_p7_del_pnf(nfapi_vnf_p7_config_t* config, int phy_id)
 		free(to_delete);
 	}
 
+	return 0;
+}
+
+int nfapi_vnf_p7_set_slot_lead(nfapi_vnf_p7_config_t* config, uint16_t phy_id, uint8_t slot_lead)
+{
+	if(config == 0)
+		return -1;
+
+	vnf_p7_t* vnf_p7 = (vnf_p7_t*)config;
+	nfapi_vnf_p7_connection_info_t* conn = vnf_p7_connection_info_list_find(vnf_p7, phy_id);
+	if(conn == 0)
+	{
+		NFAPI_TRACE(NFAPI_TRACE_WARN, "%s(): missing P7 connection for phy_id:%u\n", __FUNCTION__, phy_id);
+		return -1;
+	}
+
+	uint8_t clamped = nfapi_vnf_p7_sanitize_slot_lead(config, slot_lead);
+	conn->slot_lead_slots = clamped;
+	if(config->slot_lead_update)
+		config->slot_lead_update(config, phy_id, clamped);
+	return 0;
+}
+
+int nfapi_vnf_p7_get_slot_lead(nfapi_vnf_p7_config_t* config, uint16_t phy_id, uint8_t* slot_lead)
+{
+	if(config == 0 || slot_lead == 0)
+		return -1;
+
+	vnf_p7_t* vnf_p7 = (vnf_p7_t*)config;
+	nfapi_vnf_p7_connection_info_t* conn = vnf_p7_connection_info_list_find(vnf_p7, phy_id);
+	if(conn == 0)
+	{
+		NFAPI_TRACE(NFAPI_TRACE_WARN, "%s(): missing P7 connection for phy_id:%u\n", __FUNCTION__, phy_id);
+		return -1;
+	}
+
+	*slot_lead = conn->slot_lead_slots;
 	return 0;
 }
 int nfapi_vnf_p7_dl_config_req(nfapi_vnf_p7_config_t* config, nfapi_dl_config_request_t* req)
@@ -510,6 +569,29 @@ bool nfapi_vnf_p7_ul_tti_req(nfapi_vnf_p7_config_t* config, nfapi_nr_ul_tti_requ
 	vnf_p7_t* vnf_p7 = (vnf_p7_t*)config;
   AssertFatal(config->send_p7_msg, "Function pointer must be configured|");
 	return config->send_p7_msg(vnf_p7, &req->header);
+}
+
+void nfapi_vnf_p7_set_slot_time(nfapi_vnf_p7_config_t* config,
+																uint16_t phy_id,
+																uint16_t sfn,
+																uint16_t slot,
+																uint32_t slot_start_time_hr)
+{
+	if(config == 0)
+		return;
+
+	vnf_p7_t* vnf_p7 = (vnf_p7_t*)config;
+	nfapi_vnf_p7_connection_info_t* conn = vnf_p7_connection_info_list_find(vnf_p7, phy_id);
+	if(conn == 0)
+	{
+		NFAPI_TRACE(NFAPI_TRACE_WARN, "%s(): missing P7 connection for phy_id:%u\n", __FUNCTION__, phy_id);
+		return;
+	}
+
+	conn->sfn = sfn;
+	conn->slot = slot;
+	conn->slot_start_time_hr = slot_start_time_hr ? slot_start_time_hr : vnf_get_current_time_hr();
+	vnf_p7->slot_start_time_hr = conn->slot_start_time_hr;
 }
 
 int nfapi_vnf_p7_ul_config_req(nfapi_vnf_p7_config_t* config, nfapi_ul_config_request_t* req)

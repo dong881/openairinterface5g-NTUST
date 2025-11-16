@@ -61,6 +61,15 @@ bool vnf_nr_send_p5_msg(vnf_t *vnf, uint16_t p5_idx, nfapi_nr_p4_p5_message_head
   }
 }
 
+static inline uint32_t resolve_slot_start_time(const nfapi_vnf_p7_connection_info_t *conn, const vnf_p7_t *vnf_p7)
+{
+  if (conn->slot_start_time_hr)
+    return conn->slot_start_time_hr;
+  if (vnf_p7->slot_start_time_hr)
+    return vnf_p7->slot_start_time_hr;
+  return vnf_get_current_time_hr();
+}
+
 bool vnf_nr_send_p7_msg(vnf_p7_t *vnf_p7, nfapi_nr_p7_message_header_t *header)
 {
   nfapi_vnf_p7_connection_info_t *p7_connection = vnf_p7_connection_info_list_find(vnf_p7, header->phy_id);
@@ -121,8 +130,8 @@ bool vnf_nr_send_p7_msg(vnf_p7_t *vnf_p7, nfapi_nr_p7_message_header_t *header)
         if (vnf_p7->_public.checksum_enabled) {
           nfapi_nr_p7_update_checksum(tx_buffer, segment_size);
         }
-        const uint32_t time =
-            calculate_transmit_timestamp(p7_connection->mu, p7_connection->sfn, p7_connection->slot, vnf_p7->slot_start_time_hr);
+        const uint32_t slot_ref = resolve_slot_start_time(p7_connection, vnf_p7);
+        const uint32_t time = calculate_transmit_timestamp(p7_connection->mu, p7_connection->sfn, p7_connection->slot, slot_ref);
         nfapi_nr_p7_update_transmit_timestamp(tx_buffer, time);
         send_result = socket_send_p7_msg(vnf_p7->socket, &(p7_connection->remote_addr), &tx_buffer[0], segment_size);
       }
@@ -130,8 +139,8 @@ bool vnf_nr_send_p7_msg(vnf_p7_t *vnf_p7, nfapi_nr_p7_message_header_t *header)
       if (vnf_p7->_public.checksum_enabled) {
         nfapi_nr_p7_update_checksum(buffer, len);
       }
-      const uint32_t time =
-          calculate_transmit_timestamp(p7_connection->mu, p7_connection->sfn, p7_connection->slot, vnf_p7->slot_start_time_hr);
+        const uint32_t slot_ref = resolve_slot_start_time(p7_connection, vnf_p7);
+        const uint32_t time = calculate_transmit_timestamp(p7_connection->mu, p7_connection->sfn, p7_connection->slot, slot_ref);
       nfapi_nr_p7_update_transmit_timestamp(buffer, time);
       send_result = socket_send_p7_msg(vnf_p7->socket, &(p7_connection->remote_addr), &buffer[0], len);
     }

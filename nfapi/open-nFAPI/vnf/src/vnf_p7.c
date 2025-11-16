@@ -540,8 +540,12 @@ int vnf_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* hea
 				{
 					nfapi_p7_update_checksum(tx_buffer, segment_size);
 				}
-			
-				nfapi_p7_update_transmit_timestamp(buffer, calculate_transmit_timestamp(p7_connection->mu, p7_connection->sfn, p7_connection->slot, vnf_p7->slot_start_time_hr));	
+		
+				nfapi_p7_update_transmit_timestamp(buffer,
+					calculate_transmit_timestamp(p7_connection->mu,
+												 p7_connection->sfn,
+												 p7_connection->slot,
+												 p7_connection->slot_start_time_hr));	
 
 				send_result = vnf_send_p7_msg(vnf_p7, p7_connection,  &tx_buffer[0], segment_size);
 			}
@@ -553,7 +557,11 @@ int vnf_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* hea
 				nfapi_p7_update_checksum(buffer, len);
 			}
 
-			nfapi_p7_update_transmit_timestamp(buffer, calculate_transmit_timestamp(p7_connection->mu, p7_connection->sfn, p7_connection->slot, vnf_p7->slot_start_time_hr));	
+			nfapi_p7_update_transmit_timestamp(buffer,
+				calculate_transmit_timestamp(p7_connection->mu,
+											 p7_connection->sfn,
+											 p7_connection->slot,
+											 p7_connection->slot_start_time_hr));	
 
 			// simple case that the message fits in a single segement
 			send_result = vnf_send_p7_msg(vnf_p7, p7_connection, &buffer[0], len);
@@ -591,7 +599,7 @@ int vnf_nr_build_send_dl_node_sync(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_inf
 	dl_node_sync.header.phy_id = p7_info->phy_id;
 	dl_node_sync.header.message_id = NFAPI_NR_PHY_MSG_TYPE_DL_NODE_SYNC;
 	//dl_node_sync.t1 = calculate_t1(p7_info->sfn_sf, vnf_p7->sf_start_time_hr);
-	dl_node_sync.t1 = calculate_nr_t1(p7_info->mu, p7_info->sfn,p7_info->slot, vnf_p7->slot_start_time_hr);
+	dl_node_sync.t1 = calculate_nr_t1(p7_info->mu, p7_info->sfn,p7_info->slot, p7_info->slot_start_time_hr);
 	dl_node_sync.delta_sfn_slot = 0;
 
 	return config->send_p7_msg(vnf_p7, &dl_node_sync.header);
@@ -1577,7 +1585,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	//NFAPI_TRACE(NFAPI_TRACE_INFO, "Received UL_NODE_SYNC phy_id:%d t1:%d t2:%d t3:%d\n", ind.header.phy_id, ind.t1, ind.t2, ind.t3);
 
 	nfapi_vnf_p7_connection_info_t* phy = vnf_p7_connection_info_list_find(vnf_p7, ind.header.phy_id);
-	uint32_t t4 = calculate_nr_t4(now_time_hr, phy->mu, phy->sfn, phy->slot, vnf_p7->slot_start_time_hr);
+	uint32_t t4 = calculate_nr_t4(now_time_hr, phy->mu, phy->sfn, phy->slot, phy->slot_start_time_hr);
 
 	uint32_t tx_2_rx = t4>ind.t1 ? t4 - ind.t1 : t4 + NFAPI_MAX_SFNSLOTDEC(phy->mu) - ind.t1 ; //time taken to receive ul node sync - time taken to send dl node sync
 	uint32_t pnf_proc_time = ind.t3 - ind.t2;

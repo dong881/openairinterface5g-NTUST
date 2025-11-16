@@ -26,6 +26,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <limits.h>
 
 #include "pnf_p7.h"
 #include "nr_fapi_p7_utils.h" // for 5G/NR message utils
@@ -692,6 +693,30 @@ static void pnf_p7_handle_msg_arrival(pnf_p7_t *pnf_p7,
 				 (struct timeval *)rx_time);
 }
 
+static inline int pnf_p7_delay_stats_ready(const nfapi_delay_mgmt_state_t *state)
+{
+	return state->dl_tti_stats.latest_delay != INT32_MIN ||
+	       state->ul_tti_stats.latest_delay != INT32_MIN ||
+	       state->ul_dci_stats.latest_delay != INT32_MIN ||
+	       state->tx_data_stats.latest_delay != INT32_MIN;
+}
+
+static void pnf_p7_log_delay_snapshot(const pnf_p7_t *pnf_p7)
+{
+	const nfapi_delay_mgmt_state_t *state = &pnf_p7->delay_state;
+	NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+	            "[P7:%d] TIMING snapshot DL(latest=%dµs jitter=%u) UL(latest=%dµs jitter=%u) ULDCI(latest=%dµs jitter=%u) TX(latest=%dµs jitter=%u)",
+	            pnf_p7->_public.phy_id,
+	            state->dl_tti_stats.latest_delay,
+	            state->dl_tti_jitter.jitter,
+	            state->ul_tti_stats.latest_delay,
+	            state->ul_tti_jitter.jitter,
+	            state->ul_dci_stats.latest_delay,
+	            state->ul_dci_jitter.jitter,
+	            state->tx_data_stats.latest_delay,
+	            state->tx_data_jitter.jitter);
+}
+
 static void pnf_p7_maybe_send_timing_info(pnf_p7_t *pnf_p7, uint16_t sfn, uint16_t slot)
 {
 	if(pnf_p7 == NULL)
@@ -711,6 +736,19 @@ static void pnf_p7_maybe_send_timing_info(pnf_p7_t *pnf_p7, uint16_t sfn, uint16
 	if(pnf_p7->_public.send_p7_msg == NULL)
 		return;
 
+	if(!pnf_p7_delay_stats_ready(&pnf_p7->delay_state))
+	{
+		NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+		            "[P7:%d] Timing info pending stats (DL:%d UL:%d ULDCI:%d TX:%d)",
+		            pnf_p7->_public.phy_id,
+		            pnf_p7->delay_state.dl_tti_stats.latest_delay,
+		            pnf_p7->delay_state.ul_tti_stats.latest_delay,
+		            pnf_p7->delay_state.ul_dci_stats.latest_delay,
+		            pnf_p7->delay_state.tx_data_stats.latest_delay);
+		return;
+	}
+
+	pnf_p7_log_delay_snapshot(pnf_p7);
 	pnf_nr_pack_and_send_timing_info(pnf_p7);
 	pnf_p7->timing_info_aperiodic_send = 0;
 }
