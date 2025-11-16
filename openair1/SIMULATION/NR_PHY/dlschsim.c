@@ -516,6 +516,7 @@ int main(int argc, char **argv)
         bzero(output, sizeof(output));
 	if (input_fd == NULL) {
     msgDataTx.num_pdsch_slot = 1;
+    msgDataTx.pdsch_slot_indices[0] = 0;
 	  nr_dlsch_encoding(gNB, &msgDataTx, frame, slot, frame_parms, output, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 	}
 

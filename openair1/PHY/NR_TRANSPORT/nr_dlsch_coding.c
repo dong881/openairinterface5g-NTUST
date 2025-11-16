@@ -136,7 +136,8 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
 
   int num_segments = 0;
 
-  for (int dlsch_id = 0; dlsch_id < msgTx->num_pdsch_slot; dlsch_id++) {
+  for (int i = 0; i < msgTx->num_pdsch_slot; i++) {
+    int dlsch_id = msgTx->pdsch_slot_indices[i];
     NR_gNB_DLSCH_t *dlsch = msgTx->dlsch[dlsch_id];
 
     NR_DL_gNB_HARQ_t *harq = &dlsch->harq_process;
@@ -228,7 +229,8 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
   size_t segments_offset = 0;
   size_t dlsch_offset = 0;
 
-  for (int dlsch_id = 0; dlsch_id < msgTx->num_pdsch_slot; dlsch_id++) {
+  for (int i = 0; i < msgTx->num_pdsch_slot; i++) {
+    int dlsch_id = msgTx->pdsch_slot_indices[i];
     NR_gNB_DLSCH_t *dlsch = msgTx->dlsch[dlsch_id];
     NR_DL_gNB_HARQ_t *harq = &dlsch->harq_process;
     nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15 = &harq->pdsch_pdu.pdsch_pdu_rel15;
@@ -289,7 +291,8 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
 
   gNB->nrLDPC_coding_interface.nrLDPC_coding_encoder(&slot_parameters);
 
-  for (int dlsch_id = 0; dlsch_id < msgTx->num_pdsch_slot; dlsch_id++) {
+  for (int i = 0; i < msgTx->num_pdsch_slot; i++) {
+    int dlsch_id = msgTx->pdsch_slot_indices[i];
     nrLDPC_TB_encoding_parameters_t *TB_parameters = &TBs[dlsch_id];
     for (int r = 0; r < TB_parameters->C; r++) {
       nrLDPC_segment_encoding_parameters_t *segment_parameters = &TB_parameters->segments[r];

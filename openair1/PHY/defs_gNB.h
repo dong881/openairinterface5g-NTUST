@@ -624,6 +624,7 @@ typedef struct processingData_L1tx {
   NR_gNB_DLSCH_t **dlsch;
   NR_gNB_SSB_t ssb[64];
   uint16_t num_pdsch_slot;
+  uint8_t pdsch_slot_indices[16]; // Valid PDU indices for this slot (MAX_MOBILES_PER_GNB)
   int num_dl_pdcch;
   int num_ul_pdcch;
   /* a reference to the sched_response, to release it when not needed anymore */

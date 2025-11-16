@@ -296,15 +296,17 @@ void nfapi_delay_mgmt_build_timing_info(nfapi_delay_mgmt_state_t *state,
   gettimeofday(&now, NULL);
   timing_info->time_since_last_timing_info = (uint32_t)timeval_diff_us(&now, &state->last_timing_info_time);
 
-  timing_info->dl_tti_jitter = state->dl_tti_jitter.jitter;
-  timing_info->tx_data_request_jitter = state->tx_data_jitter.jitter;
-  timing_info->ul_tti_jitter = state->ul_tti_jitter.jitter;
-  timing_info->ul_dci_jitter = state->ul_dci_jitter.jitter;
+  // Report jitter as 0 if not yet initialized (avoid reporting uninitialized data)
+  timing_info->dl_tti_jitter = state->dl_tti_jitter.initialized ? state->dl_tti_jitter.jitter : 0;
+  timing_info->tx_data_request_jitter = state->tx_data_jitter.initialized ? state->tx_data_jitter.jitter : 0;
+  timing_info->ul_tti_jitter = state->ul_tti_jitter.initialized ? state->ul_tti_jitter.jitter : 0;
+  timing_info->ul_dci_jitter = state->ul_dci_jitter.initialized ? state->ul_dci_jitter.jitter : 0;
 
-  timing_info->dl_tti_latest_delay = state->dl_tti_stats.latest_delay;
-  timing_info->tx_data_request_latest_delay = state->tx_data_stats.latest_delay;
-  timing_info->ul_tti_latest_delay = state->ul_tti_stats.latest_delay;
-  timing_info->ul_dci_latest_delay = state->ul_dci_stats.latest_delay;
+  // Report latest_delay as 0 if no messages received yet (INT32_MIN sentinel value)
+  timing_info->dl_tti_latest_delay = state->dl_tti_stats.latest_delay == INT32_MIN ? 0 : state->dl_tti_stats.latest_delay;
+  timing_info->tx_data_request_latest_delay = state->tx_data_stats.latest_delay == INT32_MIN ? 0 : state->tx_data_stats.latest_delay;
+  timing_info->ul_tti_latest_delay = state->ul_tti_stats.latest_delay == INT32_MIN ? 0 : state->ul_tti_stats.latest_delay;
+  timing_info->ul_dci_latest_delay = state->ul_dci_stats.latest_delay == INT32_MIN ? 0 : state->ul_dci_stats.latest_delay;
 
   timing_info->dl_tti_earliest_arrival = state->dl_tti_stats.earliest_arrival == INT32_MAX ? 0 : state->dl_tti_stats.earliest_arrival;
   timing_info->tx_data_request_earliest_arrival = state->tx_data_stats.earliest_arrival == INT32_MAX ? 0 : state->tx_data_stats.earliest_arrival;
