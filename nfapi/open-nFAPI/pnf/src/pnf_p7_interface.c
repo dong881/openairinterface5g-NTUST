@@ -33,7 +33,9 @@ nfapi_pnf_p7_config_t* nfapi_pnf_p7_config_create()
 	_this->max_num_segments = 8;
 	
 	_this->_public.subframe_buffer_size = 8;// TODO: Initialize the slot_buffer size
-	_this->_public.timing_info_mode_periodic = 1;
+	// Per SCF-222 spec section 2.2.2: Default to Event-driven (aperiodic) timing info mode
+	// Bit 0 = Periodic (0=disabled), Bit 1 = Aperiodic/Event-driven (1=enabled)
+	_this->_public.timing_info_mode_periodic = 0;
 	_this->_public.timing_info_period = 32;
 	_this->_public.timing_info_mode_aperiodic = 1;
 	
