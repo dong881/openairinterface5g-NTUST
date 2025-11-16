@@ -313,8 +313,9 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
 
   if (should_prime) {
     NFAPI_TRACE(NFAPI_TRACE_INFO,
-                "[INFO] VNF-TIMING: Timing Info 0/0 received, priming tickpack bootstrap (CP_0.4→CP_2.1)");
-    vnf_delay_prime_tickpack(ind->last_sfn, ind->last_slot);
+                "[INFO] VNF-TIMING: Timing Info 0/0 received - autonomous tick is now active");
+    // With autonomous tick, we don't need the bootstrap tickpack
+    // The tick thread is handling slot progression independently
   }
 }
 
@@ -1287,19 +1288,23 @@ int phy_nr_timing_info_indication(nfapi_nr_timing_info_t *ind)
 
 int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
 {
-  LOG_D(MAC, "VNF SFN/Slot %d.%d \n", ind->sfn, ind->slot);
-
+  // NOTE: According to nFAPI spec (SCF-225), SLOT.indication should be suppressed
+  // when delay management is active. The VNF now has its own autonomous tick.
+  // This function is kept for compatibility but should not forward to scheduler.
+  
+  LOG_D(MAC, "[VNF] Received SLOT.indication %d.%d (suppressed - using autonomous tick)\n", 
+        ind->sfn, ind->slot);
+  
+  // Still update slot clock for delay management reference
   vnf_delay_update_slot_clock(ind->sfn, ind->slot);
-
-  if (vnf_delay_should_skip_slot(ind->sfn, ind->slot)) {
-    NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-                "[DEBUG] VNF-TICKPACK: Skipping slot %u/%u (bootstrap already dispatched)",
-                ind->sfn,
-                ind->slot);
-    return 1;
-  }
-
-  trigger_scheduler(ind);
+  
+  // Do NOT call trigger_scheduler here anymore - the autonomous tick thread handles that
+  // This is the key change to make VNF spec-compliant
+  
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+              "[VNF] SLOT.indication %u/%u received but not processed (autonomous tick active)\n",
+              ind->sfn,
+              ind->slot);
 
   return 1;
 }
@@ -1554,7 +1559,112 @@ int vnf_nr_pack_p4_p5_vendor_extension(void *header, uint8_t **ppWritePackedMsg,
 
 static pthread_t vnf_p5_init_and_receive_pthread;
 static pthread_t vnf_p7_start_pthread;
+static pthread_t vnf_p7_tick_pthread;
 
+// VNF tick state
+typedef struct {
+  pthread_mutex_t lock;
+  bool running;
+  uint16_t sfn;
+  uint16_t slot;
+  uint8_t mu;  // subcarrier spacing (numerology)
+  nfapi_vnf_p7_config_t *config;
+} vnf_tick_state_t;
+
+static vnf_tick_state_t g_vnf_tick_state = {
+  .lock = PTHREAD_MUTEX_INITIALIZER,
+  .running = false,
+  .sfn = 0,
+  .slot = 0,
+  .mu = 1,  // default to 30kHz
+  .config = NULL,
+};
+
+// VNF autonomous tick thread - this is the VNF's own independent clock
+void *vnf_tick_thread(void *ptr)
+{
+  pthread_setname_np(pthread_self(), "VNF_TICK");
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Starting autonomous tick thread (spec-compliant mode)\n");
+  
+  vnf_tick_state_t *state = (vnf_tick_state_t *)ptr;
+  
+  // Calculate slot duration in microseconds based on numerology
+  // mu=0: 1ms, mu=1: 0.5ms, mu=2: 0.25ms, mu=3: 0.125ms, mu=4: 0.0625ms
+  const uint32_t slot_duration_us = 1000 >> state->mu;  // microseconds per slot
+  
+  struct timespec next_tick;
+  clock_gettime(CLOCK_MONOTONIC, &next_tick);
+  
+  NFAPI_TRACE(NFAPI_TRACE_INFO, 
+              "[VNF] Tick thread started: mu=%u, slot_duration=%uus\n",
+              state->mu,
+              slot_duration_us);
+  
+  while (1) {
+    pthread_mutex_lock(&state->lock);
+    bool running = state->running;
+    uint16_t sfn = state->sfn;
+    uint16_t slot = state->slot;
+    pthread_mutex_unlock(&state->lock);
+    
+    if (!running) {
+      usleep(10000);  // Sleep 10ms while not running
+      continue;
+    }
+    
+    // Call scheduler for this slot
+    nfapi_nr_slot_indication_scf_t slot_ind = {
+      .sfn = sfn,
+      .slot = slot,
+    };
+    
+    NFAPI_TRACE(NFAPI_TRACE_DEBUG, 
+                "[VNF-TICK] Autonomous slot %u/%u (mu=%u)\n",
+                sfn, slot, state->mu);
+    
+    // Update slot clock for delay management
+    vnf_delay_update_slot_clock(sfn, slot);
+    
+    // Trigger the scheduler to send DL_TTI/UL_TTI/UL_DCI/TX_DATA messages
+    trigger_scheduler(&slot_ind);
+    
+    // Advance to next slot
+    pthread_mutex_lock(&state->lock);
+    state->slot++;
+    uint16_t slots_per_frame = 10 * (1 << state->mu);  // 10, 20, 40, 80, 160 for mu=0,1,2,3,4
+    if (state->slot >= slots_per_frame) {
+      state->slot = 0;
+      state->sfn = (state->sfn + 1) % 1024;
+    }
+    pthread_mutex_unlock(&state->lock);
+    
+    // Sleep until next slot boundary
+    next_tick.tv_nsec += slot_duration_us * 1000;
+    if (next_tick.tv_nsec >= 1000000000) {
+      next_tick.tv_sec += 1;
+      next_tick.tv_nsec -= 1000000000;
+    }
+    clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next_tick, NULL);
+  }
+  
+  return NULL;
+}
+
+void vnf_start_autonomous_tick(uint8_t mu, nfapi_vnf_p7_config_t *config)
+{
+  pthread_mutex_lock(&g_vnf_tick_state.lock);
+  g_vnf_tick_state.mu = mu;
+  g_vnf_tick_state.config = config;
+  g_vnf_tick_state.running = true;
+  pthread_mutex_unlock(&g_vnf_tick_state.lock);
+  
+  NFAPI_TRACE(NFAPI_TRACE_INFO, 
+              "[VNF] Starting autonomous tick with mu=%u (SCS=%ukHz)\n",
+              mu, 15 << mu);
+  
+  pthread_create(&vnf_p7_tick_pthread, NULL, &vnf_tick_thread, &g_vnf_tick_state);
+  pthread_setname_np(vnf_p7_tick_pthread, "VNF_TICK");
+}
 
 void *vnf_p7_start_thread(void *ptr) {
   NFAPI_TRACE(NFAPI_TRACE_INFO, "%s()\n", __FUNCTION__);
@@ -1909,6 +2019,18 @@ int start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_start_response_t
 
 int nr_start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_start_response_scf_t *resp) {
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Received NFAPI_START_RESP idx:%d phy_id:%d\n", p5_idx, resp->header.phy_id);
+  
+  // Start the VNF autonomous tick thread now that PNF is ready
+  // Use the stored g_vnf_mu from nr_param_resp_cb
+  vnf_info *vnf = (vnf_info *)(config->user_data);
+  vnf_p7_info *p7_vnf = vnf->p7_vnfs;
+  
+  NFAPI_TRACE(NFAPI_TRACE_INFO, 
+              "[VNF] Starting autonomous tick thread (spec-compliant mode) with mu=%u\n",
+              g_vnf_mu);
+  
+  vnf_start_autonomous_tick(g_vnf_mu, p7_vnf->config);
+  
   return 0;
 }
 
