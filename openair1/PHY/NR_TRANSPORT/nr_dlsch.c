@@ -205,7 +205,7 @@ static inline int interleave_signals(c16_t *output, c16_t *signal1, const int am
 #ifdef DEBUG_DLSCH_MAPPING
   printf("doing DMRS pattern for port 0 : d0 X0 d1 X1 ... dNm2 XNm2 dNm1 XNm1\n");
 #endif
-    // add filler to process all as SIMD
+  // add filler to process all as SIMD
   c16_t *out = output;
   int i = 0;
   int end = sz / 2;
@@ -476,7 +476,7 @@ static inline void do_txdataF(c16_t **txdataF,
     // If pmi of next RB and pmi of current RB are the same, we do 2 RB in a row
     // if pmi differs, or current rb is the end (rel15->rbSize - 1), than we do 1 RB in a row
     int rb_step0 = pmi == pmi2 ? 2 : 1;
-    const int rb_step = rb_step0==2 && pmi3==pmi && pmi4==pmi ? 4 : rb_step0;
+    const int rb_step = rb_step0 == 2 && pmi3 == pmi && pmi4 == pmi ? 4 : rb_step0;
     const int re_cnt = NR_NB_SC_PER_RB * rb_step;
     if (pmi == 0) { // unitary Precoding
       if (subCarrier + re_cnt <= symbol_sz) { // RB does not cross DC
@@ -558,10 +558,11 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
   NR_DL_gNB_HARQ_t *harq = &dlsch->harq_process;
   nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15 = &harq->pdsch_pdu.pdsch_pdu_rel15;
   const int layerSz = frame_parms->N_RB_DL * NR_SYMBOLS_PER_SLOT * NR_NB_SC_PER_RB;
-  const int symbol_sz=frame_parms->ofdm_symbol_size;
+  const int symbol_sz = frame_parms->ofdm_symbol_size;
   const int dmrs_Type = rel15->dmrsConfigType;
   const int nb_re_dmrs = rel15->numDmrsCdmGrpsNoData * (rel15->dmrsConfigType == NFAPI_NR_DMRS_TYPE1 ? 6 : 4);
-  const int16_t amp_dmrs = min((double)amp * sqrt(rel15->numDmrsCdmGrpsNoData), INT16_MAX); // 3GPP TS 38.214 Section 4.1: Table 4.1-1
+  const int16_t amp_dmrs =
+      min((double)amp * sqrt(rel15->numDmrsCdmGrpsNoData), INT16_MAX); // 3GPP TS 38.214 Section 4.1: Table 4.1-1
   LOG_D(PHY,
         "pdsch: BWPStart %d, BWPSize %d, rbStart %d, rbsize %d\n",
         rel15->BWPStart,
@@ -664,7 +665,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSC
 
   AssertFatal(n_dmrs, "n_dmrs can't be 0\n");
   // make a large enough tail to process all re with SIMD regardless a garbadge filler
-  c16_t mod_dmrs[(n_dmrs+63)&~63] __attribute__((aligned(64)));
+  c16_t mod_dmrs[(n_dmrs + 63) & ~63] __attribute__((aligned(64)));
   unsigned int re_beginning_of_symbol = 0;
 
   start_meas(&gNB->dlsch_layer_mapping_stats);
@@ -790,6 +791,40 @@ void nr_generate_pdsch(processingData_L1tx_t *msgTx, int frame, int slot)
   time_stats_t *dlsch_interleaving_stats = &gNB->dlsch_interleaving_stats;
   time_stats_t *dlsch_segmentation_stats = &gNB->dlsch_segmentation_stats;
 
+  /* First pass: validate all PDSCHs have valid PDUs and filter out invalid ones.
+   * Missing PDUs indicate TX_Data_request arrived late, was not received,
+   * or there was a PDU index mismatch between DL_TTI and TX_Data requests. */
+  uint16_t valid_pdsch_indices[16];
+  uint16_t num_valid_pdsch = 0;
+
+  for (int i = 0; i < msgTx->num_pdsch_slot; i++) {
+    int dlsch_id = msgTx->pdsch_slot_indices[i];
+    NR_gNB_DLSCH_t *dlsch = msgTx->dlsch[dlsch_id];
+    NR_DL_gNB_HARQ_t *harq = &dlsch->harq_process;
+    nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15 = &harq->pdsch_pdu.pdsch_pdu_rel15;
+
+    if (harq->pdu == NULL) {
+      LOG_E(PHY,
+            "%4d.%2d PDSCH generation skipped: missing HARQ PDU for dlsch_id %d (pduIndex %d). "
+            "Check nFAPI P7 timing (TX_Data late?) or PDU_index mismatch between DL_TTI and TX_Data.\n",
+            msgTx->frame,
+            msgTx->slot,
+            dlsch_id,
+            rel15->pduIndex);
+      continue;
+    }
+    valid_pdsch_indices[num_valid_pdsch++] = dlsch_id;
+  }
+
+  if (num_valid_pdsch == 0) {
+    LOG_W(PHY, "%4d.%2d No valid PDSCHs to generate (all missing PDUs)\n", msgTx->frame, msgTx->slot);
+    return;
+  }
+
+  /* Update msgTx with filtered valid PDSCHs */
+  msgTx->num_pdsch_slot = num_valid_pdsch;
+  memcpy(msgTx->pdsch_slot_indices, valid_pdsch_indices, num_valid_pdsch * sizeof(uint16_t));
+
   size_t size_output = 0;
 
   for (int i = 0; i < msgTx->num_pdsch_slot; i++) {
@@ -821,9 +856,6 @@ void nr_generate_pdsch(processingData_L1tx_t *msgTx, int frame, int slot)
       ptrsSymbPerSlot = get_ptrs_symbols_in_slot(dlPtrsSymPos, rel15->StartSymbolIndex, rel15->NrOfSymbols);
     }
     harq->unav_res = ptrsSymbPerSlot * n_ptrs;
-
-    /// CRC, coding, interleaving and rate matching
-    AssertFatal(harq->pdu != NULL, "%4d.%2d no HARQ PDU for PDSCH generation\n", msgTx->frame, msgTx->slot);
 
     /* output and its parts for each dlsch should be aligned on 64 bytes (or 8 * 64 bits)
      * => size_output is a sum of parts sizes rounded up to a multiple of 8 * 64

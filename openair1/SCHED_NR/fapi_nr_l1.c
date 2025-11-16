@@ -38,21 +38,20 @@
 #include "openair2/NR_PHY_INTERFACE/nr_sched_response.h"
 #include "nfapi/oai_integration/nfapi_vnf.h"
 
-void handle_nr_nfapi_ssb_pdu(processingData_L1tx_t *msgTx,int frame,int slot,
-                             nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdu)
+void handle_nr_nfapi_ssb_pdu(processingData_L1tx_t *msgTx, int frame, int slot, nfapi_nr_dl_tti_request_pdu_t *dl_tti_pdu)
 {
-
-  AssertFatal(dl_tti_pdu->ssb_pdu.ssb_pdu_rel15.bchPayloadFlag== 1, "bchPayloadFlat %d != 1\n",
+  AssertFatal(dl_tti_pdu->ssb_pdu.ssb_pdu_rel15.bchPayloadFlag == 1,
+              "bchPayloadFlat %d != 1\n",
               dl_tti_pdu->ssb_pdu.ssb_pdu_rel15.bchPayloadFlag);
 
   uint8_t i_ssb = dl_tti_pdu->ssb_pdu.ssb_pdu_rel15.SsbBlockIndex;
 
-  LOG_D(NR_PHY,"%d.%d : ssb index %d pbch_pdu: %x\n",frame,slot,i_ssb,dl_tti_pdu->ssb_pdu.ssb_pdu_rel15.bchPayload);
+  LOG_D(NR_PHY, "%d.%d : ssb index %d pbch_pdu: %x\n", frame, slot, i_ssb, dl_tti_pdu->ssb_pdu.ssb_pdu_rel15.bchPayload);
   if (msgTx->ssb[i_ssb].active)
-    AssertFatal(1==0,"SSB PDU with index %d already active\n",i_ssb);
+    AssertFatal(1 == 0, "SSB PDU with index %d already active\n", i_ssb);
   else {
     msgTx->ssb[i_ssb].active = true;
-    memcpy((void*)&msgTx->ssb[i_ssb].ssb_pdu,&dl_tti_pdu->ssb_pdu,sizeof(dl_tti_pdu->ssb_pdu));
+    memcpy((void *)&msgTx->ssb[i_ssb].ssb_pdu, &dl_tti_pdu->ssb_pdu, sizeof(dl_tti_pdu->ssb_pdu));
   }
 }
 
@@ -63,15 +62,15 @@ void handle_nfapi_nr_csirs_pdu(processingData_L1tx_t *msgTx, int frame, int slot
   for (int id = 0; id < NR_NUMBER_OF_SYMBOLS_PER_SLOT; id++) {
     NR_gNB_CSIRS_t *csirs = &msgTx->csirs_pdu[id];
     if (csirs->active == 0) {
-      LOG_D(NR_PHY,"Frame %d Slot %d CSI_RS with ID %d is now active\n",frame,slot,id);
+      LOG_D(NR_PHY, "Frame %d Slot %d CSI_RS with ID %d is now active\n", frame, slot, id);
       csirs->active = 1;
-      memcpy((void*)&csirs->csirs_pdu, (void*)csirs_pdu, sizeof(nfapi_nr_dl_tti_csi_rs_pdu));
+      memcpy((void *)&csirs->csirs_pdu, (void *)csirs_pdu, sizeof(nfapi_nr_dl_tti_csi_rs_pdu));
       found = 1;
       break;
     }
   }
   if (found == 0)
-    LOG_E(MAC,"CSI-RS list is full\n");
+    LOG_E(MAC, "CSI-RS list is full\n");
 }
 
 void nr_schedule_dl_tti_req(PHY_VARS_gNB *gNB, nfapi_nr_dl_tti_request_t *DL_req)
@@ -177,9 +176,11 @@ void nr_schedule_tx_req(PHY_VARS_gNB *gNB, nfapi_nr_tx_data_request_t *TX_req)
   DevAssert(TX_req != NULL);
   processingData_L1tx_t *msgTx = gNB->msgDataTx;
 
-  for (int idx = 0; idx < TX_req->Number_of_PDUs; ++idx) {
-    uint8_t *sdu = (uint8_t *)TX_req->pdu_list[idx].TLVs[0].value.direct;
-    nr_fill_dlsch_tx_req(msgTx, idx, sdu);
+  for (int i = 0; i < TX_req->Number_of_PDUs; ++i) {
+    uint16_t pdu_index = TX_req->pdu_list[i].PDU_index;
+    AssertFatal(pdu_index < 16, "TX_Data_req PDU_index %d exceeds maximum (16)\n", pdu_index);
+    uint8_t *sdu = (uint8_t *)TX_req->pdu_list[i].TLVs[0].value.direct;
+    nr_fill_dlsch_tx_req(msgTx, pdu_index, sdu);
   }
 }
 
@@ -211,7 +212,7 @@ void nr_schedule_response(NR_Sched_Rsp_t *Sched_INFO)
 
   int slot_type = nr_slot_select(cfg, frame, slot);
 
-  clear_slot_beamid(gNB, slot);  // reset beam_id information for the slot to be processed
+  clear_slot_beamid(gNB, slot); // reset beam_id information for the slot to be processed
   DevAssert(NFAPI_MODE == NFAPI_MONOLITHIC);
   bool is_dl = slot_type == NR_DOWNLINK_SLOT || slot_type == NR_MIXED_SLOT;
 
