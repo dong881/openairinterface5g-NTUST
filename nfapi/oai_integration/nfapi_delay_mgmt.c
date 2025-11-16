@@ -310,6 +310,13 @@ void nfapi_delay_mgmt_build_timing_info(nfapi_delay_mgmt_state_t *state,
   timing_info->tx_data_request_earliest_arrival = state->tx_data_stats.earliest_arrival == INT32_MAX ? 0 : state->tx_data_stats.earliest_arrival;
   timing_info->ul_tti_earliest_arrival = state->ul_tti_stats.earliest_arrival == INT32_MAX ? 0 : state->ul_tti_stats.earliest_arrival;
   timing_info->ul_dci_earliest_arrival = state->ul_dci_stats.earliest_arrival == INT32_MAX ? 0 : state->ul_dci_stats.earliest_arrival;
+
+  // CRITICAL FIX: Reset stats after building timing info to prevent stale values
+  // Per SCF-222 spec, stats should be cleared after each timing info report
+  reset_stats(&state->dl_tti_stats);
+  reset_stats(&state->tx_data_stats);
+  reset_stats(&state->ul_tti_stats);
+  reset_stats(&state->ul_dci_stats);
 }
 
 void nfapi_delay_mgmt_process_dl_node_sync(nfapi_delay_mgmt_state_t *state,

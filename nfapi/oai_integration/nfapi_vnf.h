@@ -149,4 +149,21 @@ typedef struct {
 void configure_nfapi_vnf(char *vnf_addr, int vnf_p5_port, char *pnf_ip_addr, int pnf_p7_port, int vnf_p7_port);
 void configure_nr_nfapi_vnf(eth_params_t params);
 
+/**
+ * @brief Configure VNF timing parameters per SCF-222 spec
+ * @param timing_offset_us Timing offset in microseconds (TLV 0x0106-0x0109)
+ * @param timing_window_us Timing window in microseconds (TLV 0x011E)
+ * @param mu Subcarrier spacing / numerology (0=15kHz, 1=30kHz, etc.)
+ *
+ * This function configures the VNF timing window parameters according to SCF-222
+ * specification. It calculates the target slot offset based on the timing offset
+ * and numerology, replacing hard-coded synchronization values.
+ *
+ * Example configurations:
+ * - Low latency:    timing_offset_us=300, timing_window_us=100
+ * - Medium latency: timing_offset_us=500, timing_window_us=150 (default)
+ * - High latency:   timing_offset_us=800, timing_window_us=200
+ */
+void nfapi_vnf_configure_timing_params(uint32_t timing_offset_us, uint16_t timing_window_us, uint8_t mu);
+
 #endif /* NFAPI_VNF_H_ */
