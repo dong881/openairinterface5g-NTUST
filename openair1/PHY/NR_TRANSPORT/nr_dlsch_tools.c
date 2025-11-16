@@ -36,16 +36,18 @@
 
 void nr_fill_dlsch_dl_tti_req(processingData_L1tx_t *msgTx, nfapi_nr_dl_tti_pdsch_pdu *pdsch_pdu)
 {
-  NR_gNB_DLSCH_t *dlsch = &msgTx->dlsch[msgTx->num_pdsch_slot][0];
+  uint8_t pdu_index = pdsch_pdu->pdsch_pdu_rel15.pduIndex;
+  AssertFatal(pdu_index < 16, "PDSCH PDU index %d exceeds maximum (16)\n", pdu_index);
+  
+  NR_gNB_DLSCH_t *dlsch = &msgTx->dlsch[pdu_index][0];
   NR_DL_gNB_HARQ_t *harq = &dlsch->harq_process;
   /// DLSCH struct
   memcpy((void*)&harq->pdsch_pdu, (void*)pdsch_pdu, sizeof(nfapi_nr_dl_tti_pdsch_pdu));
-  AssertFatal(msgTx->num_pdsch_slot == pdsch_pdu->pdsch_pdu_rel15.pduIndex,
-              "PDSCH PDU index %d does not match msgTx index %d\n",
-              pdsch_pdu->pdsch_pdu_rel15.pduIndex,
-              msgTx->num_pdsch_slot);
-  msgTx->num_pdsch_slot++;
   harq->pdu = NULL;
+  
+  // Track this PDU index as valid for this slot
+  msgTx->pdsch_slot_indices[msgTx->num_pdsch_slot] = pdu_index;
+  msgTx->num_pdsch_slot++;
 }
 
 void nr_fill_dlsch_tx_req(processingData_L1tx_t *msgTx, int idx, uint8_t *sdu)
