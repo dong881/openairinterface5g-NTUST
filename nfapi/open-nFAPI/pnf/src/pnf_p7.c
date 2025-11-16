@@ -1122,14 +1122,37 @@ int pnf_p7_subframe_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn_sf)
 
 bool is_nr_p7_request_in_window(const uint16_t sfn, const uint16_t slot, const char* name, const pnf_p7_t* phy)
 {
+  // CRITICAL FIX: During initial synchronization, VNF and PNF slot counters can be massively
+  // desynchronized (e.g., VNF at 1.19, PNF at 614.4), causing ALL messages to be rejected.
+  // This prevents timing info stats from accumulating, creating a deadlock.
+  //
+  // Solution: Use lenient window during initial synchronization phase (first ~100 slots).
+  // After VNF receives first timing info, it will adjust its slot offset to match PNF,
+  // and normal window checking can resume.
+  //
+  // Per SCF-222 Section 2.6: Window checking is for steady-state operation. During startup,
+  // we need to allow VNF-PNF synchronization via timing info exchange.
+  const bool in_sync_phase = (phy->delay_state.slot_counter < 100);
+  
   const uint32_t recv = NFAPI_SFNSLOT2DEC(phy->mu, sfn, slot); // unpack sfn/slot
   const uint32_t curr = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
   const uint8_t timing_window = phy->_public.slot_buffer_size; // TODO check
   uint32_t diff = curr < recv ? recv - curr : curr - recv;
   if (diff > NFAPI_MAX_SFNSLOTDEC(phy->mu) / 2)
     diff = NFAPI_MAX_SFNSLOTDEC(phy->mu) - diff;
-  if (diff > timing_window) {
-    NFAPI_TRACE(NFAPI_TRACE_WARN, "[%d] %s is out of window %d (delta:%d) [max:%d]\n", curr, name, recv, diff, timing_window);
+  
+  // During sync phase, use very large window (10000 slots ~= 5 seconds at 30kHz)
+  // to allow VNF and PNF to exchange timing info and synchronize their slot offsets
+  const uint32_t effective_window = in_sync_phase ? 10000 : timing_window;
+  
+  if (diff > effective_window) {
+    if (in_sync_phase) {
+      NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[%d] %s is out of SYNC window %d (delta:%d) [sync_max:%d]\n", 
+                  curr, name, recv, diff, effective_window);
+    } else {
+      NFAPI_TRACE(NFAPI_TRACE_WARN, "[%d] %s is out of window %d (delta:%d) [max:%d]\n", 
+                  curr, name, recv, diff, timing_window);
+    }
     return false;
   }
   return true;

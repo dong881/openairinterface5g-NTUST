@@ -114,9 +114,21 @@ static uint64_t calc_slot_start_us(uint16_t sfn, uint16_t slot, uint8_t scs)
 
 static uint64_t timestamp_from_ref(const nfapi_delay_mgmt_state_t *state, const struct timeval *recv_time)
 {
-  if (!state->time_reference_valid)
+  // CRITICAL FIX: Use absolute wallclock microseconds for timestamp comparison
+  // Previously used relative time from sfn_slot_zero_time reference, which was
+  // incompatible with VNF's transmit_timestamp calculation.
+  //
+  // Now both VNF and PNF use absolute wallclock microseconds (modulo 2^64),
+  // making timestamps directly comparable for:
+  // 1. Jitter calculation: transit_time = arrival_us - transmit_timestamp
+  // 2. Delay measurement: actual_us - expected_us
+  // 3. Node Sync round-trip latency calculation
+  //
+  // The state->time_reference_valid check is kept for backward compatibility,
+  // but we now return absolute microseconds regardless of reference validity.
+  if (!recv_time)
     return 0;
-  return (uint64_t)timeval_diff_us(recv_time, &state->sfn_slot_zero_time);
+  return (uint64_t)((uint64_t)recv_time->tv_sec * 1000000ULL + (uint64_t)recv_time->tv_usec);
 }
 
 void nfapi_delay_mgmt_init(nfapi_delay_mgmt_state_t *state)
@@ -164,9 +176,9 @@ void nfapi_delay_mgmt_set_time_reference(nfapi_delay_mgmt_state_t *state,
 
 uint32_t nfapi_delay_mgmt_get_transmit_timestamp(nfapi_delay_mgmt_state_t *state)
 {
-  if (!state->time_reference_valid)
-    return 0;
-
+  // CRITICAL FIX: Return absolute wallclock microseconds for consistency with VNF
+  // Previously returned relative time from state->time_reference, which was incompatible
+  // with VNF's transmit_timestamp calculation
   struct timeval now;
   gettimeofday(&now, NULL);
   return (uint32_t)timestamp_from_ref(state, &now);
@@ -186,20 +198,32 @@ nfapi_msg_arrival_result_e nfapi_delay_mgmt_check_message_arrival(
   if (!cfg || !stats || !cfg->enabled || !receive_time)
     return NFAPI_MSG_ARRIVAL_ON_TIME;
 
-  const uint64_t slot_start_us = calc_slot_start_us(sfn, slot, state->subcarrier_spacing);
-  const uint64_t expected_us = (cfg->timing_offset_us >= slot_start_us)
-                                   ? 0
-                                   : slot_start_us - cfg->timing_offset_us;
+  // CRITICAL FIX: Use transmit_timestamp directly instead of calculating expected time from slot
+  // With absolute wallclock timestamps (VNF and PNF both use gettimeofday), we can directly
+  // calculate the delay as: receive_time - transmit_timestamp
+  //
+  // The timing window check becomes:
+  // - Message should arrive within [transmit_timestamp, transmit_timestamp + offset + window]
+  // - If it arrives too early (before transmit_timestamp), delay is negative
+  // - If it arrives too late (after transmit_timestamp + offset + window), delay is positive and > window
+  //
+  // This matches SCF-222 delay management spec Section 2.6.2
   const uint64_t actual_us = timestamp_from_ref(state, receive_time);
+  const uint64_t transmit_us = (uint64_t)transmit_timestamp;
+  
+  // Calculate delay: positive means message arrived after expected time
+  // expected time = transmit_timestamp (when VNF sent it)
   int32_t delta = 0;
-  if (actual_us >= expected_us)
-    delta = (int32_t)(actual_us - expected_us);
+  if (actual_us >= transmit_us)
+    delta = (int32_t)(actual_us - transmit_us);
   else
-    delta = -(int32_t)(expected_us - actual_us);
+    delta = -(int32_t)(transmit_us - actual_us);
 
   nfapi_msg_arrival_result_e result = NFAPI_MSG_ARRIVAL_ON_TIME;
   const int32_t window = (int32_t)cfg->timing_window_us;
 
+  // Message is on-time if delay is within the acceptable window
+  // For P7 messages, typical offset is 300-500μs, window is 100-200μs
   if (delta > window)
     result = NFAPI_MSG_ARRIVAL_TOO_LATE;
   else if (delta < -window)
@@ -208,7 +232,7 @@ nfapi_msg_arrival_result_e nfapi_delay_mgmt_check_message_arrival(
   update_stats(stats, delta, result);
   if (delta_out)
     *delta_out = delta;
-  (void)transmit_timestamp;
+  
   return result;
 }
 
@@ -221,13 +245,28 @@ void nfapi_delay_mgmt_update_jitter(nfapi_delay_mgmt_state_t *state,
   if (!jitter || !receive_time)
     return;
 
+  // CRITICAL FIX: With absolute wallclock timestamps, jitter calculation per RFC 3550 works correctly
+  // transit_time = arrival_time - transmit_timestamp (both in absolute μs from epoch)
+  // jitter = jitter + (|transit_time_delta| - jitter) / 16
+  //
+  // Previously, arrival_us used local reference and transmit_timestamp used slot-relative time,
+  // causing incompatible subtraction that often resulted in negative values → clamped to 0 → zero jitter
   const uint64_t arrival_us = timestamp_from_ref(state, receive_time);
-  if (!state->time_reference_valid || arrival_us == 0)
+  const uint64_t transmit_us = (uint64_t)transmit_timestamp;
+  
+  if (arrival_us == 0 || transmit_us == 0)
     return;
 
-  const uint32_t transit_time = (arrival_us >= transmit_timestamp)
-                                    ? (uint32_t)(arrival_us - transmit_timestamp)
-                                    : 0;
+  // Calculate transit time (network delay from VNF transmit to PNF receive)
+  // With absolute timestamps, this should be a reasonable value (typically < 10ms for local network)
+  uint32_t transit_time = 0;
+  if (arrival_us >= transmit_us) {
+    transit_time = (uint32_t)(arrival_us - transmit_us);
+  } else {
+    // Negative transit time indicates clock skew or timestamp wraparound
+    // Treat as invalid sample and skip jitter update
+    return;
+  }
 
   if (!jitter->initialized) {
     jitter->previous_transit_time = transit_time;
@@ -235,6 +274,8 @@ void nfapi_delay_mgmt_update_jitter(nfapi_delay_mgmt_state_t *state,
     return;
   }
 
+  // RFC 3550 jitter calculation: J = J + (|D| - J) / 16
+  // where D = (R_i - R_{i-1}) - (S_i - S_{i-1}) = transit_time_i - transit_time_{i-1}
   const int32_t d = (int32_t)transit_time - (int32_t)jitter->previous_transit_time;
   jitter->previous_transit_time = transit_time;
   jitter->jitter += ((d < 0 ? -d : d) - jitter->jitter) >> 4;

@@ -400,11 +400,21 @@ uint32_t calculate_nr_t4(uint32_t now_time_hr, int mu, uint16_t sfn, uint16_t sl
 
 uint32_t calculate_transmit_timestamp(int mu, uint16_t sfn, uint16_t slot, uint32_t slot_start_time_hr)
 {
-	uint32_t now_time_hr = vnf_get_current_time_hr();
-
-	uint32_t slot_time_us = get_slot_time(now_time_hr, slot_start_time_hr);
-
-	uint32_t tt = NFAPI_SFNSLOT2DEC(mu, sfn, slot) * NFAPI_SLOTLEN(mu) + slot_time_us;
+	// CRITICAL FIX: Use absolute wallclock microseconds for transmit_timestamp
+	// Previously used relative slot time (NFAPI_SFNSLOT2DEC * NFAPI_SLOTLEN + offset)
+	// which was incompatible with PNF's absolute timestamp_from_ref calculation.
+	// This caused jitter calculation to fail (arrival_us - transmit_timestamp gave wrong results).
+	//
+	// Per SCF-222 delay management spec, timestamps should be comparable between VNF and PNF.
+	// Using absolute wallclock ensures:
+	// 1. Jitter calculation works: transit_time = arrival_us - transmit_timestamp
+	// 2. Node Sync can calibrate round-trip latency
+	// 3. Timing Info reports meaningful delay values
+	struct timeval now;
+	gettimeofday(&now, NULL);
+	// Return microseconds since Unix epoch (modulo 2^32 for 32-bit wraparound every ~71 minutes)
+	// Both VNF and PNF use same epoch, so timestamps are directly comparable
+	uint32_t tt = (uint32_t)((uint64_t)now.tv_sec * 1000000ULL + (uint64_t)now.tv_usec);
 	
 	return tt;
 }
