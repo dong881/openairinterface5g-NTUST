@@ -1640,13 +1640,13 @@ int start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nfapi
   // Need to wait for main thread to create RU structures
   while(config_sync_var<0) {
     usleep(5000000);
-    printf("[PNF] waiting for OAI to be configured (eNB/RU)\n");
+    LOG_D(PHY, "[PNF] waiting for OAI to be configured (eNB/RU)\n");
   }
 
-  printf("[PNF] OAI eNB/RU configured\n");
+  LOG_I(PHY, "[PNF] OAI eNB/RU configured\n");
   //printf("[PNF] About to call phy_init_RU() for RC.ru[0]:%p\n", RC.ru[0]);
   //phy_init_RU(RC.ru[0]);
-  printf("[PNF] About to call init_eNB_afterRU()\n");
+  LOG_D(PHY, "[PNF] About to call init_eNB_afterRU()\n");
 
   if (NFAPI_MODE!=NFAPI_UE_STUB_PNF && NFAPI_MODE!=NFAPI_MODE_STANDALONE_PNF) {
     init_eNB_afterRU();
@@ -1662,14 +1662,14 @@ int start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nfapi
 
   while(sync_var<0) {
     usleep(5000000);
-    printf("[PNF] waiting for OAI to be started\n");
+    LOG_D(PHY, "[PNF] waiting for OAI to be started\n");
   }
 
-  printf("[PNF] Sending PNF_START_RESP\n");
+  LOG_I(PHY, "[PNF] Sending PNF_START_RESP\n");
   nfapi_send_pnf_start_resp(config, p7_config->phy_id);
-  printf("[PNF] Sending first P7 subframe ind\n");
+  LOG_D(PHY, "[PNF] Sending first P7 subframe ind\n");
   nfapi_pnf_p7_subframe_ind(p7_config, p7_config->phy_id, 0); // SFN_SF set to zero - correct???
-  printf("[PNF] Sent first P7 subframe ind\n");
+  LOG_I(PHY, "[PNF-SYNC] Successfully started - sent PNF_START_RESP and first subframe indication\n");
   return 0;
 }
 
@@ -1804,13 +1804,13 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nf
   // Need to wait for main thread to create RU structures
   while (config_sync_var < 0) {
     usleep(5000000);
-    printf("[PNF] waiting for OAI to be configured (eNB/RU)\n");
+    LOG_D(PHY, "[PNF] waiting for OAI to be configured (eNB/RU)\n");
   }
 
-  printf("[PNF] OAI eNB/RU configured\n");
+  LOG_I(PHY, "[PNF] OAI eNB/RU configured\n");
   // printf("[PNF] About to call phy_init_RU() for RC.ru[0]:%p\n", RC.ru[0]);
   // phy_init_RU(RC.ru[0]);
-  printf("[PNF] About to call init_eNB_afterRU()\n");
+  LOG_D(PHY, "[PNF] About to call init_eNB_afterRU()\n");
 
   if (NFAPI_MODE != NFAPI_UE_STUB_PNF) {
     init_eNB_afterRU();
@@ -1826,11 +1826,12 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nf
 
   while(sync_var<0) {
     usleep(50000);
-    printf("[PNF] waiting for OAI to be started\n");
+    LOG_D(PHY, "[PNF] waiting for OAI to be started\n");
   }
 #ifndef ENABLE_WLS
-  printf("[PNF] Sending PNF_START_RESP\n");
+  LOG_I(PHY, "[PNF] Sending PNF_START_RESP\n");
   nfapi_nr_send_pnf_start_resp(config, p7_config->phy_id);
+  LOG_I(PHY, "[PNF-SYNC] Successfully started - sent PNF_START_RESP\n");
 #endif
 
   return 0;
