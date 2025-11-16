@@ -97,6 +97,12 @@ typedef struct {
   uint16_t slot_clock_slot;
   struct timeval slot_clock_tv;
   uint32_t slot_clock_time_hr;
+  // VNF-PNF synchronization state
+  bool pnf_sync_valid;          // Whether we have valid PNF slot info
+  uint16_t pnf_last_sfn;        // Last reported PNF SFN from timing info
+  uint16_t pnf_last_slot;       // Last reported PNF slot from timing info
+  int32_t slot_offset_adj;      // Slot offset adjustment to apply to VNF tick
+  bool sync_pending;            // Whether a synchronization is pending
 } oai_vnf_delay_ctx_t;
 
 static oai_vnf_delay_ctx_t g_vnf_delay_ctx = {
@@ -105,9 +111,18 @@ static oai_vnf_delay_ctx_t g_vnf_delay_ctx = {
   .slot_clock_sfn = 0,
   .slot_clock_slot = 0,
   .slot_clock_time_hr = 0,
+  .pnf_sync_valid = false,
+  .pnf_last_sfn = 0,
+  .pnf_last_slot = 0,
+  .slot_offset_adj = 0,
+  .sync_pending = false,
 };
 
 static uint8_t g_vnf_mu;
+
+// Forward declarations for VNF tick state (defined later in file)
+typedef struct vnf_tick_state_s vnf_tick_state_t;
+extern vnf_tick_state_t g_vnf_tick_state;
 
 static void vnf_delay_mark_start_request(void);
 static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind);
@@ -270,6 +285,82 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
   g_vnf_delay_ctx.prev_ul_dci_jitter = ind->ul_dci_jitter;
   g_vnf_delay_ctx.prev_tx_data_jitter = ind->tx_data_request_jitter;
   g_vnf_delay_ctx.jitter_initialized = true;
+
+  // VNF-PNF Synchronization: Compare VNF tick slot with PNF's reported slot
+  // and calculate offset adjustment to keep them synchronized
+  if (ind->last_sfn > 0 || ind->last_slot > 0) {
+    // Store PNF's current slot position
+    uint16_t old_pnf_sfn = g_vnf_delay_ctx.pnf_last_sfn;
+    uint16_t old_pnf_slot = g_vnf_delay_ctx.pnf_last_slot;
+    g_vnf_delay_ctx.pnf_last_sfn = ind->last_sfn;
+    g_vnf_delay_ctx.pnf_last_slot = ind->last_slot;
+    g_vnf_delay_ctx.pnf_sync_valid = true;
+
+    // Calculate slot offset between VNF tick and PNF
+    // This tells us how many slots ahead or behind VNF is relative to PNF
+    uint16_t vnf_sfn = g_vnf_tick_state.sfn;
+    uint16_t vnf_slot = g_vnf_tick_state.slot;
+    uint16_t slots_per_frame = 10 * (1 << g_vnf_mu);
+
+    // Convert to linear slot numbers for easier comparison
+    uint32_t pnf_slot_dec = ind->last_sfn * slots_per_frame + ind->last_slot;
+    uint32_t vnf_slot_dec = vnf_sfn * slots_per_frame + vnf_slot;
+    uint32_t max_slot_dec = 1024 * slots_per_frame;
+
+    // Calculate the difference, accounting for wraparound
+    int32_t slot_diff = 0;
+    if (vnf_slot_dec >= pnf_slot_dec) {
+      slot_diff = vnf_slot_dec - pnf_slot_dec;
+      // Check if wraparound makes the other direction shorter
+      if (slot_diff > max_slot_dec / 2) {
+        slot_diff = slot_diff - max_slot_dec;
+      }
+    } else {
+      slot_diff = -((int32_t)(pnf_slot_dec - vnf_slot_dec));
+      // Check if wraparound makes the other direction shorter
+      if (-slot_diff > max_slot_dec / 2) {
+        slot_diff = max_slot_dec + slot_diff;
+      }
+    }
+
+    // Only log significant differences to avoid spam
+    if (g_vnf_delay_ctx.pnf_sync_valid && (old_pnf_sfn != ind->last_sfn || old_pnf_slot != ind->last_slot)) {
+      NFAPI_TRACE(NFAPI_TRACE_INFO,
+                  "[INFO] VNF-SYNC: PNF reports %u.%u, VNF tick at %u.%u (offset: %d slots)",
+                  ind->last_sfn,
+                  ind->last_slot,
+                  vnf_sfn,
+                  vnf_slot,
+                  slot_diff);
+
+      // Determine if we need to adjust VNF timing
+      // Allow a small buffer (e.g., 6 slots for sf_ahead) but sync if offset is too large
+      const int32_t target_ahead = 6;  // Target: VNF should be ~6 slots ahead of PNF
+      const int32_t sync_threshold = 30;  // Sync if offset exceeds this
+
+      if (abs(slot_diff - target_ahead) > sync_threshold) {
+        // Calculate adjustment needed to bring VNF to target_ahead slots ahead
+        g_vnf_delay_ctx.slot_offset_adj = target_ahead - slot_diff;
+        g_vnf_delay_ctx.sync_pending = true;
+
+        NFAPI_TRACE(NFAPI_TRACE_WARN,
+                    "[WARN] VNF-SYNC: Large offset detected (%d slots), applying adjustment of %d slots",
+                    slot_diff,
+                    g_vnf_delay_ctx.slot_offset_adj);
+      } else if (abs(slot_diff - target_ahead) > 2) {
+        // Small adjustment - gradually correct
+        int32_t small_adj = (target_ahead - slot_diff) / 4;  // Adjust 1/4 of error each time
+        if (small_adj != 0) {
+          g_vnf_delay_ctx.slot_offset_adj = small_adj;
+          g_vnf_delay_ctx.sync_pending = true;
+
+          NFAPI_TRACE(NFAPI_TRACE_INFO,
+                      "[INFO] VNF-SYNC: Minor drift detected, applying gradual adjustment of %d slots",
+                      small_adj);
+        }
+      }
+    }
+  }
 
   if (should_prime) {
     g_vnf_delay_ctx.waiting_first_timing_info = false;
@@ -1562,16 +1653,16 @@ static pthread_t vnf_p7_start_pthread;
 static pthread_t vnf_p7_tick_pthread;
 
 // VNF tick state
-typedef struct {
+struct vnf_tick_state_s {
   pthread_mutex_t lock;
   bool running;
   uint16_t sfn;
   uint16_t slot;
   uint8_t mu;  // subcarrier spacing (numerology)
   nfapi_vnf_p7_config_t *config;
-} vnf_tick_state_t;
+};
 
-static vnf_tick_state_t g_vnf_tick_state = {
+vnf_tick_state_t g_vnf_tick_state = {
   .lock = PTHREAD_MUTEX_INITIALIZER,
   .running = false,
   .sfn = 0,
@@ -1640,14 +1731,47 @@ void *vnf_tick_thread(void *ptr)
     // Trigger the scheduler to send DL_TTI/UL_TTI/UL_DCI/TX_DATA messages
     trigger_scheduler(&slot_ind);
     
-    // Advance to next slot
+    // Advance to next slot (with synchronization adjustment if pending)
     pthread_mutex_lock(&state->lock);
-    state->slot++;
     uint16_t slots_per_frame = 10 * (1 << state->mu);  // 10, 20, 40, 80, 160 for mu=0,1,2,3,4
-    if (state->slot >= slots_per_frame) {
-      state->slot = 0;
-      state->sfn = (state->sfn + 1) % 1024;
+    int slot_increment = 1;
+    
+    // Check if there's a pending synchronization adjustment from timing info
+    pthread_mutex_lock(&g_vnf_delay_ctx.lock);
+    if (g_vnf_delay_ctx.sync_pending) {
+      slot_increment += g_vnf_delay_ctx.slot_offset_adj;
+      g_vnf_delay_ctx.sync_pending = false;
+      g_vnf_delay_ctx.slot_offset_adj = 0;
+      
+      NFAPI_TRACE(NFAPI_TRACE_INFO,
+                  "[VNF-TICK] Applying slot synchronization adjustment: %d (from %u.%u)",
+                  slot_increment - 1,
+                  state->sfn,
+                  state->slot);
     }
+    pthread_mutex_unlock(&g_vnf_delay_ctx.lock);
+    
+    // Apply the slot increment (normal +1 or adjusted value)
+    int32_t new_slot = (int32_t)state->slot + slot_increment;
+    int32_t new_sfn = (int32_t)state->sfn;
+    
+    // Handle forward advancement
+    while (new_slot >= slots_per_frame) {
+      new_slot -= slots_per_frame;
+      new_sfn++;
+    }
+    
+    // Handle backward adjustment (if sync requires going back)
+    while (new_slot < 0) {
+      new_slot += slots_per_frame;
+      new_sfn--;
+    }
+    
+    // Apply wraparound for SFN
+    new_sfn = (new_sfn + 1024) % 1024;
+    
+    state->slot = (uint16_t)new_slot;
+    state->sfn = (uint16_t)new_sfn;
     pthread_mutex_unlock(&state->lock);
     
     // Sleep until next slot boundary
