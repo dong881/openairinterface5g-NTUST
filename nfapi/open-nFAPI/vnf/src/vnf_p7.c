@@ -312,46 +312,66 @@ struct timespec timespec_delta(struct timespec start, struct timespec end)
 
 static uint32_t get_sf_time(uint32_t now_hr, uint32_t sf_start_hr)
 {
-	if(now_hr < sf_start_hr)
+	// CRITICAL FIX: Handle TIME2TIMEHR wraparound (every 4096 seconds = 68 minutes)
+	// TIME2TIMEHR uses only 12 bits for seconds (tv_sec & 0xFFF), causing wraparound
+	// When comparing timestamps, account for wraparound using signed difference
+	// Key insight: unsigned subtraction (now_hr - sf_start_hr) gives correct delta across wraparound
+	// Example: sf_start=0xFFF00000, now=0x00100000 => delta=0x00200000 (small positive)
+	// Cast to int32_t to detect genuinely negative (past) timestamps
+	int32_t delta_hr = (int32_t)(now_hr - sf_start_hr);
+	
+	// If delta is very large negative (< -2^30), sf_start is genuinely in the future
+	// Normal time progression and wraparound both give small positive or moderately negative delta
+	if(delta_hr < -(int32_t)0x40000000)
 	{
+		// now is earlier than start of subframe (shouldn't normally happen)
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "now is earlier than start of subframe\n");
 		return 0;
 	}
-	else
+	
+	// Normal case: now >= sf_start (within reasonable time window, accounting for wraparound)
+	uint32_t now_us = TIMEHR_USEC(now_hr);
+	uint32_t sf_start_us = TIMEHR_USEC(sf_start_hr);
+
+	// if the us have wrapped adjust for it
+	if(now_us < sf_start_us)
 	{
-		uint32_t now_us = TIMEHR_USEC(now_hr);
-		uint32_t sf_start_us = TIMEHR_USEC(sf_start_hr);
-
-		// if the us have wrapped adjust for it
-		if(now_hr < sf_start_us)
-		{
-			now_us += 1000000;
-		}
-
-		return now_us - sf_start_us;
+		now_us += 1000000;
 	}
+
+	return now_us - sf_start_us;
 }
 
 static uint32_t get_slot_time(uint32_t now_hr, uint32_t slot_start_hr)
 {
-	if(now_hr < slot_start_hr)
+	// CRITICAL FIX: Handle TIME2TIMEHR wraparound (every 4096 seconds = 68 minutes)
+	// TIME2TIMEHR uses only 12 bits for seconds (tv_sec & 0xFFF), causing wraparound
+	// When comparing timestamps, account for wraparound using signed difference
+	// Key insight: unsigned subtraction (now_hr - slot_start_hr) gives correct delta across wraparound
+	// Example: slot_start=0xFFF00000, now=0x00100000 => delta=0x00200000 (small positive)
+	// Cast to int32_t to detect genuinely negative (past) timestamps
+	int32_t delta_hr = (int32_t)(now_hr - slot_start_hr);
+	
+	// If delta is very large negative (< -2^30), slot_start is genuinely in the future
+	// Normal time progression and wraparound both give small positive or moderately negative delta
+	if(delta_hr < -(int32_t)0x40000000)
 	{
+		// now is earlier than start of slot (shouldn't normally happen)
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "now is earlier than start of slot\n");
 		return 0;
 	}
-	else
+	
+	// Normal case: now >= slot_start (within reasonable time window, accounting for wraparound)
+	uint32_t now_us = TIMEHR_USEC(now_hr);
+	uint32_t slot_start_us = TIMEHR_USEC(slot_start_hr);
+
+	// if the us have wrapped adjust for it
+	if(now_us < slot_start_us)
 	{
-		uint32_t now_us = TIMEHR_USEC(now_hr);
-		uint32_t slot_start_us = TIMEHR_USEC(slot_start_hr);
-
-		// if the us have wrapped adjust for it
-		if(now_hr < slot_start_us)
-		{
-			now_us += 1000000;
-		}
-
-		return now_us - slot_start_us;
+		now_us += 1000000;
 	}
+
+	return now_us - slot_start_us;
 }
 
 uint32_t calculate_t1(uint16_t sfn_sf, uint32_t sf_start_time_hr)
