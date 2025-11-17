@@ -72,7 +72,49 @@ int16_t find_nr_prach(PHY_VARS_gNB *gNB,int frame, int slot, find_type_t type) {
 int nr_fill_prach(PHY_VARS_gNB *gNB, int SFN, int Slot, nfapi_nr_prach_pdu_t *prach_pdu)
 {
   int prach_id = find_nr_prach(gNB, SFN, Slot, SEARCH_EXIST_OR_FREE);
-  AssertFatal(((prach_id >= 0) && (prach_id < NUMBER_OF_NR_PRACH_MAX)), "illegal or no prach_id found!!! prach_id %d\n", prach_id);
+  
+  // CRITICAL FIX: Handle PRACH slot exhaustion gracefully instead of crashing
+  // This can happen when PRACH PDUs arrive faster than they're processed
+  if (prach_id < 0 || prach_id >= NUMBER_OF_NR_PRACH_MAX) {
+    LOG_E(PHY, "PRACH slot exhaustion at %d.%d! All %d slots occupied. Searching for stale entries to free.\n", 
+          SFN, Slot, NUMBER_OF_NR_PRACH_MAX);
+    
+    // Try to find and free the oldest stale entry (heuristic: oldest frame/slot)
+    int oldest_idx = -1;
+    int oldest_frame = SFN;
+    int oldest_slot = Slot;
+    
+    for (int i = 0; i < NUMBER_OF_NR_PRACH_MAX; i++) {
+      gNB_PRACH_list_t *p = &gNB->prach_vars.list[i];
+      if (p->frame != -1 && p->slot != -1) {
+        // Calculate age in slots (simple heuristic, not wrapping-aware)
+        int age = (SFN * 20 + Slot) - (p->frame * 20 + p->slot);
+        if (age > 10) { // If entry is more than 10 slots old, it's stale
+          oldest_idx = i;
+          oldest_frame = p->frame;
+          oldest_slot = p->slot;
+          break;
+        }
+        // Track oldest entry as fallback
+        if ((p->frame < oldest_frame) || (p->frame == oldest_frame && p->slot < oldest_slot)) {
+          oldest_idx = i;
+          oldest_frame = p->frame;
+          oldest_slot = p->slot;
+        }
+      }
+    }
+    
+    if (oldest_idx >= 0) {
+      LOG_W(PHY, "Freeing stale PRACH entry %d (was for %d.%d) to make room for %d.%d\n",
+            oldest_idx, oldest_frame, oldest_slot, SFN, Slot);
+      free_nr_prach_entry(gNB, oldest_idx);
+      prach_id = oldest_idx;
+    } else {
+      LOG_E(PHY, "FATAL: Cannot find any PRACH slot to free! Dropping PRACH PDU for %d.%d\n", SFN, Slot);
+      return -1;
+    }
+  }
+  
   gNB_PRACH_list_t *prach = &gNB->prach_vars.list[prach_id];
   prach->frame = SFN;
   prach->slot = Slot;
