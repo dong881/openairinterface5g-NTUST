@@ -2041,18 +2041,23 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
             vnf_pnf_sfnslot_delta = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn,p7_con->slot) - NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn,ind.last_slot);
           //NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() PNF:SFN/SF:%d VNF:SFN/SF:%d deltaSFNSF:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(ind.last_sfn_sf), NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf), vnf_pnf_sfnsf_delta);
 
-          // Panos: Careful here!!! Modification of the original nfapi-code
-          //if (vnf_pnf_sfnsf_delta>1 || vnf_pnf_sfnsf_delta < -1)
-		  //printf("VNF-PNF delta - %d", vnf_pnf_sfnslot_delta);
-          if (vnf_pnf_sfnslot_delta > 1) // we need to have a small delta, otherwise it would mean we don't advance
-          {
+          // CRITICAL FIX: Do NOT reset p7_connections slot here!
+          // p7_connections tracks what VNF is sending (updated by vnf_delay_tag_nr_message),
+          // NOT what PNF reports. Resetting here breaks synchronization by creating oscillation:
+          // VNF sends slot N → PNF reports N-K → resetting to N-K → next send is N+1 → repeat
+          // The delta is expected (VNF should be ahead per SCF-222 timing offset config)
+          // Only log if delta is outside expected range
+          if (vnf_pnf_sfnslot_delta < 0 || vnf_pnf_sfnslot_delta > 15) {
             NFAPI_TRACE(NFAPI_TRACE_WARN, "%s() LARGE SFN/SLOT DELTA between PNF and VNF. Delta %d slots. PNF:%d.%d VNF:%d.%d\n",
                         __FUNCTION__, vnf_pnf_sfnslot_delta,
                         ind.last_sfn, ind.last_slot,
                         vnf_p7->p7_connections[0].sfn, vnf_p7->p7_connections[0].slot);
-            // Panos: Careful here!!! Modification of the original nfapi-code
-            vnf_p7->p7_connections[0].sfn = ind.last_sfn;
-            vnf_p7->p7_connections[0].slot = ind.last_slot;
+          } else {
+            // Normal case - VNF is ahead of PNF by configured offset
+            NFAPI_TRACE(NFAPI_TRACE_DEBUG, "%s() VNF-PNF slot offset: %d slots (PNF:%d.%d VNF:%d.%d)\n",
+                        __FUNCTION__, vnf_pnf_sfnslot_delta,
+                        ind.last_sfn, ind.last_slot,
+                        vnf_p7->p7_connections[0].sfn, vnf_p7->p7_connections[0].slot);
           }
         }
 }
