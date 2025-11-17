@@ -440,9 +440,12 @@ static void vnf_adaptive_timing_adjust(int msg_idx, int32_t current_delay, uint3
       
       // Also decrease slot offset for immediate effect
       int32_t old_target = g_vnf_delay_ctx.target_slot_offset;
-      if (g_vnf_delay_ctx.target_slot_offset > 2 && slot_adjustment < 0) {  // Maintain minimum 2 slots ahead
+      const int32_t MIN_TARGET_SLOT_OFFSET = 1;  // Minimum 1 slot ahead for safety
+      if (g_vnf_delay_ctx.target_slot_offset > MIN_TARGET_SLOT_OFFSET && slot_adjustment < 0) {
         g_vnf_delay_ctx.target_slot_offset += slot_adjustment;  // slot_adjustment is negative
-        if (g_vnf_delay_ctx.target_slot_offset < 2) g_vnf_delay_ctx.target_slot_offset = 2;
+        if (g_vnf_delay_ctx.target_slot_offset < MIN_TARGET_SLOT_OFFSET) {
+          g_vnf_delay_ctx.target_slot_offset = MIN_TARGET_SLOT_OFFSET;
+        }
         g_vnf_delay_ctx.slot_offset_adj = slot_adjustment;  // Request immediate slot decrease
         g_vnf_delay_ctx.sync_pending = true;
         
@@ -479,10 +482,14 @@ static void vnf_adaptive_timing_adjust(int msg_idx, int32_t current_delay, uint3
       // Also adjust slot offset if needed
       const uint32_t slot_duration_us = 10000U / (10U * (1U << g_vnf_mu));
       int32_t delay_in_slots = current_delay / (int32_t)slot_duration_us;
-      if (delay_in_slots < -3 && g_vnf_delay_ctx.target_slot_offset > 2) {
+      const int32_t MIN_TARGET_SLOT_OFFSET = 1;  // Minimum 1 slot ahead for safety
+      if (delay_in_slots < -3 && g_vnf_delay_ctx.target_slot_offset > MIN_TARGET_SLOT_OFFSET) {
         // Messages arriving > 3 slots early - reduce target by 1
         int32_t old_target = g_vnf_delay_ctx.target_slot_offset;
         g_vnf_delay_ctx.target_slot_offset--;
+        if (g_vnf_delay_ctx.target_slot_offset < MIN_TARGET_SLOT_OFFSET) {
+          g_vnf_delay_ctx.target_slot_offset = MIN_TARGET_SLOT_OFFSET;
+        }
         NFAPI_TRACE(NFAPI_TRACE_INFO,
                     "[ADAPT] VNF: Persistent %s TOO EARLY (%d occurrences, delay=%dµs ~%d slots, jitter=%uµs) → "
                     "Decreased timing offset %uµs→%uµs + target_slot_offset %d→%d",
