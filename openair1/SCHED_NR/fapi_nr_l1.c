@@ -47,12 +47,20 @@ void handle_nr_nfapi_ssb_pdu(processingData_L1tx_t *msgTx, int frame, int slot, 
   uint8_t i_ssb = dl_tti_pdu->ssb_pdu.ssb_pdu_rel15.SsbBlockIndex;
 
   LOG_D(NR_PHY, "%d.%d : ssb index %d pbch_pdu: %x\n", frame, slot, i_ssb, dl_tti_pdu->ssb_pdu.ssb_pdu_rel15.bchPayload);
-  if (msgTx->ssb[i_ssb].active)
-    AssertFatal(1 == 0, "SSB PDU with index %d already active\n", i_ssb);
-  else {
-    msgTx->ssb[i_ssb].active = true;
-    memcpy((void *)&msgTx->ssb[i_ssb].ssb_pdu, &dl_tti_pdu->ssb_pdu, sizeof(dl_tti_pdu->ssb_pdu));
+  if (msgTx->ssb[i_ssb].active) {
+    // In PNF mode, it's possible for a new DL_TTI message to arrive before the PHY TX thread
+    // has finished processing the previous slot. Instead of crashing, clear the stale entry.
+    LOG_W(NR_PHY,
+          "SSB PDU with index %d already active in msgTx for %d.%d, clearing stale entry for incoming %d.%d\n",
+          i_ssb,
+          msgTx->frame,
+          msgTx->slot,
+          frame,
+          slot);
+    msgTx->ssb[i_ssb].active = false;
   }
+  msgTx->ssb[i_ssb].active = true;
+  memcpy((void *)&msgTx->ssb[i_ssb].ssb_pdu, &dl_tti_pdu->ssb_pdu, sizeof(dl_tti_pdu->ssb_pdu));
 }
 
 void handle_nfapi_nr_csirs_pdu(processingData_L1tx_t *msgTx, int frame, int slot, nfapi_nr_dl_tti_csi_rs_pdu *csirs_pdu)
@@ -86,6 +94,40 @@ void nr_schedule_dl_tti_req(PHY_VARS_gNB *gNB, nfapi_nr_dl_tti_request_t *DL_req
   DevAssert(slot_type == NR_DOWNLINK_SLOT || slot_type == NR_MIXED_SLOT);
 
   processingData_L1tx_t *msgTx = gNB->msgDataTx;
+
+  // PNF mode fix: If we're receiving a DL_TTI for a new slot while the previous slot
+  // hasn't been fully processed by the TX thread, we need to clear stale state to prevent
+  // corruption. This is a race condition that doesn't occur in monolithic mode where
+  // MAC scheduling is synchronous with PHY processing.
+  if (msgTx->frame != frame || msgTx->slot != slot) {
+    LOG_D(NR_PHY,
+          "DL_TTI for new slot %d.%d (msgTx was %d.%d), clearing stale PDU state\n",
+          frame,
+          slot,
+          msgTx->frame,
+          msgTx->slot);
+
+    // Clear any stale SSB entries that might still be marked active
+    for (int i = 0; i < 64; i++) {
+      if (msgTx->ssb[i].active) {
+        LOG_W(NR_PHY, "Clearing stale SSB entry %d from slot %d.%d\n", i, msgTx->frame, msgTx->slot);
+        msgTx->ssb[i].active = false;
+      }
+    }
+
+    // Clear stale PDSCH entries
+    msgTx->num_pdsch_slot = 0;
+
+    // Clear stale PDCCH entries
+    msgTx->num_dl_pdcch = 0;
+    msgTx->num_ul_pdcch = 0;
+
+    // Clear stale CSI-RS entries
+    for (int i = 0; i < NR_SYMBOLS_PER_SLOT; i++) {
+      msgTx->csirs_pdu[i].active = 0;
+    }
+  }
+
   msgTx->slot = slot;
   msgTx->frame = frame;
 

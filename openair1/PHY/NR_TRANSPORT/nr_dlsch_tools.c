@@ -38,13 +38,24 @@ void nr_fill_dlsch_dl_tti_req(processingData_L1tx_t *msgTx, nfapi_nr_dl_tti_pdsc
 {
   uint8_t pdu_index = pdsch_pdu->pdsch_pdu_rel15.pduIndex;
   AssertFatal(pdu_index < 16, "PDSCH PDU index %d exceeds maximum (16)\n", pdu_index);
-  
+
+  // PNF mode fix: Check for slot overflow to prevent memory corruption
+  if (msgTx->num_pdsch_slot >= 16) {
+    LOG_E(PHY,
+          "PDSCH slot overflow: num_pdsch_slot=%d already at maximum, dropping PDU index %d for slot %d.%d\n",
+          msgTx->num_pdsch_slot,
+          pdu_index,
+          msgTx->frame,
+          msgTx->slot);
+    return;
+  }
+
   NR_gNB_DLSCH_t *dlsch = &msgTx->dlsch[pdu_index][0];
   NR_DL_gNB_HARQ_t *harq = &dlsch->harq_process;
   /// DLSCH struct
-  memcpy((void*)&harq->pdsch_pdu, (void*)pdsch_pdu, sizeof(nfapi_nr_dl_tti_pdsch_pdu));
+  memcpy((void *)&harq->pdsch_pdu, (void *)pdsch_pdu, sizeof(nfapi_nr_dl_tti_pdsch_pdu));
   harq->pdu = NULL;
-  
+
   // Track this PDU index as valid for this slot
   msgTx->pdsch_slot_indices[msgTx->num_pdsch_slot] = pdu_index;
   msgTx->num_pdsch_slot++;
@@ -59,6 +70,9 @@ void nr_fill_dlsch_tx_req(processingData_L1tx_t *msgTx, int idx, uint8_t *sdu)
   NR_gNB_DLSCH_t *dlsch = &msgTx->dlsch[idx][0];
   NR_DL_gNB_HARQ_t *harq = &dlsch->harq_process;
   nfapi_nr_dl_tti_pdsch_pdu *pdsch = &harq->pdsch_pdu;
-  AssertFatal(pdsch->pdsch_pdu_rel15.pduIndex == idx, "PDSCH PDU index %d does not match %d\n", pdsch->pdsch_pdu_rel15.pduIndex, idx);
+  AssertFatal(pdsch->pdsch_pdu_rel15.pduIndex == idx,
+              "PDSCH PDU index %d does not match %d\n",
+              pdsch->pdsch_pdu_rel15.pduIndex,
+              idx);
   harq->pdu = sdu;
 }
