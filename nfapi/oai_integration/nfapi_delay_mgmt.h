@@ -153,10 +153,14 @@ void nfapi_delay_mgmt_configure_timing_info(nfapi_delay_mgmt_state_t *state,
 /**
  * @brief Set SFN/slot 0/0 time reference
  * @param state Pointer to delay management state
- * @param ref_time Reference time for SFN/slot 0/0
+ * @param ref_time Reference time for current SFN/slot
+ * @param current_sfn Current system frame number
+ * @param current_slot Current slot number
  */
 void nfapi_delay_mgmt_set_time_reference(nfapi_delay_mgmt_state_t *state,
-                                          struct timeval *ref_time);
+                                          struct timeval *ref_time,
+                                          uint16_t current_sfn,
+                                          uint16_t current_slot);
 
 /**
  * @brief Calculate transmit timestamp from current time

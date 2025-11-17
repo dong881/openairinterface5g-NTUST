@@ -115,21 +115,44 @@ static uint64_t calc_slot_start_us(uint16_t sfn, uint16_t slot, uint8_t scs)
 
 static uint64_t timestamp_from_ref(const nfapi_delay_mgmt_state_t *state, const struct timeval *recv_time)
 {
-  // CRITICAL FIX: Use absolute wallclock microseconds for timestamp comparison
-  // Previously used relative time from sfn_slot_zero_time reference, which was
-  // incompatible with VNF's transmit_timestamp calculation.
-  //
-  // Now both VNF and PNF use absolute wallclock microseconds (modulo 2^64),
-  // making timestamps directly comparable for:
-  // 1. Jitter calculation: transit_time = arrival_us - transmit_timestamp
-  // 2. Delay measurement: actual_us - expected_us
-  // 3. Node Sync round-trip latency calculation
-  //
-  // The state->time_reference_valid check is kept for backward compatibility,
-  // but we now return absolute microseconds regardless of reference validity.
+  // Return absolute wallclock microseconds for jitter calculation and Node Sync
+  // This must match VNF's transmit_timestamp calculation which uses absolute time
   if (!recv_time)
     return 0;
   return (uint64_t)((uint64_t)recv_time->tv_sec * 1000000ULL + (uint64_t)recv_time->tv_usec);
+}
+
+static uint64_t timestamp_relative_to_ref(const nfapi_delay_mgmt_state_t *state, const struct timeval *recv_time)
+{
+  // CRITICAL FIX: Return time relative to sfn_slot_zero_time reference for timing window checks
+  // This ensures timing window calculations work correctly:
+  // - slot_start_us is calculated as relative time from SFN/slot 0/0
+  // - arrival_us must also be relative time from same reference point
+  // - Both use the same time base for consistent window boundary checks
+  if (!recv_time)
+    return 0;
+  
+  if (!state || !state->time_reference_valid) {
+    // No time reference yet - cannot calculate relative time
+    // Return 0 to avoid invalid timing window checks during initialization
+    NFAPI_TRACE(NFAPI_TRACE_WARN,
+                "[DELAY-MGMT] Time reference not valid - cannot calculate relative timestamp");
+    return 0;
+  }
+  
+  // Return microseconds since sfn_slot_zero_time reference
+  // This makes arrival_us directly comparable to slot_start_us from calc_slot_start_us()
+  int64_t relative_us = timeval_diff_us(recv_time, &state->sfn_slot_zero_time);
+  
+  // Sanity check: relative time should be positive and reasonable (< 1 hour)
+  if (relative_us < 0 || relative_us > 3600000000LL) {
+    NFAPI_TRACE(NFAPI_TRACE_WARN,
+                "[DELAY-MGMT] Invalid relative timestamp %lld µs - clock may have changed",
+                (long long)relative_us);
+    return 0;
+  }
+  
+  return (uint64_t)relative_us;
 }
 
 void nfapi_delay_mgmt_init(nfapi_delay_mgmt_state_t *state)
@@ -165,14 +188,45 @@ void nfapi_delay_mgmt_configure_timing_info(nfapi_delay_mgmt_state_t *state,
 }
 
 void nfapi_delay_mgmt_set_time_reference(nfapi_delay_mgmt_state_t *state,
-                                         struct timeval *ref_time)
+                                         struct timeval *ref_time,
+                                         uint16_t current_sfn,
+                                         uint16_t current_slot)
 {
-  if (!ref_time)
+  if (!ref_time || !state)
     return;
 
-  state->sfn_slot_zero_time = *ref_time;
+  // CRITICAL FIX: Calculate when SFN/Slot 0/0 would have occurred
+  // This ensures slot_start_us calculations align with the time reference
+  //
+  // slot_start_us(sfn, slot) = time_from_sfn_0 in microseconds
+  // For this to match arrival_us (time since reference), the reference must be
+  // backdated to when SFN=0/Slot=0 actually occurred
+  
+  // Calculate how much time has elapsed since SFN/Slot 0/0
+  uint64_t current_slot_time_us = calc_slot_start_us(current_sfn, current_slot, state->subcarrier_spacing);
+  
+  // Backdate the reference time to when SFN/Slot 0/0 occurred
+  // sfn_slot_zero_time = current_time - elapsed_time_since_sfn_0
+  int64_t seconds_offset = (int64_t)(current_slot_time_us / 1000000ULL);
+  int64_t usec_offset = (int64_t)(current_slot_time_us % 1000000ULL);
+  
+  state->sfn_slot_zero_time.tv_sec = ref_time->tv_sec - seconds_offset;
+  state->sfn_slot_zero_time.tv_usec = ref_time->tv_usec - usec_offset;
+  
+  // Handle underflow in microseconds
+  if (state->sfn_slot_zero_time.tv_usec < 0) {
+    state->sfn_slot_zero_time.tv_sec--;
+    state->sfn_slot_zero_time.tv_usec += 1000000;
+  }
+  
   state->time_reference_valid = 1;
   state->last_timing_info_time = *ref_time;
+  
+  NFAPI_TRACE(NFAPI_TRACE_INFO,
+              "[DELAY-MGMT] Set time reference at SFN.Slot=%u.%u (backdated %lld µs to SFN/Slot 0/0)",
+              current_sfn,
+              current_slot,
+              (long long)current_slot_time_us);
 }
 
 uint32_t nfapi_delay_mgmt_get_transmit_timestamp(nfapi_delay_mgmt_state_t *state)
@@ -205,7 +259,7 @@ nfapi_msg_arrival_result_e nfapi_delay_mgmt_check_message_arrival(
   //   window_end = window_start - timing_window
   // A message is on-time if it arrives within [window_end, window_start]
   
-  // Calculate target slot start time in microseconds
+  // Calculate target slot start time in microseconds (relative to SFN/slot 0/0)
   const uint64_t slot_start_us = calc_slot_start_us(sfn, slot, state->subcarrier_spacing);
   
   // Calculate timing window boundaries
@@ -214,8 +268,13 @@ nfapi_msg_arrival_result_e nfapi_delay_mgmt_check_message_arrival(
   const uint64_t window_start_us = slot_start_us - cfg->timing_offset_us;
   const uint64_t window_end_us = window_start_us - cfg->timing_window_us;
   
-  // Get actual arrival time
-  const uint64_t arrival_us = timestamp_from_ref(state, receive_time);
+  // Get actual arrival time (relative to same SFN/slot 0/0 reference)
+  const uint64_t arrival_us = timestamp_relative_to_ref(state, receive_time);
+  
+  // If time reference is not valid, skip timing window check
+  if (arrival_us == 0) {
+    return NFAPI_MSG_ARRIVAL_ON_TIME;
+  }
   
   // Calculate delta from ideal arrival point (window_start)
   // Positive delta = message arrived after window_start (late)

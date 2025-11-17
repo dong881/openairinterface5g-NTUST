@@ -556,10 +556,8 @@ static void oai_pnf_p7_configure_delay_state(pnf_p7_t *pnf_p7,
   // Set subcarrier spacing (numerology) from PNF P7 config
   pnf_p7->delay_state.subcarrier_spacing = pnf_p7->mu;
 
-  // Set time reference for timestamp calculations
-  struct timeval now;
-  gettimeofday(&now, NULL);
-  nfapi_delay_mgmt_set_time_reference(&pnf_p7->delay_state, &now);
+  // Time reference will be set on first slot_ind call in pnf_p7_maybe_send_timing_info
+  // with the actual SFN/Slot for proper alignment
 
   LOG_I(PHY,
         "[PNF-DELAY] Configured delay management: "
