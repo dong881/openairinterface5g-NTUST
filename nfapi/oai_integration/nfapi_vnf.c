@@ -36,10 +36,7 @@
 #include "nfapi_vnf.h"
 #include "nfapi.h"
 #include "vendor_ext.h"
-
-#ifdef ENABLE_TIMING_MEASUREMENT
 #include "timing_measurement.h"
-#endif
 
 #include "PHY/defs_eNB.h"
 #include "PHY/LTE_TRANSPORT/transport_proto.h"
@@ -1091,20 +1088,16 @@ int oai_nfapi_ul_dci_req(nfapi_nr_ul_dci_request_t* ul_dci_req);
 
 int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind)
 {
-#ifdef ENABLE_TIMING_MEASUREMENT
   timing_measurement_t *measurement = TIMING_START(global_timing_ctx, slot_ind->sfn, slot_ind->slot, 
                                                    FAPI_MSG_SLOT_INDICATION, 0, 0);
   TIMING_RECORD(global_timing_ctx, measurement, TIMING_POINT_SOCKET_RECEIVE);
   TIMING_RECORD(global_timing_ctx, measurement, TIMING_POINT_SCHEDULER_START);
-#endif
   
   // Call into the scheduler (this is hardcoded and should be init properly!)
   // memset(sched_resp, 0, sizeof(*sched_resp));
   gNB_dlsch_ulsch_scheduler(0, slot_ind->sfn, slot_ind->slot, &g_sched_resp);
   
-#ifdef ENABLE_TIMING_MEASUREMENT
   TIMING_RECORD(global_timing_ctx, measurement, TIMING_POINT_SCHEDULER_END);
-#endif
 
 #ifdef ENABLE_AERIAL
     bool send_slt_resp = false;
@@ -1972,19 +1965,15 @@ int oai_nfapi_dl_tti_req(nfapi_nr_dl_tti_request_t *dl_config_req)
   dl_config_req->header.message_id= NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST;
   dl_config_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
 
-#ifdef ENABLE_TIMING_MEASUREMENT
   timing_measurement_t *measurement = TIMING_START(global_timing_ctx, dl_config_req->SFN, dl_config_req->Slot, 
                                                    FAPI_MSG_DL_TTI_REQUEST, 0, 0);
   TIMING_RECORD(global_timing_ctx, measurement, TIMING_POINT_SCHEDULED_DATA_PACK_START);
-#endif
 
   int retval = nfapi_vnf_p7_nr_dl_config_req(p7_config, dl_config_req);
 
-#ifdef ENABLE_TIMING_MEASUREMENT
   TIMING_RECORD(global_timing_ctx, measurement, TIMING_POINT_SCHEDULED_DATA_PACK_END);
   TIMING_RECORD(global_timing_ctx, measurement, TIMING_POINT_VNF_TO_PNF_SOCKET);
   TIMING_UPDATE_STATS(global_timing_ctx, FAPI_MSG_DL_TTI_REQUEST, false, false);
-#endif
 
   dl_config_req->dl_tti_request_body.nPDUs                        = 0;
   dl_config_req->dl_tti_request_body.nGroup                       = 0;
@@ -2003,19 +1992,15 @@ int oai_nfapi_tx_data_req(nfapi_nr_tx_data_request_t *tx_data_req)
   tx_data_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
   tx_data_req->header.message_id = NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST;
   
-#ifdef ENABLE_TIMING_MEASUREMENT
   timing_measurement_t *measurement = TIMING_START(global_timing_ctx, tx_data_req->SFN, tx_data_req->Slot, 
                                                    FAPI_MSG_TX_DATA_REQUEST, 0, 0);
   TIMING_RECORD(global_timing_ctx, measurement, TIMING_POINT_MESSAGE_PACK);
-#endif
   
   //LOG_D(PHY, "[VNF] %s() TX_REQ sfn_sf:%d number_of_pdus:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(tx_req->sfn_sf), tx_req->tx_request_body.number_of_pdus);
   int retval = nfapi_vnf_p7_tx_data_req(p7_config, tx_data_req);
   
-#ifdef ENABLE_TIMING_MEASUREMENT
   TIMING_RECORD(global_timing_ctx, measurement, TIMING_POINT_VNF_TO_PNF_SOCKET);
   TIMING_UPDATE_STATS(global_timing_ctx, FAPI_MSG_TX_DATA_REQUEST, false, false);
-#endif
 
   if (retval!=0) {
     LOG_E(PHY, "%s() Problem sending retval:%d\n", __FUNCTION__, retval);
@@ -2101,18 +2086,14 @@ int oai_nfapi_ul_tti_req(nfapi_nr_ul_tti_request_t *ul_tti_req) {
   ul_tti_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
   ul_tti_req->header.message_id = NFAPI_NR_PHY_MSG_TYPE_UL_TTI_REQUEST;
 
-#ifdef ENABLE_TIMING_MEASUREMENT
   timing_measurement_t *measurement = TIMING_START(global_timing_ctx, ul_tti_req->SFN, ul_tti_req->Slot, 
                                                    FAPI_MSG_UL_TTI_REQUEST, 0, 0);
   TIMING_RECORD(global_timing_ctx, measurement, TIMING_POINT_MESSAGE_PACK);
-#endif
 
   int retval = nfapi_vnf_p7_ul_tti_req(p7_config, ul_tti_req);
 
-#ifdef ENABLE_TIMING_MEASUREMENT
   TIMING_RECORD(global_timing_ctx, measurement, TIMING_POINT_VNF_TO_PNF_SOCKET);
   TIMING_UPDATE_STATS(global_timing_ctx, FAPI_MSG_UL_TTI_REQUEST, false, false);
-#endif
 
   if (retval!=0) {
     LOG_E(PHY, "%s() Problem sending retval:%d\n", __FUNCTION__, retval);

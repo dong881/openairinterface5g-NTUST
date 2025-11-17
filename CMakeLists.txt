@@ -740,6 +740,7 @@ set(NFAPI_USER_SRC
   ${NFAPI_USER_DIR}/nfapi_pnf.c
   ${NFAPI_USER_DIR}/nfapi_vnf.c
   ${NFAPI_USER_DIR}/gnb_ind_vars.c
+  ${NFAPI_USER_DIR}/timing_measurement_init.c
 )
 add_library(NFAPI_USER_LIB ${NFAPI_USER_SRC})
 target_link_libraries(NFAPI_USER_LIB PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs UTIL)
