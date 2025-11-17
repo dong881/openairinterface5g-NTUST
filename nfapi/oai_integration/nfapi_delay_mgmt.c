@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/time.h>
+#include "debug.h"
 
 #define US_IN_MS 1000ULL
 #define NS_IN_US 1000ULL
@@ -261,7 +262,18 @@ void nfapi_delay_mgmt_update_jitter(nfapi_delay_mgmt_state_t *state,
   // With absolute timestamps, this should be a reasonable value (typically < 10ms for local network)
   uint32_t transit_time = 0;
   if (arrival_us >= transmit_us) {
-    transit_time = (uint32_t)(arrival_us - transmit_us);
+    uint64_t diff = arrival_us - transmit_us;
+    // Sanity check: transit time should be < 1 second for reasonable fronthaul
+    // Large values indicate clock skew or timestamp mismatch between VNF and PNF
+    if (diff > 1000000ULL) {  // > 1 second
+      NFAPI_TRACE(NFAPI_TRACE_WARN,
+                  "[DELAY-MGMT] Invalid transit time %llu µs (arrival=%llu, transmit=%llu) - possible clock skew",
+                  (unsigned long long)diff,
+                  (unsigned long long)arrival_us,
+                  (unsigned long long)transmit_us);
+      return;
+    }
+    transit_time = (uint32_t)diff;
   } else {
     // Negative transit time indicates clock skew or timestamp wraparound
     // Treat as invalid sample and skip jitter update
@@ -278,7 +290,23 @@ void nfapi_delay_mgmt_update_jitter(nfapi_delay_mgmt_state_t *state,
   // where D = (R_i - R_{i-1}) - (S_i - S_{i-1}) = transit_time_i - transit_time_{i-1}
   const int32_t d = (int32_t)transit_time - (int32_t)jitter->previous_transit_time;
   jitter->previous_transit_time = transit_time;
-  jitter->jitter += ((d < 0 ? -d : d) - jitter->jitter) >> 4;
+  
+  // CRITICAL FIX: Prevent underflow in jitter calculation
+  // When |d| < jitter, the subtraction (|d| - jitter) would underflow in uint32_t arithmetic
+  // Use signed arithmetic to handle this correctly
+  const int32_t abs_d = (d < 0) ? -d : d;
+  const int32_t jitter_delta = (abs_d - (int32_t)jitter->jitter) >> 4;
+  const int32_t new_jitter = (int32_t)jitter->jitter + jitter_delta;
+  
+  // Clamp to valid range [0, reasonable max]
+  // Jitter > 100ms indicates serious network issues or measurement error
+  if (new_jitter < 0) {
+    jitter->jitter = 0;
+  } else if (new_jitter > 100000) {  // 100ms max
+    jitter->jitter = 100000;
+  } else {
+    jitter->jitter = (uint32_t)new_jitter;
+  }
 }
 
 static uint32_t slots_since_last(const nfapi_delay_mgmt_state_t *state,
@@ -353,6 +381,9 @@ void nfapi_delay_mgmt_build_timing_info(nfapi_delay_mgmt_state_t *state,
   timing_info->tx_data_request_earliest_arrival = state->tx_data_stats.earliest_arrival == INT32_MAX ? 0 : state->tx_data_stats.earliest_arrival;
   timing_info->ul_tti_earliest_arrival = state->ul_tti_stats.earliest_arrival == INT32_MAX ? 0 : state->ul_tti_stats.earliest_arrival;
   timing_info->ul_dci_earliest_arrival = state->ul_dci_stats.earliest_arrival == INT32_MAX ? 0 : state->ul_dci_stats.earliest_arrival;
+
+  // Increment timing info counter for tracking synchronization progress
+  state->timing_info_count++;
 
   // CRITICAL FIX: Reset stats after building timing info to prevent stale values
   // Per SCF-222 spec, stats should be cleared after each timing info report

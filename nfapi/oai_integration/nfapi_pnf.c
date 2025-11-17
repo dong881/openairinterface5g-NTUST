@@ -1796,10 +1796,6 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nf
                               phy_info->timing_window,
                               phy_info->timing_info_mode,
                               phy_info->timing_info_period);
-  pnf_p7_configure_delay_state(pnf_p7,
-                               phy_info->timing_window,
-                               phy_info->timing_info_mode,
-                               phy_info->timing_info_period);
 
   // Need to wait for main thread to create RU structures
   while (config_sync_var < 0) {

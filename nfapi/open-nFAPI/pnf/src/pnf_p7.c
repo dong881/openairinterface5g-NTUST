@@ -759,13 +759,15 @@ static void pnf_p7_maybe_send_timing_info(pnf_p7_t *pnf_p7, uint16_t sfn, uint16
 	const bool stats_ready = pnf_p7_delay_stats_ready(&pnf_p7->delay_state);
 	if(!stats_ready)
 	{
-		// Check if this is early in the session (slot_counter < 100 slots ~= first 5-10 frames)
+		// Check if this is early in the session (first ~10 timing info reports)
 		// If so, send timing info anyway to help VNF synchronize
-		if(pnf_p7->delay_state.slot_counter > 100)
+		// Use timing_info_count instead of slot_counter because slot_counter resets periodically
+		if(pnf_p7->delay_state.timing_info_count > 10)
 		{
 			NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-			            "[P7:%d] Timing info pending stats after initial period (DL:%d UL:%d ULDCI:%d TX:%d)",
+			            "[P7:%d] Timing info pending stats after initial period (count=%u, DL:%d UL:%d ULDCI:%d TX:%d)",
 			            pnf_p7->_public.phy_id,
+			            pnf_p7->delay_state.timing_info_count,
 			            pnf_p7->delay_state.dl_tti_stats.latest_delay,
 			            pnf_p7->delay_state.ul_tti_stats.latest_delay,
 			            pnf_p7->delay_state.ul_dci_stats.latest_delay,
@@ -773,9 +775,9 @@ static void pnf_p7_maybe_send_timing_info(pnf_p7_t *pnf_p7, uint16_t sfn, uint16
 			return;
 		}
 		NFAPI_TRACE(NFAPI_TRACE_INFO,
-		            "[P7:%d] Sending timing info without stats for initial VNF synchronization (slot_counter=%u)",
+		            "[P7:%d] Sending timing info without stats for initial VNF synchronization (count=%u)",
 		            pnf_p7->_public.phy_id,
-		            pnf_p7->delay_state.slot_counter);
+		            pnf_p7->delay_state.timing_info_count);
 	}
 
 	if(stats_ready)
