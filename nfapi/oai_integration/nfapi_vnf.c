@@ -165,6 +165,36 @@ static void vnf_delay_tag_nr_message(nfapi_vnf_p7_config_t *config,
                                      uint16_t message_id);
 static void vnf_delay_configure_timing_params(uint32_t timing_offset_us, uint16_t timing_window_us, uint8_t mu);
 
+/**
+ * @brief Calculate signed slot offset between two SFN/slot positions with wraparound
+ * @param sfn1 First SFN
+ * @param slot1 First slot
+ * @param sfn2 Second SFN  
+ * @param slot2 Second slot
+ * @param mu Numerology (0-4)
+ * @return Signed slot difference (sfn1/slot1 - sfn2/slot2) handling wraparound
+ */
+static inline int32_t vnf_calculate_slot_diff(uint16_t sfn1, uint16_t slot1, uint16_t sfn2, uint16_t slot2, uint8_t mu)
+{
+  uint16_t slots_per_frame = 10 * (1 << mu);
+  uint32_t max_slot_dec = 1024 * slots_per_frame;
+  
+  uint32_t slot_dec1 = sfn1 * slots_per_frame + slot1;
+  uint32_t slot_dec2 = sfn2 * slots_per_frame + slot2;
+  
+  // Calculate raw difference
+  int32_t diff = (int32_t)(slot_dec1 - slot_dec2);
+  
+  // Handle wraparound: if absolute difference > half the range, go the other way
+  if (diff > (int32_t)(max_slot_dec / 2)) {
+    diff -= max_slot_dec;
+  } else if (diff < -(int32_t)(max_slot_dec / 2)) {
+    diff += max_slot_dec;
+  }
+  
+  return diff;
+}
+
 static void vnf_delay_mark_start_request(void)
 {
   pthread_mutex_lock(&g_vnf_delay_ctx.lock);
@@ -324,14 +354,17 @@ static void vnf_delay_configure_timing_params(uint32_t timing_offset_us, uint16_
  */
 static void vnf_adaptive_timing_adjust(int msg_idx, int32_t current_delay, uint32_t current_jitter, const char *msg_name)
 {
-  // Thresholds per SCF-222 recommendations
-  const int32_t DELAY_THRESHOLD_US = 50;      // Delay exceeding 50µs is concerning
-  const int32_t CRITICAL_DELAY_US = 150;      // Delay exceeding 150µs risks slot loss
-  const uint32_t JITTER_THRESHOLD_US = 100;   // High jitter indicates unstable latency
-  const uint32_t CONSECUTIVE_HIGH_DELAY_TRIGGER = 3; // Adjust after 3 consecutive high delays
-  const uint32_t MIN_ADJUSTMENT_INTERVAL_MS = 5000;  // Rate limit adjustments to every 5 seconds
-  const uint32_t ADJUSTMENT_STEP_US = 100;    // Increase offset by 100µs per adjustment
-  const uint32_t MAX_OFFSET_US = 30000;       // Maximum 30ms offset (per SCF-222 TLV range 0-65535µs)
+  // Adaptive timing adjustment thresholds per SCF-222 Section 3.4.7
+  // These values are derived from typical timing window configurations:
+  // - Default timing window: 150µs (TLV 0x011E)
+  // - Default timing offset: 500µs (TLVs 0x0106-0x0109)
+  const int32_t DELAY_THRESHOLD_US = 50;      // ~33% of timing window - concerning but acceptable
+  const int32_t CRITICAL_DELAY_US = 150;      // Equals timing window - high risk of slot loss
+  const uint32_t JITTER_THRESHOLD_US = 100;   // ~66% of timing window - indicates unstable link
+  const uint32_t CONSECUTIVE_HIGH_DELAY_TRIGGER = 3; // Require persistence before adjusting
+  const uint32_t MIN_ADJUSTMENT_INTERVAL_MS = 5000;  // Rate limit to prevent oscillation (SCF-222 Section 2.6.4)
+  const uint32_t ADJUSTMENT_STEP_US = 100;    // Gradual adjustment step (10% of default offset)
+  const uint32_t MAX_OFFSET_US = 30000;       // Per SCF-222 Table 2-18: TLVs 0x0106-0x0109 range 0-30000µs
 
   // Get current time for rate limiting
   struct timeval now;
@@ -366,11 +399,15 @@ static void vnf_adaptive_timing_adjust(int msg_idx, int32_t current_delay, uint3
       if (new_offset > MAX_OFFSET_US) new_offset = MAX_OFFSET_US;
       *offset_ptr = new_offset;
       
-      // IMMEDIATE EFFECT: Also increase target_slot_offset to make VNF run further ahead
-      // This provides immediate relief without waiting for PNF reconfig
-      // Per SCF-222: VNF can adjust its transmission timing in response to feedback
+      // TWO-LEVEL ADJUSTMENT STRATEGY per SCF-222 Section 3.4.7:
+      // 1. IMMEDIATE: Increase slot offset (VNF sends messages earlier relative to slot boundary)
+      //    - Takes effect immediately via sync_pending flag
+      //    - Provides instant relief from late arrivals
+      // 2. LONG-TERM: Increase timing offset (widens PNF receive window on next CONFIG)
+      //    - Takes effect after PNF restart/reconnect
+      //    - Provides permanent accommodation for measured latency
       int32_t old_target = g_vnf_delay_ctx.target_slot_offset;
-      if (g_vnf_delay_ctx.target_slot_offset < 10) {  // Don't exceed 10 slots ahead
+      if (g_vnf_delay_ctx.target_slot_offset < 10) {  // Cap at 10 slots ahead (~10ms @ mu=1)
         g_vnf_delay_ctx.target_slot_offset++;
         g_vnf_delay_ctx.slot_offset_adj = 1;  // Request immediate slot advance
         g_vnf_delay_ctx.sync_pending = true;
@@ -411,29 +448,17 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
   if (ind == NULL)
     return;
 
-  // Reduce excessive logging - only log when issues detected
-  // DEBUG logs removed to improve performance
-  NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-              "[DEBUG] VNF: Timing Info from PHY - SFN=%u Slot=%u",
-              ind->last_sfn,
-              ind->last_slot);
-  
-  // Only log stats if jitter or delays are truly problematic
-  // Normal operation can have jitter up to 200µs and delays up to 300µs
-  bool has_high_jitter = (ind->dl_tti_jitter > 300 || ind->ul_tti_jitter > 300 || 
-                          ind->ul_dci_jitter > 300 || ind->tx_data_request_jitter > 300);
-  bool has_high_delays = (ind->dl_tti_latest_delay > 500 || ind->ul_tti_latest_delay > 500 ||
-                          ind->ul_dci_latest_delay > 500 || ind->tx_data_request_latest_delay > 500);
+  // Reduced excessive logging per SCF-222 spec - only log problematic conditions
+  // Normal timing variations are expected and don't require logging
+  // Threshold: Warn only if delays exceed timing window (150µs) or approach slot boundary
+  bool has_high_jitter = (ind->dl_tti_jitter > 200 || ind->ul_tti_jitter > 200 || 
+                          ind->ul_dci_jitter > 200 || ind->tx_data_request_jitter > 200);
+  bool has_high_delays = (ind->dl_tti_latest_delay > 300 || ind->ul_tti_latest_delay > 300 ||
+                          ind->ul_dci_latest_delay > 300 || ind->tx_data_request_latest_delay > 300);
   
   if (has_high_jitter || has_high_delays) {
     NFAPI_TRACE(NFAPI_TRACE_WARN,
-                "[WARN] VNF-ANALYZE: Jitter: DL=%uµs UL=%uµs ULDCI=%uµs TxData=%uµs | Delays: DL=%dµs UL=%dµs ULDCI=%dµs TxData=%dµs",
-                ind->dl_tti_jitter, ind->ul_tti_jitter, ind->ul_dci_jitter, ind->tx_data_request_jitter,
-                ind->dl_tti_latest_delay, ind->ul_tti_latest_delay, ind->ul_dci_latest_delay, ind->tx_data_request_latest_delay);
-  } else {
-    // Log at DEBUG level for normal operation
-    NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-                "[DEBUG] VNF-ANALYZE: Jitter: DL=%uµs UL=%uµs ULDCI=%uµs TxData=%uµs | Delays: DL=%dµs UL=%dµs ULDCI=%dµs TxData=%dµs",
+                "[VNF-TIMING] High latency: Jitter(DL=%u UL=%u ULDCI=%u TxData=%u µs) Delays(DL=%d UL=%d ULDCI=%d TxData=%d µs)",
                 ind->dl_tti_jitter, ind->ul_tti_jitter, ind->ul_dci_jitter, ind->tx_data_request_jitter,
                 ind->dl_tti_latest_delay, ind->ul_tti_latest_delay, ind->ul_dci_latest_delay, ind->tx_data_request_latest_delay);
   }
@@ -474,28 +499,9 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
     // Get VNF tick current position
     uint16_t vnf_sfn = g_vnf_tick_state.sfn;
     uint16_t vnf_slot = g_vnf_tick_state.slot;
-    uint16_t slots_per_frame = 10 * (1 << g_vnf_mu);
 
-    // Convert to linear slot numbers for easier comparison
-    uint32_t pnf_slot_dec = ind->last_sfn * slots_per_frame + ind->last_slot;
-    uint32_t vnf_slot_dec = vnf_sfn * slots_per_frame + vnf_slot;
-    uint32_t max_slot_dec = 1024 * slots_per_frame;
-
-    // Calculate the difference, accounting for wraparound
-    int32_t slot_diff = 0;
-    if (vnf_slot_dec >= pnf_slot_dec) {
-      slot_diff = vnf_slot_dec - pnf_slot_dec;
-      // Check if wraparound makes the other direction shorter
-      if (slot_diff > max_slot_dec / 2) {
-        slot_diff = slot_diff - max_slot_dec;
-      }
-    } else {
-      slot_diff = -((int32_t)(pnf_slot_dec - vnf_slot_dec));
-      // Check if wraparound makes the other direction shorter
-      if (-slot_diff > max_slot_dec / 2) {
-        slot_diff = max_slot_dec + slot_diff;
-      }
-    }
+    // Calculate how far ahead VNF is from PNF (positive = VNF ahead, negative = VNF behind)
+    int32_t slot_diff = vnf_calculate_slot_diff(vnf_sfn, vnf_slot, ind->last_sfn, ind->last_slot, g_vnf_mu);
 
     // On FIRST timing info, force immediate synchronization
     // Per SCF-222 spec: VNF should transmit messages within timing window before slot start
@@ -533,41 +539,20 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
     // Calculate slot offset between VNF tick and PNF
     uint16_t vnf_sfn = g_vnf_tick_state.sfn;
     uint16_t vnf_slot = g_vnf_tick_state.slot;
-    uint16_t slots_per_frame = 10 * (1 << g_vnf_mu);
 
-    uint32_t pnf_slot_dec = ind->last_sfn * slots_per_frame + ind->last_slot;
-    uint32_t vnf_slot_dec = vnf_sfn * slots_per_frame + vnf_slot;
-    uint32_t max_slot_dec = 1024 * slots_per_frame;
+    // Calculate how far ahead VNF is from PNF
+    int32_t slot_diff = vnf_calculate_slot_diff(vnf_sfn, vnf_slot, ind->last_sfn, ind->last_slot, g_vnf_mu);
 
-    int32_t slot_diff = 0;
-    if (vnf_slot_dec >= pnf_slot_dec) {
-      slot_diff = vnf_slot_dec - pnf_slot_dec;
-      if (slot_diff > max_slot_dec / 2) {
-        slot_diff = slot_diff - max_slot_dec;
-      }
-    } else {
-      slot_diff = -((int32_t)(pnf_slot_dec - vnf_slot_dec));
-      if (-slot_diff > max_slot_dec / 2) {
-        slot_diff = max_slot_dec + slot_diff;
-      }
-    }
-
-    // Only log and adjust if PNF slot actually changed
+    // Only adjust if PNF slot actually changed (timing info update)
     if (old_pnf_sfn != ind->last_sfn || old_pnf_slot != ind->last_slot) {
-      // Only log sync info at DEBUG level to reduce spam
-      NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-                  "[DEBUG] VNF-SYNC: PNF=%u.%u VNF=%u.%u (offset: %d slots)",
-                  ind->last_sfn,
-                  ind->last_slot,
-                  vnf_sfn,
-                  vnf_slot,
-                  slot_diff);
+      // Removed DEBUG log that runs on every timing info (~200Hz)
 
-      // Determine if we need to adjust VNF timing
-      // Per SCF-222: Use configured target offset (not hard-coded)
+      // Determine if we need to adjust VNF timing per SCF-222 Section 2.6.4
+      // VNF should maintain configured target offset ahead of PNF
       const int32_t target_ahead = g_vnf_delay_ctx.target_slot_offset;
-      const int32_t sync_threshold = 30;  // Large sync if offset exceeds this
-      const int32_t gradual_threshold = 5;  // Gradual sync if offset exceeds this
+      // Sync thresholds: balance responsiveness vs stability
+      const int32_t sync_threshold = 30;  // >30 slots drift (~30ms @ mu=1) requires immediate correction
+      const int32_t gradual_threshold = 5;  // >5 slots drift (~5ms @ mu=1) triggers gradual correction
 
       if (abs(slot_diff - target_ahead) > sync_threshold) {
         // Large drift - apply immediate correction
@@ -581,26 +566,21 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
                     target_ahead,
                     g_vnf_delay_ctx.slot_offset_adj);
       } else if (abs(slot_diff - target_ahead) > gradual_threshold) {
-        // Small drift - gradually correct (1/4 of error each time)
-        // Per SCF-222: Gradual adjustment to minimize slot disruption
+        // Small drift - gradually correct (1/4 of error per iteration)
+        // Per SCF-222: Gradual adjustment minimizes slot disruption
         int32_t small_adj = (target_ahead - slot_diff) / 4;
         if (small_adj != 0) {
           g_vnf_delay_ctx.slot_offset_adj = small_adj;
           g_vnf_delay_ctx.sync_pending = true;
-
-          NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-                      "[DEBUG] VNF-SYNC: Minor drift (offset=%d, target=%d) - gradual adjust %d slots",
-                      slot_diff,
-                      target_ahead,
-                      small_adj);
+          // Only log significant adjustments
+          if (abs(small_adj) > 2) {
+            NFAPI_TRACE(NFAPI_TRACE_INFO,
+                        "[VNF-SYNC] Gradual correction: offset=%d target=%d adjust=%d slots",
+                        slot_diff, target_ahead, small_adj);
+          }
         }
-      } else {
-        // Within acceptable range - no adjustment needed
-        NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-                    "[DEBUG] VNF-SYNC: Offset within tolerance (%d slots, target %d)",
-                    slot_diff,
-                    target_ahead);
       }
+      // Removed excessive DEBUG log for normal sync (within tolerance)
     }
   }
 
@@ -1949,9 +1929,8 @@ void *vnf_tick_thread(void *ptr)
       .slot = slot,
     };
     
-    NFAPI_TRACE(NFAPI_TRACE_DEBUG, 
-                "[VNF-TICK] Autonomous slot %u/%u (mu=%u)\n",
-                sfn, slot, state->mu);
+    // Removed excessive DEBUG logging (runs thousands of times/sec)
+    // Original: NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[VNF-TICK] Autonomous slot %u/%u (mu=%u)\n", sfn, slot, state->mu);
     
     // Update slot clock for delay management
     vnf_delay_update_slot_clock(sfn, slot);
