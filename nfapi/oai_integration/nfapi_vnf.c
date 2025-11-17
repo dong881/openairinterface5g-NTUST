@@ -671,7 +671,39 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
 
       // Determine if we need to adjust VNF timing per SCF-222 Section 2.6.4
       // VNF should maintain configured target offset ahead of PNF
-      const int32_t target_ahead = g_vnf_delay_ctx.target_slot_offset;
+      int32_t target_ahead = g_vnf_delay_ctx.target_slot_offset;
+      
+      // ENHANCEMENT: Adjust target based on actual message arrival timing
+      // If messages are consistently TOO EARLY, reduce target_slot_offset
+      // If messages are consistently TOO LATE, increase target_slot_offset
+      // This provides feedback loop from PNF message arrival to VNF slot positioning
+      int32_t avg_delay = (ind->dl_tti_latest_delay + ind->tx_data_request_latest_delay) / 2;
+      
+      // Convert microsecond delay to slot offset adjustment
+      // At mu=1: 500µs/slot, so -5000µs delay = ~10 slots too early
+      const uint32_t slot_duration_us = 10000U / (10U * (1U << g_vnf_mu));
+      int32_t delay_in_slots = avg_delay / (int32_t)slot_duration_us;
+      
+      // If messages arrive very early (> 5 slots), reduce target
+      // If messages arrive late (> 1 slot), increase target
+      if (delay_in_slots < -5 && target_ahead > 2) {
+        // Too early - decrease target by 1
+        target_ahead--;
+        g_vnf_delay_ctx.target_slot_offset = target_ahead;
+        NFAPI_TRACE(NFAPI_TRACE_INFO,
+                    "[VNF-SYNC] Messages arriving too early (avg_delay=%dµs, ~%d slots) → "
+                    "Reduced target_slot_offset to %d",
+                    avg_delay, delay_in_slots, target_ahead);
+      } else if (delay_in_slots > 1 && target_ahead < 10) {
+        // Too late - increase target by 1
+        target_ahead++;
+        g_vnf_delay_ctx.target_slot_offset = target_ahead;
+        NFAPI_TRACE(NFAPI_TRACE_INFO,
+                    "[VNF-SYNC] Messages arriving too late (avg_delay=%dµs, ~%d slots) → "
+                    "Increased target_slot_offset to %d",
+                    avg_delay, delay_in_slots, target_ahead);
+      }
+      
       // Sync thresholds: balance responsiveness vs stability
       const int32_t sync_threshold = 30;  // >30 slots drift (~30ms @ mu=1) requires immediate correction
       const int32_t gradual_threshold = 5;  // >5 slots drift (~5ms @ mu=1) triggers gradual correction
