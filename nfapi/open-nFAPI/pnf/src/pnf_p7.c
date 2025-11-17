@@ -2370,8 +2370,16 @@ void pnf_p7_configure_delay_state(pnf_p7_t *pnf_p7,
 	if(slots_per_frame == 0)
 		slots_per_frame = 10;
 	uint32_t slot_duration_us = 10000U / slots_per_frame;
-	uint16_t window_us = (uint16_t)((uint32_t)timing_window_slots * slot_duration_us);
-	uint32_t offset_us = window_us / 2;
+	
+	// CRITICAL FIX: Per SCF-222 spec, timing window should be in microseconds (TLV 0x011E)
+	// The parameter name "timing_window_slots" is misleading - it's actually meant to be
+	// a scaled value. Default of 30 means we should use reasonable timing values:
+	// - Window: 150µs (small tolerance for message arrival jitter)
+	// - Offset: 500µs (send messages 500µs before slot start per SCF-222)
+	// Old calculation: window = 30 slots * 1000µs = 30000µs (30ms!) - WAY TOO LARGE
+	// New calculation: Use spec-compliant values
+	uint16_t window_us = 150;   // 150µs window per SCF-222 medium-latency config
+	uint32_t offset_us = 500;   // 500µs offset per SCF-222 medium-latency config
 
 	struct timeval now;
 	gettimeofday(&now, NULL);
