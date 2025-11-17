@@ -29,6 +29,7 @@
 
 #include "debug.h"
 #include "nfapi/oai_integration/vendor_ext.h"
+#include "nfapi/oai_integration/nfapi_delay_mgmt.h"
 #include "nfapi_pnf_interface.h"
 #include "nfapi_nr_interface.h"
 #include "nfapi_nr_interface_scf.h"
@@ -1114,6 +1115,38 @@ int pnf_phy_ul_dci_req(gNB_L1_rxtx_proc_t *proc, nfapi_pnf_p7_config_t *pnf_p7, 
   DevAssert(RC.gNB != NULL && RC.gNB[0] != NULL);
   PHY_VARS_gNB *gNB = RC.gNB[0]; // phy_inst?
   
+  // Check message arrival timing per SCF-222 spec
+  if (pnf_p7 != NULL) {
+    struct timeval recv_time;
+    gettimeofday(&recv_time, NULL);
+    
+    pnf_p7_t *pnf = (pnf_p7_t *)pnf_p7;
+    
+    int32_t delta = 0;
+    nfapi_msg_arrival_result_e result = nfapi_delay_mgmt_check_message_arrival(
+        &pnf->delay_state,
+        NFAPI_MSG_TYPE_UL_DCI,
+        req->SFN,
+        req->Slot,
+        req->header.transmit_timestamp,
+        &recv_time,
+        &delta);
+    
+    nfapi_delay_mgmt_update_jitter(
+        &pnf->delay_state,
+        NFAPI_MSG_TYPE_UL_DCI,
+        req->header.transmit_timestamp,
+        &recv_time);
+    
+    if (result == NFAPI_MSG_ARRIVAL_TOO_LATE) {
+      LOG_E(PHY,
+            "[PNF-DELAY] UL_DCI for %u.%u arrived TOO LATE (delta=%d µs).\n",
+            req->SFN,
+            req->Slot,
+            delta);
+    }
+  }
+  
   nr_schedule_ul_dci_req(gNB, req);
 
   return 0;
@@ -1157,6 +1190,56 @@ int pnf_phy_dl_tti_req(gNB_L1_rxtx_proc_t *proc, nfapi_pnf_p7_config_t *pnf_p7, 
   DevAssert(sync_var == 0);
   DevAssert(RC.gNB != NULL && RC.gNB[0] != NULL);
   PHY_VARS_gNB *gNB = RC.gNB[0]; // phy_inst?
+
+  // CRITICAL: Check message arrival timing per SCF-222 spec (Section 2.6)
+  // DL_TTI must arrive within timing window before slot start
+  if (pnf_p7 != NULL) {
+    struct timeval recv_time;
+    gettimeofday(&recv_time, NULL);
+    
+    pnf_p7_t *pnf = (pnf_p7_t *)pnf_p7;
+    
+    int32_t delta = 0;
+    nfapi_msg_arrival_result_e result = nfapi_delay_mgmt_check_message_arrival(
+        &pnf->delay_state,
+        NFAPI_MSG_TYPE_DL_TTI,
+        DL_req->SFN,
+        DL_req->Slot,
+        DL_req->header.transmit_timestamp,
+        &recv_time,
+        &delta);
+    
+    nfapi_delay_mgmt_update_jitter(
+        &pnf->delay_state,
+        NFAPI_MSG_TYPE_DL_TTI,
+        DL_req->header.transmit_timestamp,
+        &recv_time);
+    
+    if (result == NFAPI_MSG_ARRIVAL_TOO_LATE) {
+      LOG_E(PHY,
+            "[PNF-DELAY] DL_TTI for %u.%u arrived TOO LATE (delta=%d µs). Slot may be lost.\n",
+            DL_req->SFN,
+            DL_req->Slot,
+            delta);
+      
+      if (nfapi_delay_mgmt_should_send_timing_info(&pnf->delay_state, DL_req->SFN, DL_req->Slot, 1)) {
+        nfapi_nr_timing_info_t timing_info;
+        nfapi_delay_mgmt_build_timing_info(&pnf->delay_state, &timing_info);
+        timing_info.header.message_id = NFAPI_NR_PHY_MSG_TYPE_TIMING_INFO;
+        timing_info.header.phy_id = pnf_p7->phy_id;
+        
+        if (pnf_p7->send_p7_msg != NULL) {
+          pnf_p7->send_p7_msg(pnf, &timing_info.header, sizeof(timing_info));
+        }
+      }
+    } else if (result == NFAPI_MSG_ARRIVAL_TOO_EARLY) {
+      LOG_W(PHY,
+            "[PNF-DELAY] DL_TTI for %u.%u arrived TOO EARLY (delta=%d µs).\n",
+            DL_req->SFN,
+            DL_req->Slot,
+            delta);
+    }
+  }
 
   nr_schedule_dl_tti_req(gNB, DL_req);
 
@@ -1261,6 +1344,85 @@ int pnf_phy_tx_data_req(nfapi_pnf_p7_config_t *pnf_p7, nfapi_nr_tx_data_request_
 {
   DevAssert(RC.gNB != NULL && RC.gNB[0] != NULL);
   PHY_VARS_gNB *gNB = RC.gNB[0]; // phy_inst?
+
+  // CRITICAL: Check message arrival timing per SCF-222 spec (Section 2.6)
+  // TX_Data must arrive within timing window before slot start, otherwise
+  // HARQ PDU will be missing when PHY generates PDSCH
+  if (pnf_p7 != NULL) {
+    struct timeval recv_time;
+    gettimeofday(&recv_time, NULL);
+    
+    // Get PNF P7 internal structure to access delay management state
+    // Note: pnf_p7_config_t is typedefed as pnf_p7_t in pnf_p7.h
+    pnf_p7_t *pnf = (pnf_p7_t *)pnf_p7;
+    
+    // Check timing for each PDU in the request
+    int32_t delta = 0;
+    nfapi_msg_arrival_result_e result = nfapi_delay_mgmt_check_message_arrival(
+        &pnf->delay_state,
+        NFAPI_MSG_TYPE_TX_DATA,
+        req->SFN,
+        req->Slot,
+        req->header.transmit_timestamp,
+        &recv_time,
+        &delta);
+    
+    // Update jitter statistics per RFC 3550
+    nfapi_delay_mgmt_update_jitter(
+        &pnf->delay_state,
+        NFAPI_MSG_TYPE_TX_DATA,
+        req->header.transmit_timestamp,
+        &recv_time);
+    
+    // Handle late arrivals per SCF-222 spec
+    if (result == NFAPI_MSG_ARRIVAL_TOO_LATE) {
+      LOG_E(PHY,
+            "[PNF-DELAY] TX_Data for %u.%u arrived TOO LATE (delta=%d µs). "
+            "HARQ PDUs will be missing for PDSCH generation. "
+            "Check VNF timing offset configuration.\n",
+            req->SFN,
+            req->Slot,
+            delta);
+      
+      // Trigger aperiodic Timing Info to notify VNF of timing issue
+      // VNF should adjust timing offsets based on this feedback
+      if (nfapi_delay_mgmt_should_send_timing_info(&pnf->delay_state, req->SFN, req->Slot, 1)) {
+        // Build and send Timing Info message
+        nfapi_nr_timing_info_t timing_info;
+        nfapi_delay_mgmt_build_timing_info(&pnf->delay_state, &timing_info);
+        timing_info.header.message_id = NFAPI_NR_PHY_MSG_TYPE_TIMING_INFO;
+        timing_info.header.phy_id = pnf_p7->phy_id;
+        
+        if (pnf_p7->send_p7_msg != NULL) {
+          pnf_p7->send_p7_msg(pnf, &timing_info.header, sizeof(timing_info));
+          LOG_I(PHY, "[PNF-DELAY] Sent Timing Info to VNF due to late TX_Data\n");
+        }
+      }
+      
+      // Still process the request even if late - PHY has defensive checks
+      // to skip PDSCHs with missing PDUs
+    } else if (result == NFAPI_MSG_ARRIVAL_TOO_EARLY) {
+      LOG_W(PHY,
+            "[PNF-DELAY] TX_Data for %u.%u arrived TOO EARLY (delta=%d µs). "
+            "VNF timing may need adjustment.\n",
+            req->SFN,
+            req->Slot,
+            delta);
+    }
+    
+    // Send periodic Timing Info if configured
+    if (nfapi_delay_mgmt_should_send_timing_info(&pnf->delay_state, req->SFN, req->Slot, 0)) {
+      nfapi_nr_timing_info_t timing_info;
+      nfapi_delay_mgmt_build_timing_info(&pnf->delay_state, &timing_info);
+      timing_info.header.message_id = NFAPI_NR_PHY_MSG_TYPE_TIMING_INFO;
+      timing_info.header.phy_id = pnf_p7->phy_id;
+      
+      if (pnf_p7->send_p7_msg != NULL) {
+        pnf_p7->send_p7_msg(pnf, &timing_info.header, sizeof(timing_info));
+        LOG_D(PHY, "[PNF-DELAY] Sent periodic Timing Info to VNF\n");
+      }
+    }
+  }
 
   nr_schedule_tx_req(gNB, req);
 

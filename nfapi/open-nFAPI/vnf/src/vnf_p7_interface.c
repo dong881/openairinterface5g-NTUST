@@ -387,8 +387,23 @@ if (selectRetval==-1 && errno == 22)
 
 			while(curr != 0)
 			{
-				curr->sfn_sf = increment_sfn_sf(curr->sfn_sf);
-				vnf_sync(vnf_p7, curr);
+				// CRITICAL FIX: Use vnf_nr_sync() for NR (mu >= 0), vnf_sync() for LTE
+				// This enables DL Node Sync messages per SCF-222 spec for delay management
+				if (curr->mu >= 0) {
+					// NR mode: use slot-based sync with DL/UL Node Sync messages
+					// Increment slot counter before sync
+					uint16_t slots_per_frame = NFAPI_SLOTNUM(curr->mu);  // 10, 20, 40, 80, 160 for mu=0,1,2,3,4
+					curr->slot++;
+					if (curr->slot >= slots_per_frame) {
+						curr->slot = 0;
+						curr->sfn = (curr->sfn + 1) % 1024;
+					}
+					vnf_nr_sync(vnf_p7, curr);
+				} else {
+					// LTE mode: use legacy subframe-based sync
+					curr->sfn_sf = increment_sfn_sf(curr->sfn_sf);
+					vnf_sync(vnf_p7, curr);
+				}
 				curr = curr->next;
 			}
 
