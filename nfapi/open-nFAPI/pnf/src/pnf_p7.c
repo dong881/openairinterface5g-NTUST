@@ -844,16 +844,26 @@ static void pnf_p7_maybe_send_timing_info(pnf_p7_t *pnf_p7, uint16_t sfn, uint16
 		return;
 
 	// CRITICAL FIX: Allow sending timing info even without stats for initial synchronization
+	// or when aperiodic send is triggered by out-of-window messages
 	// The first few timing info messages are needed by VNF to synchronize its tick with PNF
 	// Without this, if VNF and PNF start desynchronized, no messages arrive in window,
 	// no stats accumulate, and no timing info is sent - creating a deadlock
 	const bool stats_ready = pnf_p7_delay_stats_ready(&pnf_p7->delay_state);
 	if(!stats_ready)
 	{
+		// In aperiodic mode, if timing info send is explicitly requested (out-of-window event),
+		// always send it regardless of stats or timing_info_count to help VNF resynchronize
+		if(force_aperiodic)
+		{
+			NFAPI_TRACE(NFAPI_TRACE_INFO,
+			            "[P7:%d] Sending aperiodic timing info due to out-of-window messages (count=%u)",
+			            pnf_p7->_public.phy_id,
+			            pnf_p7->delay_state.timing_info_count);
+		}
 		// Check if this is early in the session (first ~10 timing info reports)
 		// If so, send timing info anyway to help VNF synchronize
 		// Use timing_info_count instead of slot_counter because slot_counter resets periodically
-		if(pnf_p7->delay_state.timing_info_count > 10)
+		else if(pnf_p7->delay_state.timing_info_count > 10)
 		{
 			NFAPI_TRACE(NFAPI_TRACE_DEBUG,
 			            "[P7:%d] Timing info pending stats after initial period (count=%u, DL:%d UL:%d ULDCI:%d TX:%d)",
@@ -865,10 +875,13 @@ static void pnf_p7_maybe_send_timing_info(pnf_p7_t *pnf_p7, uint16_t sfn, uint16
 			            pnf_p7->delay_state.tx_data_stats.latest_delay);
 			return;
 		}
-		NFAPI_TRACE(NFAPI_TRACE_INFO,
-		            "[P7:%d] Sending timing info without stats for initial VNF synchronization (count=%u)",
-		            pnf_p7->_public.phy_id,
-		            pnf_p7->delay_state.timing_info_count);
+		else
+		{
+			NFAPI_TRACE(NFAPI_TRACE_INFO,
+			            "[P7:%d] Sending timing info without stats for initial VNF synchronization (count=%u)",
+			            pnf_p7->_public.phy_id,
+			            pnf_p7->delay_state.timing_info_count);
+		}
 	}
 
 	if(stats_ready)
