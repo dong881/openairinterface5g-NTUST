@@ -312,45 +312,65 @@ struct timespec timespec_delta(struct timespec start, struct timespec end)
 
 static uint32_t get_sf_time(uint32_t now_hr, uint32_t sf_start_hr)
 {
-	if(now_hr < sf_start_hr)
+	// CRITICAL FIX: Handle TIME2TIMEHR wraparound (every 4096 seconds = 68 minutes)
+	// TIME2TIMEHR uses only 12 bits for seconds (tv_sec & 0xFFF), causing wraparound
+	// Use signed arithmetic to detect wraparound and handle it correctly
+	int32_t delta_hr = (int32_t)now_hr - (int32_t)sf_start_hr;
+	
+	// If delta is very negative (e.g., -0x0FFF00000), we've wrapped forward in time
+	// If delta is very positive (e.g., +0x0FFF00000), sf_start is in the future (shouldn't happen)
+	// Threshold: half of TIME2TIMEHR range (~34 minutes = 0x80000000)
+	if(delta_hr < -0x7FFFFFFF || (delta_hr >= 0 && delta_hr < 0x80000000))
 	{
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "now is earlier than start of subframe\n");
-		return 0;
-	}
-	else
-	{
+		// Normal case or forward wraparound: now >= sf_start (within 34 minute window)
 		uint32_t now_us = TIMEHR_USEC(now_hr);
 		uint32_t sf_start_us = TIMEHR_USEC(sf_start_hr);
 
 		// if the us have wrapped adjust for it
-		if(now_hr < sf_start_us)
+		if(now_us < sf_start_us)
 		{
 			now_us += 1000000;
 		}
 
 		return now_us - sf_start_us;
 	}
+	else
+	{
+		// now is earlier than start of subframe (shouldn't normally happen)
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "now is earlier than start of subframe\n");
+		return 0;
+	}
 }
 
 static uint32_t get_slot_time(uint32_t now_hr, uint32_t slot_start_hr)
 {
-	if(now_hr < slot_start_hr)
+	// CRITICAL FIX: Handle TIME2TIMEHR wraparound (every 4096 seconds = 68 minutes)
+	// TIME2TIMEHR uses only 12 bits for seconds (tv_sec & 0xFFF), causing wraparound
+	// Use signed arithmetic to detect wraparound and handle it correctly
+	int32_t delta_hr = (int32_t)now_hr - (int32_t)slot_start_hr;
+	
+	// If delta is very negative (e.g., -0x0FFF00000), we've wrapped forward in time
+	// If delta is very positive (e.g., +0x0FFF00000), slot_start is in the future (shouldn't happen)
+	// Threshold: half of TIME2TIMEHR range (~34 minutes = 0x80000000)
+	if(delta_hr < -0x7FFFFFFF || (delta_hr >= 0 && delta_hr < 0x80000000))
 	{
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "now is earlier than start of slot\n");
-		return 0;
-	}
-	else
-	{
+		// Normal case or forward wraparound: now >= slot_start (within 34 minute window)
 		uint32_t now_us = TIMEHR_USEC(now_hr);
 		uint32_t slot_start_us = TIMEHR_USEC(slot_start_hr);
 
 		// if the us have wrapped adjust for it
-		if(now_hr < slot_start_us)
+		if(now_us < slot_start_us)
 		{
 			now_us += 1000000;
 		}
 
 		return now_us - slot_start_us;
+	}
+	else
+	{
+		// now is earlier than start of slot (shouldn't normally happen)
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "now is earlier than start of slot\n");
+		return 0;
 	}
 }
 
