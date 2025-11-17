@@ -365,12 +365,27 @@ static void vnf_adaptive_timing_adjust(int msg_idx, int32_t current_delay, uint3
       uint32_t new_offset = old_offset + (ADJUSTMENT_STEP_US * 2); // Double step for critical
       if (new_offset > MAX_OFFSET_US) new_offset = MAX_OFFSET_US;
       *offset_ptr = new_offset;
+      
+      // IMMEDIATE EFFECT: Also increase target_slot_offset to make VNF run further ahead
+      // This provides immediate relief without waiting for PNF reconfig
+      // Per SCF-222: VNF can adjust its transmission timing in response to feedback
+      int32_t old_target = g_vnf_delay_ctx.target_slot_offset;
+      if (g_vnf_delay_ctx.target_slot_offset < 10) {  // Don't exceed 10 slots ahead
+        g_vnf_delay_ctx.target_slot_offset++;
+        g_vnf_delay_ctx.slot_offset_adj = 1;  // Request immediate slot advance
+        g_vnf_delay_ctx.sync_pending = true;
+        
+        NFAPI_TRACE(NFAPI_TRACE_WARN,
+                    "[ADAPT] VNF: CRITICAL %s delay=%dµs → IMMEDIATE: target_slot_offset %d→%d slots (+ timing offset %uµs→%uµs)",
+                    msg_name, current_delay, old_target, g_vnf_delay_ctx.target_slot_offset, old_offset, new_offset);
+      } else {
+        NFAPI_TRACE(NFAPI_TRACE_WARN,
+                    "[ADAPT] VNF: CRITICAL %s delay=%dµs → Increased timing offset: %uµs→%uµs (max slot offset reached)",
+                    msg_name, current_delay, old_offset, new_offset);
+      }
+      
       g_vnf_delay_ctx.last_adjustment_time_ms = now_ms;
       g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx] = 0; // Reset counter
-
-      NFAPI_TRACE(NFAPI_TRACE_WARN,
-                  "[ADAPT] VNF: CRITICAL %s delay=%dµs → Increased timing offset: %uµs → %uµs (immediate adjustment)",
-                  msg_name, current_delay, old_offset, new_offset);
     }
     // Persistent high delay - gradual adjustment
     else if (g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx] >= CONSECUTIVE_HIGH_DELAY_TRIGGER) {
