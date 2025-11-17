@@ -105,8 +105,14 @@ typedef struct {
   bool sync_pending;            // Whether a synchronization is pending
   // Timing window configuration (per SCF-222 spec)
   uint32_t dl_tti_timing_offset_us;   // DL_TTI timing offset in microseconds
+  uint32_t ul_tti_timing_offset_us;   // UL_TTI timing offset in microseconds
+  uint32_t ul_dci_timing_offset_us;   // UL_DCI timing offset in microseconds
+  uint32_t tx_data_timing_offset_us;  // TX_Data timing offset in microseconds
   uint16_t timing_window_us;          // Timing window size in microseconds
   int32_t target_slot_offset;         // Target slot offset between VNF and PNF (configurable)
+  // Adaptive timing adjustment state (per SCF-222 Section 3.4.7)
+  uint32_t consecutive_high_delay_count[4]; // Counter for consecutive high delays per message type [DL_TTI, UL_TTI, UL_DCI, TX_Data]
+  uint32_t last_adjustment_time_ms;         // Timestamp of last timing offset adjustment (for rate limiting)
 } oai_vnf_delay_ctx_t;
 
 static oai_vnf_delay_ctx_t g_vnf_delay_ctx = {
@@ -122,8 +128,13 @@ static oai_vnf_delay_ctx_t g_vnf_delay_ctx = {
   .sync_pending = false,
   // Default timing parameters per SCF-222 spec (can be configured via TLVs)
   .dl_tti_timing_offset_us = 500,  // 500µs before slot start (medium latency default)
+  .ul_tti_timing_offset_us = 500,  // 500µs before slot start
+  .ul_dci_timing_offset_us = 500,  // 500µs before slot start
+  .tx_data_timing_offset_us = 500, // 500µs before slot start
   .timing_window_us = 150,         // 150µs window (medium tolerance)
   .target_slot_offset = 6,         // Target: VNF ~6 slots ahead of PNF (derived from timing offset)
+  .consecutive_high_delay_count = {0, 0, 0, 0}, // Initialize all counters to 0
+  .last_adjustment_time_ms = 0,    // No previous adjustment
 };
 
 static uint8_t g_vnf_mu;
@@ -268,7 +279,7 @@ static void vnf_delay_tag_nr_message(nfapi_vnf_p7_config_t *config,
 
 /**
  * @brief Configure VNF timing parameters per SCF-222 spec
- * @param timing_offset_us Timing offset in microseconds (TLV 0x0106-0x0109)
+ * @param timing_offset_us Timing offset in microseconds (TLV 0x0106-0x0109) - applied to all message types
  * @param timing_window_us Timing window in microseconds (TLV 0x011E)
  * @param mu Subcarrier spacing / numerology (0=15kHz, 1=30kHz, etc.)
  */
@@ -276,8 +287,11 @@ static void vnf_delay_configure_timing_params(uint32_t timing_offset_us, uint16_
 {
   pthread_mutex_lock(&g_vnf_delay_ctx.lock);
   
-  // Store timing parameters per SCF-222 spec
+  // Store timing parameters per SCF-222 spec - apply to all message types
   g_vnf_delay_ctx.dl_tti_timing_offset_us = timing_offset_us;
+  g_vnf_delay_ctx.ul_tti_timing_offset_us = timing_offset_us;
+  g_vnf_delay_ctx.ul_dci_timing_offset_us = timing_offset_us;
+  g_vnf_delay_ctx.tx_data_timing_offset_us = timing_offset_us;
   g_vnf_delay_ctx.timing_window_us = timing_window_us;
   
   // Calculate target slot offset based on timing parameters and numerology
@@ -297,6 +311,84 @@ static void vnf_delay_configure_timing_params(uint32_t timing_offset_us, uint16_
               g_vnf_delay_ctx.target_slot_offset);
   
   pthread_mutex_unlock(&g_vnf_delay_ctx.lock);
+}
+
+/**
+ * @brief Adaptively adjust timing offsets based on detected delays (SCF-222 Section 3.4.7)
+ * Per SCF-222: VNF should respond to timing info feedback and adjust offsets to prevent slot loss
+ * @param msg_idx Message type index (0=DL_TTI, 1=UL_TTI, 2=UL_DCI, 3=TX_Data)
+ * @param current_delay Latest reported delay in microseconds
+ * @param current_jitter Current jitter in microseconds
+ * @param msg_name Message type name for logging
+ * NOTE: This function assumes g_vnf_delay_ctx.lock is already held by caller
+ */
+static void vnf_adaptive_timing_adjust(int msg_idx, int32_t current_delay, uint32_t current_jitter, const char *msg_name)
+{
+  // Thresholds per SCF-222 recommendations
+  const int32_t DELAY_THRESHOLD_US = 50;      // Delay exceeding 50µs is concerning
+  const int32_t CRITICAL_DELAY_US = 150;      // Delay exceeding 150µs risks slot loss
+  const uint32_t JITTER_THRESHOLD_US = 100;   // High jitter indicates unstable latency
+  const uint32_t CONSECUTIVE_HIGH_DELAY_TRIGGER = 3; // Adjust after 3 consecutive high delays
+  const uint32_t MIN_ADJUSTMENT_INTERVAL_MS = 5000;  // Rate limit adjustments to every 5 seconds
+  const uint32_t ADJUSTMENT_STEP_US = 100;    // Increase offset by 100µs per adjustment
+  const uint32_t MAX_OFFSET_US = 30000;       // Maximum 30ms offset (per SCF-222 TLV range 0-65535µs)
+
+  // Get current time for rate limiting
+  struct timeval now;
+  gettimeofday(&now, NULL);
+  uint32_t now_ms = (uint32_t)(now.tv_sec * 1000 + now.tv_usec / 1000);
+
+  // Check if we're within rate limit interval
+  if (g_vnf_delay_ctx.last_adjustment_time_ms > 0 &&
+      (now_ms - g_vnf_delay_ctx.last_adjustment_time_ms) < MIN_ADJUSTMENT_INTERVAL_MS) {
+    // Too soon since last adjustment, skip
+    return;
+  }
+
+  // Get current offset for this message type
+  uint32_t *offset_ptr = NULL;
+  switch (msg_idx) {
+    case 0: offset_ptr = &g_vnf_delay_ctx.dl_tti_timing_offset_us; break;
+    case 1: offset_ptr = &g_vnf_delay_ctx.ul_tti_timing_offset_us; break;
+    case 2: offset_ptr = &g_vnf_delay_ctx.ul_dci_timing_offset_us; break;
+    case 3: offset_ptr = &g_vnf_delay_ctx.tx_data_timing_offset_us; break;
+    default: return; // Invalid index
+  }
+
+  // Track consecutive high delays
+  if (current_delay > DELAY_THRESHOLD_US || current_jitter > JITTER_THRESHOLD_US) {
+    g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx]++;
+
+    // Critical delay - immediate adjustment
+    if (current_delay > CRITICAL_DELAY_US) {
+      uint32_t old_offset = *offset_ptr;
+      uint32_t new_offset = old_offset + (ADJUSTMENT_STEP_US * 2); // Double step for critical
+      if (new_offset > MAX_OFFSET_US) new_offset = MAX_OFFSET_US;
+      *offset_ptr = new_offset;
+      g_vnf_delay_ctx.last_adjustment_time_ms = now_ms;
+      g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx] = 0; // Reset counter
+
+      NFAPI_TRACE(NFAPI_TRACE_WARN,
+                  "[ADAPT] VNF: CRITICAL %s delay=%dµs → Increased timing offset: %uµs → %uµs (immediate adjustment)",
+                  msg_name, current_delay, old_offset, new_offset);
+    }
+    // Persistent high delay - gradual adjustment
+    else if (g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx] >= CONSECUTIVE_HIGH_DELAY_TRIGGER) {
+      uint32_t old_offset = *offset_ptr;
+      uint32_t new_offset = old_offset + ADJUSTMENT_STEP_US;
+      if (new_offset > MAX_OFFSET_US) new_offset = MAX_OFFSET_US;
+      *offset_ptr = new_offset;
+      g_vnf_delay_ctx.last_adjustment_time_ms = now_ms;
+      g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx] = 0; // Reset counter
+
+      NFAPI_TRACE(NFAPI_TRACE_INFO,
+                  "[ADAPT] VNF: Persistent %s high delay (%d occurrences) → Increased timing offset: %uµs → %uµs",
+                  msg_name, CONSECUTIVE_HIGH_DELAY_TRIGGER, old_offset, new_offset);
+    }
+  } else {
+    // Delay is acceptable, reset counter
+    g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx] = 0;
+  }
 }
 
 static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
@@ -490,6 +582,14 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
     g_vnf_delay_ctx.skip_sfn = ind->last_sfn;
     g_vnf_delay_ctx.skip_slot = ind->last_slot;
   }
+
+  // Per SCF-222 Section 3.4.7: Adaptive timing offset adjustment based on timing info feedback
+  // Adjust timing offsets for each message type if persistent high delays detected
+  vnf_adaptive_timing_adjust(0, ind->dl_tti_latest_delay, ind->dl_tti_jitter, "DL_TTI");
+  vnf_adaptive_timing_adjust(1, ind->ul_tti_latest_delay, ind->ul_tti_jitter, "UL_TTI");
+  vnf_adaptive_timing_adjust(2, ind->ul_dci_latest_delay, ind->ul_dci_jitter, "UL_DCI");
+  vnf_adaptive_timing_adjust(3, ind->tx_data_request_latest_delay, ind->tx_data_request_jitter, "TX_Data");
+
   pthread_mutex_unlock(&g_vnf_delay_ctx.lock);
 
   // Remove jitter trending logs - they are not actionable and spam logs
@@ -2136,19 +2236,22 @@ int nr_param_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_param_resp
       req->num_tlv++;
     }
   }
-//TODO: Assign tag and value for P7 message offsets
+// Per SCF-222: Configure timing offsets (TLVs 0x0106-0x0109) from VNF delay context
+// These can be dynamically adjusted based on timing info feedback
+pthread_mutex_lock(&g_vnf_delay_ctx.lock);
 req->nfapi_config.dl_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET;
-req->nfapi_config.dl_tti_timing_offset.value = 20000;
+req->nfapi_config.dl_tti_timing_offset.value = g_vnf_delay_ctx.dl_tti_timing_offset_us;
 req->num_tlv++;
 req->nfapi_config.ul_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET;
-req->nfapi_config.ul_tti_timing_offset.value = 20000;
+req->nfapi_config.ul_tti_timing_offset.value = g_vnf_delay_ctx.ul_tti_timing_offset_us;
 req->num_tlv++;
 req->nfapi_config.ul_dci_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET;
-req->nfapi_config.ul_dci_timing_offset.value = 20000;
+req->nfapi_config.ul_dci_timing_offset.value = g_vnf_delay_ctx.ul_dci_timing_offset_us;
 req->num_tlv++;
 req->nfapi_config.tx_data_timing_offset.tl.tag = NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET;
-req->nfapi_config.tx_data_timing_offset.value = 20000;
+req->nfapi_config.tx_data_timing_offset.value = g_vnf_delay_ctx.tx_data_timing_offset_us;
 req->num_tlv++;
+pthread_mutex_unlock(&g_vnf_delay_ctx.lock);
 
   vendor_ext_tlv_2 ve2;
   memset(&ve2, 0, sizeof(ve2));
@@ -2156,11 +2259,13 @@ req->num_tlv++;
   ve2.dummy = 2016;
   req->vendor_extension = &ve2.tl;
 #endif
-  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[DEBUG] VNF→PNF: PNFCONFIG.request (base config)");
-  NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-              "[DEBUG] Configuration: DLTTI offset=%uus, ULTTI offset=%uus, Timing window=%uus",
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[INFO] VNF→PNF: PNF_CONFIG.request with timing parameters");
+  NFAPI_TRACE(NFAPI_TRACE_INFO,
+              "[INFO] Timing offsets: DL_TTI=%uµs UL_TTI=%uµs UL_DCI=%uµs TX_Data=%uµs, Window=%uµs",
               req->nfapi_config.dl_tti_timing_offset.value,
               req->nfapi_config.ul_tti_timing_offset.value,
+              req->nfapi_config.ul_dci_timing_offset.value,
+              req->nfapi_config.tx_data_timing_offset.value,
               p7_vnf->timing_window);
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[INFO] PNF-STATE: IDLE → CONFIGURED");
   nfapi_nr_vnf_config_req(config, p5_idx, req);
