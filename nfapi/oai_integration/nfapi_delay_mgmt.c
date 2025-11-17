@@ -199,36 +199,45 @@ nfapi_msg_arrival_result_e nfapi_delay_mgmt_check_message_arrival(
   if (!cfg || !stats || !cfg->enabled || !receive_time)
     return NFAPI_MSG_ARRIVAL_ON_TIME;
 
-  // CRITICAL FIX: Handle 32-bit wraparound for transmit_timestamp
-  // transmit_timestamp is 32-bit and wraps every ~71 minutes, so we must use 32-bit arithmetic
-  // to correctly handle wraparound cases when comparing with receive_time
-  const uint64_t actual_us = timestamp_from_ref(state, receive_time);
+  // CRITICAL FIX: Per SCF-222 Section 2.6, check message arrival against timing window
+  // The timing window is defined relative to the target slot start time:
+  //   window_start = slot_start - timing_offset
+  //   window_end = window_start - timing_window
+  // A message is on-time if it arrives within [window_end, window_start]
   
-  // Cast arrival to 32-bit to match transmit_timestamp's wraparound behavior
-  const uint32_t arrival_us_32 = (uint32_t)(actual_us & 0xFFFFFFFFULL);
+  // Calculate target slot start time in microseconds
+  const uint64_t slot_start_us = calc_slot_start_us(sfn, slot, state->subcarrier_spacing);
   
-  // Calculate delay using 32-bit wraparound arithmetic
-  // Unsigned subtraction naturally handles wraparound
-  const uint32_t delta_unsigned = arrival_us_32 - transmit_timestamp;
+  // Calculate timing window boundaries
+  // window_start: timing_offset microseconds before slot start
+  // window_end: timing_window microseconds before window_start
+  const uint64_t window_start_us = slot_start_us - cfg->timing_offset_us;
+  const uint64_t window_end_us = window_start_us - cfg->timing_window_us;
   
-  // Convert to signed delta, treating large positive values (> 2^31) as negative wraparound
-  int32_t delta;
-  if (delta_unsigned > 0x7FFFFFFFU) {
-    // Wrapped around in negative direction: actual < transmit in 32-bit space
-    delta = -(int32_t)(0xFFFFFFFFU - delta_unsigned + 1);
-  } else {
-    delta = (int32_t)delta_unsigned;
-  }
-
-  nfapi_msg_arrival_result_e result = NFAPI_MSG_ARRIVAL_ON_TIME;
-  const int32_t window = (int32_t)cfg->timing_window_us;
-
-  // Message is on-time if delay is within the acceptable window
-  // For P7 messages, typical offset is 300-500μs, window is 100-200μs
-  if (delta > window)
-    result = NFAPI_MSG_ARRIVAL_TOO_LATE;
-  else if (delta < -window)
+  // Get actual arrival time
+  const uint64_t arrival_us = timestamp_from_ref(state, receive_time);
+  
+  // Calculate delta from ideal arrival point (window_start)
+  // Positive delta = message arrived after window_start (late)
+  // Negative delta = message arrived before window_start (early, but may still be on-time if within window)
+  int64_t delta_signed = (int64_t)arrival_us - (int64_t)window_start_us;
+  
+  // Clamp delta to int32_t range for reporting (should never overflow in practice)
+  int32_t delta = (delta_signed > INT32_MAX) ? INT32_MAX : 
+                  (delta_signed < INT32_MIN) ? INT32_MIN : (int32_t)delta_signed;
+  
+  // Determine if message arrival is on-time, too early, or too late
+  nfapi_msg_arrival_result_e result;
+  if (arrival_us < window_end_us) {
+    // Arrived before window opened (too early)
     result = NFAPI_MSG_ARRIVAL_TOO_EARLY;
+  } else if (arrival_us > window_start_us) {
+    // Arrived after window closed (too late)
+    result = NFAPI_MSG_ARRIVAL_TOO_LATE;
+  } else {
+    // Arrived within timing window (on-time)
+    result = NFAPI_MSG_ARRIVAL_ON_TIME;
+  }
 
   update_stats(stats, delta, result);
   if (delta_out)
