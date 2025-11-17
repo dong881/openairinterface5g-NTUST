@@ -371,14 +371,14 @@ static void vnf_adaptive_timing_adjust(int msg_idx, int32_t current_delay, uint3
   // - Within window: -timing_window < delay <= 0 → ON TIME
   
   const int32_t EARLY_THRESHOLD_US = -1000;    // Messages arriving > 1ms early need correction
-  const int32_t CRITICAL_EARLY_US = -5000;     // Messages arriving > 5ms early are critical
+  const int32_t CRITICAL_EARLY_US = -3000;     // Messages arriving > 3ms early are critical (reduced from 5ms)
   const int32_t LATE_THRESHOLD_US = 50;        // Messages arriving > 50µs late need attention
   const int32_t CRITICAL_LATE_US = 150;        // Messages arriving > 150µs late are critical
   const uint32_t JITTER_THRESHOLD_US = 100;    // High jitter indicates unstable timing
   const uint32_t CRITICAL_JITTER_US = 200;     // Critical jitter requires immediate response
-  const uint32_t CONSECUTIVE_TRIGGER = 3;      // Require persistence before adjusting
-  const uint32_t MIN_ADJUSTMENT_INTERVAL_MS = 3000;  // Rate limit adjustments
-  const uint32_t ADJUSTMENT_STEP_US = 100;     // Microsecond adjustment step
+  const uint32_t CONSECUTIVE_TRIGGER = 2;      // Require persistence before adjusting (reduced from 3 for faster convergence)
+  const uint32_t MIN_ADJUSTMENT_INTERVAL_MS = 2000;  // Rate limit adjustments (reduced from 3000ms for faster convergence)
+  const uint32_t ADJUSTMENT_STEP_US = 200;     // Microsecond adjustment step (increased from 100 for faster convergence)
   const uint32_t MAX_OFFSET_US = 30000;        // Per SCF-222 Table 2-18
   const uint32_t MIN_OFFSET_US = 300;          // Minimum viable offset (safety margin)
 
@@ -422,17 +422,28 @@ static void vnf_adaptive_timing_adjust(int msg_idx, int32_t current_delay, uint3
     // CRITICAL EARLY: Immediate correction needed
     if (critical_early) {
       uint32_t old_offset = *offset_ptr;
-      // Decrease offset, but maintain minimum safety margin
-      uint32_t decrease_amount = ADJUSTMENT_STEP_US * 3; // Triple step for critical
+      // Calculate proportional decrease based on deviation magnitude
+      // For -6000µs early, we need to reduce by approximately that amount
+      int32_t deviation_magnitude = -current_delay;  // Make positive
+      uint32_t decrease_amount = (uint32_t)deviation_magnitude / 2;  // Use half the deviation for safety
+      if (decrease_amount < ADJUSTMENT_STEP_US * 3) {
+        decrease_amount = ADJUSTMENT_STEP_US * 3;  // Minimum triple step
+      }
       uint32_t new_offset = (old_offset > decrease_amount + MIN_OFFSET_US) ? 
                             (old_offset - decrease_amount) : MIN_OFFSET_US;
       *offset_ptr = new_offset;
       
+      // Calculate slot offset adjustment based on deviation
+      const uint32_t slot_duration_us = 10000U / (10U * (1U << g_vnf_mu));
+      int32_t slot_adjustment = -(deviation_magnitude / (int32_t)slot_duration_us) / 2;  // Half for safety
+      if (slot_adjustment < -1) slot_adjustment = -1;  // Limit to -1 slot per adjustment
+      
       // Also decrease slot offset for immediate effect
       int32_t old_target = g_vnf_delay_ctx.target_slot_offset;
-      if (g_vnf_delay_ctx.target_slot_offset > 2) {  // Maintain minimum 2 slots ahead
-        g_vnf_delay_ctx.target_slot_offset--;
-        g_vnf_delay_ctx.slot_offset_adj = -1;  // Request immediate slot decrease
+      if (g_vnf_delay_ctx.target_slot_offset > 2 && slot_adjustment < 0) {  // Maintain minimum 2 slots ahead
+        g_vnf_delay_ctx.target_slot_offset += slot_adjustment;  // slot_adjustment is negative
+        if (g_vnf_delay_ctx.target_slot_offset < 2) g_vnf_delay_ctx.target_slot_offset = 2;
+        g_vnf_delay_ctx.slot_offset_adj = slot_adjustment;  // Request immediate slot decrease
         g_vnf_delay_ctx.sync_pending = true;
         
         NFAPI_TRACE(NFAPI_TRACE_WARN,
@@ -455,17 +466,38 @@ static void vnf_adaptive_timing_adjust(int msg_idx, int32_t current_delay, uint3
     // PERSISTENT EARLY: Gradual correction after multiple occurrences
     if (g_vnf_delay_ctx.consecutive_early_count[msg_idx] >= CONSECUTIVE_TRIGGER) {
       uint32_t old_offset = *offset_ptr;
-      uint32_t new_offset = (old_offset > ADJUSTMENT_STEP_US + MIN_OFFSET_US) ? 
-                            (old_offset - ADJUSTMENT_STEP_US) : MIN_OFFSET_US;
+      // Make adjustment proportional to deviation for faster convergence
+      int32_t deviation_magnitude = -current_delay;  // Make positive
+      uint32_t decrease_amount = ADJUSTMENT_STEP_US;
+      if (deviation_magnitude > 2000) {  // If > 2ms early, use larger step
+        decrease_amount = ADJUSTMENT_STEP_US * 2;
+      }
+      uint32_t new_offset = (old_offset > decrease_amount + MIN_OFFSET_US) ? 
+                            (old_offset - decrease_amount) : MIN_OFFSET_US;
       *offset_ptr = new_offset;
+      
+      // Also adjust slot offset if needed
+      const uint32_t slot_duration_us = 10000U / (10U * (1U << g_vnf_mu));
+      int32_t delay_in_slots = current_delay / (int32_t)slot_duration_us;
+      if (delay_in_slots < -3 && g_vnf_delay_ctx.target_slot_offset > 2) {
+        // Messages arriving > 3 slots early - reduce target by 1
+        int32_t old_target = g_vnf_delay_ctx.target_slot_offset;
+        g_vnf_delay_ctx.target_slot_offset--;
+        NFAPI_TRACE(NFAPI_TRACE_INFO,
+                    "[ADAPT] VNF: Persistent %s TOO EARLY (%d occurrences, delay=%dµs ~%d slots, jitter=%uµs) → "
+                    "Decreased timing offset %uµs→%uµs + target_slot_offset %d→%d",
+                    msg_name, CONSECUTIVE_TRIGGER, current_delay, delay_in_slots, current_jitter,
+                    old_offset, new_offset, old_target, g_vnf_delay_ctx.target_slot_offset);
+      } else {
+        NFAPI_TRACE(NFAPI_TRACE_INFO,
+                    "[ADAPT] VNF: Persistent %s TOO EARLY (%d occurrences, delay=%dµs jitter=%uµs) → "
+                    "Decreased timing offset: %uµs → %uµs",
+                    msg_name, CONSECUTIVE_TRIGGER, current_delay, current_jitter,
+                    old_offset, new_offset);
+      }
+      
       g_vnf_delay_ctx.last_adjustment_time_ms = now_ms;
       g_vnf_delay_ctx.consecutive_early_count[msg_idx] = 0;
-
-      NFAPI_TRACE(NFAPI_TRACE_INFO,
-                  "[ADAPT] VNF: Persistent %s TOO EARLY (%d occurrences, delay=%dµs jitter=%uµs) → "
-                  "Decreased timing offset: %uµs → %uµs",
-                  msg_name, CONSECUTIVE_TRIGGER, current_delay, current_jitter,
-                  old_offset, new_offset);
     }
     return;
   }
@@ -671,38 +703,9 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
 
       // Determine if we need to adjust VNF timing per SCF-222 Section 2.6.4
       // VNF should maintain configured target offset ahead of PNF
+      // NOTE: target_slot_offset is adjusted by vnf_adaptive_timing_adjust() with rate limiting
+      // to prevent oscillation. Do NOT modify target_slot_offset here.
       int32_t target_ahead = g_vnf_delay_ctx.target_slot_offset;
-      
-      // ENHANCEMENT: Adjust target based on actual message arrival timing
-      // If messages are consistently TOO EARLY, reduce target_slot_offset
-      // If messages are consistently TOO LATE, increase target_slot_offset
-      // This provides feedback loop from PNF message arrival to VNF slot positioning
-      int32_t avg_delay = (ind->dl_tti_latest_delay + ind->tx_data_request_latest_delay) / 2;
-      
-      // Convert microsecond delay to slot offset adjustment
-      // At mu=1: 500µs/slot, so -5000µs delay = ~10 slots too early
-      const uint32_t slot_duration_us = 10000U / (10U * (1U << g_vnf_mu));
-      int32_t delay_in_slots = avg_delay / (int32_t)slot_duration_us;
-      
-      // If messages arrive very early (> 5 slots), reduce target
-      // If messages arrive late (> 1 slot), increase target
-      if (delay_in_slots < -5 && target_ahead > 2) {
-        // Too early - decrease target by 1
-        target_ahead--;
-        g_vnf_delay_ctx.target_slot_offset = target_ahead;
-        NFAPI_TRACE(NFAPI_TRACE_INFO,
-                    "[VNF-SYNC] Messages arriving too early (avg_delay=%dµs, ~%d slots) → "
-                    "Reduced target_slot_offset to %d",
-                    avg_delay, delay_in_slots, target_ahead);
-      } else if (delay_in_slots > 1 && target_ahead < 10) {
-        // Too late - increase target by 1
-        target_ahead++;
-        g_vnf_delay_ctx.target_slot_offset = target_ahead;
-        NFAPI_TRACE(NFAPI_TRACE_INFO,
-                    "[VNF-SYNC] Messages arriving too late (avg_delay=%dµs, ~%d slots) → "
-                    "Increased target_slot_offset to %d",
-                    avg_delay, delay_in_slots, target_ahead);
-      }
       
       // Sync thresholds: balance responsiveness vs stability
       const int32_t sync_threshold = 30;  // >30 slots drift (~30ms @ mu=1) requires immediate correction
