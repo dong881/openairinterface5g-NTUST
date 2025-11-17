@@ -92,6 +92,7 @@ typedef struct {
   uint16_t last_slot;            // Last slot for timing info
   struct timeval last_timing_info_time; // Time of last timing info report
   uint32_t slot_counter;         // Counter for periodic reports
+  uint32_t timing_info_count;    // Total number of timing info messages sent
 
   // SFN/Slot time reference (for timestamp calculations)
   struct timeval sfn_slot_zero_time; // Reference time for SFN/slot 0/0
