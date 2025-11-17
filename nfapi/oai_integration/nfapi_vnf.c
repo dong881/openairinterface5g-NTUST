@@ -127,12 +127,12 @@ static oai_vnf_delay_ctx_t g_vnf_delay_ctx = {
   .slot_offset_adj = 0,
   .sync_pending = false,
   // Default timing parameters per SCF-222 spec (can be configured via TLVs)
-  .dl_tti_timing_offset_us = 500,  // 500µs before slot start (medium latency default)
-  .ul_tti_timing_offset_us = 500,  // 500µs before slot start
+  .dl_tti_timing_offset_us = 500,  // 500µs before slot start (medium latency default per SCF-222)
+  .ul_tti_timing_offset_us = 500,  // 500µs before slot start  
   .ul_dci_timing_offset_us = 500,  // 500µs before slot start
   .tx_data_timing_offset_us = 500, // 500µs before slot start
-  .timing_window_us = 150,         // 150µs window (medium tolerance)
-  .target_slot_offset = 6,         // Target: VNF ~6 slots ahead of PNF (derived from timing offset)
+  .timing_window_us = 150,         // 150µs window (medium tolerance per SCF-222)
+  .target_slot_offset = 6,         // Initial placeholder - recalculated in vnf_delay_configure_timing_params()
   .consecutive_high_delay_count = {0, 0, 0, 0}, // Initialize all counters to 0
   .last_adjustment_time_ms = 0,    // No previous adjustment
 };
