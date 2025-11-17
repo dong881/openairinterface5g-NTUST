@@ -570,14 +570,33 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
 
     // Calculate adjustment needed to bring VNF to target_ahead slots ahead of PNF
     // Per SCF-222: Adjustment based on timing info feedback (event-driven mode)
-    g_vnf_delay_ctx.slot_offset_adj = target_ahead - slot_diff;
+    int32_t raw_adjustment = target_ahead - slot_diff;
+    
+    // CRITICAL FIX: Cap slot adjustment to prevent massive jumps that cause stale time reference
+    // Large adjustments (> 1000 slots = 1 second @ mu=1) indicate fundamental desynchronization.
+    // Instead of jumping, gradually converge over multiple adjustments.
+    // Per SCF-222: Gradual adjustment minimizes disruption and maintains timing window compliance
+    const int32_t MAX_SINGLE_ADJUSTMENT = 100;  // Max 100 slots per adjustment (~100ms @ mu=1)
+    
+    if (abs(raw_adjustment) > MAX_SINGLE_ADJUSTMENT) {
+      // Clamp to maximum, keeping sign
+      g_vnf_delay_ctx.slot_offset_adj = (raw_adjustment > 0) ? MAX_SINGLE_ADJUSTMENT : -MAX_SINGLE_ADJUSTMENT;
+      
+      NFAPI_TRACE(NFAPI_TRACE_WARN,
+                  "[WARN] VNF-SYNC: Large desync detected: raw_adj=%d slots, clamping to %d slots (will converge gradually)",
+                  raw_adjustment,
+                  g_vnf_delay_ctx.slot_offset_adj);
+    } else {
+      g_vnf_delay_ctx.slot_offset_adj = raw_adjustment;
+      
+      NFAPI_TRACE(NFAPI_TRACE_INFO,
+                  "[INFO] VNF-SYNC: Applying initial sync adjustment of %d slots (target: %d ahead)",
+                  g_vnf_delay_ctx.slot_offset_adj,
+                  target_ahead);
+    }
+    
     g_vnf_delay_ctx.sync_pending = true;
     g_vnf_delay_ctx.waiting_first_timing_info = false;
-
-    NFAPI_TRACE(NFAPI_TRACE_INFO,
-                "[INFO] VNF-SYNC: Applying initial sync adjustment of %d slots (target: %d ahead)",
-                g_vnf_delay_ctx.slot_offset_adj,
-                target_ahead);
   }
   // Subsequent timing info messages - handle incremental drift correction
   else if (ind->last_sfn > 0 || ind->last_slot > 0) {
@@ -609,14 +628,27 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
       if (abs(slot_diff - target_ahead) > sync_threshold) {
         // Large drift - apply immediate correction
         // Per SCF-222: Respond to timing info feedback (event-driven)
-        g_vnf_delay_ctx.slot_offset_adj = target_ahead - slot_diff;
+        int32_t raw_adj = target_ahead - slot_diff;
+        
+        // CRITICAL FIX: Cap adjustment to prevent massive jumps
+        const int32_t MAX_LARGE_ADJUSTMENT = 50;  // Max 50 slots for "immediate" correction
+        if (abs(raw_adj) > MAX_LARGE_ADJUSTMENT) {
+          g_vnf_delay_ctx.slot_offset_adj = (raw_adj > 0) ? MAX_LARGE_ADJUSTMENT : -MAX_LARGE_ADJUSTMENT;
+          NFAPI_TRACE(NFAPI_TRACE_WARN,
+                      "[WARN] VNF-SYNC: Large offset (%d slots, target %d) - clamping adjustment from %d to %d slots",
+                      slot_diff,
+                      target_ahead,
+                      raw_adj,
+                      g_vnf_delay_ctx.slot_offset_adj);
+        } else {
+          g_vnf_delay_ctx.slot_offset_adj = raw_adj;
+          NFAPI_TRACE(NFAPI_TRACE_WARN,
+                      "[WARN] VNF-SYNC: Large offset (%d slots, target %d) - adjusting %d slots",
+                      slot_diff,
+                      target_ahead,
+                      g_vnf_delay_ctx.slot_offset_adj);
+        }
         g_vnf_delay_ctx.sync_pending = true;
-
-        NFAPI_TRACE(NFAPI_TRACE_WARN,
-                    "[WARN] VNF-SYNC: Large offset (%d slots, target %d) - adjusting %d slots",
-                    slot_diff,
-                    target_ahead,
-                    g_vnf_delay_ctx.slot_offset_adj);
       } else if (abs(slot_diff - target_ahead) > gradual_threshold) {
         // Small drift - gradually correct (1/4 of error per iteration)
         // Per SCF-222: Gradual adjustment minimizes slot disruption

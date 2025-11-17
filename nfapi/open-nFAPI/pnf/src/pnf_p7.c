@@ -712,6 +712,38 @@ static void pnf_p7_handle_msg_arrival(pnf_p7_t *pnf_p7,
 		(struct timeval *)rx_time,
 		&delta_us);
 	
+	// CRITICAL FIX: Detect stale time reference indicated by massive delta (> 10 seconds)
+	// This happens when VNF adjusts slot counter but PNF's time reference is not updated
+	// Per SCF-222: Time reference should be synchronized between VNF and PNF
+	if(abs(delta_us) > 10000000) {  // 10 seconds threshold
+		NFAPI_TRACE(NFAPI_TRACE_ERROR,
+		            "[PNF-TIMING] CRITICAL: Message %s for %u.%u has MASSIVE delta=%d µs (> 10s) - FORCING time reference refresh",
+		            (type == NFAPI_MSG_TYPE_DL_TTI) ? "DL_TTI" :
+		            (type == NFAPI_MSG_TYPE_UL_TTI) ? "UL_TTI" :
+		            (type == NFAPI_MSG_TYPE_UL_DCI) ? "UL_DCI" :
+		            (type == NFAPI_MSG_TYPE_TX_DATA) ? "TX_DATA" : "UNKNOWN",
+		            sfn, slot, delta_us);
+		
+		// Force immediate time reference refresh to resynchronize with VNF
+		struct timeval now = *rx_time;
+		nfapi_delay_mgmt_set_time_reference(&pnf_p7->delay_state, &now, sfn, slot);
+		
+		// Recalculate arrival with new reference
+		result = nfapi_delay_mgmt_check_message_arrival(&pnf_p7->delay_state,
+			type,
+			sfn,
+			slot,
+			transmit_timestamp,
+			(struct timeval *)rx_time,
+			&delta_us);
+		
+		NFAPI_TRACE(NFAPI_TRACE_INFO,
+		            "[PNF-TIMING] After time reference refresh: delta=%d µs result=%s",
+		            delta_us,
+		            (result == NFAPI_MSG_ARRIVAL_ON_TIME) ? "ON_TIME" :
+		            (result == NFAPI_MSG_ARRIVAL_TOO_LATE) ? "TOO_LATE" : "TOO_EARLY");
+	}
+	
 	// Log only severe timing window violations (reduce log spam)
 	if(result != NFAPI_MSG_ARRIVAL_ON_TIME) {
 		const char *msg_type_str = (type == NFAPI_MSG_TYPE_DL_TTI) ? "DL_TTI" :
@@ -763,11 +795,41 @@ static void pnf_p7_maybe_send_timing_info(pnf_p7_t *pnf_p7, uint16_t sfn, uint16
 	if(pnf_p7 == NULL)
 		return;
 
+	struct timeval now;
+	gettimeofday(&now, NULL);
+
+	// CRITICAL FIX: Refresh time reference periodically to prevent stale reference issues
+	// When VNF adjusts slot counter due to timing info feedback, the PNF time reference
+	// can become stale, causing all messages to show massive delays (e.g., 20+ seconds).
+	// Solution: Refresh reference every 512 frames (5.12 seconds) or when invalid
 	if(!pnf_p7->delay_state.time_reference_valid)
 	{
-		struct timeval now;
-		gettimeofday(&now, NULL);
+		NFAPI_TRACE(NFAPI_TRACE_INFO,
+		            "[P7:%d] Initializing time reference at SFN.Slot=%u.%u",
+		            pnf_p7->_public.phy_id, sfn, slot);
 		nfapi_delay_mgmt_set_time_reference(&pnf_p7->delay_state, &now, sfn, slot);
+	}
+	else if(pnf_p7->delay_state.time_reference_valid && (sfn % 512) == 0 && slot == 0)
+	{
+		// Periodic refresh every 512 frames (5.12 seconds at any numerology)
+		// This ensures VNF-PNF timing stays synchronized even with slot counter adjustments
+		NFAPI_TRACE(NFAPI_TRACE_INFO,
+		            "[P7:%d] Periodic time reference refresh at SFN.Slot=%u.%u",
+		            pnf_p7->_public.phy_id, sfn, slot);
+		nfapi_delay_mgmt_set_time_reference(&pnf_p7->delay_state, &now, sfn, slot);
+	}
+	// Additional check: Detect stale reference by checking if last timing info was > 10 seconds ago
+	else if(pnf_p7->delay_state.time_reference_valid)
+	{
+		int64_t time_since_last_us = (int64_t)(now.tv_sec - pnf_p7->delay_state.last_timing_info_time.tv_sec) * 1000000LL +
+		                              (int64_t)(now.tv_usec - pnf_p7->delay_state.last_timing_info_time.tv_usec);
+		if(time_since_last_us > 10000000LL)  // 10 seconds
+		{
+			NFAPI_TRACE(NFAPI_TRACE_WARN,
+			            "[P7:%d] Detected stale time reference (last update %lld µs ago) - forcing refresh at SFN.Slot=%u.%u",
+			            pnf_p7->_public.phy_id, (long long)time_since_last_us, sfn, slot);
+			nfapi_delay_mgmt_set_time_reference(&pnf_p7->delay_state, &now, sfn, slot);
+		}
 	}
 
 	const int force_aperiodic = pnf_p7->_public.timing_info_mode_aperiodic && pnf_p7->timing_info_aperiodic_send;
