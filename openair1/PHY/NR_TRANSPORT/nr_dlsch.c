@@ -535,10 +535,44 @@ static inline void do_txdataF(c16_t **txdataF,
                   "Antenna port index %d exceeds precoding matrix AP size %d\n",
                   ant,
                   pmi_pdu->num_ant_ports);
-      AssertFatal(rel15->nrOfLayers == pmi_pdu->numLayers,
-                  "Number of layers %d doesn't match to the one in precoding matrix %d\n",
-                  rel15->nrOfLayers,
-                  pmi_pdu->numLayers);
+      
+      // Check for layer mismatch and fall back to identity precoding if mismatch occurs
+      // This prevents crash when scheduler dynamically adjusts layers (e.g., retransmissions)
+      if (rel15->nrOfLayers != pmi_pdu->numLayers) {
+        LOG_E(PHY,
+              "Layer mismatch: nrOfLayers=%d but PMI %d configured for %d layers. Falling back to identity precoding.\n",
+              rel15->nrOfLayers,
+              pmi,
+              pmi_pdu->numLayers);
+        // Fall back to identity precoding (same as pmi==0 case)
+        if (subCarrier + re_cnt <= symbol_sz) { // RB does not cross DC
+          if (ant < rel15->nrOfLayers)
+            memcpy(&txdataF[ant][txdataF_offset_per_symbol + subCarrier],
+                   &txdataF_precoding[ant][subCarrier],
+                   re_cnt * sizeof(**txdataF));
+          else
+            memset(&txdataF[ant][txdataF_offset_per_symbol + subCarrier], 0, re_cnt * sizeof(**txdataF));
+        } else { // RB does cross DC
+          const int neg_length = symbol_sz - subCarrier;
+          const int pos_length = re_cnt - neg_length;
+          if (ant < rel15->nrOfLayers) {
+            memcpy(&txdataF[ant][txdataF_offset_per_symbol + subCarrier],
+                   &txdataF_precoding[ant][subCarrier],
+                   neg_length * sizeof(**txdataF));
+            memcpy(&txdataF[ant][txdataF_offset_per_symbol], &txdataF_precoding[ant], pos_length * sizeof(**txdataF));
+          } else {
+            memset(&txdataF[ant][txdataF_offset_per_symbol + subCarrier], 0, neg_length * sizeof(**txdataF));
+            memset(&txdataF[ant][txdataF_offset_per_symbol], 0, pos_length * sizeof(**txdataF));
+          }
+        }
+        subCarrier += re_cnt;
+        if (subCarrier >= symbol_sz) {
+          subCarrier -= symbol_sz;
+        }
+        rb += rb_step;
+        continue; // Skip precoding for this RB group and continue with next
+      }
+      
       if ((subCarrier + re_cnt) < symbol_sz) { // within ofdm_symbol_size, use SIMDe
         nr_layer_precoder_simd(rel15->nrOfLayers,
                                symbol_sz,
