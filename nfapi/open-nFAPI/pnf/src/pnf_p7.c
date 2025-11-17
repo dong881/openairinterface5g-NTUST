@@ -798,10 +798,7 @@ static void pnf_p7_maybe_send_timing_info(pnf_p7_t *pnf_p7, uint16_t sfn, uint16
 	struct timeval now;
 	gettimeofday(&now, NULL);
 
-	// CRITICAL FIX: Refresh time reference periodically to prevent stale reference issues
-	// When VNF adjusts slot counter due to timing info feedback, the PNF time reference
-	// can become stale, causing all messages to show massive delays (e.g., 20+ seconds).
-	// Solution: Refresh reference every 512 frames (5.12 seconds) or when invalid
+	// Initialize time reference on first call
 	if(!pnf_p7->delay_state.time_reference_valid)
 	{
 		NFAPI_TRACE(NFAPI_TRACE_INFO,
@@ -809,17 +806,24 @@ static void pnf_p7_maybe_send_timing_info(pnf_p7_t *pnf_p7, uint16_t sfn, uint16
 		            pnf_p7->_public.phy_id, sfn, slot);
 		nfapi_delay_mgmt_set_time_reference(&pnf_p7->delay_state, &now, sfn, slot);
 	}
-	else if(pnf_p7->delay_state.time_reference_valid && (sfn % 512) == 0 && slot == 0)
+	// CRITICAL FIX: Only refresh time reference periodically if periodic mode is enabled
+	// In aperiodic-only mode (timing_info_mode_periodic=0), time reference should only
+	// be updated via Node Sync messages from VNF, not automatically by PNF
+	// This prevents unwanted periodic timing info messages in event-triggered mode
+	else if(pnf_p7->_public.timing_info_mode_periodic && 
+	        pnf_p7->delay_state.time_reference_valid && 
+	        (sfn % 512) == 0 && slot == 0)
 	{
 		// Periodic refresh every 512 frames (5.12 seconds at any numerology)
-		// This ensures VNF-PNF timing stays synchronized even with slot counter adjustments
+		// Only when periodic mode is explicitly enabled
 		NFAPI_TRACE(NFAPI_TRACE_INFO,
 		            "[P7:%d] Periodic time reference refresh at SFN.Slot=%u.%u",
 		            pnf_p7->_public.phy_id, sfn, slot);
 		nfapi_delay_mgmt_set_time_reference(&pnf_p7->delay_state, &now, sfn, slot);
 	}
-	// Additional check: Detect stale reference by checking if last timing info was > 10 seconds ago
-	else if(pnf_p7->delay_state.time_reference_valid)
+	// Additional check: Detect stale reference only in periodic mode
+	// In aperiodic mode, we rely on Node Sync messages from VNF to maintain sync
+	else if(pnf_p7->_public.timing_info_mode_periodic && pnf_p7->delay_state.time_reference_valid)
 	{
 		int64_t time_since_last_us = (int64_t)(now.tv_sec - pnf_p7->delay_state.last_timing_info_time.tv_sec) * 1000000LL +
 		                              (int64_t)(now.tv_usec - pnf_p7->delay_state.last_timing_info_time.tv_usec);
@@ -840,16 +844,26 @@ static void pnf_p7_maybe_send_timing_info(pnf_p7_t *pnf_p7, uint16_t sfn, uint16
 		return;
 
 	// CRITICAL FIX: Allow sending timing info even without stats for initial synchronization
+	// or when aperiodic send is triggered by out-of-window messages
 	// The first few timing info messages are needed by VNF to synchronize its tick with PNF
 	// Without this, if VNF and PNF start desynchronized, no messages arrive in window,
 	// no stats accumulate, and no timing info is sent - creating a deadlock
 	const bool stats_ready = pnf_p7_delay_stats_ready(&pnf_p7->delay_state);
 	if(!stats_ready)
 	{
+		// In aperiodic mode, if timing info send is explicitly requested (out-of-window event),
+		// always send it regardless of stats or timing_info_count to help VNF resynchronize
+		if(force_aperiodic)
+		{
+			NFAPI_TRACE(NFAPI_TRACE_INFO,
+			            "[P7:%d] Sending aperiodic timing info due to out-of-window messages (count=%u)",
+			            pnf_p7->_public.phy_id,
+			            pnf_p7->delay_state.timing_info_count);
+		}
 		// Check if this is early in the session (first ~10 timing info reports)
 		// If so, send timing info anyway to help VNF synchronize
 		// Use timing_info_count instead of slot_counter because slot_counter resets periodically
-		if(pnf_p7->delay_state.timing_info_count > 10)
+		else if(pnf_p7->delay_state.timing_info_count > 10)
 		{
 			NFAPI_TRACE(NFAPI_TRACE_DEBUG,
 			            "[P7:%d] Timing info pending stats after initial period (count=%u, DL:%d UL:%d ULDCI:%d TX:%d)",
@@ -861,10 +875,13 @@ static void pnf_p7_maybe_send_timing_info(pnf_p7_t *pnf_p7, uint16_t sfn, uint16
 			            pnf_p7->delay_state.tx_data_stats.latest_delay);
 			return;
 		}
-		NFAPI_TRACE(NFAPI_TRACE_INFO,
-		            "[P7:%d] Sending timing info without stats for initial VNF synchronization (count=%u)",
-		            pnf_p7->_public.phy_id,
-		            pnf_p7->delay_state.timing_info_count);
+		else
+		{
+			NFAPI_TRACE(NFAPI_TRACE_INFO,
+			            "[P7:%d] Sending timing info without stats for initial VNF synchronization (count=%u)",
+			            pnf_p7->_public.phy_id,
+			            pnf_p7->delay_state.timing_info_count);
+		}
 	}
 
 	if(stats_ready)
