@@ -199,26 +199,26 @@ nfapi_msg_arrival_result_e nfapi_delay_mgmt_check_message_arrival(
   if (!cfg || !stats || !cfg->enabled || !receive_time)
     return NFAPI_MSG_ARRIVAL_ON_TIME;
 
-  // CRITICAL FIX: Use transmit_timestamp directly instead of calculating expected time from slot
-  // With absolute wallclock timestamps (VNF and PNF both use gettimeofday), we can directly
-  // calculate the delay as: receive_time - transmit_timestamp
-  //
-  // The timing window check becomes:
-  // - Message should arrive within [transmit_timestamp, transmit_timestamp + offset + window]
-  // - If it arrives too early (before transmit_timestamp), delay is negative
-  // - If it arrives too late (after transmit_timestamp + offset + window), delay is positive and > window
-  //
-  // This matches SCF-222 delay management spec Section 2.6.2
+  // CRITICAL FIX: Handle 32-bit wraparound for transmit_timestamp
+  // transmit_timestamp is 32-bit and wraps every ~71 minutes, so we must use 32-bit arithmetic
+  // to correctly handle wraparound cases when comparing with receive_time
   const uint64_t actual_us = timestamp_from_ref(state, receive_time);
-  const uint64_t transmit_us = (uint64_t)transmit_timestamp;
   
-  // Calculate delay: positive means message arrived after expected time
-  // expected time = transmit_timestamp (when VNF sent it)
-  int32_t delta = 0;
-  if (actual_us >= transmit_us)
-    delta = (int32_t)(actual_us - transmit_us);
-  else
-    delta = -(int32_t)(transmit_us - actual_us);
+  // Cast arrival to 32-bit to match transmit_timestamp's wraparound behavior
+  const uint32_t arrival_us_32 = (uint32_t)(actual_us & 0xFFFFFFFFULL);
+  
+  // Calculate delay using 32-bit wraparound arithmetic
+  // Unsigned subtraction naturally handles wraparound
+  const uint32_t delta_unsigned = arrival_us_32 - transmit_timestamp;
+  
+  // Convert to signed delta, treating large positive values (> 2^31) as negative wraparound
+  int32_t delta;
+  if (delta_unsigned > 0x7FFFFFFFU) {
+    // Wrapped around in negative direction: actual < transmit in 32-bit space
+    delta = -(int32_t)(0xFFFFFFFFU - delta_unsigned + 1);
+  } else {
+    delta = (int32_t)delta_unsigned;
+  }
 
   nfapi_msg_arrival_result_e result = NFAPI_MSG_ARRIVAL_ON_TIME;
   const int32_t window = (int32_t)cfg->timing_window_us;
@@ -246,37 +246,31 @@ void nfapi_delay_mgmt_update_jitter(nfapi_delay_mgmt_state_t *state,
   if (!jitter || !receive_time)
     return;
 
-  // CRITICAL FIX: With absolute wallclock timestamps, jitter calculation per RFC 3550 works correctly
-  // transit_time = arrival_time - transmit_timestamp (both in absolute μs from epoch)
-  // jitter = jitter + (|transit_time_delta| - jitter) / 16
-  //
-  // Previously, arrival_us used local reference and transmit_timestamp used slot-relative time,
-  // causing incompatible subtraction that often resulted in negative values → clamped to 0 → zero jitter
+  // CRITICAL FIX: Handle 32-bit wraparound for transmit_timestamp
+  // Both VNF and PNF use gettimeofday() which returns 64-bit microseconds since epoch,
+  // but transmit_timestamp is 32-bit and wraps every ~71 minutes (2^32 microseconds).
+  // We need to compute the transit time using 32-bit arithmetic to handle wraparound correctly.
   const uint64_t arrival_us = timestamp_from_ref(state, receive_time);
-  const uint64_t transmit_us = (uint64_t)transmit_timestamp;
   
-  if (arrival_us == 0 || transmit_us == 0)
+  if (arrival_us == 0 || transmit_timestamp == 0)
     return;
 
-  // Calculate transit time (network delay from VNF transmit to PNF receive)
-  // With absolute timestamps, this should be a reasonable value (typically < 10ms for local network)
-  uint32_t transit_time = 0;
-  if (arrival_us >= transmit_us) {
-    uint64_t diff = arrival_us - transmit_us;
-    // Sanity check: transit time should be < 1 second for reasonable fronthaul
-    // Large values indicate clock skew or timestamp mismatch between VNF and PNF
-    if (diff > 1000000ULL) {  // > 1 second
-      NFAPI_TRACE(NFAPI_TRACE_WARN,
-                  "[DELAY-MGMT] Invalid transit time %llu µs (arrival=%llu, transmit=%llu) - possible clock skew",
-                  (unsigned long long)diff,
-                  (unsigned long long)arrival_us,
-                  (unsigned long long)transmit_us);
-      return;
-    }
-    transit_time = (uint32_t)diff;
-  } else {
-    // Negative transit time indicates clock skew or timestamp wraparound
-    // Treat as invalid sample and skip jitter update
+  // Calculate transit time using 32-bit wraparound arithmetic
+  // Cast arrival_us to 32-bit (keeping only lower 32 bits) to match transmit_timestamp
+  const uint32_t arrival_us_32 = (uint32_t)(arrival_us & 0xFFFFFFFFULL);
+  
+  // Calculate difference handling wraparound: if arrival < transmit, it wrapped
+  // Use unsigned subtraction which naturally handles wraparound in 32-bit space
+  uint32_t transit_time = arrival_us_32 - transmit_timestamp;
+  
+  // Sanity check: transit time should be < 1 second for reasonable fronthaul
+  // Large values (> 2^31) indicate wraparound in the wrong direction or clock skew
+  if (transit_time > 1000000U) {  // > 1 second
+    NFAPI_TRACE(NFAPI_TRACE_WARN,
+                "[DELAY-MGMT] Invalid transit time %u µs (arrival=%u, transmit=%u) - possible clock skew",
+                transit_time,
+                arrival_us_32,
+                transmit_timestamp);
     return;
   }
 
