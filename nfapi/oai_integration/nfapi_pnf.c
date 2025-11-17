@@ -512,14 +512,14 @@ int pnf_start_request(nfapi_pnf_config_t *config, nfapi_pnf_start_request_t *req
  * @param timing_info_mode Timing info reporting mode (TLV 0x011F)
  * @param timing_info_period Timing info reporting period in slots (TLV 0x0120)
  */
-static void pnf_p7_configure_delay_state(pnf_p7_t *pnf_p7,
-                                          uint32_t dl_tti_timing_offset_us,
-                                          uint32_t ul_tti_timing_offset_us,
-                                          uint32_t ul_dci_timing_offset_us,
-                                          uint32_t tx_data_timing_offset_us,
-                                          uint16_t timing_window_us,
-                                          uint8_t timing_info_mode,
-                                          uint8_t timing_info_period)
+static void oai_pnf_p7_configure_delay_state(pnf_p7_t *pnf_p7,
+                                              uint32_t dl_tti_timing_offset_us,
+                                              uint32_t ul_tti_timing_offset_us,
+                                              uint32_t ul_dci_timing_offset_us,
+                                              uint32_t tx_data_timing_offset_us,
+                                              uint16_t timing_window_us,
+                                              uint8_t timing_info_mode,
+                                              uint8_t timing_info_period)
 {
   if (!pnf_p7)
     return;
@@ -2065,14 +2065,14 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nf
   DevAssert(scs->tl.tag == NFAPI_NR_CONFIG_SCS_COMMON_TAG);
   pnf_p7_t* pnf_p7 = (pnf_p7_t*)(p7_config);
   pnf_p7->mu = scs->value;
-  pnf_p7_configure_delay_state(pnf_p7,
-                              phy_info->dl_tti_timing_offset,
-                              phy_info->ul_tti_timing_offset,
-                              phy_info->ul_dci_timing_offset,
-                              phy_info->tx_data_timing_offset,
-                              phy_info->timing_window,
-                              phy_info->timing_info_mode,
-                              phy_info->timing_info_period);
+  oai_pnf_p7_configure_delay_state(pnf_p7,
+                                   phy_info->dl_tti_timing_offset,
+                                   phy_info->ul_tti_timing_offset,
+                                   phy_info->ul_dci_timing_offset,
+                                   phy_info->tx_data_timing_offset,
+                                   phy_info->timing_window,
+                                   phy_info->timing_info_mode,
+                                   phy_info->timing_info_period);
 
   // Need to wait for main thread to create RU structures
   while (config_sync_var < 0) {
