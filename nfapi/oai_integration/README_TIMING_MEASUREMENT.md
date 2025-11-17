@@ -34,16 +34,15 @@ nfapi/open-nFAPI/common/
 
 ### 2. Build
 ```bash
-./build_oai --gNB --cmake-opt -DENABLE_TIMING_MEASUREMENT=ON
+./build_oai --gNB
 ```
+**Note**: Timing measurement is now always enabled by default.
 
 ### 3. Integrate
 Add to your softmodem's `main()`:
 ```c
-#ifdef ENABLE_TIMING_MEASUREMENT
 #include "nfapi/oai_integration/timing_measurement_init.h"
 timing_measurement_global_init("nfapi", "same_machine", false, "/tmp/timing.json", 10000);
-#endif
 ```
 
 ### 4. Run & Analyze
@@ -65,7 +64,7 @@ jq '.measurements[0]' /tmp/timing.json
 
 - ✅ **High Precision**: Nanosecond timestamps via `CLOCK_MONOTONIC`
 - ✅ **Low Overhead**: < 0.1% CPU overhead per slot
-- ✅ **Zero Cost When Disabled**: Complete compile-time elimination
+- ✅ **Always Available**: Built-in and ready to use without special build flags
 - ✅ **Thread Safe**: Mutex protection for concurrent access
 - ✅ **Memory Efficient**: Circular buffer (~3MB configurable)
 - ✅ **Rich Output**: JSON format with calculated latencies

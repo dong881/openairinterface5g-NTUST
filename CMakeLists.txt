@@ -275,7 +275,8 @@ if (TRACY_ENABLE)
   CPMAddPackage("gh:wolfpld/tracy#v0.11.1")
 endif()
 
-add_boolean_option(ENABLE_TIMING_MEASUREMENT OFF "Enable detailed timing measurement for FAPI/nFAPI with JSON output" ON)
+# Timing measurement is now always enabled, this option is kept for backwards compatibility
+add_boolean_option(ENABLE_TIMING_MEASUREMENT ON "Timing measurement for FAPI/nFAPI with JSON output (always enabled)" OFF)
 
 set (OCP_ITTI ${OPENAIR_DIR}/common/utils/ocp_itti)
 add_library(ITTI ${OCP_ITTI}/intertask_interface.cpp)

@@ -8,20 +8,22 @@ This implementation provides detailed latency measurement for OpenAirInterface's
 
 ### Enable Timing Measurement
 
-To build with timing measurement enabled, use the CMake option:
+Timing measurement is now always enabled in the build. Simply build as normal:
 
 ```bash
 cd cmake_targets
-./build_oai --gNB --nrUE -DENABLE_TIMING_MEASUREMENT=ON
+./build_oai --gNB --nrUE
 ```
 
 Or manually in CMake:
 
 ```bash
 mkdir -p build && cd build
-cmake -DENABLE_TIMING_MEASUREMENT=ON ../..
+cmake ../..
 make
 ```
+
+**Note**: The `ENABLE_TIMING_MEASUREMENT` CMake option is kept for backwards compatibility but has no effect.
 
 ## Initialization
 
@@ -152,7 +154,7 @@ The system outputs timing data in JSON format with the following structure:
 
 The timing measurement system is designed to have minimal performance impact:
 
-- Uses conditional compilation (`#ifdef ENABLE_TIMING_MEASUREMENT`)
+- Always available but can be controlled at runtime via initialization
 - Employs circular buffer to limit memory usage
 - Implements buffered JSON writing to reduce I/O overhead
 - Only captures timestamps (< 100ns per measurement point)
@@ -163,21 +165,17 @@ The timing measurement system is designed to have minimal performance impact:
 ### Recording a Timestamp
 
 ```c
-#ifdef ENABLE_TIMING_MEASUREMENT
 timing_measurement_t *measurement = TIMING_START(global_timing_ctx, sfn, slot, 
                                                  FAPI_MSG_DL_TTI_REQUEST, rnti, harq_id);
 TIMING_RECORD(global_timing_ctx, measurement, TIMING_POINT_SCHEDULER_START);
 // ... do work ...
 TIMING_RECORD(global_timing_ctx, measurement, TIMING_POINT_SCHEDULER_END);
-#endif
 ```
 
 ### Updating Statistics
 
 ```c
-#ifdef ENABLE_TIMING_MEASUREMENT
 TIMING_UPDATE_STATS(global_timing_ctx, FAPI_MSG_DL_TTI_REQUEST, dropped, late);
-#endif
 ```
 
 ## Analyzing Results
