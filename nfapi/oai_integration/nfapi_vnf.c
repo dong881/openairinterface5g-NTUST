@@ -127,11 +127,14 @@ static oai_vnf_delay_ctx_t g_vnf_delay_ctx = {
   .slot_offset_adj = 0,
   .sync_pending = false,
   // Default timing parameters per SCF-222 spec (can be configured via TLVs)
-  .dl_tti_timing_offset_us = 500,  // 500µs before slot start (medium latency default per SCF-222)
-  .ul_tti_timing_offset_us = 500,  // 500µs before slot start  
-  .ul_dci_timing_offset_us = 500,  // 500µs before slot start
-  .tx_data_timing_offset_us = 500, // 500µs before slot start
-  .timing_window_us = 150,         // 150µs window (medium tolerance per SCF-222)
+  // CRITICAL FIX: Increased from 500µs to 800µs to account for actual network + processing latency
+  // Empirical testing shows TX_Data arriving 220-230µs late with 500µs offset
+  // 800µs provides sufficient margin (800-230 = 570µs safety buffer)
+  .dl_tti_timing_offset_us = 800,  // 800µs before slot start (high latency for reliable delivery)
+  .ul_tti_timing_offset_us = 800,  // 800µs before slot start  
+  .ul_dci_timing_offset_us = 800,  // 800µs before slot start
+  .tx_data_timing_offset_us = 800, // 800µs before slot start
+  .timing_window_us = 200,         // 200µs window (wider tolerance for jitter handling)
   .target_slot_offset = 6,         // Initial placeholder - recalculated in vnf_delay_configure_timing_params()
   .consecutive_high_delay_count = {0, 0, 0, 0}, // Initialize all counters to 0
   .last_adjustment_time_ms = 0,    // No previous adjustment
@@ -2299,22 +2302,22 @@ int nr_param_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_param_resp
       req->num_tlv++;
     }
   }
-// Per SCF-222: Configure timing offsets (TLVs 0x0106-0x0109) from VNF delay context
-// These can be dynamically adjusted based on timing info feedback
-pthread_mutex_lock(&g_vnf_delay_ctx.lock);
-req->nfapi_config.dl_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET;
-req->nfapi_config.dl_tti_timing_offset.value = g_vnf_delay_ctx.dl_tti_timing_offset_us;
-req->num_tlv++;
-req->nfapi_config.ul_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET;
-req->nfapi_config.ul_tti_timing_offset.value = g_vnf_delay_ctx.ul_tti_timing_offset_us;
-req->num_tlv++;
-req->nfapi_config.ul_dci_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET;
-req->nfapi_config.ul_dci_timing_offset.value = g_vnf_delay_ctx.ul_dci_timing_offset_us;
-req->num_tlv++;
-req->nfapi_config.tx_data_timing_offset.tl.tag = NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET;
-req->nfapi_config.tx_data_timing_offset.value = g_vnf_delay_ctx.tx_data_timing_offset_us;
-req->num_tlv++;
-pthread_mutex_unlock(&g_vnf_delay_ctx.lock);
+  // Per SCF-222: Configure timing offsets (TLVs 0x0106-0x0109) from VNF delay context
+  // These can be dynamically adjusted based on timing info feedback
+  pthread_mutex_lock(&g_vnf_delay_ctx.lock);
+  req->nfapi_config.dl_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET_TAG;
+  req->nfapi_config.dl_tti_timing_offset.value = g_vnf_delay_ctx.dl_tti_timing_offset_us;
+  req->num_tlv++;
+  req->nfapi_config.ul_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET_TAG;
+  req->nfapi_config.ul_tti_timing_offset.value = g_vnf_delay_ctx.ul_tti_timing_offset_us;
+  req->num_tlv++;
+  req->nfapi_config.ul_dci_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET_TAG;
+  req->nfapi_config.ul_dci_timing_offset.value = g_vnf_delay_ctx.ul_dci_timing_offset_us;
+  req->num_tlv++;
+  req->nfapi_config.tx_data_timing_offset.tl.tag = NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET_TAG;
+  req->nfapi_config.tx_data_timing_offset.value = g_vnf_delay_ctx.tx_data_timing_offset_us;
+  req->num_tlv++;
+  pthread_mutex_unlock(&g_vnf_delay_ctx.lock);
 
   vendor_ext_tlv_2 ve2;
   memset(&ve2, 0, sizeof(ve2));
