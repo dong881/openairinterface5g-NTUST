@@ -609,6 +609,9 @@ static bool allocate_dl_retransmission(module_id_t module_id,
   sched_ctrl->sched_pdsch.rbStart = rbStart - bwp_info.bwpStart;
   sched_ctrl->sched_pdsch.pucch_allocation = alloc;
   sched_ctrl->sched_pdsch.bwp_info = bwp_info;
+  /* Update layers and pm_index to match current conditions (e.g., if RI changed from UE CSI report) */
+  sched_ctrl->sched_pdsch.nrOfLayers = layers;
+  sched_ctrl->sched_pdsch.pm_index = pm_index;
   /* retransmissions: directly allocate */
   *n_rb_sched -= sched_ctrl->sched_pdsch.rbSize;
 
