@@ -418,15 +418,22 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
               ind->last_sfn,
               ind->last_slot);
   
-  // Only log stats if jitter or delays are significant
-  bool has_high_jitter = (ind->dl_tti_jitter > 10 || ind->ul_tti_jitter > 10 || 
-                          ind->ul_dci_jitter > 10 || ind->tx_data_request_jitter > 10);
-  bool has_delays = (ind->dl_tti_latest_delay > 0 || ind->ul_tti_latest_delay > 0 ||
-                     ind->ul_dci_latest_delay > 0 || ind->tx_data_request_latest_delay > 0);
+  // Only log stats if jitter or delays are truly problematic
+  // Normal operation can have jitter up to 200µs and delays up to 300µs
+  bool has_high_jitter = (ind->dl_tti_jitter > 300 || ind->ul_tti_jitter > 300 || 
+                          ind->ul_dci_jitter > 300 || ind->tx_data_request_jitter > 300);
+  bool has_high_delays = (ind->dl_tti_latest_delay > 500 || ind->ul_tti_latest_delay > 500 ||
+                          ind->ul_dci_latest_delay > 500 || ind->tx_data_request_latest_delay > 500);
   
-  if (has_high_jitter || has_delays) {
+  if (has_high_jitter || has_high_delays) {
     NFAPI_TRACE(NFAPI_TRACE_WARN,
                 "[WARN] VNF-ANALYZE: Jitter: DL=%uµs UL=%uµs ULDCI=%uµs TxData=%uµs | Delays: DL=%dµs UL=%dµs ULDCI=%dµs TxData=%dµs",
+                ind->dl_tti_jitter, ind->ul_tti_jitter, ind->ul_dci_jitter, ind->tx_data_request_jitter,
+                ind->dl_tti_latest_delay, ind->ul_tti_latest_delay, ind->ul_dci_latest_delay, ind->tx_data_request_latest_delay);
+  } else {
+    // Log at DEBUG level for normal operation
+    NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+                "[DEBUG] VNF-ANALYZE: Jitter: DL=%uµs UL=%uµs ULDCI=%uµs TxData=%uµs | Delays: DL=%dµs UL=%dµs ULDCI=%dµs TxData=%dµs",
                 ind->dl_tti_jitter, ind->ul_tti_jitter, ind->ul_dci_jitter, ind->tx_data_request_jitter,
                 ind->dl_tti_latest_delay, ind->ul_tti_latest_delay, ind->ul_dci_latest_delay, ind->tx_data_request_latest_delay);
   }
@@ -559,7 +566,8 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
       // Determine if we need to adjust VNF timing
       // Per SCF-222: Use configured target offset (not hard-coded)
       const int32_t target_ahead = g_vnf_delay_ctx.target_slot_offset;
-      const int32_t sync_threshold = 30;  // Sync if offset exceeds this (configurable threshold)
+      const int32_t sync_threshold = 30;  // Large sync if offset exceeds this
+      const int32_t gradual_threshold = 5;  // Gradual sync if offset exceeds this
 
       if (abs(slot_diff - target_ahead) > sync_threshold) {
         // Large drift - apply immediate correction
@@ -572,7 +580,7 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
                     slot_diff,
                     target_ahead,
                     g_vnf_delay_ctx.slot_offset_adj);
-      } else if (abs(slot_diff - target_ahead) > 2) {
+      } else if (abs(slot_diff - target_ahead) > gradual_threshold) {
         // Small drift - gradually correct (1/4 of error each time)
         // Per SCF-222: Gradual adjustment to minimize slot disruption
         int32_t small_adj = (target_ahead - slot_diff) / 4;
@@ -586,6 +594,12 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
                       target_ahead,
                       small_adj);
         }
+      } else {
+        // Within acceptable range - no adjustment needed
+        NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+                    "[DEBUG] VNF-SYNC: Offset within tolerance (%d slots, target %d)",
+                    slot_diff,
+                    target_ahead);
       }
     }
   }
@@ -611,13 +625,15 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
   // Only keep critical warnings
 
   // Only warn if delays indicate actual slot loss risk (significant delay)
-  if (ind->dl_tti_latest_delay > 50) {
+  // Delays up to 500µs can be acceptable with proper timing window configuration
+  // Only warn if approaching timing window limit
+  if (ind->dl_tti_latest_delay > 500) {
     NFAPI_TRACE(NFAPI_TRACE_WARN,
                 "[WARN] VNF: High DL_TTI delay=%dµs - DL slot loss possible",
                 ind->dl_tti_latest_delay);
   }
 
-  if (ind->tx_data_request_latest_delay > 50) {
+  if (ind->tx_data_request_latest_delay > 500) {
     NFAPI_TRACE(NFAPI_TRACE_WARN,
                 "[WARN] VNF: High TxData delay=%dµs - fronthaul latency issue",
                 ind->tx_data_request_latest_delay);
