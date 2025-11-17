@@ -112,6 +112,7 @@ typedef struct {
   int32_t target_slot_offset;         // Target slot offset between VNF and PNF (configurable)
   // Adaptive timing adjustment state (per SCF-222 Section 3.4.7)
   uint32_t consecutive_high_delay_count[4]; // Counter for consecutive high delays per message type [DL_TTI, UL_TTI, UL_DCI, TX_Data]
+  uint32_t consecutive_early_count[4];      // Counter for consecutive TOO EARLY arrivals per message type
   uint32_t last_adjustment_time_ms;         // Timestamp of last timing offset adjustment (for rate limiting)
 } oai_vnf_delay_ctx_t;
 
@@ -127,16 +128,18 @@ static oai_vnf_delay_ctx_t g_vnf_delay_ctx = {
   .slot_offset_adj = 0,
   .sync_pending = false,
   // Default timing parameters per SCF-222 spec (can be configured via TLVs)
-  // CRITICAL FIX: Increased from 500µs to 800µs to account for actual network + processing latency
-  // Empirical testing shows TX_Data arriving 220-230µs late with 500µs offset
-  // 800µs provides sufficient margin (800-230 = 570µs safety buffer)
-  .dl_tti_timing_offset_us = 800,  // 800µs before slot start (high latency for reliable delivery)
-  .ul_tti_timing_offset_us = 800,  // 800µs before slot start  
-  .ul_dci_timing_offset_us = 800,  // 800µs before slot start
-  .tx_data_timing_offset_us = 800, // 800µs before slot start
-  .timing_window_us = 200,         // 200µs window (wider tolerance for jitter handling)
+  // BALANCED FIX: Use moderate timing offset with adaptive adjustment
+  // Previous 800µs was too aggressive, causing TOO EARLY arrivals
+  // Start with 500µs and let adaptive algorithm converge to optimal value
+  // 500µs @ mu=1 (30kHz, 500µs/slot) → target_slot_offset ≈ 1 slot ahead
+  .dl_tti_timing_offset_us = 500,  // 500µs before slot start (balanced initial value)
+  .ul_tti_timing_offset_us = 500,  // 500µs before slot start  
+  .ul_dci_timing_offset_us = 500,  // 500µs before slot start
+  .tx_data_timing_offset_us = 500, // 500µs before slot start
+  .timing_window_us = 200,         // 200µs window (tolerance for jitter handling)
   .target_slot_offset = 6,         // Initial placeholder - recalculated in vnf_delay_configure_timing_params()
   .consecutive_high_delay_count = {0, 0, 0, 0}, // Initialize all counters to 0
+  .consecutive_early_count = {0, 0, 0, 0},      // Initialize all counters to 0
   .last_adjustment_time_ms = 0,    // No previous adjustment
 };
 
@@ -349,26 +352,35 @@ static void vnf_delay_configure_timing_params(uint32_t timing_offset_us, uint16_
 /**
  * @brief Adaptively adjust timing offsets based on detected delays (SCF-222 Section 3.4.7)
  * Per SCF-222: VNF should respond to timing info feedback and adjust offsets to prevent slot loss
+ * BIDIRECTIONAL: Handles both TOO LATE (positive delay) and TOO EARLY (negative delay)
  * @param msg_idx Message type index (0=DL_TTI, 1=UL_TTI, 2=UL_DCI, 3=TX_Data)
- * @param current_delay Latest reported delay in microseconds
+ * @param current_delay Latest reported delay in microseconds (can be negative for TOO EARLY)
  * @param current_jitter Current jitter in microseconds
  * @param msg_name Message type name for logging
  * NOTE: This function assumes g_vnf_delay_ctx.lock is already held by caller
  */
 static void vnf_adaptive_timing_adjust(int msg_idx, int32_t current_delay, uint32_t current_jitter, const char *msg_name)
 {
-  // Enhanced adaptive timing adjustment per SCF-222 Section 3.4.7
-  // IMPROVEMENT: More aggressive response to jitter-based instability
-  // - Jitter indicates variance in message arrival times, requiring wider safety margins
-  // - High jitter (>150µs) requires immediate action even if average delay is low
-  const int32_t DELAY_THRESHOLD_US = 50;      // ~33% of timing window - concerning but acceptable
-  const int32_t CRITICAL_DELAY_US = 150;      // Equals timing window - high risk of slot loss
-  const uint32_t JITTER_THRESHOLD_US = 100;   // ~66% of timing window - indicates unstable link
-  const uint32_t CRITICAL_JITTER_US = 200;    // >timing window - critical instability
-  const uint32_t CONSECUTIVE_HIGH_DELAY_TRIGGER = 3; // Require persistence before adjusting
-  const uint32_t MIN_ADJUSTMENT_INTERVAL_MS = 3000;  // TUNED: Faster response (was 5000ms)
-  const uint32_t ADJUSTMENT_STEP_US = 150;    // TUNED: Larger steps for faster convergence (was 100µs)
-  const uint32_t MAX_OFFSET_US = 30000;       // Per SCF-222 Table 2-18: TLVs 0x0106-0x0109 range 0-30000µs
+  // BIDIRECTIONAL adaptive timing adjustment per SCF-222 Section 3.4.7
+  // Handles both TOO LATE (positive delay) and TOO EARLY (negative delay) scenarios
+  // Goal: Converge message arrivals into the timing window [window_end, window_start]
+  //
+  // Delay interpretation:
+  // - Positive delay (> 0): Message arrived AFTER window_start (TOO LATE) → increase offset/slot
+  // - Negative delay (< 0): Message arrived BEFORE window_start (TOO EARLY) → decrease offset/slot
+  // - Within window: -timing_window < delay <= 0 → ON TIME
+  
+  const int32_t EARLY_THRESHOLD_US = -1000;    // Messages arriving > 1ms early need correction
+  const int32_t CRITICAL_EARLY_US = -5000;     // Messages arriving > 5ms early are critical
+  const int32_t LATE_THRESHOLD_US = 50;        // Messages arriving > 50µs late need attention
+  const int32_t CRITICAL_LATE_US = 150;        // Messages arriving > 150µs late are critical
+  const uint32_t JITTER_THRESHOLD_US = 100;    // High jitter indicates unstable timing
+  const uint32_t CRITICAL_JITTER_US = 200;     // Critical jitter requires immediate response
+  const uint32_t CONSECUTIVE_TRIGGER = 3;      // Require persistence before adjusting
+  const uint32_t MIN_ADJUSTMENT_INTERVAL_MS = 3000;  // Rate limit adjustments
+  const uint32_t ADJUSTMENT_STEP_US = 100;     // Microsecond adjustment step
+  const uint32_t MAX_OFFSET_US = 30000;        // Per SCF-222 Table 2-18
+  const uint32_t MIN_OFFSET_US = 300;          // Minimum viable offset (safety margin)
 
   // Get current time for rate limiting
   struct timeval now;
@@ -392,35 +404,90 @@ static void vnf_adaptive_timing_adjust(int msg_idx, int32_t current_delay, uint3
     default: return; // Invalid index
   }
 
-  // ENHANCEMENT: Treat high jitter as a critical condition requiring immediate response
-  // Per RFC 3550 jitter calculation: high jitter means message arrival variance is large
-  // This requires both:
-  // 1. Increasing timing offset (to send messages earlier)
-  // 2. Potentially widening timing window (PNF-side config change)
+  // Classify timing conditions
   bool critical_jitter = (current_jitter > CRITICAL_JITTER_US);
   bool high_jitter = (current_jitter > JITTER_THRESHOLD_US);
-  bool critical_delay = (current_delay > CRITICAL_DELAY_US);
-  bool high_delay = (current_delay > DELAY_THRESHOLD_US);
+  bool critical_early = (current_delay < CRITICAL_EARLY_US);
+  bool too_early = (current_delay < EARLY_THRESHOLD_US);
+  bool critical_late = (current_delay > CRITICAL_LATE_US);
+  bool too_late = (current_delay > LATE_THRESHOLD_US);
 
-  // Track consecutive problematic conditions (either delay OR jitter)
-  if (high_delay || high_jitter) {
+  // === HANDLE TOO EARLY SCENARIO ===
+  // Messages arriving too early means VNF is transmitting too far ahead
+  // Need to DECREASE timing offset and/or target_slot_offset
+  if (too_early) {
+    g_vnf_delay_ctx.consecutive_early_count[msg_idx]++;
+    g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx] = 0; // Reset late counter
+
+    // CRITICAL EARLY: Immediate correction needed
+    if (critical_early) {
+      uint32_t old_offset = *offset_ptr;
+      // Decrease offset, but maintain minimum safety margin
+      uint32_t decrease_amount = ADJUSTMENT_STEP_US * 3; // Triple step for critical
+      uint32_t new_offset = (old_offset > decrease_amount + MIN_OFFSET_US) ? 
+                            (old_offset - decrease_amount) : MIN_OFFSET_US;
+      *offset_ptr = new_offset;
+      
+      // Also decrease slot offset for immediate effect
+      int32_t old_target = g_vnf_delay_ctx.target_slot_offset;
+      if (g_vnf_delay_ctx.target_slot_offset > 2) {  // Maintain minimum 2 slots ahead
+        g_vnf_delay_ctx.target_slot_offset--;
+        g_vnf_delay_ctx.slot_offset_adj = -1;  // Request immediate slot decrease
+        g_vnf_delay_ctx.sync_pending = true;
+        
+        NFAPI_TRACE(NFAPI_TRACE_WARN,
+                    "[ADAPT] VNF: CRITICAL EARLY %s delay=%dµs (TOO EARLY by %dµs) → IMMEDIATE: "
+                    "target_slot_offset %d→%d slots + timing offset %uµs→%uµs",
+                    msg_name, current_delay, -current_delay,
+                    old_target, g_vnf_delay_ctx.target_slot_offset, old_offset, new_offset);
+      } else {
+        NFAPI_TRACE(NFAPI_TRACE_WARN,
+                    "[ADAPT] VNF: CRITICAL EARLY %s delay=%dµs (TOO EARLY by %dµs) → "
+                    "Decreased timing offset: %uµs→%uµs (min slot offset reached)",
+                    msg_name, current_delay, -current_delay, old_offset, new_offset);
+      }
+      
+      g_vnf_delay_ctx.last_adjustment_time_ms = now_ms;
+      g_vnf_delay_ctx.consecutive_early_count[msg_idx] = 0;
+      return;
+    }
+
+    // PERSISTENT EARLY: Gradual correction after multiple occurrences
+    if (g_vnf_delay_ctx.consecutive_early_count[msg_idx] >= CONSECUTIVE_TRIGGER) {
+      uint32_t old_offset = *offset_ptr;
+      uint32_t new_offset = (old_offset > ADJUSTMENT_STEP_US + MIN_OFFSET_US) ? 
+                            (old_offset - ADJUSTMENT_STEP_US) : MIN_OFFSET_US;
+      *offset_ptr = new_offset;
+      g_vnf_delay_ctx.last_adjustment_time_ms = now_ms;
+      g_vnf_delay_ctx.consecutive_early_count[msg_idx] = 0;
+
+      NFAPI_TRACE(NFAPI_TRACE_INFO,
+                  "[ADAPT] VNF: Persistent %s TOO EARLY (%d occurrences, delay=%dµs jitter=%uµs) → "
+                  "Decreased timing offset: %uµs → %uµs",
+                  msg_name, CONSECUTIVE_TRIGGER, current_delay, current_jitter,
+                  old_offset, new_offset);
+    }
+    return;
+  }
+
+  // === HANDLE TOO LATE SCENARIO ===
+  // Messages arriving too late means VNF needs to transmit earlier
+  // Need to INCREASE timing offset and/or target_slot_offset
+  if (too_late || high_jitter) {
     g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx]++;
+    g_vnf_delay_ctx.consecutive_early_count[msg_idx] = 0; // Reset early counter
 
-    // CRITICAL CONDITION 1: Critical jitter - immediate action needed
-    // High jitter means message timing is unpredictable, requiring aggressive compensation
+    // CRITICAL JITTER: High variance requires larger safety margin
     if (critical_jitter) {
       uint32_t old_offset = *offset_ptr;
-      // Calculate adjustment based on jitter magnitude
-      // Rule: offset should be at least (current_offset + jitter + safety_margin)
       uint32_t jitter_based_offset = old_offset + current_jitter + 200; // 200µs safety margin
       uint32_t new_offset = (jitter_based_offset < MAX_OFFSET_US) ? jitter_based_offset : MAX_OFFSET_US;
       *offset_ptr = new_offset;
       
-      // Also adjust slot offset for immediate effect
       int32_t old_target = g_vnf_delay_ctx.target_slot_offset;
-      if (g_vnf_delay_ctx.target_slot_offset < 10) {  // Cap at 10 slots ahead (~10ms @ mu=1)
+      if (g_vnf_delay_ctx.target_slot_offset < 10) {
         g_vnf_delay_ctx.target_slot_offset++;
-        g_vnf_delay_ctx.slot_offset_adj = 1;  // Request immediate slot advance
+        g_vnf_delay_ctx.slot_offset_adj = 1;
         g_vnf_delay_ctx.sync_pending = true;
         
         NFAPI_TRACE(NFAPI_TRACE_ERROR,
@@ -428,75 +495,59 @@ static void vnf_adaptive_timing_adjust(int msg_idx, int32_t current_delay, uint3
                     "target_slot_offset %d→%d slots + timing offset %uµs→%uµs",
                     msg_name, current_jitter, current_delay, 
                     old_target, g_vnf_delay_ctx.target_slot_offset, old_offset, new_offset);
-      } else {
-        NFAPI_TRACE(NFAPI_TRACE_ERROR,
-                    "[ADAPT] VNF: CRITICAL JITTER %s jitter=%uµs delay=%dµs → "
-                    "Increased timing offset: %uµs→%uµs (max slot offset reached)",
-                    msg_name, current_jitter, current_delay, old_offset, new_offset);
       }
       
       g_vnf_delay_ctx.last_adjustment_time_ms = now_ms;
-      g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx] = 0; // Reset counter
-      return; // Early exit - adjustment made
+      g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx] = 0;
+      return;
     }
 
-    // CRITICAL CONDITION 2: Critical delay - immediate adjustment
-    if (critical_delay) {
+    // CRITICAL LATE: Immediate correction needed
+    if (critical_late) {
       uint32_t old_offset = *offset_ptr;
-      uint32_t new_offset = old_offset + (ADJUSTMENT_STEP_US * 2); // Double step for critical
+      uint32_t new_offset = old_offset + (ADJUSTMENT_STEP_US * 2);
       if (new_offset > MAX_OFFSET_US) new_offset = MAX_OFFSET_US;
       *offset_ptr = new_offset;
       
-      // TWO-LEVEL ADJUSTMENT STRATEGY per SCF-222 Section 3.4.7:
-      // 1. IMMEDIATE: Increase slot offset (VNF sends messages earlier relative to slot boundary)
-      //    - Takes effect immediately via sync_pending flag
-      //    - Provides instant relief from late arrivals
-      // 2. LONG-TERM: Increase timing offset (widens PNF receive window on next CONFIG)
-      //    - Takes effect after PNF restart/reconnect
-      //    - Provides permanent accommodation for measured latency
       int32_t old_target = g_vnf_delay_ctx.target_slot_offset;
-      if (g_vnf_delay_ctx.target_slot_offset < 10) {  // Cap at 10 slots ahead (~10ms @ mu=1)
+      if (g_vnf_delay_ctx.target_slot_offset < 10) {
         g_vnf_delay_ctx.target_slot_offset++;
-        g_vnf_delay_ctx.slot_offset_adj = 1;  // Request immediate slot advance
+        g_vnf_delay_ctx.slot_offset_adj = 1;
         g_vnf_delay_ctx.sync_pending = true;
         
         NFAPI_TRACE(NFAPI_TRACE_WARN,
-                    "[ADAPT] VNF: CRITICAL %s delay=%dµs jitter=%uµs → IMMEDIATE: "
+                    "[ADAPT] VNF: CRITICAL LATE %s delay=%dµs jitter=%uµs → IMMEDIATE: "
                     "target_slot_offset %d→%d slots (+ timing offset %uµs→%uµs)",
                     msg_name, current_delay, current_jitter,
                     old_target, g_vnf_delay_ctx.target_slot_offset, old_offset, new_offset);
-      } else {
-        NFAPI_TRACE(NFAPI_TRACE_WARN,
-                    "[ADAPT] VNF: CRITICAL %s delay=%dµs jitter=%uµs → "
-                    "Increased timing offset: %uµs→%uµs (max slot offset reached)",
-                    msg_name, current_delay, current_jitter, old_offset, new_offset);
       }
       
       g_vnf_delay_ctx.last_adjustment_time_ms = now_ms;
-      g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx] = 0; // Reset counter
-      return; // Early exit - adjustment made
+      g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx] = 0;
+      return;
     }
 
-    // GRADUAL CONDITION: Persistent moderate issues - gradual adjustment
-    // Trigger more quickly (3 occurrences) and adjust more aggressively
-    if (g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx] >= CONSECUTIVE_HIGH_DELAY_TRIGGER) {
+    // PERSISTENT LATE: Gradual correction after multiple occurrences
+    if (g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx] >= CONSECUTIVE_TRIGGER) {
       uint32_t old_offset = *offset_ptr;
       uint32_t new_offset = old_offset + ADJUSTMENT_STEP_US;
       if (new_offset > MAX_OFFSET_US) new_offset = MAX_OFFSET_US;
       *offset_ptr = new_offset;
       g_vnf_delay_ctx.last_adjustment_time_ms = now_ms;
-      g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx] = 0; // Reset counter
+      g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx] = 0;
 
       NFAPI_TRACE(NFAPI_TRACE_INFO,
-                  "[ADAPT] VNF: Persistent %s high delay/jitter (%d occurrences, delay=%dµs jitter=%uµs) → "
+                  "[ADAPT] VNF: Persistent %s TOO LATE (%d occurrences, delay=%dµs jitter=%uµs) → "
                   "Increased timing offset: %uµs → %uµs",
-                  msg_name, CONSECUTIVE_HIGH_DELAY_TRIGGER, current_delay, current_jitter,
+                  msg_name, CONSECUTIVE_TRIGGER, current_delay, current_jitter,
                   old_offset, new_offset);
     }
-  } else {
-    // Delay and jitter are both acceptable, reset counter
-    g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx] = 0;
+    return;
   }
+
+  // === ON TIME: Reset counters ===
+  g_vnf_delay_ctx.consecutive_high_delay_count[msg_idx] = 0;
+  g_vnf_delay_ctx.consecutive_early_count[msg_idx] = 0;
 }
 
 static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
