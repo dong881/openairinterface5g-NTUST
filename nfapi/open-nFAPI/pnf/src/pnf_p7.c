@@ -747,7 +747,7 @@ static void pnf_p7_maybe_send_timing_info(pnf_p7_t *pnf_p7, uint16_t sfn, uint16
 	{
 		struct timeval now;
 		gettimeofday(&now, NULL);
-		nfapi_delay_mgmt_set_time_reference(&pnf_p7->delay_state, &now);
+		nfapi_delay_mgmt_set_time_reference(&pnf_p7->delay_state, &now, sfn, slot);
 	}
 
 	const int force_aperiodic = pnf_p7->_public.timing_info_mode_aperiodic && pnf_p7->timing_info_aperiodic_send;
@@ -2381,9 +2381,8 @@ void pnf_p7_configure_delay_state(pnf_p7_t *pnf_p7,
 	uint16_t window_us = 150;   // 150µs window per SCF-222 medium-latency config
 	uint32_t offset_us = 500;   // 500µs offset per SCF-222 medium-latency config
 
-	struct timeval now;
-	gettimeofday(&now, NULL);
-	nfapi_delay_mgmt_set_time_reference(&pnf_p7->delay_state, &now);
+	// Time reference will be set on first slot_ind call in pnf_p7_maybe_send_timing_info
+	// with the actual SFN/Slot, so we don't set it here
 
 	nfapi_delay_mgmt_configure_window(&pnf_p7->delay_state, NFAPI_MSG_TYPE_DL_TTI, offset_us, window_us);
 	nfapi_delay_mgmt_configure_window(&pnf_p7->delay_state, NFAPI_MSG_TYPE_TX_DATA, offset_us, window_us);

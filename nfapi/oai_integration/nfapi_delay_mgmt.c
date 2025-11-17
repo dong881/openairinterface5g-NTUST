@@ -188,14 +188,45 @@ void nfapi_delay_mgmt_configure_timing_info(nfapi_delay_mgmt_state_t *state,
 }
 
 void nfapi_delay_mgmt_set_time_reference(nfapi_delay_mgmt_state_t *state,
-                                         struct timeval *ref_time)
+                                         struct timeval *ref_time,
+                                         uint16_t current_sfn,
+                                         uint16_t current_slot)
 {
-  if (!ref_time)
+  if (!ref_time || !state)
     return;
 
-  state->sfn_slot_zero_time = *ref_time;
+  // CRITICAL FIX: Calculate when SFN/Slot 0/0 would have occurred
+  // This ensures slot_start_us calculations align with the time reference
+  //
+  // slot_start_us(sfn, slot) = time_from_sfn_0 in microseconds
+  // For this to match arrival_us (time since reference), the reference must be
+  // backdated to when SFN=0/Slot=0 actually occurred
+  
+  // Calculate how much time has elapsed since SFN/Slot 0/0
+  uint64_t current_slot_time_us = calc_slot_start_us(current_sfn, current_slot, state->subcarrier_spacing);
+  
+  // Backdate the reference time to when SFN/Slot 0/0 occurred
+  // sfn_slot_zero_time = current_time - elapsed_time_since_sfn_0
+  int64_t seconds_offset = (int64_t)(current_slot_time_us / 1000000ULL);
+  int64_t usec_offset = (int64_t)(current_slot_time_us % 1000000ULL);
+  
+  state->sfn_slot_zero_time.tv_sec = ref_time->tv_sec - seconds_offset;
+  state->sfn_slot_zero_time.tv_usec = ref_time->tv_usec - usec_offset;
+  
+  // Handle underflow in microseconds
+  if (state->sfn_slot_zero_time.tv_usec < 0) {
+    state->sfn_slot_zero_time.tv_sec--;
+    state->sfn_slot_zero_time.tv_usec += 1000000;
+  }
+  
   state->time_reference_valid = 1;
   state->last_timing_info_time = *ref_time;
+  
+  NFAPI_TRACE(NFAPI_TRACE_INFO,
+              "[DELAY-MGMT] Set time reference at SFN.Slot=%u.%u (backdated %lld µs to SFN/Slot 0/0)",
+              current_sfn,
+              current_slot,
+              (long long)current_slot_time_us);
 }
 
 uint32_t nfapi_delay_mgmt_get_transmit_timestamp(nfapi_delay_mgmt_state_t *state)
