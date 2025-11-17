@@ -144,11 +144,16 @@ static uint64_t timestamp_relative_to_ref(const nfapi_delay_mgmt_state_t *state,
   // This makes arrival_us directly comparable to slot_start_us from calc_slot_start_us()
   int64_t relative_us = timeval_diff_us(recv_time, &state->sfn_slot_zero_time);
   
-  // Sanity check: relative time should be positive and reasonable (< 1 hour)
-  if (relative_us < 0 || relative_us > 3600000000LL) {
-    NFAPI_TRACE(NFAPI_TRACE_WARN,
-                "[DELAY-MGMT] Invalid relative timestamp %lld µs - clock may have changed",
+  // CRITICAL FIX: Detect stale time reference when relative time exceeds maximum SFN duration
+  // SFN wraps at 1024 frames (10.24 seconds). If relative_us > 20 seconds, the reference is stale.
+  // This happens when VNF restarts or adjusts slot counter significantly, causing desynchronization.
+  // Per SCF-222: Time reference should be refreshed periodically to maintain sync
+  if (relative_us < 0 || relative_us > 20000000LL) {  // 20 seconds threshold
+    NFAPI_TRACE(NFAPI_TRACE_ERROR,
+                "[DELAY-MGMT] STALE time reference detected: relative_us=%lld µs (> 20s) - reference needs refresh",
                 (long long)relative_us);
+    // Return 0 to signal that timing window check should be skipped
+    // This forces the system to re-establish time reference on next slot.indication
     return 0;
   }
   
