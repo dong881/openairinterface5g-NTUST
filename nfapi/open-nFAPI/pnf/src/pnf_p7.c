@@ -622,10 +622,12 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 	AssertFatal(pnf_p7->_public.send_p7_msg, "The function pointer to pack and send P7 messages must be set");
 	pnf_p7->_public.send_p7_msg(pnf_p7, &(timing_info.header), sizeof(timing_info));
 	
-	// Log successful timing info transmission with key statistics
-	NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF-TIMING] Sent timing info for %u.%u - DL_TTI jitter: %u, UL_TTI jitter: %u\n",
-	            timing_info.last_sfn, timing_info.last_slot,
-	            timing_info.dl_tti_jitter, timing_info.ul_tti_jitter);
+	// Log only on high jitter or errors (reduce log spam for efficiency)
+	if (timing_info.dl_tti_jitter > 10 || timing_info.ul_tti_jitter > 10) {
+		NFAPI_TRACE(NFAPI_TRACE_WARN, "[PNF-TIMING] High jitter detected for %u.%u - DL_TTI jitter: %u, UL_TTI jitter: %u\n",
+		            timing_info.last_sfn, timing_info.last_slot,
+		            timing_info.dl_tti_jitter, timing_info.ul_tti_jitter);
+	}
 }
 
 void send_dummy_subframe(pnf_p7_t* pnf_p7, uint16_t sfn_sf)
@@ -690,7 +692,7 @@ static void pnf_p7_handle_msg_arrival(pnf_p7_t *pnf_p7,
 		(struct timeval *)rx_time,
 		&delta_us);
 	
-	// Log important timing window violations
+	// Log only severe timing window violations (reduce log spam)
 	if(result != NFAPI_MSG_ARRIVAL_ON_TIME) {
 		const char *msg_type_str = (type == NFAPI_MSG_TYPE_DL_TTI) ? "DL_TTI" :
 		                           (type == NFAPI_MSG_TYPE_UL_TTI) ? "UL_TTI" :
@@ -698,8 +700,11 @@ static void pnf_p7_handle_msg_arrival(pnf_p7_t *pnf_p7,
 		                           (type == NFAPI_MSG_TYPE_TX_DATA) ? "TX_DATA" : "UNKNOWN";
 		const char *result_str = (result == NFAPI_MSG_ARRIVAL_TOO_LATE) ? "TOO LATE" : "TOO EARLY";
 		
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF-TIMING] Message %s for %u.%u arrived %s (delta: %d µs) - outside timing window, will send timing info\n",
-		            msg_type_str, sfn, slot, result_str, delta_us);
+		// Only log if late by significant margin (>50µs) or critical messages
+		if (result == NFAPI_MSG_ARRIVAL_TOO_LATE && (abs(delta_us) > 50 || type == NFAPI_MSG_TYPE_DL_TTI)) {
+			NFAPI_TRACE(NFAPI_TRACE_WARN, "[PNF-TIMING] Message %s for %u.%u arrived %s (delta: %d µs) - outside timing window\n",
+			            msg_type_str, sfn, slot, result_str, delta_us);
+		}
 		pnf_p7->timing_info_aperiodic_send = 1;
 	}
 

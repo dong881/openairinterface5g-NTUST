@@ -466,8 +466,12 @@ static inline int do_onelayer(NR_DL_FRAME_PARMS *frame_parms,
                          rel15->numDmrsCdmGrpsNoData);
     } // generic DMRS case
   } else { // no PTRS or DMRS in this symbol
-    txl += no_ptrs_dmrs_case(output + start_sc, txl, amp, upper_limit);
-    txl += no_ptrs_dmrs_case(output, txl, amp, remaining_re);
+    if (upper_limit > 0) {
+      txl += no_ptrs_dmrs_case(output + start_sc, txl, amp, upper_limit);
+    }
+    if (remaining_re > 0) {
+      txl += no_ptrs_dmrs_case(output, txl, amp, remaining_re);
+    }
   } // no DMRS/PTRS in symbol
   return txl - txl_start;
 }

@@ -304,24 +304,25 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
   if (ind == NULL)
     return;
 
-  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[DEBUG] VNF: Received Timing Info.indication from PHY");
+  // Reduce excessive logging - only log when issues detected
+  // DEBUG logs removed to improve performance
   NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-              "[DEBUG] VNF-EXTRACT: Last_SFN=%u Last_slot=%u Time_since_last=%uµs",
+              "[DEBUG] VNF: Timing Info from PHY - SFN=%u Slot=%u",
               ind->last_sfn,
-              ind->last_slot,
-              ind->time_since_last_timing_info);
-  NFAPI_TRACE(NFAPI_TRACE_INFO,
-              "[INFO] VNF-ANALYZE: Jitter stats: DLTTI=%uµs, ULTTI=%uµs, ULDCI=%uµs, TxData=%uµs",
-              ind->dl_tti_jitter,
-              ind->ul_tti_jitter,
-              ind->ul_dci_jitter,
-              ind->tx_data_request_jitter);
-  NFAPI_TRACE(NFAPI_TRACE_INFO,
-              "[INFO] VNF-ANALYZE-DL: Latest delays DLTTI=%dµs, ULTTI=%dµs, ULDCI=%dµs, TxData=%dµs",
-              ind->dl_tti_latest_delay,
-              ind->ul_tti_latest_delay,
-              ind->ul_dci_latest_delay,
-              ind->tx_data_request_latest_delay);
+              ind->last_slot);
+  
+  // Only log stats if jitter or delays are significant
+  bool has_high_jitter = (ind->dl_tti_jitter > 10 || ind->ul_tti_jitter > 10 || 
+                          ind->ul_dci_jitter > 10 || ind->tx_data_request_jitter > 10);
+  bool has_delays = (ind->dl_tti_latest_delay > 0 || ind->ul_tti_latest_delay > 0 ||
+                     ind->ul_dci_latest_delay > 0 || ind->tx_data_request_latest_delay > 0);
+  
+  if (has_high_jitter || has_delays) {
+    NFAPI_TRACE(NFAPI_TRACE_WARN,
+                "[WARN] VNF-ANALYZE: Jitter: DL=%uµs UL=%uµs ULDCI=%uµs TxData=%uµs | Delays: DL=%dµs UL=%dµs ULDCI=%dµs TxData=%dµs",
+                ind->dl_tti_jitter, ind->ul_tti_jitter, ind->ul_dci_jitter, ind->tx_data_request_jitter,
+                ind->dl_tti_latest_delay, ind->ul_tti_latest_delay, ind->ul_dci_latest_delay, ind->tx_data_request_latest_delay);
+  }
 
   bool should_prime = false;
   bool is_first_timing_info = false;
@@ -387,8 +388,8 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
     // The target_slot_offset is derived from timing_offset_us configuration (not hard-coded)
     const int32_t target_ahead = g_vnf_delay_ctx.target_slot_offset;
     
-    NFAPI_TRACE(NFAPI_TRACE_WARN,
-                "[FIRST-SYNC] VNF-SYNC: First timing info - PNF at %u.%u, VNF tick was %u.%u (offset: %d slots)",
+    NFAPI_TRACE(NFAPI_TRACE_INFO,
+                "[INFO] VNF-SYNC: First timing info - PNF at %u.%u, VNF tick was %u.%u (offset: %d slots)",
                 ind->last_sfn,
                 ind->last_slot,
                 vnf_sfn,
@@ -401,11 +402,10 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
     g_vnf_delay_ctx.sync_pending = true;
     g_vnf_delay_ctx.waiting_first_timing_info = false;
 
-    NFAPI_TRACE(NFAPI_TRACE_WARN,
-                "[FIRST-SYNC] VNF-SYNC: Applying initial synchronization adjustment of %d slots (to be %d ahead of PNF, per timing_offset_us=%uµs)",
+    NFAPI_TRACE(NFAPI_TRACE_INFO,
+                "[INFO] VNF-SYNC: Applying initial sync adjustment of %d slots (target: %d ahead)",
                 g_vnf_delay_ctx.slot_offset_adj,
-                target_ahead,
-                g_vnf_delay_ctx.dl_tti_timing_offset_us);
+                target_ahead);
   }
   // Subsequent timing info messages - handle incremental drift correction
   else if (ind->last_sfn > 0 || ind->last_slot > 0) {
@@ -440,8 +440,9 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
 
     // Only log and adjust if PNF slot actually changed
     if (old_pnf_sfn != ind->last_sfn || old_pnf_slot != ind->last_slot) {
-      NFAPI_TRACE(NFAPI_TRACE_INFO,
-                  "[INFO] VNF-SYNC: PNF reports %u.%u, VNF tick at %u.%u (offset: %d slots)",
+      // Only log sync info at DEBUG level to reduce spam
+      NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+                  "[DEBUG] VNF-SYNC: PNF=%u.%u VNF=%u.%u (offset: %d slots)",
                   ind->last_sfn,
                   ind->last_slot,
                   vnf_sfn,
@@ -460,7 +461,7 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
         g_vnf_delay_ctx.sync_pending = true;
 
         NFAPI_TRACE(NFAPI_TRACE_WARN,
-                    "[WARN] VNF-SYNC: Large offset detected (%d slots from target %d), applying adjustment of %d slots",
+                    "[WARN] VNF-SYNC: Large offset (%d slots, target %d) - adjusting %d slots",
                     slot_diff,
                     target_ahead,
                     g_vnf_delay_ctx.slot_offset_adj);
@@ -472,8 +473,8 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
           g_vnf_delay_ctx.slot_offset_adj = small_adj;
           g_vnf_delay_ctx.sync_pending = true;
 
-          NFAPI_TRACE(NFAPI_TRACE_INFO,
-                      "[INFO] VNF-SYNC: Minor drift detected (offset=%d, target=%d), applying gradual adjustment of %d slots",
+          NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+                      "[DEBUG] VNF-SYNC: Minor drift (offset=%d, target=%d) - gradual adjust %d slots",
                       slot_diff,
                       target_ahead,
                       small_adj);
@@ -491,35 +492,20 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
   }
   pthread_mutex_unlock(&g_vnf_delay_ctx.lock);
 
-  if (jitter_initialized) {
-    if (ind->dl_tti_jitter > prev_dl_jitter) {
-      NFAPI_TRACE(NFAPI_TRACE_INFO,
-                  "[INFO] VNF-ANALYZE-JITTER: Trending up (current=%uµs, prev=%uµs)",
-                  ind->dl_tti_jitter,
-                  prev_dl_jitter);
-    } else {
-      NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-                  "[DEBUG] VNF-ANALYZE-JITTER: Stable (current=%uµs, prev=%uµs)",
-                  ind->dl_tti_jitter,
-                  prev_dl_jitter);
-    }
+  // Remove jitter trending logs - they are not actionable and spam logs
+  // Only keep critical warnings
+
+  // Only warn if delays indicate actual slot loss risk (significant delay)
+  if (ind->dl_tti_latest_delay > 50) {
+    NFAPI_TRACE(NFAPI_TRACE_WARN,
+                "[WARN] VNF: High DL_TTI delay=%dµs - DL slot loss possible",
+                ind->dl_tti_latest_delay);
   }
 
-  if (ind->dl_tti_latest_delay > 0)
-    NFAPI_TRACE(NFAPI_TRACE_INFO,
-                "[INFO] VNF-ANALYZE-DL: DLTTI_latest=%dµs → late (DL slot loss possible)",
-                ind->dl_tti_latest_delay);
-  else
-    NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-                "[DEBUG] VNF-ANALYZE-DL: DLTTI_latest=%dµs → normal",
-                ind->dl_tti_latest_delay);
-
-  if (ind->tx_data_request_latest_delay > 0) {
+  if (ind->tx_data_request_latest_delay > 50) {
     NFAPI_TRACE(NFAPI_TRACE_WARN,
-                "[WARN] VNF-DECISION: Multiple late messages detected - fronthaul latency issue possible");
-  } else {
-    NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-                "[DEBUG] VNF-DECISION: All metrics within normal range - no adjustment needed");
+                "[WARN] VNF: High TxData delay=%dµs - fronthaul latency issue",
+                ind->tx_data_request_latest_delay);
   }
 
   if (should_prime) {
