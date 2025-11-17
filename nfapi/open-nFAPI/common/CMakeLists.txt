@@ -1,7 +1,11 @@
 add_library(nfapi_common
             src/debug.c
-            src/nfapi.c)
+            src/nfapi.c
+            src/timing_measurement.c)
 target_include_directories(nfapi_common PUBLIC public_inc/)
 if (OAI_AERIAL)
     target_compile_definitions(nfapi_common PRIVATE FAPI_BYTE_ORDERING_BIG_ENDIAN)
+endif()
+if (ENABLE_TIMING_MEASUREMENT)
+    target_compile_definitions(nfapi_common PUBLIC ENABLE_TIMING_MEASUREMENT)
 endif()
