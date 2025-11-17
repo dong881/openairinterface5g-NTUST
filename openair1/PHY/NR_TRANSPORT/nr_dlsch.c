@@ -302,6 +302,12 @@ static inline int dmrs_case00(c16_t *output,
 
 static inline int no_ptrs_dmrs_case(c16_t *output, c16_t *txl, const int amp, const int sz)
 {
+  // Safety check: sz must be positive and reasonable
+  if (sz <= 0 || sz > 4096) {
+    LOG_E(PHY, "no_ptrs_dmrs_case: Invalid size %d\n", sz);
+    return 0;
+  }
+  
   // Loop Over SCs:
   int i = 0;
 #if defined(__AVX512BW__)
@@ -354,10 +360,23 @@ static inline int do_onelayer(NR_DL_FRAME_PARMS *frame_parms,
                               nfapi_nr_dmrs_type_e dmrs_Type,
                               c16_t *dmrs_start)
 {
+  // Validate critical pointers to prevent NULL dereference
+  if (!output || !txl_start || !rel15) {
+    LOG_E(PHY, "do_onelayer: NULL pointer - output=%p txl_start=%p rel15=%p\n", output, txl_start, rel15);
+    return 0;
+  }
+  
   c16_t *txl = txl_start;
   const uint sz = rel15->rbSize * NR_NB_SC_PER_RB;
   int upper_limit = sz;
   int remaining_re = 0;
+  
+  // Validate parameters to prevent buffer overflow
+  if (start_sc >= symbol_sz) {
+    LOG_E(PHY, "do_onelayer: Invalid start_sc %d >= symbol_sz %d\n", start_sc, symbol_sz);
+    return 0;
+  }
+  
   if (start_sc + upper_limit > symbol_sz) {
     upper_limit = symbol_sz - start_sc;
     remaining_re = sz - upper_limit;
