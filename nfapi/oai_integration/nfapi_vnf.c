@@ -521,8 +521,6 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
 
   bool should_prime = false;
   bool is_first_timing_info = false;
-  uint32_t prev_dl_jitter = 0;
-  bool jitter_initialized = false;
 
   pthread_mutex_lock(&g_vnf_delay_ctx.lock);
   
@@ -533,8 +531,6 @@ static void vnf_delay_handle_timing_info(const nfapi_nr_timing_info_t *ind)
   should_prime = is_first_timing_info && ind->last_sfn == 0 && ind->last_slot == 0;
   
   g_vnf_delay_ctx.last_timing_info = *ind;
-  jitter_initialized = g_vnf_delay_ctx.jitter_initialized;
-  prev_dl_jitter = g_vnf_delay_ctx.prev_dl_tti_jitter;
   g_vnf_delay_ctx.prev_dl_tti_jitter = ind->dl_tti_jitter;
   g_vnf_delay_ctx.prev_ul_tti_jitter = ind->ul_tti_jitter;
   g_vnf_delay_ctx.prev_ul_dci_jitter = ind->ul_dci_jitter;
