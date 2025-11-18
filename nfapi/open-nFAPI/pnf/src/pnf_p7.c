@@ -123,6 +123,48 @@ static void update_jitter_rfc3550(uint32_t *jitter, uint32_t current_arrival, ui
   *jitter = *jitter + (abs_delta - *jitter) / 16;
 }
 
+// Extract transmit_timestamp from P7 header
+static uint32_t extract_transmit_timestamp(void* pMessageBuf, uint32_t messageBufLen) {
+  if (pMessageBuf == NULL || messageBufLen < 16) {
+    return 0;
+  }
+  uint8_t *pReadPackedMessage = (uint8_t*)pMessageBuf;
+  // transmit_timestamp is at offset 12 in the P7 header (after phy_id, message_id, message_length, m_segment_sequence, checksum)
+  uint32_t timestamp = 0;
+  timestamp |= ((uint32_t)(pReadPackedMessage[12]) << 24);
+  timestamp |= ((uint32_t)(pReadPackedMessage[13]) << 16);
+  timestamp |= ((uint32_t)(pReadPackedMessage[14]) << 8);
+  timestamp |= ((uint32_t)(pReadPackedMessage[15]));
+  return timestamp;
+}
+
+// Update timing statistics for a message type
+static void update_timing_stats(pnf_p7_t* pnf_p7, uint32_t *jitter, uint32_t *prev_arrival, uint32_t *prev_tx,
+                                 int32_t *latest_delay, int32_t *earliest_arrival,
+                                 uint32_t current_arrival, uint32_t transmit_timestamp, uint32_t timing_offset) {
+  // Update jitter using RFC 3550
+  update_jitter_rfc3550(jitter, current_arrival, *prev_arrival, transmit_timestamp, *prev_tx);
+  
+  // Calculate delay relative to expected arrival time
+  // latest_acceptable_time = slot_start_time + timing_offset
+  // For now, use a simplified calculation relative to current time
+  int32_t delay = (int32_t)(current_arrival - transmit_timestamp) - (int32_t)timing_offset;
+  
+  // Update latest_delay if message is late
+  if (delay > 0 && delay > *latest_delay) {
+    *latest_delay = delay;
+  }
+  
+  // Update earliest_arrival if message is early
+  if (delay < 0 && delay < *earliest_arrival) {
+    *earliest_arrival = delay;
+  }
+  
+  // Store for next iteration
+  *prev_arrival = current_arrival;
+  *prev_tx = transmit_timestamp;
+}
+
 void* pnf_p7_malloc(pnf_p7_t* pnf_p7, size_t size)
 {
 	if(pnf_p7->_public.malloc)
@@ -1305,6 +1347,13 @@ void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       pnf_p7->slot_buffer[buffer_index].slot = slot;
       nfapi_nr_dl_tti_request_t *req = &pnf_p7->slot_buffer[buffer_index].dl_tti_req;
       pnf_p7->nr_stats.dl_tti.ontime++;
+      
+      // Extract transmit_timestamp and update timing statistics
+      uint32_t transmit_timestamp = extract_transmit_timestamp(pRecvMsg, recvMsgLen);
+      uint32_t current_arrival = pnf_get_current_time_hr();
+      update_timing_stats(pnf_p7, &pnf_p7->dl_tti_jitter, &pnf_p7->dl_tti_prev_arrival_time,
+                          &pnf_p7->dl_tti_prev_tx_timestamp, &pnf_p7->dl_tti_latest_delay,
+                          &pnf_p7->dl_tti_earliest_arrival, current_arrival, transmit_timestamp, 0);
 
       NFAPI_TRACE(NFAPI_TRACE_DEBUG,
                   "POPULATE DL_TTI_REQ current tx sfn/slot:%d.%d p7 msg sfn/slot: %d.%d buffer_index:%d\n",
@@ -1438,6 +1487,13 @@ void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       pnf_p7->slot_buffer[buffer_index].slot = slot;
       nfapi_nr_ul_tti_request_t* req = &pnf_p7->slot_buffer[buffer_index].ul_tti_req;
       pnf_p7->nr_stats.ul_tti.ontime++;
+      
+      // Extract transmit_timestamp and update timing statistics
+      uint32_t transmit_timestamp = extract_transmit_timestamp(pRecvMsg, recvMsgLen);
+      uint32_t current_arrival = pnf_get_current_time_hr();
+      update_timing_stats(pnf_p7, &pnf_p7->ul_tti_jitter, &pnf_p7->ul_tti_prev_arrival_time,
+                          &pnf_p7->ul_tti_prev_tx_timestamp, &pnf_p7->ul_tti_latest_delay,
+                          &pnf_p7->ul_tti_earliest_arrival, current_arrival, transmit_timestamp, 0);
 
       NFAPI_TRACE(NFAPI_TRACE_DEBUG,
                   "POPULATE UL_TTI.request current tx sfn/slot:%d.%d p7 msg sfn/slot: %d.%d buffer_index:%d\n",
@@ -1557,6 +1613,13 @@ void pnf_handle_ul_dci_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       pnf_p7->slot_buffer[buffer_index].slot = slot;
       nfapi_nr_ul_dci_request_t *req = &pnf_p7->slot_buffer[buffer_index].ul_dci_req;
       pnf_p7->nr_stats.ul_dci.ontime++;
+      
+      // Extract transmit_timestamp and update timing statistics
+      uint32_t transmit_timestamp = extract_transmit_timestamp(pRecvMsg, recvMsgLen);
+      uint32_t current_arrival = pnf_get_current_time_hr();
+      update_timing_stats(pnf_p7, &pnf_p7->ul_dci_jitter, &pnf_p7->ul_dci_prev_arrival_time,
+                          &pnf_p7->ul_dci_prev_tx_timestamp, &pnf_p7->ul_dci_latest_delay,
+                          &pnf_p7->ul_dci_earliest_arrival, current_arrival, transmit_timestamp, 0);
 
       NFAPI_TRACE(NFAPI_TRACE_DEBUG,
                   "POPULATE UL_DCI.request current tx sfn/slot:%d.%d p7 msg sfn/slot: %d.%d buffer_index:%d\n",
@@ -1670,6 +1733,13 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
       pnf_p7->slot_buffer[buffer_index].slot = slot;
       nfapi_nr_tx_data_request_t *req = &pnf_p7->slot_buffer[buffer_index].tx_data_req;
       pnf_p7->nr_stats.tx_data.ontime++;
+      
+      // Extract transmit_timestamp and update timing statistics
+      uint32_t transmit_timestamp = extract_transmit_timestamp(pRecvMsg, recvMsgLen);
+      uint32_t current_arrival = pnf_get_current_time_hr();
+      update_timing_stats(pnf_p7, &pnf_p7->tx_data_jitter, &pnf_p7->tx_data_prev_arrival_time,
+                          &pnf_p7->tx_data_prev_tx_timestamp, &pnf_p7->tx_data_latest_delay,
+                          &pnf_p7->tx_data_earliest_arrival, current_arrival, transmit_timestamp, 0);
 
       NFAPI_TRACE(NFAPI_TRACE_DEBUG,
                   "POPULATE TX_data.request current tx sfn/slot:%d.%d p7 msg sfn/slot: %d.%d buffer_index:%d\n",
