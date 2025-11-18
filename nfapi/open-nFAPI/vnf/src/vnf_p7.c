@@ -2101,6 +2101,12 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack timing_info\n");
 		return;
 	}
+	
+	// Log timing info for debugging
+	NFAPI_TRACE(NFAPI_TRACE_INFO, "Timing Info received: SFN/Slot:%d.%d DL_TTI jitter:%u delay:%d early:%d TX_DATA jitter:%u delay:%d early:%d\n",
+	            ind.last_sfn, ind.last_slot,
+	            ind.dl_tti_jitter, ind.dl_tti_latest_delay, ind.dl_tti_earliest_arrival,
+	            ind.tx_data_request_jitter, ind.tx_data_request_latest_delay, ind.tx_data_request_earliest_arrival);
 
         if (vnf_p7 && vnf_p7->p7_connections)
         {
@@ -2121,6 +2127,17 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
             // Panos: Careful here!!! Modification of the original nfapi-code
             vnf_p7->p7_connections[0].sfn = ind.last_sfn;
             vnf_p7->p7_connections[0].slot = ind.last_slot;
+          }
+          
+          // Store timing info for potential timing adjustment
+          // VNF tick timing can use these values to adjust send timing
+          // If latest_delay > 0: messages arriving late, send earlier
+          // If earliest_arrival < -threshold: messages arriving too early, can send later
+          if (ind.dl_tti_latest_delay > 0) {
+            NFAPI_TRACE(NFAPI_TRACE_WARN, "DL_TTI messages arriving late by %d us\n", ind.dl_tti_latest_delay);
+          }
+          if (ind.dl_tti_earliest_arrival < -1000) {
+            NFAPI_TRACE(NFAPI_TRACE_INFO, "DL_TTI messages arriving early by %d us\n", -ind.dl_tti_earliest_arrival);
           }
         }
 }
