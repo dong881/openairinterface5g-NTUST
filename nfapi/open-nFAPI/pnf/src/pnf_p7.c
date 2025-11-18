@@ -481,6 +481,31 @@ static int32_t get_pnf_time_offset(pnf_p7_t* pnf_p7, uint16_t sfn, uint16_t slot
 	return double_to_int32(arrival_us - expected_us);
 }
 
+static uint32_t get_pnf_node_sync_timestamp(pnf_p7_t* pnf_p7,
+						   uint16_t sfn,
+						   uint16_t slot,
+						   uint32_t reference_time_hr)
+{
+	if(pnf_p7 == NULL)
+		return 0;
+
+	const uint32_t slot_len_us = NFAPI_SLOTLEN(pnf_p7->mu);
+	const uint32_t slot_index = NFAPI_SFNSLOT2DEC(pnf_p7->mu, sfn, slot);
+	const int32_t offset_us = get_pnf_time_offset(pnf_p7, sfn, slot, reference_time_hr);
+	const int64_t period_us = (int64_t)NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu) * (int64_t)slot_len_us;
+	int64_t timestamp = ((int64_t)slot_index * (int64_t)slot_len_us) + (int64_t)offset_us;
+
+	if(period_us > 0)
+	{
+		while(timestamp < 0)
+			timestamp += period_us;
+		while(timestamp >= period_us)
+			timestamp -= period_us;
+	}
+
+	return (uint32_t)timestamp;
+}
+
 static void update_jitter_rfc3550(pnf_p7_rfc3550_state_t* state, int32_t transit)
 {
 	if(state == NULL)
@@ -911,6 +936,7 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
 			//
 
 			pnf_p7->slot_shift = 0;
+			pnf_p7->pnf_sfn_slot_adjustment = 0;
 		}
 
 		nfapi_pnf_p7_slot_buffer_t* tx_slot_buffer = &(pnf_p7->slot_buffer[buffer_index_tx]);
@@ -2193,6 +2219,7 @@ void pnf_nr_handle_dl_node_sync(void *pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "Will shift Slot timing by %d on next slot\n", dl_node_sync.delta_sfn_slot);
 
 		pnf_p7->slot_shift = dl_node_sync.delta_sfn_slot;
+		pnf_p7->pnf_sfn_slot_adjustment = dl_node_sync.delta_sfn_slot;
 	}
 
 	nfapi_nr_ul_node_sync_t ul_node_sync;
@@ -2200,8 +2227,11 @@ void pnf_nr_handle_dl_node_sync(void *pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 	ul_node_sync.header.message_id = NFAPI_NR_PHY_MSG_TYPE_UL_NODE_SYNC;
 	ul_node_sync.header.phy_id = dl_node_sync.header.phy_id;
 	ul_node_sync.t1 = dl_node_sync.t1;
-	ul_node_sync.t2 = calculate_nr_t2(rx_hr_time, pnf_p7->mu, pnf_p7->sfn,pnf_p7->slot, pnf_p7->slot_start_time_hr);
-	ul_node_sync.t3 = calculate_nr_t3(pnf_p7->mu, pnf_p7->sfn,pnf_p7->slot, pnf_p7->slot_start_time_hr);
+	uint16_t current_sfn = pnf_p7->sfn;
+	uint16_t current_slot = pnf_p7->slot;
+	ul_node_sync.t2 = get_pnf_node_sync_timestamp(pnf_p7, current_sfn, current_slot, rx_hr_time);
+	uint32_t tx_hr_time = pnf_get_current_time_hr();
+	ul_node_sync.t3 = get_pnf_node_sync_timestamp(pnf_p7, current_sfn, current_slot, tx_hr_time);
 
 	if(pthread_mutex_unlock(&(pnf_p7->mutex)) != 0)
 	{
