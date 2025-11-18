@@ -56,6 +56,21 @@ typedef struct {
 } pnf_p7_nr_stats_t;
 
 typedef struct {
+	uint8_t initialized;
+	int32_t last_transit;
+	uint32_t jitter;
+	int32_t latest_delay;
+	int32_t earliest_arrival;
+} pnf_p7_rfc3550_state_t;
+
+typedef struct {
+	pnf_p7_rfc3550_state_t dl_tti;
+	pnf_p7_rfc3550_state_t tx_data;
+	pnf_p7_rfc3550_state_t ul_tti;
+	pnf_p7_rfc3550_state_t ul_dci;
+} pnf_p7_timing_state_t;
+
+typedef struct {
 	uint8_t* buffer;
 	uint32_t length;
 } pnf_p7_rx_message_segment_t;
@@ -138,6 +153,7 @@ typedef struct {
 	uint32_t tick;
 	pnf_p7_stats_t stats;
 	pnf_p7_nr_stats_t nr_stats;
+	pnf_p7_timing_state_t timing_stats;
 
 } pnf_p7_t;
 

@@ -447,6 +447,99 @@ static uint32_t get_sf_time(uint32_t now_hr, uint32_t sf_start_hr)
 	}
 }
 
+static inline uint64_t timehr_to_us(uint32_t time_hr)
+{
+	return ((uint64_t)TIMEHR_SEC(time_hr) * 1000000ULL) + TIMEHR_USEC(time_hr);
+}
+
+static inline int32_t double_to_int32(double value)
+{
+	return (int32_t)((value >= 0.0) ? (value + 0.5) : (value - 0.5));
+}
+
+static int32_t get_pnf_time_offset(pnf_p7_t* pnf_p7, uint16_t sfn, uint16_t slot, uint32_t arrival_time_hr)
+{
+	if(pnf_p7 == NULL || pnf_p7->slot_start_time_hr == 0)
+		return 0;
+
+	const int32_t curr_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, pnf_p7->sfn, pnf_p7->slot);
+	const int32_t target_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, sfn, slot);
+	int32_t delta_slots = target_dec - curr_dec;
+	const int32_t max_slots = NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
+
+	if(delta_slots > max_slots / 2)
+		delta_slots -= max_slots;
+	else if(delta_slots < -max_slots / 2)
+		delta_slots += max_slots;
+
+	const uint32_t slot_rate = 1u << (pnf_p7->mu & 0x1F);
+	const double slot_len_us = 1000.0 / (double)(slot_rate ? slot_rate : 1);
+	const double reference_us = (double)timehr_to_us(pnf_p7->slot_start_time_hr);
+	const double expected_us = reference_us + ((double)delta_slots * slot_len_us);
+	const double arrival_us = (double)timehr_to_us(arrival_time_hr);
+
+	return double_to_int32(arrival_us - expected_us);
+}
+
+static void update_jitter_rfc3550(pnf_p7_rfc3550_state_t* state, int32_t transit)
+{
+	if(state == NULL)
+		return;
+
+	if(state->initialized == 0)
+	{
+		state->initialized = 1;
+		state->last_transit = transit;
+		state->jitter = 0;
+		if(transit > 0)
+			state->latest_delay = transit;
+		else
+			state->latest_delay = 0;
+		state->earliest_arrival = (transit < 0) ? transit : 0;
+		return;
+	}
+
+	int32_t diff = transit - state->last_transit;
+	if(diff < 0)
+		diff = -diff;
+
+	int32_t jitter = (int32_t)state->jitter;
+	jitter += ((int32_t)diff - jitter) / 16;
+	if(jitter < 0)
+		jitter = 0;
+	state->jitter = (uint32_t)jitter;
+	state->last_transit = transit;
+
+	if(transit > state->latest_delay)
+		state->latest_delay = transit;
+	if(transit < state->earliest_arrival)
+		state->earliest_arrival = transit;
+}
+
+static void reset_timing_extrema(pnf_p7_rfc3550_state_t* state)
+{
+	if(state == NULL)
+		return;
+	state->latest_delay = 0;
+	state->earliest_arrival = 0;
+}
+
+static void record_nr_message_timing(pnf_p7_t* pnf_p7,
+					      pnf_p7_rfc3550_state_t* state,
+					      uint16_t sfn,
+					      uint16_t slot,
+					      uint32_t arrival_time_hr)
+{
+	if(pnf_p7 == NULL || state == NULL)
+		return;
+
+	if(pnf_p7->slot_start_time_hr == 0)
+		return;
+
+	int32_t offset = get_pnf_time_offset(pnf_p7, sfn, slot, arrival_time_hr);
+	update_jitter_rfc3550(state, offset);
+}
+
 
 
 int pnf_p7_send_message(pnf_p7_t* pnf_p7, uint8_t* msg, uint32_t len)
@@ -693,23 +786,33 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 	timing_info.last_slot = pnf_p7->slot;
 	timing_info.time_since_last_timing_info = pnf_p7->timing_info_ms_counter;
 
-	timing_info.dl_tti_jitter = pnf_p7->dl_tti_jitter;
-	timing_info.tx_data_request_jitter = pnf_p7->tx_data_jitter;
-	timing_info.ul_tti_jitter = pnf_p7->ul_tti_jitter;
-	timing_info.ul_dci_jitter = pnf_p7->ul_dci_jitter;
+	const pnf_p7_rfc3550_state_t* dl_stats = &pnf_p7->timing_stats.dl_tti;
+	const pnf_p7_rfc3550_state_t* tx_stats = &pnf_p7->timing_stats.tx_data;
+	const pnf_p7_rfc3550_state_t* ul_tti_stats = &pnf_p7->timing_stats.ul_tti;
+	const pnf_p7_rfc3550_state_t* ul_dci_stats = &pnf_p7->timing_stats.ul_dci;
 
-	timing_info.dl_tti_latest_delay = 0;
-	timing_info.tx_data_request_latest_delay = 0;
-	timing_info.ul_tti_latest_delay = 0;
-	timing_info.ul_dci_latest_delay = 0;
+	timing_info.dl_tti_jitter = dl_stats->jitter;
+	timing_info.tx_data_request_jitter = tx_stats->jitter;
+	timing_info.ul_tti_jitter = ul_tti_stats->jitter;
+	timing_info.ul_dci_jitter = ul_dci_stats->jitter;
 
-	timing_info.dl_tti_earliest_arrival = 0;
-	timing_info.tx_data_request_earliest_arrival = 0;
-	timing_info.ul_tti_earliest_arrival = 0;
-	timing_info.ul_dci_earliest_arrival = 0;
+	timing_info.dl_tti_latest_delay = dl_stats->latest_delay;
+	timing_info.tx_data_request_latest_delay = tx_stats->latest_delay;
+	timing_info.ul_tti_latest_delay = ul_tti_stats->latest_delay;
+	timing_info.ul_dci_latest_delay = ul_dci_stats->latest_delay;
+
+	timing_info.dl_tti_earliest_arrival = dl_stats->earliest_arrival;
+	timing_info.tx_data_request_earliest_arrival = tx_stats->earliest_arrival;
+	timing_info.ul_tti_earliest_arrival = ul_tti_stats->earliest_arrival;
+	timing_info.ul_dci_earliest_arrival = ul_dci_stats->earliest_arrival;
 
 
 	pnf_nr_p7_pack_and_send_p7_message(pnf_p7, &(timing_info.header), sizeof(timing_info));
+
+	reset_timing_extrema(&pnf_p7->timing_stats.dl_tti);
+	reset_timing_extrema(&pnf_p7->timing_stats.tx_data);
+	reset_timing_extrema(&pnf_p7->timing_stats.ul_tti);
+	reset_timing_extrema(&pnf_p7->timing_stats.ul_dci);
 
 	pnf_p7->timing_info_ms_counter = 0;
 }
@@ -1279,10 +1382,12 @@ void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
   // NFAPI_TRACE(NFAPI_TRACE_INFO, "DL_CONFIG.req Received\n");
   uint16_t frame, slot;
   if (peek_nr_nfapi_p7_sfn_slot(pRecvMsg, recvMsgLen, &frame, &slot)) {
+		uint32_t arrival_time_hr = pnf_get_current_time_hr();
     if (pthread_mutex_lock(&(pnf_p7->mutex)) != 0) {
       NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to lock mutex\n");
       return;
     }
+		record_nr_message_timing(pnf_p7, &pnf_p7->timing_stats.dl_tti, frame, slot, arrival_time_hr);
     if (check_nr_nfapi_p7_slot_type(frame, slot, "DL_TTI.request", NR_DOWNLINK_SLOT)
         && is_nr_p7_request_in_window(frame, slot, "dl_tti_request", pnf_p7)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
@@ -1411,10 +1516,13 @@ void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 {
   uint16_t frame, slot;
   if (peek_nr_nfapi_p7_sfn_slot(pRecvMsg, recvMsgLen, &frame, &slot)) {
+		uint32_t arrival_time_hr = pnf_get_current_time_hr();
     if (pthread_mutex_lock(&(pnf_p7->mutex)) != 0) {
       NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to lock mutex\n");
       return;
     }
+
+		record_nr_message_timing(pnf_p7, &pnf_p7->timing_stats.ul_tti, frame, slot, arrival_time_hr);
 
     if (check_nr_nfapi_p7_slot_type(frame, slot, "UL_TTI.request", NR_UPLINK_SLOT)
         && is_nr_p7_request_in_window(frame, slot, "ul_tti_request", pnf_p7)) {
@@ -1531,10 +1639,12 @@ void pnf_handle_ul_dci_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
 {
   uint16_t frame, slot;
   if (peek_nr_nfapi_p7_sfn_slot(pRecvMsg, recvMsgLen, &frame, &slot)) {
+		uint32_t arrival_time_hr = pnf_get_current_time_hr();
     if (pthread_mutex_lock(&(pnf_p7->mutex)) != 0) {
       NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to lock mutex\n");
       return;
     }
+		record_nr_message_timing(pnf_p7, &pnf_p7->timing_stats.ul_dci, frame, slot, arrival_time_hr);
     if (check_nr_nfapi_p7_slot_type(frame, slot, "UL_DCI.request", NR_DOWNLINK_SLOT)
         && is_nr_p7_request_in_window(frame, slot, "ul_dci_request", pnf_p7)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
@@ -1644,10 +1754,12 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 {
   uint16_t frame, slot;
   if (peek_nr_nfapi_p7_sfn_slot(pRecvMsg, recvMsgLen, &frame, &slot)) {
+		uint32_t arrival_time_hr = pnf_get_current_time_hr();
     if (pthread_mutex_lock(&(pnf_p7->mutex)) != 0) {
       NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to lock mutex\n");
       return;
     }
+		record_nr_message_timing(pnf_p7, &pnf_p7->timing_stats.tx_data, frame, slot, arrival_time_hr);
     if (check_nr_nfapi_p7_slot_type(frame, slot, "TX_DATA.REQUEST", NR_DOWNLINK_SLOT)
         && is_nr_p7_request_in_window(frame, slot, "tx_request", pnf_p7)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
