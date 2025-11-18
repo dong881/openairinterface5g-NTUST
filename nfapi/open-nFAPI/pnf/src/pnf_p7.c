@@ -109,6 +109,20 @@ uint32_t pnf_get_current_time_hr(void)
 	return time_hr;
 }
 
+// RFC 3550 jitter calculation
+static void update_jitter_rfc3550(uint32_t *jitter, uint32_t current_arrival, uint32_t prev_arrival,
+                                   uint32_t current_tx, uint32_t prev_tx) {
+  if (prev_arrival == 0) {
+    *jitter = 0;
+    return;
+  }
+  int32_t arrival_delta = (int32_t)(current_arrival - prev_arrival);
+  int32_t tx_delta = (int32_t)(current_tx - prev_tx);
+  int32_t delta = arrival_delta - tx_delta;
+  uint32_t abs_delta = (delta < 0) ? -delta : delta;
+  *jitter = *jitter + (abs_delta - *jitter) / 16;
+}
+
 void* pnf_p7_malloc(pnf_p7_t* pnf_p7, size_t size)
 {
 	if(pnf_p7->_public.malloc)

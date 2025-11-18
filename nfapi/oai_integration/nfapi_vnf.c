@@ -160,6 +160,12 @@ typedef struct {
   unsigned periodic_timing_enabled;
   unsigned aperiodic_timing_enabled;
   unsigned periodic_timing_period;
+  
+  // P7 message timing offsets (microseconds)
+  unsigned dl_tti_timing_offset;
+  unsigned ul_tti_timing_offset;
+  unsigned ul_dci_timing_offset;
+  unsigned tx_data_timing_offset;
 
   // This is not really the right place if we have multiple PHY,
   // should be part of the phy struct
@@ -1683,11 +1689,19 @@ int nr_param_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_param_resp
       req->num_tlv++;
     }
   }
-//TODO: Assign tag and value for P7 message offsets
-req->nfapi_config.dl_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET;
-req->nfapi_config.ul_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET;
-req->nfapi_config.ul_dci_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET;
-req->nfapi_config.tx_data_timing_offset.tl.tag = NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET;
+  // P7 message timing offsets
+  req->nfapi_config.dl_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET;
+  req->nfapi_config.dl_tti_timing_offset.value = p7_vnf->dl_tti_timing_offset;
+  req->num_tlv++;
+  req->nfapi_config.ul_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET;
+  req->nfapi_config.ul_tti_timing_offset.value = p7_vnf->ul_tti_timing_offset;
+  req->num_tlv++;
+  req->nfapi_config.ul_dci_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET;
+  req->nfapi_config.ul_dci_timing_offset.value = p7_vnf->ul_dci_timing_offset;
+  req->num_tlv++;
+  req->nfapi_config.tx_data_timing_offset.tl.tag = NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET;
+  req->nfapi_config.tx_data_timing_offset.value = p7_vnf->tx_data_timing_offset;
+  req->num_tlv++;
 
   vendor_ext_tlv_2 ve2;
   memset(&ve2, 0, sizeof(ve2));

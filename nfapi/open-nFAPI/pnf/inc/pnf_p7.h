@@ -134,6 +134,27 @@ typedef struct {
 	uint32_t ul_tti_jitter;
 	uint32_t ul_dci_jitter;
 	uint32_t tx_data_jitter;
+	
+	// RFC 3550 jitter calculation state per message type
+	uint32_t dl_tti_prev_arrival_time;
+	uint32_t dl_tti_prev_tx_timestamp;
+	int32_t dl_tti_latest_delay;
+	int32_t dl_tti_earliest_arrival;
+	
+	uint32_t ul_tti_prev_arrival_time;
+	uint32_t ul_tti_prev_tx_timestamp;
+	int32_t ul_tti_latest_delay;
+	int32_t ul_tti_earliest_arrival;
+	
+	uint32_t ul_dci_prev_arrival_time;
+	uint32_t ul_dci_prev_tx_timestamp;
+	int32_t ul_dci_latest_delay;
+	int32_t ul_dci_earliest_arrival;
+	
+	uint32_t tx_data_prev_arrival_time;
+	uint32_t tx_data_prev_tx_timestamp;
+	int32_t tx_data_latest_delay;
+	int32_t tx_data_earliest_arrival;
 
 	uint32_t tick;
 	pnf_p7_stats_t stats;
