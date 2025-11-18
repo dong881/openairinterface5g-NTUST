@@ -1996,6 +1996,12 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 		phy->previous_t1 = ind.t1;
 		phy->previous_t2 = ind.t2;
 	}
+	
+	// Call application callback if registered (for delay management and dynamic adjustment)
+	if(vnf_p7->_public.nr_ul_node_sync_indication)
+	{
+		vnf_p7->_public.nr_ul_node_sync_indication(&ind);
+	}
 }
 
 void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)

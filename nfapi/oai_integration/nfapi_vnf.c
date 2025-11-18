@@ -114,6 +114,10 @@ typedef struct {
   uint32_t consecutive_high_delay_count[4]; // Counter for consecutive high delays per message type [DL_TTI, UL_TTI, UL_DCI, TX_Data]
   uint32_t consecutive_early_count[4];      // Counter for consecutive TOO EARLY arrivals per message type
   uint32_t last_adjustment_time_ms;         // Timestamp of last timing offset adjustment (for rate limiting)
+  // Node Sync state (per SCF-225 Section 2.6 - timestamp-based delay management Mode 1)
+  bool node_sync_valid;                     // Whether we have valid Node Sync measurements
+  uint32_t node_sync_rtt_us;                // Round-trip time in microseconds
+  uint32_t node_sync_latency_us;            // One-way latency in microseconds
 } oai_vnf_delay_ctx_t;
 
 static oai_vnf_delay_ctx_t g_vnf_delay_ctx = {
@@ -1771,6 +1775,49 @@ int phy_nr_timing_info_indication(nfapi_nr_timing_info_t *ind)
   return 1;
 }
 
+int phy_nr_ul_node_sync_indication(nfapi_nr_ul_node_sync_t *ind)
+{
+  if (ind == NULL)
+    return 0;
+  
+  // Process UL Node Sync for round-trip latency calculation
+  // Per SCF-225 Section 2.6: Use Node Sync for timestamp-based delay management (Mode 1)
+  // Calculate round-trip latency: RTT = (t4 - t1) - (t3 - t2)
+  // where: t1 = VNF transmit time, t2 = PNF receive time, t3 = PNF transmit time, t4 = VNF receive time
+  
+  struct timeval now;
+  gettimeofday(&now, NULL);
+  uint32_t t4 = (uint32_t)((uint64_t)now.tv_sec * 1000000ULL + (uint64_t)now.tv_usec);
+  
+  // Calculate round-trip time and PNF processing time
+  uint32_t tx_2_rx = (t4 >= ind->t1) ? (t4 - ind->t1) : (UINT32_MAX - ind->t1 + t4); // Handle 32-bit wraparound
+  uint32_t pnf_proc_time = (ind->t3 >= ind->t2) ? (ind->t3 - ind->t2) : (UINT32_MAX - ind->t2 + ind->t3);
+  
+  // One-way latency = (RTT - PNF processing time) / 2
+  uint32_t one_way_latency_us = (tx_2_rx - pnf_proc_time) >> 1;
+  
+  // Store latency for potential dynamic adjustment
+  pthread_mutex_lock(&g_vnf_delay_ctx.lock);
+  g_vnf_delay_ctx.node_sync_rtt_us = tx_2_rx;
+  g_vnf_delay_ctx.node_sync_latency_us = one_way_latency_us;
+  g_vnf_delay_ctx.node_sync_valid = true;
+  pthread_mutex_unlock(&g_vnf_delay_ctx.lock);
+  
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+              "[VNF-NODE-SYNC] UL Node Sync: RTT=%uµs, PNF_proc=%uµs, one_way_latency=%uµs (t1=%u t2=%u t3=%u t4=%u)",
+              tx_2_rx, pnf_proc_time, one_way_latency_us,
+              ind->t1, ind->t2, ind->t3, t4);
+  
+  // Log warning if latency is high (> 1ms for fronthaul)
+  if (one_way_latency_us > 1000) {
+    NFAPI_TRACE(NFAPI_TRACE_WARN,
+                "[VNF-NODE-SYNC] High one-way latency detected: %uµs (> 1ms) - may need timing offset adjustment",
+                one_way_latency_us);
+  }
+  
+  return 1;
+}
+
 int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
 {
   // NOTE: According to nFAPI spec (SCF-225), SLOT.indication should be suppressed
@@ -2231,6 +2278,7 @@ void *configure_nr_p7_vnf(void *ptr)
 #endif
   p7_vnf->config->nr_slot_indication = &phy_nr_slot_indication;
   p7_vnf->config->nr_timing_info_indication = &phy_nr_timing_info_indication;
+  p7_vnf->config->nr_ul_node_sync_indication = &phy_nr_ul_node_sync_indication;
   p7_vnf->config->nr_srs_indication = &phy_nr_srs_indication;
   p7_vnf->config->malloc = &vnf_allocate;
   p7_vnf->config->free = &vnf_deallocate;

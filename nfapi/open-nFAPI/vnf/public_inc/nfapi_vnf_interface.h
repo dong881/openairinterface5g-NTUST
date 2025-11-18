@@ -785,6 +785,15 @@ typedef struct nfapi_vnf_p7_config
 	 */
 	int (*nr_timing_info_indication)(nfapi_nr_timing_info_t* ind);
 
+	/*! A callback for the NR UL Node Sync indication
+	 * \param ind Decoded UL Node Sync payload
+	 * \return not currently used.
+	 * 
+	 * Allows the application to process UL Node Sync messages for
+	 * round-trip latency measurement and dynamic timing adjustment.
+	 */
+	int (*nr_ul_node_sync_indication)(nfapi_nr_ul_node_sync_t* ind);
+
 	/*! A callback for the HARQ.indication
      *  \param config A pointer to the vnf p7 configuration
 	 *  \param ind A data structure for the decoded HARQ.indication This will 
