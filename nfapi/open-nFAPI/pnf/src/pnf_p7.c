@@ -650,6 +650,28 @@ int pnf_nr_p7_pack_and_send_p7_message(pnf_p7_t* pnf_p7, nfapi_nr_p7_message_hea
   return 0;
 }
 
+// Calculate jitter per RFC 3550 (referenced by nFAPI SCF-225)
+// J(i) = J(i-1) + (|D(i-1,i)| - J(i-1))/16
+// where D(i-1,i) = (R(i) - R(i-1)) - (S(i) - S(i-1))
+// R = arrival time, S = transmission timestamp
+static void update_jitter_rfc3550(uint32_t *jitter, uint32_t current_arrival, uint32_t prev_arrival,
+                                   uint32_t current_tx, uint32_t prev_tx) {
+	if (prev_arrival == 0) {
+		// First message, no jitter yet
+		*jitter = 0;
+		return;
+	}
+	
+	// Calculate inter-arrival delta: (R(i) - R(i-1)) - (S(i) - S(i-1))
+	int32_t arrival_delta = (int32_t)(current_arrival - prev_arrival);
+	int32_t tx_delta = (int32_t)(current_tx - prev_tx);
+	int32_t delta = arrival_delta - tx_delta;
+	
+	// Update jitter: J = J + (|delta| - J) / 16
+	uint32_t abs_delta = (delta < 0) ? -delta : delta;
+	*jitter = *jitter + (abs_delta - *jitter) / 16;
+}
+
 void pnf_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 {
 	nfapi_timing_info_t timing_info;
@@ -693,25 +715,37 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 	timing_info.last_slot = pnf_p7->slot;
 	timing_info.time_since_last_timing_info = pnf_p7->timing_info_ms_counter;
 
+	// Send calculated jitter values (per RFC 3550)
 	timing_info.dl_tti_jitter = pnf_p7->dl_tti_jitter;
 	timing_info.tx_data_request_jitter = pnf_p7->tx_data_jitter;
 	timing_info.ul_tti_jitter = pnf_p7->ul_tti_jitter;
 	timing_info.ul_dci_jitter = pnf_p7->ul_dci_jitter;
 
-	timing_info.dl_tti_latest_delay = 0;
-	timing_info.tx_data_request_latest_delay = 0;
-	timing_info.ul_tti_latest_delay = 0;
-	timing_info.ul_dci_latest_delay = 0;
+	// Send latest delay values (in microseconds)
+	timing_info.dl_tti_latest_delay = pnf_p7->dl_tti_latest_delay;
+	timing_info.tx_data_request_latest_delay = pnf_p7->tx_data_latest_delay;
+	timing_info.ul_tti_latest_delay = pnf_p7->ul_tti_latest_delay;
+	timing_info.ul_dci_latest_delay = pnf_p7->ul_dci_latest_delay;
 
-	timing_info.dl_tti_earliest_arrival = 0;
-	timing_info.tx_data_request_earliest_arrival = 0;
-	timing_info.ul_tti_earliest_arrival = 0;
-	timing_info.ul_dci_earliest_arrival = 0;
-
+	// Send earliest arrival values (in microseconds)
+	timing_info.dl_tti_earliest_arrival = pnf_p7->dl_tti_earliest_arrival;
+	timing_info.tx_data_request_earliest_arrival = pnf_p7->tx_data_earliest_arrival;
+	timing_info.ul_tti_earliest_arrival = pnf_p7->ul_tti_earliest_arrival;
+	timing_info.ul_dci_earliest_arrival = pnf_p7->ul_dci_earliest_arrival;
 
 	pnf_nr_p7_pack_and_send_p7_message(pnf_p7, &(timing_info.header), sizeof(timing_info));
 
 	pnf_p7->timing_info_ms_counter = 0;
+	
+	// Reset delay/arrival tracking after sending (prepare for next period)
+	pnf_p7->dl_tti_latest_delay = 0;
+	pnf_p7->tx_data_latest_delay = 0;
+	pnf_p7->ul_tti_latest_delay = 0;
+	pnf_p7->ul_dci_latest_delay = 0;
+	pnf_p7->dl_tti_earliest_arrival = 0;
+	pnf_p7->tx_data_earliest_arrival = 0;
+	pnf_p7->ul_tti_earliest_arrival = 0;
+	pnf_p7->ul_dci_earliest_arrival = 0;
 }
 
 void send_dummy_subframe(pnf_p7_t* pnf_p7, uint16_t sfn_sf)
@@ -1274,7 +1308,46 @@ uint8_t is_p7_request_in_window(uint16_t sfnsf, const char* name, pnf_p7_t* phy)
 
 
 // P7 messages
-void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
+// Track message arrival and update delay/jitter statistics per SCF-225 Section 2.1.3.4
+static void track_message_arrival(pnf_p7_t* pnf_p7, uint32_t rx_hr_time, uint16_t sfn, uint16_t slot,
+                                   uint32_t *prev_arrival, uint32_t *jitter,
+                                   uint32_t *latest_delay, uint32_t *earliest_arrival,
+                                   const char *msg_name) {
+	uint32_t now_time_hr = pnf_get_current_time_hr();
+	uint32_t slot_time_us = get_slot_time(now_time_hr, pnf_p7->slot_start_time_hr);
+	
+	// Calculate expected arrival time (slot start time)
+	uint32_t expected_time = NFAPI_SFNSLOT2DEC(pnf_p7->mu, sfn, slot) * NFAPI_SLOTLEN(pnf_p7->mu);
+	
+	// Calculate actual arrival time
+	uint32_t actual_time = NFAPI_SFNSLOT2DEC(pnf_p7->mu, pnf_p7->sfn, pnf_p7->slot) * NFAPI_SLOTLEN(pnf_p7->mu) + slot_time_us;
+	
+	// Calculate delay: how late the message arrived relative to slot boundary
+	int32_t delay = (int32_t)(actual_time - expected_time);
+	if (delay < 0) delay = 0;  // Message arrived early
+	*latest_delay = (uint32_t)delay;
+	
+	// Calculate earliest arrival (negative delay means early)
+	if (delay < 0 && ((uint32_t)(-delay) > *earliest_arrival)) {
+		*earliest_arrival = (uint32_t)(-delay);
+	}
+	
+	// Update jitter using RFC 3550 calculation
+	uint32_t current_tx_time = expected_time;  // Transmission timestamp is the target slot
+	uint32_t prev_tx_time = *prev_arrival > 0 ? (*prev_arrival - delay) : 0;  // Approximate previous tx time
+	
+	update_jitter_rfc3550(jitter, rx_hr_time, *prev_arrival, current_tx_time, prev_tx_time);
+	
+	// Store current arrival time for next jitter calculation
+	*prev_arrival = rx_hr_time;
+	
+	if (0) {  // Enable for debugging
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] %s arrival: expected=%u actual=%u delay=%d jitter=%u\n",
+		            msg_name, expected_time, actual_time, delay, *jitter);
+	}
+}
+
+void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7, uint32_t rx_hr_time)
 {
   // NFAPI_TRACE(NFAPI_TRACE_INFO, "DL_CONFIG.req Received\n");
   uint16_t frame, slot;
@@ -1291,6 +1364,12 @@ void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       pnf_p7->slot_buffer[buffer_index].slot = slot;
       nfapi_nr_dl_tti_request_t *req = &pnf_p7->slot_buffer[buffer_index].dl_tti_req;
       pnf_p7->nr_stats.dl_tti.ontime++;
+      
+      // Track message arrival for delay management (SCF-225 Section 2.1.3.4)
+      track_message_arrival(pnf_p7, rx_hr_time, frame, slot,
+                           &pnf_p7->dl_tti_prev_arrival_time, &pnf_p7->dl_tti_jitter,
+                           &pnf_p7->dl_tti_latest_delay, &pnf_p7->dl_tti_earliest_arrival,
+                           "DL_TTI");
 
       NFAPI_TRACE(NFAPI_TRACE_DEBUG,
                   "POPULATE DL_TTI_REQ current tx sfn/slot:%d.%d p7 msg sfn/slot: %d.%d buffer_index:%d\n",
@@ -1407,7 +1486,7 @@ void pnf_handle_dl_config_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_
 	}
 }
 
-void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
+void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7, uint32_t rx_hr_time)
 {
   uint16_t frame, slot;
   if (peek_nr_nfapi_p7_sfn_slot(pRecvMsg, recvMsgLen, &frame, &slot)) {
@@ -1424,6 +1503,12 @@ void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       pnf_p7->slot_buffer[buffer_index].slot = slot;
       nfapi_nr_ul_tti_request_t* req = &pnf_p7->slot_buffer[buffer_index].ul_tti_req;
       pnf_p7->nr_stats.ul_tti.ontime++;
+      
+      // Track message arrival for delay management (SCF-225 Section 2.1.3.4)
+      track_message_arrival(pnf_p7, rx_hr_time, frame, slot,
+                           &pnf_p7->ul_tti_prev_arrival_time, &pnf_p7->ul_tti_jitter,
+                           &pnf_p7->ul_tti_latest_delay, &pnf_p7->ul_tti_earliest_arrival,
+                           "UL_TTI");
 
       NFAPI_TRACE(NFAPI_TRACE_DEBUG,
                   "POPULATE UL_TTI.request current tx sfn/slot:%d.%d p7 msg sfn/slot: %d.%d buffer_index:%d\n",
@@ -1527,7 +1612,7 @@ void pnf_handle_ul_config_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_
 	}
 }
 
-void pnf_handle_ul_dci_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
+void pnf_handle_ul_dci_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7, uint32_t rx_hr_time)
 {
   uint16_t frame, slot;
   if (peek_nr_nfapi_p7_sfn_slot(pRecvMsg, recvMsgLen, &frame, &slot)) {
@@ -1543,6 +1628,12 @@ void pnf_handle_ul_dci_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       pnf_p7->slot_buffer[buffer_index].slot = slot;
       nfapi_nr_ul_dci_request_t *req = &pnf_p7->slot_buffer[buffer_index].ul_dci_req;
       pnf_p7->nr_stats.ul_dci.ontime++;
+      
+      // Track message arrival for delay management (SCF-225 Section 2.1.3.4)
+      track_message_arrival(pnf_p7, rx_hr_time, frame, slot,
+                           &pnf_p7->ul_dci_prev_arrival_time, &pnf_p7->ul_dci_jitter,
+                           &pnf_p7->ul_dci_latest_delay, &pnf_p7->ul_dci_earliest_arrival,
+                           "UL_DCI");
 
       NFAPI_TRACE(NFAPI_TRACE_DEBUG,
                   "POPULATE UL_DCI.request current tx sfn/slot:%d.%d p7 msg sfn/slot: %d.%d buffer_index:%d\n",
@@ -1640,7 +1731,7 @@ void pnf_handle_hi_dci0_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 	}
 }
 
-void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
+void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7, uint32_t rx_hr_time)
 {
   uint16_t frame, slot;
   if (peek_nr_nfapi_p7_sfn_slot(pRecvMsg, recvMsgLen, &frame, &slot)) {
@@ -1656,6 +1747,12 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
       pnf_p7->slot_buffer[buffer_index].slot = slot;
       nfapi_nr_tx_data_request_t *req = &pnf_p7->slot_buffer[buffer_index].tx_data_req;
       pnf_p7->nr_stats.tx_data.ontime++;
+      
+      // Track message arrival for delay management (SCF-225 Section 2.1.3.4)
+      track_message_arrival(pnf_p7, rx_hr_time, frame, slot,
+                           &pnf_p7->tx_data_prev_arrival_time, &pnf_p7->tx_data_jitter,
+                           &pnf_p7->tx_data_latest_delay, &pnf_p7->tx_data_earliest_arrival,
+                           "TX_DATA");
 
       NFAPI_TRACE(NFAPI_TRACE_DEBUG,
                   "POPULATE TX_data.request current tx sfn/slot:%d.%d p7 msg sfn/slot: %d.%d buffer_index:%d\n",
@@ -2198,16 +2295,16 @@ void pnf_nr_dispatch_p7_message(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
       pnf_nr_handle_dl_node_sync(pRecvMsg, recvMsgLen, pnf_p7, rx_hr_time);
       break;
     case NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST:
-      pnf_handle_dl_tti_request(pRecvMsg, recvMsgLen, pnf_p7);
+      pnf_handle_dl_tti_request(pRecvMsg, recvMsgLen, pnf_p7, rx_hr_time);
       break;
     case NFAPI_NR_PHY_MSG_TYPE_UL_TTI_REQUEST:
-      pnf_handle_ul_tti_request(pRecvMsg, recvMsgLen, pnf_p7);
+      pnf_handle_ul_tti_request(pRecvMsg, recvMsgLen, pnf_p7, rx_hr_time);
       break;
     case NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST:
-      pnf_handle_ul_dci_request(pRecvMsg, recvMsgLen, pnf_p7);
+      pnf_handle_ul_dci_request(pRecvMsg, recvMsgLen, pnf_p7, rx_hr_time);
       break;
     case NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST:
-      pnf_handle_tx_data_request(pRecvMsg, recvMsgLen, pnf_p7);
+      pnf_handle_tx_data_request(pRecvMsg, recvMsgLen, pnf_p7, rx_hr_time);
       break;
     default: {
       if (header.message_id >= NFAPI_VENDOR_EXT_MSG_MIN && header.message_id <= NFAPI_VENDOR_EXT_MSG_MAX) {

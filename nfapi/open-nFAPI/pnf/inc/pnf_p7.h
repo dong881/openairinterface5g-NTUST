@@ -135,6 +135,22 @@ typedef struct {
 	uint32_t ul_dci_jitter;
 	uint32_t tx_data_jitter;
 
+	// Message arrival tracking for delay management (per SCF-225 Section 2.1.3.4)
+	uint32_t dl_tti_prev_arrival_time;  // Previous arrival timestamp for jitter calculation
+	uint32_t tx_data_prev_arrival_time;
+	uint32_t ul_tti_prev_arrival_time;
+	uint32_t ul_dci_prev_arrival_time;
+	
+	uint32_t dl_tti_latest_delay;       // Latest delay in microseconds
+	uint32_t tx_data_latest_delay;
+	uint32_t ul_tti_latest_delay;
+	uint32_t ul_dci_latest_delay;
+	
+	uint32_t dl_tti_earliest_arrival;   // Earliest arrival offset in microseconds
+	uint32_t tx_data_earliest_arrival;
+	uint32_t ul_tti_earliest_arrival;
+	uint32_t ul_dci_earliest_arrival;
+
 	uint32_t tick;
 	pnf_p7_stats_t stats;
 	pnf_p7_nr_stats_t nr_stats;
