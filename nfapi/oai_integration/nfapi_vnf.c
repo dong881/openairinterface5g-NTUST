@@ -1434,6 +1434,30 @@ static int32_t vnf_phy_time_offset_us;
 static uint32_t vnf_phy_link_delay_us;
 static bool vnf_phy_time_offset_valid;
 
+typedef struct {
+  int32_t latest_delay;
+  int32_t earliest_arrival;
+} vnf_component_timing_t;
+
+typedef struct {
+  bool valid;
+  uint16_t last_sfn;
+  uint16_t last_slot;
+  vnf_component_timing_t dl_tti;
+  vnf_component_timing_t ul_tti;
+  vnf_component_timing_t ul_dci;
+  vnf_component_timing_t tx_data;
+} vnf_timing_feedback_snapshot_t;
+
+typedef struct {
+  pthread_mutex_t mutex;
+  vnf_timing_feedback_snapshot_t snapshot;
+} vnf_timing_feedback_state_t;
+
+static vnf_timing_feedback_state_t vnf_timing_feedback = {
+    .mutex = PTHREAD_MUTEX_INITIALIZER,
+};
+
 static uint64_t get_monotonic_time_us(void)
 {
   struct timespec ts;
@@ -1519,6 +1543,110 @@ void oai_nfapi_set_phy_time_offset(uint16_t phy_id, uint32_t link_delay_us, int3
               phy_time_offset_us);
 }
 
+void oai_vnf_update_timing_info(const nfapi_nr_timing_info_t *timing_info)
+{
+  if (timing_info == NULL)
+    return;
+
+  pthread_mutex_lock(&vnf_timing_feedback.mutex);
+  vnf_timing_feedback.snapshot.valid = true;
+  vnf_timing_feedback.snapshot.last_sfn = timing_info->last_sfn;
+  vnf_timing_feedback.snapshot.last_slot = timing_info->last_slot;
+  vnf_timing_feedback.snapshot.dl_tti.latest_delay = timing_info->dl_tti_latest_delay;
+  vnf_timing_feedback.snapshot.dl_tti.earliest_arrival = timing_info->dl_tti_earliest_arrival;
+  vnf_timing_feedback.snapshot.ul_tti.latest_delay = timing_info->ul_tti_latest_delay;
+  vnf_timing_feedback.snapshot.ul_tti.earliest_arrival = timing_info->ul_tti_earliest_arrival;
+  vnf_timing_feedback.snapshot.ul_dci.latest_delay = timing_info->ul_dci_latest_delay;
+  vnf_timing_feedback.snapshot.ul_dci.earliest_arrival = timing_info->ul_dci_earliest_arrival;
+  vnf_timing_feedback.snapshot.tx_data.latest_delay = timing_info->tx_data_request_latest_delay;
+  vnf_timing_feedback.snapshot.tx_data.earliest_arrival = timing_info->tx_data_request_earliest_arrival;
+  pthread_mutex_unlock(&vnf_timing_feedback.mutex);
+
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+              "[VNF] Timing Info update %u.%u dl(latest=%d earliest=%d) tx(latest=%d earliest=%d)\n",
+              timing_info->last_sfn,
+              timing_info->last_slot,
+              timing_info->dl_tti_latest_delay,
+              timing_info->dl_tti_earliest_arrival,
+              timing_info->tx_data_request_latest_delay,
+              timing_info->tx_data_request_earliest_arrival);
+}
+
+static bool oai_vnf_get_timing_snapshot(vnf_timing_feedback_snapshot_t *snapshot)
+{
+  if (snapshot == NULL)
+    return false;
+
+  pthread_mutex_lock(&vnf_timing_feedback.mutex);
+  bool valid = vnf_timing_feedback.snapshot.valid;
+  if (valid)
+    *snapshot = vnf_timing_feedback.snapshot;
+  pthread_mutex_unlock(&vnf_timing_feedback.mutex);
+  return valid;
+}
+
+static int64_t oai_vnf_calc_component_adjustment(const char *label, const vnf_component_timing_t *component)
+{
+  if (component == NULL)
+    return 0;
+
+  int64_t adj_ns = 0;
+  if (component->latest_delay > 100)
+    adj_ns = -(int64_t)component->latest_delay * 1000LL;
+  else if (component->earliest_arrival < -100)
+    adj_ns = (int64_t)(-component->earliest_arrival) * 1000LL;
+
+  if (adj_ns != 0)
+  {
+    NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+                "[VNF] Timing adjust %-6s delta %+lld ns (latest=%d earliest=%d)\n",
+                label,
+                (long long)adj_ns,
+                component->latest_delay,
+                component->earliest_arrival);
+  }
+
+  return adj_ns;
+}
+
+static void oai_vnf_apply_timing_adjustments(struct timespec *tick_time)
+{
+  if (tick_time == NULL)
+    return;
+
+  vnf_timing_feedback_snapshot_t snapshot;
+  if (!oai_vnf_get_timing_snapshot(&snapshot))
+    return;
+
+  int64_t total_adjust_ns = 0;
+  total_adjust_ns += oai_vnf_calc_component_adjustment("DL_TTI", &snapshot.dl_tti);
+  total_adjust_ns += oai_vnf_calc_component_adjustment("UL_TTI", &snapshot.ul_tti);
+  total_adjust_ns += oai_vnf_calc_component_adjustment("UL_DCI", &snapshot.ul_dci);
+  total_adjust_ns += oai_vnf_calc_component_adjustment("TX_DATA", &snapshot.tx_data);
+
+  if (total_adjust_ns == 0)
+    return;
+
+  int64_t nsec = (int64_t)tick_time->tv_nsec + total_adjust_ns;
+  while (nsec < 0)
+  {
+    nsec += 1000000000LL;
+    tick_time->tv_sec -= 1;
+  }
+  while (nsec >= 1000000000LL)
+  {
+    nsec -= 1000000000LL;
+    tick_time->tv_sec += 1;
+  }
+  tick_time->tv_nsec = (long)nsec;
+
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+              "[VNF] Total timing adjust %+lld ns applied (feedback=%u.%u)\n",
+              (long long)total_adjust_ns,
+              snapshot.last_sfn,
+              snapshot.last_slot);
+}
+
 // VNF autonomous tick thread per nFAPI spec section 2.1.3.4
 // VNF maintains its own slot timing independent of PNF slot.indication
 void *vnf_nr_autonomous_tick_thread(void *ptr) {
@@ -1556,6 +1684,8 @@ void *vnf_nr_autonomous_tick_thread(void *ptr) {
       tick_time.tv_sec += 1;
       tick_time.tv_nsec -= 1000000000;
     }
+
+    oai_vnf_apply_timing_adjustments(&tick_time);
 
     clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &tick_time, NULL);
 

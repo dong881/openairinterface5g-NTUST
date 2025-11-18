@@ -2119,6 +2119,8 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
             vnf_p7->p7_connections[0].slot = ind.last_slot;
           }
         }
+
+	oai_vnf_update_timing_info(&ind);
 }
 
 void vnf_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
