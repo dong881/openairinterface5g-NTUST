@@ -57,6 +57,22 @@
 
 #define TEST
 
+#ifndef NFAPI_NR_DEFAULT_TIMING_OFFSET_US
+#define NFAPI_NR_DEFAULT_TIMING_OFFSET_US 500U
+#endif
+
+#ifndef NFAPI_NR_DEFAULT_PERIODIC_TIMING_ENABLED
+#define NFAPI_NR_DEFAULT_PERIODIC_TIMING_ENABLED 0U
+#endif
+
+#ifndef NFAPI_NR_DEFAULT_APERIODIC_TIMING_ENABLED
+#define NFAPI_NR_DEFAULT_APERIODIC_TIMING_ENABLED 1U
+#endif
+
+#ifndef NFAPI_NR_DEFAULT_TIMING_INFO_PERIOD
+#define NFAPI_NR_DEFAULT_TIMING_INFO_PERIOD 0U
+#endif
+
 extern RAN_CONTEXT_t RC;
 extern UL_RCC_IND_t  UL_RCC_INFO;
 
@@ -1641,6 +1657,18 @@ int pnf_nr_start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_pnf_st
   return 0;
 }
 
+static inline void set_nr_nfapi_u32_tlv(nfapi_uint32_tlv_t *tlv,
+                                        uint16_t tag,
+                                        uint32_t value,
+                                        uint8_t *num_tlv)
+{
+  tlv->tl.tag = tag;
+  tlv->value = value;
+
+  if (num_tlv)
+    (*num_tlv)++;
+}
+
 int pnf_start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_pnf_start_response_t *resp) {
   vnf_info *vnf = (vnf_info *)(config->user_data);
   vnf_p7_info *p7_vnf = vnf->p7_vnfs;
@@ -1714,22 +1742,32 @@ int nr_param_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_param_resp
   NFAPI_TRACE(NFAPI_TRACE_INFO, "\n[VNF]Timing window tag : %d Timing window:%u\n",NFAPI_NR_NFAPI_TIMING_WINDOW_TAG, p7_vnf->timing_window);
   req->num_tlv++;
 
-  if(p7_vnf->periodic_timing_enabled || p7_vnf->aperiodic_timing_enabled) {
-    req->nfapi_config.timing_info_mode.tl.tag = NFAPI_NR_NFAPI_TIMING_INFO_MODE_TAG;
-    req->nfapi_config.timing_info_mode.value = (p7_vnf->aperiodic_timing_enabled << 1) | (p7_vnf->periodic_timing_enabled);
-    req->num_tlv++;
+  req->nfapi_config.timing_info_mode.tl.tag = NFAPI_NR_NFAPI_TIMING_INFO_MODE_TAG;
+  req->nfapi_config.timing_info_mode.value = (p7_vnf->aperiodic_timing_enabled << 1) | (p7_vnf->periodic_timing_enabled);
+  req->num_tlv++;
 
-    if(p7_vnf->periodic_timing_enabled) {
-      req->nfapi_config.timing_info_period.tl.tag = NFAPI_NR_NFAPI_TIMING_INFO_PERIOD_TAG;
-      req->nfapi_config.timing_info_period.value = p7_vnf->periodic_timing_period;
-      req->num_tlv++;
-    }
-  }
-//TODO: Assign tag and value for P7 message offsets
-req->nfapi_config.dl_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET;
-req->nfapi_config.ul_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET;
-req->nfapi_config.ul_dci_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET;
-req->nfapi_config.tx_data_timing_offset.tl.tag = NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET;
+  req->nfapi_config.timing_info_period.tl.tag = NFAPI_NR_NFAPI_TIMING_INFO_PERIOD_TAG;
+  req->nfapi_config.timing_info_period.value =
+      p7_vnf->periodic_timing_enabled ? p7_vnf->periodic_timing_period : NFAPI_NR_DEFAULT_TIMING_INFO_PERIOD;
+  req->num_tlv++;
+
+  const uint32_t timing_offset = NFAPI_NR_DEFAULT_TIMING_OFFSET_US;
+  set_nr_nfapi_u32_tlv(&req->nfapi_config.dl_tti_timing_offset,
+                       NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET,
+                       timing_offset,
+                       &req->num_tlv);
+  set_nr_nfapi_u32_tlv(&req->nfapi_config.ul_tti_timing_offset,
+                       NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET,
+                       timing_offset,
+                       &req->num_tlv);
+  set_nr_nfapi_u32_tlv(&req->nfapi_config.ul_dci_timing_offset,
+                       NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET,
+                       timing_offset,
+                       &req->num_tlv);
+  set_nr_nfapi_u32_tlv(&req->nfapi_config.tx_data_timing_offset,
+                       NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET,
+                       timing_offset,
+                       &req->num_tlv);
 
   vendor_ext_tlv_2 ve2;
   memset(&ve2, 0, sizeof(ve2));
@@ -1951,9 +1989,9 @@ void configure_nr_nfapi_vnf(char *vnf_addr, int vnf_p5_port, char *pnf_ip_addr, 
   memset(&vnf, 0, sizeof(vnf));
   memset(vnf.p7_vnfs, 0, sizeof(vnf.p7_vnfs));
   vnf.p7_vnfs[0].timing_window = 30;
-  vnf.p7_vnfs[0].periodic_timing_enabled = 0;
-  vnf.p7_vnfs[0].aperiodic_timing_enabled = 0;
-  vnf.p7_vnfs[0].periodic_timing_period = 1;
+  vnf.p7_vnfs[0].periodic_timing_enabled = NFAPI_NR_DEFAULT_PERIODIC_TIMING_ENABLED;
+  vnf.p7_vnfs[0].aperiodic_timing_enabled = NFAPI_NR_DEFAULT_APERIODIC_TIMING_ENABLED;
+  vnf.p7_vnfs[0].periodic_timing_period = NFAPI_NR_DEFAULT_TIMING_INFO_PERIOD;
   vnf.p7_vnfs[0].config = nfapi_vnf_p7_config_create();
   NFAPI_TRACE(NFAPI_TRACE_INFO,
               "[VNF] %s() vnf.p7_vnfs[0].config:%p VNF ADDRESS:%s:%d\n",
