@@ -686,7 +686,7 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 {
 	nfapi_nr_timing_info_t timing_info;
 	memset(&timing_info, 0, sizeof(timing_info));
-	timing_info.header.message_id = NFAPI_TIMING_INFO;
+	timing_info.header.message_id = NFAPI_NR_PHY_MSG_TYPE_TIMING_INFO;
 	timing_info.header.phy_id = pnf_p7->_public.phy_id;
 
 	timing_info.last_sfn = pnf_p7->sfn;
@@ -698,15 +698,15 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 	timing_info.ul_tti_jitter = pnf_p7->ul_tti_jitter;
 	timing_info.ul_dci_jitter = pnf_p7->ul_dci_jitter;
 
-	timing_info.dl_tti_latest_delay = 0;
-	timing_info.tx_data_request_latest_delay = 0;
-	timing_info.ul_tti_latest_delay = 0;
-	timing_info.ul_dci_latest_delay = 0;
+	timing_info.dl_tti_latest_delay = pnf_p7->dl_tti_latest_delay;
+	timing_info.tx_data_request_latest_delay = pnf_p7->tx_data_latest_delay;
+	timing_info.ul_tti_latest_delay = pnf_p7->ul_tti_latest_delay;
+	timing_info.ul_dci_latest_delay = pnf_p7->ul_dci_latest_delay;
 
-	timing_info.dl_tti_earliest_arrival = 0;
-	timing_info.tx_data_request_earliest_arrival = 0;
-	timing_info.ul_tti_earliest_arrival = 0;
-	timing_info.ul_dci_earliest_arrival = 0;
+	timing_info.dl_tti_earliest_arrival = pnf_p7->dl_tti_earliest_arrival;
+	timing_info.tx_data_request_earliest_arrival = pnf_p7->tx_data_earliest_arrival;
+	timing_info.ul_tti_earliest_arrival = pnf_p7->ul_tti_earliest_arrival;
+	timing_info.ul_dci_earliest_arrival = pnf_p7->ul_dci_earliest_arrival;
 
 
 	pnf_nr_p7_pack_and_send_p7_message(pnf_p7, &(timing_info.header), sizeof(timing_info));
@@ -1272,9 +1272,25 @@ uint8_t is_p7_request_in_window(uint16_t sfnsf, const char* name, pnf_p7_t* phy)
 	return in_window;
 }
 
+// RFC 3550 jitter calculation for P7 delay management
+// J(i) = J(i-1) + (|D(i-1,i)| - J(i-1))/16
+// where D(i-1,i) = (R(i) - R(i-1)) - (S(i) - S(i-1))
+// R = arrival time, S = transmission timestamp
+static void update_jitter_rfc3550(uint32_t *jitter, uint32_t current_arrival, uint32_t prev_arrival,
+                                   uint32_t current_tx, uint32_t prev_tx) {
+	if (prev_arrival == 0) {
+		*jitter = 0;
+		return;
+	}
+	int32_t arrival_delta = (int32_t)(current_arrival - prev_arrival);
+	int32_t tx_delta = (int32_t)(current_tx - prev_tx);
+	int32_t delta = arrival_delta - tx_delta;
+	uint32_t abs_delta = (delta < 0) ? -delta : delta;
+	*jitter = *jitter + (abs_delta - *jitter) / 16;
+}
 
 // P7 messages
-void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
+void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7, uint32_t rx_hr_time, uint32_t transmit_timestamp)
 {
   // NFAPI_TRACE(NFAPI_TRACE_INFO, "DL_CONFIG.req Received\n");
   uint16_t frame, slot;
@@ -1283,6 +1299,13 @@ void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to lock mutex\n");
       return;
     }
+    
+    // Update jitter calculation (RFC 3550)
+    update_jitter_rfc3550(&pnf_p7->dl_tti_jitter, rx_hr_time, pnf_p7->dl_tti_prev_arrival,
+                          transmit_timestamp, pnf_p7->dl_tti_prev_tx_ts);
+    pnf_p7->dl_tti_prev_arrival = rx_hr_time;
+    pnf_p7->dl_tti_prev_tx_ts = transmit_timestamp;
+    
     if (check_nr_nfapi_p7_slot_type(frame, slot, "DL_TTI.request", NR_DOWNLINK_SLOT)
         && is_nr_p7_request_in_window(frame, slot, "dl_tti_request", pnf_p7)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
@@ -1407,7 +1430,7 @@ void pnf_handle_dl_config_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_
 	}
 }
 
-void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
+void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7, uint32_t rx_hr_time, uint32_t transmit_timestamp)
 {
   uint16_t frame, slot;
   if (peek_nr_nfapi_p7_sfn_slot(pRecvMsg, recvMsgLen, &frame, &slot)) {
@@ -1415,6 +1438,12 @@ void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to lock mutex\n");
       return;
     }
+    
+    // Update jitter calculation (RFC 3550)
+    update_jitter_rfc3550(&pnf_p7->ul_tti_jitter, rx_hr_time, pnf_p7->ul_tti_prev_arrival,
+                          transmit_timestamp, pnf_p7->ul_tti_prev_tx_ts);
+    pnf_p7->ul_tti_prev_arrival = rx_hr_time;
+    pnf_p7->ul_tti_prev_tx_ts = transmit_timestamp;
 
     if (check_nr_nfapi_p7_slot_type(frame, slot, "UL_TTI.request", NR_UPLINK_SLOT)
         && is_nr_p7_request_in_window(frame, slot, "ul_tti_request", pnf_p7)) {
@@ -1527,7 +1556,7 @@ void pnf_handle_ul_config_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_
 	}
 }
 
-void pnf_handle_ul_dci_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
+void pnf_handle_ul_dci_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7, uint32_t rx_hr_time, uint32_t transmit_timestamp)
 {
   uint16_t frame, slot;
   if (peek_nr_nfapi_p7_sfn_slot(pRecvMsg, recvMsgLen, &frame, &slot)) {
@@ -1535,6 +1564,13 @@ void pnf_handle_ul_dci_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to lock mutex\n");
       return;
     }
+    
+    // Update jitter calculation (RFC 3550)
+    update_jitter_rfc3550(&pnf_p7->ul_dci_jitter, rx_hr_time, pnf_p7->ul_dci_prev_arrival,
+                          transmit_timestamp, pnf_p7->ul_dci_prev_tx_ts);
+    pnf_p7->ul_dci_prev_arrival = rx_hr_time;
+    pnf_p7->ul_dci_prev_tx_ts = transmit_timestamp;
+    
     if (check_nr_nfapi_p7_slot_type(frame, slot, "UL_DCI.request", NR_DOWNLINK_SLOT)
         && is_nr_p7_request_in_window(frame, slot, "ul_dci_request", pnf_p7)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
@@ -1640,7 +1676,7 @@ void pnf_handle_hi_dci0_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 	}
 }
 
-void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
+void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7, uint32_t rx_hr_time, uint32_t transmit_timestamp)
 {
   uint16_t frame, slot;
   if (peek_nr_nfapi_p7_sfn_slot(pRecvMsg, recvMsgLen, &frame, &slot)) {
@@ -1648,6 +1684,13 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
       NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to lock mutex\n");
       return;
     }
+    
+    // Update jitter calculation (RFC 3550)
+    update_jitter_rfc3550(&pnf_p7->tx_data_jitter, rx_hr_time, pnf_p7->tx_data_prev_arrival,
+                          transmit_timestamp, pnf_p7->tx_data_prev_tx_ts);
+    pnf_p7->tx_data_prev_arrival = rx_hr_time;
+    pnf_p7->tx_data_prev_tx_ts = transmit_timestamp;
+    
     if (check_nr_nfapi_p7_slot_type(frame, slot, "TX_DATA.REQUEST", NR_DOWNLINK_SLOT)
         && is_nr_p7_request_in_window(frame, slot, "tx_request", pnf_p7)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
@@ -2198,16 +2241,16 @@ void pnf_nr_dispatch_p7_message(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
       pnf_nr_handle_dl_node_sync(pRecvMsg, recvMsgLen, pnf_p7, rx_hr_time);
       break;
     case NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST:
-      pnf_handle_dl_tti_request(pRecvMsg, recvMsgLen, pnf_p7);
+      pnf_handle_dl_tti_request(pRecvMsg, recvMsgLen, pnf_p7, rx_hr_time, header.transmit_timestamp);
       break;
     case NFAPI_NR_PHY_MSG_TYPE_UL_TTI_REQUEST:
-      pnf_handle_ul_tti_request(pRecvMsg, recvMsgLen, pnf_p7);
+      pnf_handle_ul_tti_request(pRecvMsg, recvMsgLen, pnf_p7, rx_hr_time, header.transmit_timestamp);
       break;
     case NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST:
-      pnf_handle_ul_dci_request(pRecvMsg, recvMsgLen, pnf_p7);
+      pnf_handle_ul_dci_request(pRecvMsg, recvMsgLen, pnf_p7, rx_hr_time, header.transmit_timestamp);
       break;
     case NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST:
-      pnf_handle_tx_data_request(pRecvMsg, recvMsgLen, pnf_p7);
+      pnf_handle_tx_data_request(pRecvMsg, recvMsgLen, pnf_p7, rx_hr_time, header.transmit_timestamp);
       break;
     default: {
       if (header.message_id >= NFAPI_VENDOR_EXT_MSG_MIN && header.message_id <= NFAPI_VENDOR_EXT_MSG_MAX) {

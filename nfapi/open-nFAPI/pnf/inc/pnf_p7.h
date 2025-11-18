@@ -135,6 +135,28 @@ typedef struct {
 	uint32_t ul_dci_jitter;
 	uint32_t tx_data_jitter;
 
+	// Previous arrival and transmit timestamps for jitter calculation (RFC 3550)
+	uint32_t dl_tti_prev_arrival;
+	uint32_t dl_tti_prev_tx_ts;
+	uint32_t ul_tti_prev_arrival;
+	uint32_t ul_tti_prev_tx_ts;
+	uint32_t ul_dci_prev_arrival;
+	uint32_t ul_dci_prev_tx_ts;
+	uint32_t tx_data_prev_arrival;
+	uint32_t tx_data_prev_tx_ts;
+
+	// Latest delay tracking (offset from latest acceptable time, positive = late)
+	int32_t dl_tti_latest_delay;
+	int32_t ul_tti_latest_delay;
+	int32_t ul_dci_latest_delay;
+	int32_t tx_data_latest_delay;
+
+	// Earliest arrival tracking (offset from latest acceptable time, negative = early)
+	int32_t dl_tti_earliest_arrival;
+	int32_t ul_tti_earliest_arrival;
+	int32_t ul_dci_earliest_arrival;
+	int32_t tx_data_earliest_arrival;
+
 	uint32_t tick;
 	pnf_p7_stats_t stats;
 	pnf_p7_nr_stats_t nr_stats;

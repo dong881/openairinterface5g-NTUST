@@ -160,6 +160,12 @@ typedef struct {
   unsigned periodic_timing_enabled;
   unsigned aperiodic_timing_enabled;
   unsigned periodic_timing_period;
+  
+  // P7 message timing offsets (in microseconds)
+  uint32_t dl_tti_timing_offset;
+  uint32_t ul_tti_timing_offset;
+  uint32_t ul_dci_timing_offset;
+  uint32_t tx_data_timing_offset;
 
   // This is not really the right place if we have multiple PHY,
   // should be part of the phy struct
@@ -1683,11 +1689,27 @@ int nr_param_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_param_resp
       req->num_tlv++;
     }
   }
-//TODO: Assign tag and value for P7 message offsets
-req->nfapi_config.dl_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET;
-req->nfapi_config.ul_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET;
-req->nfapi_config.ul_dci_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET;
-req->nfapi_config.tx_data_timing_offset.tl.tag = NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET;
+  
+  // Set P7 message timing offsets (in microseconds)
+  req->nfapi_config.timing_window.tl.tag = NFAPI_NR_NFAPI_TIMING_WINDOW_TAG;
+  req->nfapi_config.timing_window.value = p7_vnf->timing_window;
+  req->num_tlv++;
+  
+  req->nfapi_config.dl_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET;
+  req->nfapi_config.dl_tti_timing_offset.value = p7_vnf->dl_tti_timing_offset;
+  req->num_tlv++;
+  
+  req->nfapi_config.ul_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET;
+  req->nfapi_config.ul_tti_timing_offset.value = p7_vnf->ul_tti_timing_offset;
+  req->num_tlv++;
+  
+  req->nfapi_config.ul_dci_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET;
+  req->nfapi_config.ul_dci_timing_offset.value = p7_vnf->ul_dci_timing_offset;
+  req->num_tlv++;
+  
+  req->nfapi_config.tx_data_timing_offset.tl.tag = NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET;
+  req->nfapi_config.tx_data_timing_offset.value = p7_vnf->tx_data_timing_offset;
+  req->num_tlv++;
 
   vendor_ext_tlv_2 ve2;
   memset(&ve2, 0, sizeof(ve2));
@@ -1910,8 +1932,13 @@ void configure_nr_nfapi_vnf(char *vnf_addr, int vnf_p5_port, char *pnf_ip_addr, 
   memset(vnf.p7_vnfs, 0, sizeof(vnf.p7_vnfs));
   vnf.p7_vnfs[0].timing_window = 30;
   vnf.p7_vnfs[0].periodic_timing_enabled = 0;
-  vnf.p7_vnfs[0].aperiodic_timing_enabled = 0;
+  vnf.p7_vnfs[0].aperiodic_timing_enabled = 1; // Enable aperiodic timing info as priority
   vnf.p7_vnfs[0].periodic_timing_period = 1;
+  // Default timing offsets (in microseconds) - can be adjusted based on network conditions
+  vnf.p7_vnfs[0].dl_tti_timing_offset = 500;
+  vnf.p7_vnfs[0].ul_tti_timing_offset = 500;
+  vnf.p7_vnfs[0].ul_dci_timing_offset = 500;
+  vnf.p7_vnfs[0].tx_data_timing_offset = 500;
   vnf.p7_vnfs[0].config = nfapi_vnf_p7_config_create();
   NFAPI_TRACE(NFAPI_TRACE_INFO,
               "[VNF] %s() vnf.p7_vnfs[0].config:%p VNF ADDRESS:%s:%d\n",
@@ -1964,8 +1991,13 @@ void configure_nfapi_vnf(char *vnf_addr, int vnf_p5_port, char *pnf_ip_addr, int
   memset(vnf.p7_vnfs, 0, sizeof(vnf.p7_vnfs));
   vnf.p7_vnfs[0].timing_window = 32;
   vnf.p7_vnfs[0].periodic_timing_enabled = 1;
-  vnf.p7_vnfs[0].aperiodic_timing_enabled = 0;
+  vnf.p7_vnfs[0].aperiodic_timing_enabled = 1; // Enable aperiodic timing info as priority
   vnf.p7_vnfs[0].periodic_timing_period = 10;
+  // Default timing offsets (in microseconds) - can be adjusted based on network conditions
+  vnf.p7_vnfs[0].dl_tti_timing_offset = 500;
+  vnf.p7_vnfs[0].ul_tti_timing_offset = 500;
+  vnf.p7_vnfs[0].ul_dci_timing_offset = 500;
+  vnf.p7_vnfs[0].tx_data_timing_offset = 500;
   vnf.p7_vnfs[0].config = nfapi_vnf_p7_config_create();
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] %s() vnf.p7_vnfs[0].config:%p VNF ADDRESS:%s:%d\n", __FUNCTION__, vnf.p7_vnfs[0].config, vnf_addr, vnf_p5_port);
   strcpy(vnf.p7_vnfs[0].local_addr, vnf_addr);
