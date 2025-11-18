@@ -120,7 +120,7 @@ void nr_schedule_dl_tti_req(PHY_VARS_gNB *gNB, nfapi_nr_dl_tti_request_t *DL_req
     }
   }
   if(number_dl_pdu > 0)
-    log_mmap_entry(0, DL_req->SFN , DL_req->Slot , "stop-dltti");
+    log_mmap_entry(0, DL_req->SFN , DL_req->Slot , "t4-dltti");
 }
 
 void nr_schedule_ul_tti_req(PHY_VARS_gNB *gNB, nfapi_nr_ul_tti_request_t *UL_tti_req)
@@ -175,7 +175,7 @@ void nr_schedule_ul_tti_req(PHY_VARS_gNB *gNB, nfapi_nr_ul_tti_request_t *UL_tti
     }
   }
   if(UL_tti_req->n_pdus > 0)
-    log_mmap_entry(0, UL_tti_req->SFN , UL_tti_req->Slot , "stop-ultti");
+    log_mmap_entry(0, UL_tti_req->SFN , UL_tti_req->Slot , "t4-ultti");
 }
 
 void nr_schedule_tx_req(PHY_VARS_gNB *gNB, nfapi_nr_tx_data_request_t *TX_req)
@@ -189,7 +189,7 @@ void nr_schedule_tx_req(PHY_VARS_gNB *gNB, nfapi_nr_tx_data_request_t *TX_req)
     nr_fill_dlsch_tx_req(msgTx, idx, sdu);
   }
   if(TX_req->Number_of_PDUs > 0)
-    log_mmap_entry(0, TX_req->SFN, TX_req->Slot , "stop-txdata");
+    log_mmap_entry(0, TX_req->SFN, TX_req->Slot , "t4-txdata");
 }
 
 void nr_schedule_ul_dci_req(PHY_VARS_gNB *gNB, nfapi_nr_ul_dci_request_t *UL_dci_req)
@@ -203,7 +203,7 @@ void nr_schedule_ul_dci_req(PHY_VARS_gNB *gNB, nfapi_nr_ul_dci_request_t *UL_dci
     msgTx->ul_pdcch_pdu[i] = UL_dci_req->ul_dci_pdu_list[i];
 
   if(UL_dci_req->numPdus > 0)
-    log_mmap_entry(0, UL_dci_req->SFN , UL_dci_req->Slot , "stop-uldci");
+    log_mmap_entry(0, UL_dci_req->SFN , UL_dci_req->Slot , "t4-uldci");
 }
 
 void nr_schedule_response(NR_Sched_Rsp_t *Sched_INFO)
