@@ -2298,17 +2298,15 @@ void handle_nr_slot_ind(uint16_t sfn, uint16_t slot)
     maybe_slow_down_pnf(mu);
   }
 
-    //send VNF slot indication, which is aligned with TX thread, so that it can call the scheduler
-    //we give four additional slots (2ms) which should be enough time for the VNF to
-    //answer
-  int slot_ahead = 2 << mu;
-  uint16_t sfn_tx = sfn;
-  uint16_t slot_tx = slot;
-  sfnslot_add_slot(mu, &sfn_tx, &slot_tx, slot_ahead); // modify: do in place
-
-  // printf("send slot indication for sfn/slot:%4d.%2d current:%4d.%2d\n", sfn_tx, slot_tx, sfn, slot);
-  nfapi_nr_slot_indication_scf_t ind = {.sfn = sfn_tx, .slot = slot_tx};
-  oai_nfapi_nr_slot_indication(&ind);
+    // REMOVED: slot.indication sending (per nFAPI spec 2.1.3.4)
+    // Per nFAPI spec section 2.1.3.4, SLOT.indication is replaced by delay management
+    // VNF now has autonomous tick, PNF only sends timing feedback via Timing Info
+    // int slot_ahead = 2 << mu;
+    // uint16_t sfn_tx = sfn;
+    // uint16_t slot_tx = slot;
+    // sfnslot_add_slot(mu, &sfn_tx, &slot_tx, slot_ahead);
+    // nfapi_nr_slot_indication_scf_t ind = {.sfn = sfn_tx, .slot = slot_tx};
+    // oai_nfapi_nr_slot_indication(&ind);
 
   // copy data from appropriate p7 slot buffers into channel structures for PHY processing
   nfapi_pnf_p7_slot_ind(config, config->phy_id, sfn, slot);
@@ -2367,11 +2365,16 @@ int oai_nfapi_sr_indication(nfapi_sr_indication_t *ind) {
 
 //NR UPLINK INDICATION
 
+// DEPRECATED: Per nFAPI spec 2.1.3.4, SLOT.indication is replaced by delay management
+// This function is no longer called as PNF should not send slot.indication to VNF
+// Kept for reference only
+#if 0
 int oai_nfapi_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind) {
   ind->header.phy_id = 1;
   ind->header.message_id = NFAPI_NR_PHY_MSG_TYPE_SLOT_INDICATION;
   return nfapi_pnf_p7_nr_slot_ind(p7_config_g, ind);
 }
+#endif
 
 int oai_nfapi_nr_rx_data_indication(nfapi_nr_rx_data_indication_t *ind) {
   ind->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!

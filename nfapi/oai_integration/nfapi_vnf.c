@@ -166,10 +166,18 @@ typedef struct {
   udp_data udp;
 
   uint8_t thread_started;
+  uint8_t tick_thread_started;
 
   nfapi_vnf_p7_config_t *config;
 
   mac_t *mac;
+
+  // VNF autonomous slot timing (per nFAPI spec section 2.1.3.4)
+  uint16_t vnf_sfn;
+  uint16_t vnf_slot;
+  uint8_t vnf_mu;  // numerology
+  pthread_mutex_t vnf_slot_mutex;
+  uint8_t vnf_terminate;
 
 } vnf_p7_info;
 
@@ -1132,6 +1140,10 @@ int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind)
   return 1;
 }
 
+// DEPRECATED: Per nFAPI spec 2.1.3.4, SLOT.indication is replaced by delay management
+// VNF now uses autonomous tick thread instead of reacting to PNF slot.indication
+// This function is kept for reference but is no longer called
+#if 0
 int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
 {
   LOG_D(MAC, "VNF SFN/Slot %d.%d \n", ind->sfn, ind->slot);
@@ -1140,6 +1152,7 @@ int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
 
   return 1;
 }
+#endif
 
 int phy_nr_srs_indication(nfapi_nr_srs_indication_t *ind)
 {
@@ -1391,6 +1404,67 @@ int vnf_nr_pack_p4_p5_vendor_extension(void *header, uint8_t **ppWritePackedMsg,
 
 static pthread_t vnf_start_pthread;
 static pthread_t vnf_p7_start_pthread;
+static pthread_t vnf_p7_tick_pthread;
+
+// VNF autonomous tick thread per nFAPI spec section 2.1.3.4
+// VNF maintains its own slot timing independent of PNF slot.indication
+void *vnf_nr_autonomous_tick_thread(void *ptr) {
+  vnf_p7_info *p7_vnf = (vnf_p7_info *)ptr;
+  pthread_setname_np(pthread_self(), "VNF_TICK");
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Starting autonomous tick thread (per nFAPI spec 2.1.3.4)\n");
+
+  // Get numerology from gNB configuration
+  gNB_MAC_INST *gNB = RC.nrmac[0];
+  if (gNB == NULL || gNB->common_channels == NULL || gNB->common_channels->ServingCellConfigCommon == NULL) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "[VNF] Cannot start autonomous tick: gNB not configured\n");
+    return NULL;
+  }
+
+  p7_vnf->vnf_mu = *gNB->common_channels->ServingCellConfigCommon->ssbSubcarrierSpacing;
+  uint32_t slot_duration_us = 1000000 >> p7_vnf->vnf_mu;  // slot duration in microseconds
+  uint16_t slots_per_frame = 10 * (1 << p7_vnf->vnf_mu);
+
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Autonomous tick: mu=%d, slot_duration=%d us, slots_per_frame=%d\n",
+              p7_vnf->vnf_mu, slot_duration_us, slots_per_frame);
+
+  // Initialize VNF slot timing
+  pthread_mutex_lock(&p7_vnf->vnf_slot_mutex);
+  p7_vnf->vnf_sfn = 0;
+  p7_vnf->vnf_slot = 0;
+  pthread_mutex_unlock(&p7_vnf->vnf_slot_mutex);
+
+  struct timespec tick_time;
+  clock_gettime(CLOCK_MONOTONIC, &tick_time);
+
+  while (!p7_vnf->vnf_terminate) {
+    // Advance to next slot time
+    tick_time.tv_nsec += slot_duration_us * 1000;
+    if (tick_time.tv_nsec >= 1000000000) {
+      tick_time.tv_sec += 1;
+      tick_time.tv_nsec -= 1000000000;
+    }
+
+    clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &tick_time, NULL);
+
+    // Advance VNF slot counter
+    pthread_mutex_lock(&p7_vnf->vnf_slot_mutex);
+    p7_vnf->vnf_slot++;
+    if (p7_vnf->vnf_slot >= slots_per_frame) {
+      p7_vnf->vnf_slot = 0;
+      p7_vnf->vnf_sfn = (p7_vnf->vnf_sfn + 1) % 1024;
+    }
+    uint16_t current_sfn = p7_vnf->vnf_sfn;
+    uint16_t current_slot = p7_vnf->vnf_slot;
+    pthread_mutex_unlock(&p7_vnf->vnf_slot_mutex);
+
+    // Trigger scheduler with VNF's own timing (not PNF slot.indication)
+    nfapi_nr_slot_indication_scf_t slot_ind = {.sfn = current_sfn, .slot = current_slot};
+    trigger_scheduler(&slot_ind);
+  }
+
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Autonomous tick thread terminated\n");
+  return NULL;
+}
 
 void *vnf_nr_p7_start_thread(void *ptr) {
   NFAPI_TRACE(NFAPI_TRACE_INFO, "%s()\n", __FUNCTION__);
@@ -1430,7 +1504,10 @@ void *vnf_nr_p7_thread_start(void *ptr)
   p7_vnf->config->lbt_dl_indication = &phy_lbt_dl_indication;
   p7_vnf->config->nb_harq_indication = &phy_nb_harq_indication;
   p7_vnf->config->nrach_indication = &phy_nrach_indication;
-  p7_vnf->config->nr_slot_indication = &phy_nr_slot_indication;
+  // REMOVED: p7_vnf->config->nr_slot_indication = &phy_nr_slot_indication;
+  // Per nFAPI spec 2.1.3.4, SLOT.indication is replaced by delay management
+  // VNF now has autonomous tick instead of reacting to PNF slot.indication
+  p7_vnf->config->nr_slot_indication = NULL;
   p7_vnf->config->nr_srs_indication = &phy_nr_srs_indication;
   p7_vnf->config->malloc = &vnf_allocate;
   p7_vnf->config->free = &vnf_deallocate;
@@ -1445,8 +1522,21 @@ void *vnf_nr_p7_thread_start(void *ptr)
   p7_vnf->config->codec_config.deallocate = &vnf_deallocate;
   p7_vnf->config->allocate_p7_vendor_ext = &phy_nr_allocate_p7_vendor_ext;
   p7_vnf->config->deallocate_p7_vendor_ext = &phy_nr_deallocate_p7_vendor_ext;
+
+  // Initialize mutex for VNF slot timing
+  pthread_mutex_init(&p7_vnf->vnf_slot_mutex, NULL);
+  p7_vnf->vnf_terminate = 0;
+
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Creating VNF NFAPI P7 start thread %s\n", __FUNCTION__);
   pthread_create(&vnf_p7_start_pthread, NULL, &vnf_nr_p7_start_thread, p7_vnf->config);
+
+  // Start autonomous VNF tick thread (per nFAPI spec 2.1.3.4)
+  if (!p7_vnf->tick_thread_started) {
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Starting autonomous tick thread\n");
+    pthread_create(&vnf_p7_tick_pthread, NULL, &vnf_nr_autonomous_tick_thread, p7_vnf);
+    p7_vnf->tick_thread_started = 1;
+  }
+
   return 0;
 }
 
