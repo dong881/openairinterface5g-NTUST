@@ -1662,7 +1662,7 @@ void *vnf_nr_autonomous_tick_thread(void *ptr) {
   }
 
   p7_vnf->vnf_mu = *gNB->common_channels->ServingCellConfigCommon->ssbSubcarrierSpacing;
-  uint32_t slot_duration_us = 1000000 >> p7_vnf->vnf_mu;  // slot duration in microseconds
+  uint32_t slot_duration_us = 1000 >> p7_vnf->vnf_mu;  // slot duration in microseconds
   uint16_t slots_per_frame = 10 * (1 << p7_vnf->vnf_mu);
 
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Autonomous tick: mu=%d, slot_duration=%d us, slots_per_frame=%d\n",
