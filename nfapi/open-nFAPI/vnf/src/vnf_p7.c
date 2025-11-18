@@ -2133,21 +2133,6 @@ static void adjust_timing_parameters(nfapi_vnf_p7_connection_info_t *p7_con,
 			*timing_offset = new_offset;
 		}
 	}
-	
-	// Adjust timing window based on jitter
-	// Window should be at least 3x jitter to accommodate variations
-	uint32_t recommended_window = jitter * 3;
-	if (recommended_window < 50) recommended_window = 50;    // Minimum 50 us
-	if (recommended_window > 300) recommended_window = 300;  // Maximum 300 us
-	
-	if (p7_con->timing_window != recommended_window) {
-		if (0) {  // Enable for debugging
-			NFAPI_TRACE(NFAPI_TRACE_INFO, 
-			           "[VNF] Adjusting timing window: %u -> %u us (based on jitter=%u)\n",
-			           p7_con->timing_window, recommended_window, jitter);
-		}
-		p7_con->timing_window = recommended_window;
-	}
 }
 
 void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)

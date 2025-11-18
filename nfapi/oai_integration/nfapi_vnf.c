@@ -36,7 +36,6 @@
 #include "nfapi_vnf.h"
 #include "nfapi.h"
 #include "vendor_ext.h"
-#include "../open-nFAPI/vnf/inc/vnf_p7.h"
 
 #include "PHY/defs_eNB.h"
 #include "PHY/LTE_TRANSPORT/transport_proto.h"
@@ -179,10 +178,6 @@ typedef struct {
   uint8_t vnf_mu;  // numerology
   pthread_mutex_t vnf_slot_mutex;
   uint8_t vnf_terminate;
-  
-  // DL Node Sync for round-trip latency measurement (SCF-225 Section 2.1.3.4)
-  uint32_t dl_node_sync_counter;       // Counter for periodic DL Node Sync
-  uint32_t dl_node_sync_period_slots;  // Period in slots for DL Node Sync
 
 } vnf_p7_info;
 
@@ -1437,11 +1432,6 @@ void *vnf_nr_autonomous_tick_thread(void *ptr) {
   p7_vnf->vnf_sfn = 0;
   p7_vnf->vnf_slot = 0;
   pthread_mutex_unlock(&p7_vnf->vnf_slot_mutex);
-  
-  // Initialize DL Node Sync parameters (SCF-225 Section 2.1.3.4)
-  // Send DL Node Sync every 100 slots (100ms for 15kHz, 50ms for 30kHz, etc.)
-  p7_vnf->dl_node_sync_counter = 0;
-  p7_vnf->dl_node_sync_period_slots = 100;
 
   struct timespec tick_time;
   clock_gettime(CLOCK_MONOTONIC, &tick_time);
@@ -1470,32 +1460,6 @@ void *vnf_nr_autonomous_tick_thread(void *ptr) {
     // Trigger scheduler with VNF's own timing (not PNF slot.indication)
     nfapi_nr_slot_indication_scf_t slot_ind = {.sfn = current_sfn, .slot = current_slot};
     trigger_scheduler(&slot_ind);
-    
-    // Send periodic DL Node Sync for round-trip latency measurement (SCF-225 Section 2.1.3.4)
-    // This enables timestamp-based Mode 1 delay management with Node Sync
-    if (p7_vnf->periodic_timing_enabled && p7_vnf->config) {
-      p7_vnf->dl_node_sync_counter++;
-      if (p7_vnf->dl_node_sync_counter >= p7_vnf->dl_node_sync_period_slots) {
-        p7_vnf->dl_node_sync_counter = 0;
-        
-        // Send DL Node Sync to all connected PNFs
-        vnf_p7_t *vnf_p7 = (vnf_p7_t *)p7_vnf->config;
-        if (vnf_p7 && vnf_p7->p7_connections) {
-          nfapi_vnf_p7_connection_info_t *p7_conn = vnf_p7->p7_connections;
-          while (p7_conn != NULL) {
-            // Update connection info with current VNF timing
-            p7_conn->sfn = current_sfn;
-            p7_conn->slot = current_slot;
-            p7_conn->mu = p7_vnf->vnf_mu;
-            
-            // Call vnf_nr_sync which handles periodic DL Node Sync sending
-            vnf_nr_sync(vnf_p7, p7_conn);
-            
-            p7_conn = p7_conn->next;
-          }
-        }
-      }
-    }
   }
 
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Autonomous tick thread terminated\n");
@@ -1946,7 +1910,7 @@ void configure_nr_nfapi_vnf(char *vnf_addr, int vnf_p5_port, char *pnf_ip_addr, 
   memset(vnf.p7_vnfs, 0, sizeof(vnf.p7_vnfs));
   vnf.p7_vnfs[0].timing_window = 30;
   vnf.p7_vnfs[0].periodic_timing_enabled = 0;
-  vnf.p7_vnfs[0].aperiodic_timing_enabled = 0;
+  vnf.p7_vnfs[0].aperiodic_timing_enabled = 1;
   vnf.p7_vnfs[0].periodic_timing_period = 1;
   vnf.p7_vnfs[0].config = nfapi_vnf_p7_config_create();
   NFAPI_TRACE(NFAPI_TRACE_INFO,
@@ -1998,10 +1962,10 @@ void configure_nfapi_vnf(char *vnf_addr, int vnf_p5_port, char *pnf_ip_addr, int
   nfapi_setmode(NFAPI_MODE_VNF);
   memset(&vnf, 0, sizeof(vnf));
   memset(vnf.p7_vnfs, 0, sizeof(vnf.p7_vnfs));
-  vnf.p7_vnfs[0].timing_window = 32;
-  vnf.p7_vnfs[0].periodic_timing_enabled = 1;
-  vnf.p7_vnfs[0].aperiodic_timing_enabled = 0;
-  vnf.p7_vnfs[0].periodic_timing_period = 10;
+  vnf.p7_vnfs[0].timing_window = 30;
+  vnf.p7_vnfs[0].periodic_timing_enabled = 0;
+  vnf.p7_vnfs[0].aperiodic_timing_enabled = 1;
+  vnf.p7_vnfs[0].periodic_timing_period = 1;
   vnf.p7_vnfs[0].config = nfapi_vnf_p7_config_create();
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] %s() vnf.p7_vnfs[0].config:%p VNF ADDRESS:%s:%d\n", __FUNCTION__, vnf.p7_vnfs[0].config, vnf_addr, vnf_p5_port);
   strcpy(vnf.p7_vnfs[0].local_addr, vnf_addr);
