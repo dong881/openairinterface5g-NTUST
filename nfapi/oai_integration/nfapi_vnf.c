@@ -164,11 +164,11 @@ static void vnf_delay_prime_tickpack(uint16_t sfn, uint16_t slot);
 static bool vnf_delay_should_skip_slot(uint16_t sfn, uint16_t slot);
 static void vnf_delay_update_slot_clock(uint16_t sfn, uint16_t slot);
 static uint32_t vnf_delay_resolve_slot_start(uint16_t sfn, uint16_t slot, bool *estimated_out);
-static void vnf_delay_tag_nr_message(nfapi_vnf_p7_config_t *config,
-                                     uint16_t phy_id,
-                                     uint16_t sfn,
-                                     uint16_t slot,
-                                     uint16_t message_id);
+static uint32_t vnf_delay_tag_nr_message(nfapi_vnf_p7_config_t *config,
+                                         uint16_t phy_id,
+                                         uint16_t sfn,
+                                         uint16_t slot,
+                                         uint16_t message_id);
 static void vnf_delay_configure_timing_params(uint32_t timing_offset_us, uint16_t timing_window_us, uint8_t mu);
 
 /**
@@ -295,22 +295,42 @@ static uint32_t vnf_delay_resolve_slot_start(uint16_t sfn, uint16_t slot, bool *
   return slot_start_hr;
 }
 
-static void vnf_delay_tag_nr_message(nfapi_vnf_p7_config_t *config,
-                                     uint16_t phy_id,
-                                     uint16_t sfn,
-                                     uint16_t slot,
-                                     uint16_t message_id)
+/**
+ * @brief Tag NR P7 message with transmit timestamp for delay management
+ * @param config VNF P7 configuration
+ * @param phy_id PHY ID
+ * @param sfn System frame number
+ * @param slot Slot number
+ * @param message_id Message ID for logging
+ * @return Transmit timestamp in microseconds (to be set in message header)
+ */
+static uint32_t vnf_delay_tag_nr_message(nfapi_vnf_p7_config_t *config,
+                                         uint16_t phy_id,
+                                         uint16_t sfn,
+                                         uint16_t slot,
+                                         uint16_t message_id)
 {
   bool estimated = true;
   const uint32_t slot_start_hr = vnf_delay_resolve_slot_start(sfn, slot, &estimated);
   nfapi_vnf_p7_set_slot_time(config, phy_id, sfn, slot, slot_start_hr);
+  
+  // CRITICAL FIX: Get current timestamp for transmit_timestamp field
+  // Per SCF-222: transmit_timestamp is used by PNF to calculate jitter and delay
+  // Must be set before packing the message
+  struct timeval now;
+  gettimeofday(&now, NULL);
+  const uint32_t transmit_timestamp_us = (uint32_t)((uint64_t)now.tv_sec * 1000000ULL + (uint64_t)now.tv_usec);
+  
   NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-              "[DEBUG] VNF-TIMESTAMP: Tagging msg=0x%04x SFN/slot=%u/%u time_hr=0x%08x %s",
+              "[DEBUG] VNF-TIMESTAMP: Tagging msg=0x%04x SFN/slot=%u/%u time_hr=0x%08x transmit_ts=%u %s",
               message_id,
               sfn,
               slot,
               slot_start_hr,
+              transmit_timestamp_us,
               estimated ? "(estimated)" : "");
+  
+  return transmit_timestamp_us;
 }
 
 /**
@@ -2895,11 +2915,13 @@ int oai_nfapi_dl_tti_req(nfapi_nr_dl_tti_request_t *dl_config_req)
   dl_config_req->header.message_id= NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST;
   dl_config_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
 
-  vnf_delay_tag_nr_message(p7_config,
-                           dl_config_req->header.phy_id,
-                           dl_config_req->SFN,
-                           dl_config_req->Slot,
-                           dl_config_req->header.message_id);
+  // CRITICAL FIX: Set transmit_timestamp for delay management (SCF-222 Section 2.6)
+  // PNF uses this to calculate message arrival delay and jitter
+  dl_config_req->header.transmit_timestamp = vnf_delay_tag_nr_message(p7_config,
+                                                                       dl_config_req->header.phy_id,
+                                                                       dl_config_req->SFN,
+                                                                       dl_config_req->Slot,
+                                                                       dl_config_req->header.message_id);
 
   bool retval = nfapi_vnf_p7_nr_dl_config_req(p7_config, dl_config_req);
 
@@ -2919,11 +2941,14 @@ int oai_nfapi_tx_data_req(nfapi_nr_tx_data_request_t *tx_data_req)
   nfapi_vnf_p7_config_t *p7_config = vnf.p7_vnfs[0].config;
   tx_data_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
   tx_data_req->header.message_id = NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST;
-  vnf_delay_tag_nr_message(p7_config,
-                           tx_data_req->header.phy_id,
-                           tx_data_req->SFN,
-                           tx_data_req->Slot,
-                           tx_data_req->header.message_id);
+  
+  // CRITICAL FIX: Set transmit_timestamp for delay management (SCF-222 Section 2.6)
+  // PNF uses this to calculate message arrival delay and jitter
+  tx_data_req->header.transmit_timestamp = vnf_delay_tag_nr_message(p7_config,
+                                                                     tx_data_req->header.phy_id,
+                                                                     tx_data_req->SFN,
+                                                                     tx_data_req->Slot,
+                                                                     tx_data_req->header.message_id);
   //LOG_D(PHY, "[VNF] %s() TX_REQ sfn_sf:%d number_of_pdus:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(tx_req->sfn_sf), tx_req->tx_request_body.number_of_pdus);
   bool retval = nfapi_vnf_p7_tx_data_req(p7_config, tx_data_req);
 
@@ -2957,11 +2982,14 @@ int oai_nfapi_ul_dci_req(nfapi_nr_ul_dci_request_t *ul_dci_req) {
   nfapi_vnf_p7_config_t *p7_config = vnf.p7_vnfs[0].config;
   ul_dci_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
   ul_dci_req->header.message_id = NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST;
-  vnf_delay_tag_nr_message(p7_config,
-                           ul_dci_req->header.phy_id,
-                           ul_dci_req->SFN,
-                           ul_dci_req->Slot,
-                           ul_dci_req->header.message_id);
+  
+  // CRITICAL FIX: Set transmit_timestamp for delay management (SCF-222 Section 2.6)
+  // PNF uses this to calculate message arrival delay and jitter
+  ul_dci_req->header.transmit_timestamp = vnf_delay_tag_nr_message(p7_config,
+                                                                    ul_dci_req->header.phy_id,
+                                                                    ul_dci_req->SFN,
+                                                                    ul_dci_req->Slot,
+                                                                    ul_dci_req->header.message_id);
   //LOG_D(PHY, "[VNF] %s() HI_DCI0_REQ sfn_sf:%d dci:%d hi:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(hi_dci0_req->sfn_sf), hi_dci0_req->hi_dci0_request_body.number_of_dci, hi_dci0_req->hi_dci0_request_body.number_of_hi);
   bool retval = nfapi_vnf_p7_ul_dci_req(p7_config, ul_dci_req);
 
@@ -3015,11 +3043,14 @@ int oai_nfapi_ul_tti_req(nfapi_nr_ul_tti_request_t *ul_tti_req) {
 
   ul_tti_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
   ul_tti_req->header.message_id = NFAPI_NR_PHY_MSG_TYPE_UL_TTI_REQUEST;
-  vnf_delay_tag_nr_message(p7_config,
-                           ul_tti_req->header.phy_id,
-                           ul_tti_req->SFN,
-                           ul_tti_req->Slot,
-                           ul_tti_req->header.message_id);
+  
+  // CRITICAL FIX: Set transmit_timestamp for delay management (SCF-222 Section 2.6)
+  // PNF uses this to calculate message arrival delay and jitter
+  ul_tti_req->header.transmit_timestamp = vnf_delay_tag_nr_message(p7_config,
+                                                                    ul_tti_req->header.phy_id,
+                                                                    ul_tti_req->SFN,
+                                                                    ul_tti_req->Slot,
+                                                                    ul_tti_req->header.message_id);
 
   bool retval = nfapi_vnf_p7_ul_tti_req(p7_config, ul_tti_req);
 
