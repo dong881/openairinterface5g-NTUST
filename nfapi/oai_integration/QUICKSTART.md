@@ -2,12 +2,14 @@
 
 ## 5-Minute Setup
 
-### 1. Build with Timing Measurement
+### 1. Build
 
 ```bash
 cd cmake_targets
-./build_oai --gNB --cmake-opt -DENABLE_TIMING_MEASUREMENT=ON
+./build_oai --gNB
 ```
+
+**Note**: Timing measurement is now always enabled by default. No special build flags needed.
 
 ### 2. Add to Your Application
 
@@ -15,21 +17,15 @@ In your main softmodem file (e.g., `nr-softmodem.c`):
 
 ```c
 // At the top
-#ifdef ENABLE_TIMING_MEASUREMENT
 #include "nfapi/oai_integration/timing_measurement_init.h"
-#endif
 
 // In main(), after argument parsing
-#ifdef ENABLE_TIMING_MEASUREMENT
 timing_measurement_global_init("nfapi", "same_machine", false, 
                               "/tmp/timing.json", 10000);
 printf("[TIMING] Enabled - output: /tmp/timing.json\n");
-#endif
 
 // Before exit
-#ifdef ENABLE_TIMING_MEASUREMENT
 timing_measurement_global_cleanup();
-#endif
 ```
 
 ### 3. Run Your Application
@@ -74,7 +70,7 @@ Each measurement includes:
 
 - **CPU overhead**: < 0.1% per slot
 - **Memory usage**: ~3 MB (configurable)
-- **When disabled**: Zero runtime cost (compile-time eliminated)
+- **Runtime control**: Can be enabled/disabled via global_timing_ctx initialization
 
 ## More Information
 

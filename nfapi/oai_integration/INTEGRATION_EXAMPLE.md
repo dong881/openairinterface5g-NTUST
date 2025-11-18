@@ -6,11 +6,11 @@ This document provides a step-by-step example of how to integrate the timing mea
 
 ## Step 1: Build Configuration
 
-Build OAI with timing measurement enabled:
+Build OAI normally (timing measurement is now always enabled):
 
 ```bash
 cd cmake_targets
-./build_oai --gNB --nrUE --cmake-opt -DENABLE_TIMING_MEASUREMENT=ON
+./build_oai --gNB --nrUE
 ```
 
 ## Step 2: Add Headers to Softmodem
@@ -18,9 +18,7 @@ cd cmake_targets
 In your main softmodem file (e.g., `executables/nr-softmodem.c`), add the timing measurement header:
 
 ```c
-#ifdef ENABLE_TIMING_MEASUREMENT
 #include "nfapi/oai_integration/timing_measurement_init.h"
-#endif
 ```
 
 ## Step 3: Add Command-Line Options (Optional)
@@ -50,7 +48,6 @@ int main(int argc, char **argv) {
   // Parse command-line arguments
   // ... 
   
-#ifdef ENABLE_TIMING_MEASUREMENT
   // Initialize timing measurement system
   const char *mode = "nfapi";  // or "fapi" for monolithic mode
   const char *deployment = "same_machine";  // or "different_machine"
@@ -61,7 +58,6 @@ int main(int argc, char **argv) {
   timing_measurement_global_init(mode, deployment, ptp_sync, json_file, buffer_size);
   
   printf("[TIMING] Measurement system initialized - output: %s\n", json_file);
-#endif
   
   // ... continue with main application ...
 }
@@ -75,10 +71,8 @@ Add cleanup code in the shutdown path:
 void cleanup_and_exit(void) {
   // ... existing cleanup code ...
   
-#ifdef ENABLE_TIMING_MEASUREMENT
   printf("[TIMING] Flushing measurement data and cleaning up...\n");
   timing_measurement_global_cleanup();
-#endif
   
   exit(0);
 }
@@ -92,9 +86,7 @@ For proper cleanup on signals (SIGINT, SIGTERM):
 void signal_handler(int sig) {
   printf("Received signal %d, cleaning up...\n", sig);
   
-#ifdef ENABLE_TIMING_MEASUREMENT
   timing_measurement_global_cleanup();
-#endif
   
   exit(sig);
 }
@@ -113,28 +105,21 @@ Here's a complete minimal example:
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
-
-#ifdef ENABLE_TIMING_MEASUREMENT
 #include "nfapi/oai_integration/timing_measurement_init.h"
-#endif
 
 // Global variables for timing configuration
-#ifdef ENABLE_TIMING_MEASUREMENT
 static char timing_json_file[256] = "/tmp/oai_timing_measurements.json";
 static uint32_t timing_buffer_size = 10000;
 static bool timing_enabled = false;
-#endif
 
 // Signal handler
 static void signal_handler(int sig) {
   printf("Received signal %d, cleaning up...\n", sig);
   
-#ifdef ENABLE_TIMING_MEASUREMENT
   if (timing_enabled) {
     printf("[TIMING] Flushing measurement data...\n");
     timing_measurement_global_cleanup();
   }
-#endif
   
   exit(sig);
 }
@@ -174,16 +159,13 @@ int main(int argc, char **argv) {
     printf("[TIMING]   JSON output: %s\n", timing_json_file);
     printf("[TIMING]   Buffer size: %u\n", timing_buffer_size);
   }
-#endif
   
   // ... run main application loop ...
   
   // Cleanup before exit
-#ifdef ENABLE_TIMING_MEASUREMENT
   if (timing_enabled) {
     timing_measurement_global_cleanup();
   }
-#endif
   
   return 0;
 }

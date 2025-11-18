@@ -20,8 +20,6 @@
  */
 
 #include "timing_measurement_init.h"
-
-#ifdef ENABLE_TIMING_MEASUREMENT
 #include "timing_measurement.h"
 #include <stdlib.h>
 #include <string.h>
@@ -50,23 +48,3 @@ void timing_measurement_global_cleanup(void) {
     global_timing_ctx = NULL;
   }
 }
-
-#else
-
-// Stub implementations when timing measurement is disabled
-void timing_measurement_global_init(const char *mode,
-                                   const char *deployment,
-                                   bool ptp_sync,
-                                   const char *json_output_file,
-                                   uint32_t buffer_size) {
-  (void)mode;
-  (void)deployment;
-  (void)ptp_sync;
-  (void)json_output_file;
-  (void)buffer_size;
-}
-
-void timing_measurement_global_cleanup(void) {
-}
-
-#endif

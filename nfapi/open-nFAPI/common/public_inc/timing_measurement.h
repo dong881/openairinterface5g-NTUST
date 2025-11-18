@@ -228,29 +228,23 @@ void timing_update_packet_stats(timing_measurement_context_t *ctx,
                                bool dropped,
                                bool late);
 
-// Macros for conditional compilation
-#ifdef ENABLE_TIMING_MEASUREMENT
-  #define TIMING_RECORD(ctx, measurement, point) \
-    do { \
-      if ((ctx) && (ctx)->enabled && (measurement)) { \
-        timing_measurement_record((measurement), (point), get_timestamp_ns()); \
-      } \
-    } while(0)
-  
-  #define TIMING_START(ctx, sfn, slot, msg_type, rnti, harq_id) \
-    ((ctx) && (ctx)->enabled ? timing_measurement_start((ctx), (sfn), (slot), (msg_type), (rnti), (harq_id)) : NULL)
-  
-  #define TIMING_UPDATE_STATS(ctx, msg_type, dropped, late) \
-    do { \
-      if ((ctx) && (ctx)->enabled) { \
-        timing_update_packet_stats((ctx), (msg_type), (dropped), (late)); \
-      } \
-    } while(0)
-#else
-  #define TIMING_RECORD(ctx, measurement, point) do {} while(0)
-  #define TIMING_START(ctx, sfn, slot, msg_type, rnti, harq_id) NULL
-  #define TIMING_UPDATE_STATS(ctx, msg_type, dropped, late) do {} while(0)
-#endif
+// Timing measurement macros - always enabled
+#define TIMING_RECORD(ctx, measurement, point) \
+  do { \
+    if ((ctx) && (ctx)->enabled && (measurement)) { \
+      timing_measurement_record((measurement), (point), get_timestamp_ns()); \
+    } \
+  } while(0)
+
+#define TIMING_START(ctx, sfn, slot, msg_type, rnti, harq_id) \
+  ((ctx) && (ctx)->enabled ? timing_measurement_start((ctx), (sfn), (slot), (msg_type), (rnti), (harq_id)) : NULL)
+
+#define TIMING_UPDATE_STATS(ctx, msg_type, dropped, late) \
+  do { \
+    if ((ctx) && (ctx)->enabled) { \
+      timing_update_packet_stats((ctx), (msg_type), (dropped), (late)); \
+    } \
+  } while(0)
 
 // Global timing context (to be defined in implementation)
 extern timing_measurement_context_t *global_timing_ctx;

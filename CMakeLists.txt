@@ -275,7 +275,8 @@ if (TRACY_ENABLE)
   CPMAddPackage("gh:wolfpld/tracy#v0.11.1")
 endif()
 
-add_boolean_option(ENABLE_TIMING_MEASUREMENT OFF "Enable detailed timing measurement for FAPI/nFAPI with JSON output" ON)
+# Timing measurement is now always enabled, this option is kept for backwards compatibility
+add_boolean_option(ENABLE_TIMING_MEASUREMENT ON "Timing measurement for FAPI/nFAPI with JSON output (always enabled)" OFF)
 
 set (OCP_ITTI ${OPENAIR_DIR}/common/utils/ocp_itti)
 add_library(ITTI ${OCP_ITTI}/intertask_interface.cpp)
@@ -740,6 +741,7 @@ set(NFAPI_USER_SRC
   ${NFAPI_USER_DIR}/nfapi_pnf.c
   ${NFAPI_USER_DIR}/nfapi_vnf.c
   ${NFAPI_USER_DIR}/gnb_ind_vars.c
+  ${NFAPI_USER_DIR}/timing_measurement_init.c
 )
 add_library(NFAPI_USER_LIB ${NFAPI_USER_SRC})
 target_link_libraries(NFAPI_USER_LIB PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs UTIL)

@@ -37,10 +37,7 @@
 #include "nfapi_pnf.h"
 #include "common/ran_context.h"
 #include "openair2/PHY_INTERFACE/phy_stub_UE.h"
-
-#ifdef ENABLE_TIMING_MEASUREMENT
 #include "timing_measurement.h"
-#endif
 
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -2372,11 +2369,9 @@ int oai_nfapi_sr_indication(nfapi_sr_indication_t *ind) {
 //NR UPLINK INDICATION
 
 int oai_nfapi_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind) {
-#ifdef ENABLE_TIMING_MEASUREMENT
   timing_measurement_t *measurement = TIMING_START(global_timing_ctx, ind->sfn, ind->slot, 
                                                    FAPI_MSG_SLOT_INDICATION, 0, 0);
   TIMING_RECORD(global_timing_ctx, measurement, TIMING_POINT_PNF_SLOT_INDICATION_SEND);
-#endif
   ind->header.phy_id = 1;
   ind->header.message_id = NFAPI_NR_PHY_MSG_TYPE_SLOT_INDICATION;
   return nfapi_pnf_p7_nr_slot_ind(p7_config_g, ind);
@@ -2401,11 +2396,9 @@ int oai_nfapi_nr_srs_indication(nfapi_nr_srs_indication_t *ind) {
 }
 
 int oai_nfapi_nr_uci_indication(nfapi_nr_uci_indication_t *ind) {
-#ifdef ENABLE_TIMING_MEASUREMENT
   timing_measurement_t *measurement = TIMING_START(global_timing_ctx, ind->sfn, ind->slot, 
                                                    FAPI_MSG_UCI_INDICATION, 0, 0);
   TIMING_RECORD(global_timing_ctx, measurement, TIMING_POINT_HARQ_FEEDBACK_RECEIVED);
-#endif
   ind->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
   ind->header.message_id = NFAPI_NR_PHY_MSG_TYPE_UCI_INDICATION;
   return nfapi_pnf_p7_nr_uci_ind(p7_config_g, ind);
