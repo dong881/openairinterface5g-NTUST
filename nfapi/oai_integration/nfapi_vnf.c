@@ -37,6 +37,7 @@
 #include "nfapi_vnf.h"
 #include "nfapi.h"
 #include "vendor_ext.h"
+#include "nfapi/open-nFAPI/vnf/inc/vnf_p7.h"
 
 #include "PHY/defs_eNB.h"
 #include "PHY/LTE_TRANSPORT/transport_proto.h"
@@ -177,6 +178,7 @@ typedef struct {
   unsigned periodic_timing_enabled;
   unsigned aperiodic_timing_enabled;
   unsigned periodic_timing_period;
+  unsigned periodic_sync_counter;
 
   // This is not really the right place if we have multiple PHY,
   // should be part of the phy struct
@@ -1427,6 +1429,11 @@ static pthread_mutex_t vnf_reference_time_mutex = PTHREAD_MUTEX_INITIALIZER;
 static uint64_t vnf_reference_time_us;
 static bool vnf_reference_time_set;
 
+static pthread_mutex_t vnf_phy_time_mutex = PTHREAD_MUTEX_INITIALIZER;
+static int32_t vnf_phy_time_offset_us;
+static uint32_t vnf_phy_link_delay_us;
+static bool vnf_phy_time_offset_valid;
+
 static uint64_t get_monotonic_time_us(void)
 {
   struct timespec ts;
@@ -1448,7 +1455,27 @@ static void maybe_init_vnf_reference_time(uint16_t sfn, uint16_t slot)
   pthread_mutex_unlock(&vnf_reference_time_mutex);
 }
 
-static uint32_t get_vnf_time_offset(void)
+static void trigger_periodic_node_sync(vnf_p7_info *p7_vnf, uint16_t sfn, uint16_t slot)
+{
+  if (p7_vnf == NULL || p7_vnf->config == NULL)
+    return;
+
+  vnf_p7_t *vnf_p7 = (vnf_p7_t *)p7_vnf->config;
+  if (vnf_p7 == NULL)
+    return;
+
+  vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
+
+  nfapi_vnf_p7_connection_info_t *conn = vnf_p7->p7_connections;
+  while (conn != NULL) {
+    conn->sfn = sfn;
+    conn->slot = slot;
+    vnf_nr_sync(vnf_p7, conn);
+    conn = conn->next;
+  }
+}
+
+static uint32_t get_vnf_base_time_offset(void)
 {
   uint64_t now_us = get_monotonic_time_us();
   pthread_mutex_lock(&vnf_reference_time_mutex);
@@ -1460,6 +1487,36 @@ static uint32_t get_vnf_time_offset(void)
   uint64_t delta = now_us - vnf_reference_time_us;
   pthread_mutex_unlock(&vnf_reference_time_mutex);
   return (uint32_t)(delta & 0xFFFFFFFFu);
+}
+
+uint32_t oai_nfapi_get_time_offset(void)
+{
+  uint32_t base = get_vnf_base_time_offset();
+  int32_t phy_offset = 0;
+
+  pthread_mutex_lock(&vnf_phy_time_mutex);
+  if (vnf_phy_time_offset_valid)
+    phy_offset = vnf_phy_time_offset_us;
+  pthread_mutex_unlock(&vnf_phy_time_mutex);
+
+  int64_t adjusted = (int64_t)base + (int64_t)phy_offset;
+  return (uint32_t)(adjusted & 0xFFFFFFFFu);
+}
+
+void oai_nfapi_set_phy_time_offset(uint16_t phy_id, uint32_t link_delay_us, int32_t phy_time_offset_us)
+{
+  (void)phy_id; // single-PHY for now but keep signature for future use
+
+  pthread_mutex_lock(&vnf_phy_time_mutex);
+  vnf_phy_link_delay_us = link_delay_us;
+  vnf_phy_time_offset_us = phy_time_offset_us;
+  vnf_phy_time_offset_valid = true;
+  pthread_mutex_unlock(&vnf_phy_time_mutex);
+
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+              "[VNF] Updated PHY time offset: link_delay=%u us offset=%d us\n",
+              link_delay_us,
+              phy_time_offset_us);
 }
 
 // VNF autonomous tick thread per nFAPI spec section 2.1.3.4
@@ -1514,6 +1571,19 @@ void *vnf_nr_autonomous_tick_thread(void *ptr) {
     pthread_mutex_unlock(&p7_vnf->vnf_slot_mutex);
 
     maybe_init_vnf_reference_time(current_sfn, current_slot);
+
+    if (p7_vnf->config) {
+      vnf_p7_t *vnf_p7 = (vnf_p7_t *)p7_vnf->config;
+      vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
+    }
+
+    if (p7_vnf->periodic_timing_enabled && p7_vnf->periodic_timing_period != 0) {
+      p7_vnf->periodic_sync_counter++;
+      if (p7_vnf->periodic_sync_counter >= p7_vnf->periodic_timing_period) {
+        p7_vnf->periodic_sync_counter = 0;
+        trigger_periodic_node_sync(p7_vnf, current_sfn, current_slot);
+      }
+    }
 
     // Trigger scheduler with VNF's own timing (not PNF slot.indication)
     nfapi_nr_slot_indication_scf_t slot_ind = {.sfn = current_sfn, .slot = current_slot};
@@ -2122,7 +2192,7 @@ int oai_nfapi_dl_config_req(nfapi_dl_config_request_t *dl_config_req) {
 
 static inline void set_p7_transmit_timestamp(nfapi_nr_p7_message_header_t *header)
 {
-  header->transmit_timestamp = get_vnf_time_offset();
+  header->transmit_timestamp = oai_nfapi_get_time_offset();
 }
 
 static int vnf_nr_p7_send_dl_tti_request(nfapi_vnf_p7_config_t *p7_config, nfapi_nr_dl_tti_request_t *req)

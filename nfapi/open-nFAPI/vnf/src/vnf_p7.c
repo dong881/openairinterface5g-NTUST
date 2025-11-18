@@ -29,6 +29,7 @@
 #include "nfapi/oai_integration/aerial/fapi_nvIPC.h"
 #endif
 #include "vnf_p7.h"
+#include "nfapi/oai_integration/nfapi_vnf.h"
 #include "nr_fapi_p7_utils.h"
 
 #ifdef NDEBUG
@@ -682,8 +683,7 @@ int vnf_nr_build_send_dl_node_sync(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_inf
 
 	dl_node_sync.header.phy_id = p7_info->phy_id;
 	dl_node_sync.header.message_id = NFAPI_NR_PHY_MSG_TYPE_DL_NODE_SYNC;
-	//dl_node_sync.t1 = calculate_t1(p7_info->sfn_sf, vnf_p7->sf_start_time_hr);
-	dl_node_sync.t1 = calculate_nr_t1(p7_info->mu, p7_info->sfn,p7_info->slot, vnf_p7->slot_start_time_hr);
+	dl_node_sync.t1 = oai_nfapi_get_time_offset();
 	dl_node_sync.delta_sfn_slot = 0;
 
 	return vnf_nr_p7_pack_and_send_p7_msg(vnf_p7, &dl_node_sync.header);	
@@ -1678,6 +1678,18 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	// divide by 2 using shift operator
 	uint32_t latency =  (tx_2_rx - pnf_proc_time) >> 1;
 
+	int32_t raw_slot_offset = (int32_t)ind.t2 - (int32_t)ind.t1 - (int32_t)latency;
+	if (ind.t2 < phy->previous_t2 && ind.t1 > phy->previous_t1)
+	{
+		// Only t2 wrap has occurred
+		raw_slot_offset = (NFAPI_MAX_SFNSLOTDEC(phy->mu) + ind.t2) - ind.t1 - latency;
+	}
+	else if (ind.t2 > phy->previous_t2 && ind.t1 < phy->previous_t1)
+	{
+		// Only t1 wrap has occurred
+		raw_slot_offset = ind.t2 - ( ind.t1 + NFAPI_MAX_SFNSLOTDEC(phy->mu)) - latency;
+	}
+
 	//phy->in_sync = 1;
 
 	if(!(phy->filtered_adjust))
@@ -1691,24 +1703,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	else
 	{
 		phy->latency[phy->min_sync_cycle_count] = latency;
-
-		//if(phy->min_sync_cycle_count != SYNC_CYCLE_COUNT)
-		{
-			if (ind.t2 < phy->previous_t2 && ind.t1 > phy->previous_t1)
-			{
-				// Only t2 wrap has occurred!!!
-				phy->slot_offset = (NFAPI_MAX_SFNSLOTDEC(phy->mu) + ind.t2) - ind.t1 - latency;
-			}
-			else if (ind.t2 > phy->previous_t2 && ind.t1 < phy->previous_t1)
-			{
-				// Only t1 wrap has occurred
-				phy->slot_offset = ind.t2 - ( ind.t1 + NFAPI_MAX_SFNSLOTDEC(phy->mu)) - latency;
-			}
-			else
-			{
-				// Either no wrap or both have wrapped
-				phy->slot_offset = ind.t2 - ind.t1 - latency;
-			}
+		phy->slot_offset = raw_slot_offset;
 
 			if (phy->slot_offset_filtered == 0)
 			{
@@ -1736,7 +1731,8 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 			// 		(ind.t1<phy->previous_t1), (ind.t2<phy->previous_t2));
 		}
 
-	}
+	
+	oai_nfapi_set_phy_time_offset(ind.header.phy_id, latency, raw_slot_offset);
 
         if (phy->filtered_adjust && (phy->slot_offset_filtered > 1e6 || phy->slot_offset_filtered < -1e6))
         {
