@@ -559,6 +559,24 @@ int nfapi_vnf_p7_add_pnf(nfapi_vnf_p7_config_t* config, const char* pnf_p7_addr,
     node->slot = 0;
 	node->min_sync_cycle_count = 8;
   node->mu = mu;
+  
+  // Initialize timing parameters for delay management (SCF-225 Section 2.1.3.4)
+  // Default values based on typical network latency
+  node->dl_tti_timing_offset = 500;    // 500 us before slot start (TLV 0x0106)
+  node->tx_data_timing_offset = 500;   // 500 us before slot start (TLV 0x0109)
+  node->ul_tti_timing_offset = 500;    // 500 us before slot start (TLV 0x0107)
+  node->ul_dci_timing_offset = 500;    // 500 us before slot start (TLV 0x0108)
+  node->timing_window = 150;           // 150 us window duration (TLV 0x011E)
+  
+  node->last_jitter_dl_tti = 0;
+  node->last_jitter_tx_data = 0;
+  node->last_jitter_ul_tti = 0;
+  node->last_jitter_ul_dci = 0;
+  
+  node->late_count_dl_tti = 0;
+  node->late_count_tx_data = 0;
+  node->late_count_ul_tti = 0;
+  node->late_count_ul_dci = 0;
 
 	// save the remote endpoint information
 	node->remote_addr.sin_family = AF_INET;

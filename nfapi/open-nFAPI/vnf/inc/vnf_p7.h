@@ -94,6 +94,23 @@ typedef struct nfapi_vnf_p7_connection_info {
   int mu; // some 5G slot calculations need the numerology to know the number
           // of slots
 
+	// Dynamic timing adjustment based on PNF feedback (SCF-225 Section 2.1.3.4)
+	uint32_t dl_tti_timing_offset;      // Microseconds before slot start (TLV 0x0106)
+	uint32_t tx_data_timing_offset;     // Microseconds before slot start (TLV 0x0109)
+	uint32_t ul_tti_timing_offset;      // Microseconds before slot start (TLV 0x0107)
+	uint32_t ul_dci_timing_offset;      // Microseconds before slot start (TLV 0x0108)
+	uint32_t timing_window;             // Window duration in microseconds (TLV 0x011E)
+	
+	uint32_t last_jitter_dl_tti;        // Last reported jitter for adaptation
+	uint32_t last_jitter_tx_data;
+	uint32_t last_jitter_ul_tti;
+	uint32_t last_jitter_ul_dci;
+	
+	uint32_t late_count_dl_tti;         // Count of late arrivals for threshold detection
+	uint32_t late_count_tx_data;
+	uint32_t late_count_ul_tti;
+	uint32_t late_count_ul_dci;
+
 	int socket;
 	struct sockaddr_in local_addr;
 	struct sockaddr_in remote_addr;

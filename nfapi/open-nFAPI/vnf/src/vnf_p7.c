@@ -2087,6 +2087,69 @@ void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 
 static int16_t vnf_pnf_sfnslot_delta;
 
+// Dynamic timing adjustment based on jitter and late arrivals (SCF-225 Section 2.1.3.4)
+static void adjust_timing_parameters(nfapi_vnf_p7_connection_info_t *p7_con, 
+                                      uint32_t jitter, uint32_t latest_delay,
+                                      uint32_t *timing_offset, uint32_t *late_count,
+                                      const char *msg_name) {
+	// Constants for adjustment algorithm
+	const uint32_t MIN_OFFSET = 100;      // Minimum timing offset (100 us)
+	const uint32_t MAX_OFFSET = 2000;     // Maximum timing offset (2000 us)
+	const uint32_t JITTER_MARGIN = 50;    // Add margin for jitter (50 us)
+	const uint32_t LATE_THRESHOLD = 3;    // Number of late arrivals before increasing offset
+	
+	// If message arrived late, increase offset
+	if (latest_delay > *timing_offset) {
+		(*late_count)++;
+		
+		if (*late_count >= LATE_THRESHOLD) {
+			// Increase offset by delay + jitter margin
+			uint32_t new_offset = *timing_offset + latest_delay + jitter + JITTER_MARGIN;
+			if (new_offset > MAX_OFFSET) new_offset = MAX_OFFSET;
+			
+			NFAPI_TRACE(NFAPI_TRACE_INFO, 
+			           "[VNF] Increasing %s timing offset: %u -> %u us (late_count=%u, delay=%u, jitter=%u)\n",
+			           msg_name, *timing_offset, new_offset, *late_count, latest_delay, jitter);
+			
+			*timing_offset = new_offset;
+			*late_count = 0;  // Reset counter after adjustment
+		}
+	} else {
+		// Message arrived on time, reset late counter
+		*late_count = 0;
+		
+		// If jitter is low and offset is high, consider reducing offset
+		if (jitter < (*timing_offset / 4) && *timing_offset > MIN_OFFSET + 100) {
+			// Reduce offset gradually (10% reduction)
+			uint32_t new_offset = *timing_offset - (*timing_offset / 10);
+			if (new_offset < MIN_OFFSET) new_offset = MIN_OFFSET;
+			
+			if (0) {  // Enable for debugging
+				NFAPI_TRACE(NFAPI_TRACE_INFO, 
+				           "[VNF] Reducing %s timing offset: %u -> %u us (jitter=%u is low)\n",
+				           msg_name, *timing_offset, new_offset, jitter);
+			}
+			
+			*timing_offset = new_offset;
+		}
+	}
+	
+	// Adjust timing window based on jitter
+	// Window should be at least 3x jitter to accommodate variations
+	uint32_t recommended_window = jitter * 3;
+	if (recommended_window < 50) recommended_window = 50;    // Minimum 50 us
+	if (recommended_window > 300) recommended_window = 300;  // Maximum 300 us
+	
+	if (p7_con->timing_window != recommended_window) {
+		if (0) {  // Enable for debugging
+			NFAPI_TRACE(NFAPI_TRACE_INFO, 
+			           "[VNF] Adjusting timing window: %u -> %u us (based on jitter=%u)\n",
+			           p7_con->timing_window, recommended_window, jitter);
+		}
+		p7_con->timing_window = recommended_window;
+	}
+}
+
 void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 {
 	if (pRecvMsg == NULL || vnf_p7 == NULL)
@@ -2121,6 +2184,42 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
             // Panos: Careful here!!! Modification of the original nfapi-code
             vnf_p7->p7_connections[0].sfn = ind.last_sfn;
             vnf_p7->p7_connections[0].slot = ind.last_slot;
+          }
+          
+          // Dynamic timing adjustment based on PNF feedback (SCF-225 Section 2.1.3.4)
+          // Store jitter values for monitoring
+          p7_con->last_jitter_dl_tti = ind.dl_tti_jitter;
+          p7_con->last_jitter_tx_data = ind.tx_data_request_jitter;
+          p7_con->last_jitter_ul_tti = ind.ul_tti_jitter;
+          p7_con->last_jitter_ul_dci = ind.ul_dci_jitter;
+          
+          // Adjust timing offsets for each message type based on jitter and delay
+          adjust_timing_parameters(p7_con, ind.dl_tti_jitter, ind.dl_tti_latest_delay,
+                                   &p7_con->dl_tti_timing_offset, &p7_con->late_count_dl_tti,
+                                   "DL_TTI");
+          
+          adjust_timing_parameters(p7_con, ind.tx_data_request_jitter, ind.tx_data_request_latest_delay,
+                                   &p7_con->tx_data_timing_offset, &p7_con->late_count_tx_data,
+                                   "TX_DATA");
+          
+          adjust_timing_parameters(p7_con, ind.ul_tti_jitter, ind.ul_tti_latest_delay,
+                                   &p7_con->ul_tti_timing_offset, &p7_con->late_count_ul_tti,
+                                   "UL_TTI");
+          
+          adjust_timing_parameters(p7_con, ind.ul_dci_jitter, ind.ul_dci_latest_delay,
+                                   &p7_con->ul_dci_timing_offset, &p7_con->late_count_ul_dci,
+                                   "UL_DCI");
+          
+          // Log timing info statistics
+          if (1) {  // Can disable if too verbose
+            NFAPI_TRACE(NFAPI_TRACE_INFO, 
+                       "[VNF] Timing Info: PNF SFN.Slot=%d.%d Jitter(us): DL_TTI=%u TX=%u UL_TTI=%u UL_DCI=%u "
+                       "Offsets(us): DL_TTI=%u TX=%u UL_TTI=%u UL_DCI=%u Window=%u\n",
+                       ind.last_sfn, ind.last_slot,
+                       ind.dl_tti_jitter, ind.tx_data_request_jitter, ind.ul_tti_jitter, ind.ul_dci_jitter,
+                       p7_con->dl_tti_timing_offset, p7_con->tx_data_timing_offset, 
+                       p7_con->ul_tti_timing_offset, p7_con->ul_dci_timing_offset,
+                       p7_con->timing_window);
           }
         }
 }
