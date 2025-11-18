@@ -27,6 +27,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <time.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -1406,6 +1407,45 @@ static pthread_t vnf_start_pthread;
 static pthread_t vnf_p7_start_pthread;
 static pthread_t vnf_p7_tick_pthread;
 
+static pthread_mutex_t vnf_reference_time_mutex = PTHREAD_MUTEX_INITIALIZER;
+static uint64_t vnf_reference_time_us;
+static bool vnf_reference_time_set;
+
+static uint64_t get_monotonic_time_us(void)
+{
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (uint64_t)ts.tv_sec * 1000000ULL + (ts.tv_nsec / 1000ULL);
+}
+
+static void maybe_init_vnf_reference_time(uint16_t sfn, uint16_t slot)
+{
+  if (sfn != 0 || slot != 0)
+    return;
+
+  uint64_t now_us = get_monotonic_time_us();
+  pthread_mutex_lock(&vnf_reference_time_mutex);
+  if (!vnf_reference_time_set) {
+    vnf_reference_time_us = now_us;
+    vnf_reference_time_set = true;
+  }
+  pthread_mutex_unlock(&vnf_reference_time_mutex);
+}
+
+static uint32_t get_vnf_time_offset(void)
+{
+  uint64_t now_us = get_monotonic_time_us();
+  pthread_mutex_lock(&vnf_reference_time_mutex);
+  if (!vnf_reference_time_set) {
+    pthread_mutex_unlock(&vnf_reference_time_mutex);
+    return 0;
+  }
+
+  uint64_t delta = now_us - vnf_reference_time_us;
+  pthread_mutex_unlock(&vnf_reference_time_mutex);
+  return (uint32_t)(delta & 0xFFFFFFFFu);
+}
+
 // VNF autonomous tick thread per nFAPI spec section 2.1.3.4
 // VNF maintains its own slot timing independent of PNF slot.indication
 void *vnf_nr_autonomous_tick_thread(void *ptr) {
@@ -1456,6 +1496,8 @@ void *vnf_nr_autonomous_tick_thread(void *ptr) {
     uint16_t current_sfn = p7_vnf->vnf_sfn;
     uint16_t current_slot = p7_vnf->vnf_slot;
     pthread_mutex_unlock(&p7_vnf->vnf_slot_mutex);
+
+    maybe_init_vnf_reference_time(current_sfn, current_slot);
 
     // Trigger scheduler with VNF's own timing (not PNF slot.indication)
     nfapi_nr_slot_indication_scf_t slot_ind = {.sfn = current_sfn, .slot = current_slot};
@@ -2040,6 +2082,35 @@ int oai_nfapi_dl_config_req(nfapi_dl_config_request_t *dl_config_req) {
   return retval;
 }
 
+static inline void set_p7_transmit_timestamp(nfapi_nr_p7_message_header_t *header)
+{
+  header->transmit_timestamp = get_vnf_time_offset();
+}
+
+static int vnf_nr_p7_send_dl_tti_request(nfapi_vnf_p7_config_t *p7_config, nfapi_nr_dl_tti_request_t *req)
+{
+  set_p7_transmit_timestamp(&req->header);
+  return nfapi_vnf_p7_nr_dl_config_req(p7_config, req);
+}
+
+static int vnf_nr_p7_send_ul_tti_request(nfapi_vnf_p7_config_t *p7_config, nfapi_nr_ul_tti_request_t *req)
+{
+  set_p7_transmit_timestamp(&req->header);
+  return nfapi_vnf_p7_ul_tti_req(p7_config, req);
+}
+
+static int vnf_nr_p7_send_ul_dci_request(nfapi_vnf_p7_config_t *p7_config, nfapi_nr_ul_dci_request_t *req)
+{
+  set_p7_transmit_timestamp(&req->header);
+  return nfapi_vnf_p7_ul_dci_req(p7_config, req);
+}
+
+static int vnf_nr_p7_send_tx_data_request(nfapi_vnf_p7_config_t *p7_config, nfapi_nr_tx_data_request_t *req)
+{
+  set_p7_transmit_timestamp(&req->header);
+  return nfapi_vnf_p7_tx_data_req(p7_config, req);
+}
+
 int oai_nfapi_dl_tti_req(nfapi_nr_dl_tti_request_t *dl_config_req)
 {
   LOG_D(NR_PHY, "Entering oai_nfapi_nr_dl_config_req sfn:%d,slot:%d\n", dl_config_req->SFN, dl_config_req->Slot);
@@ -2047,7 +2118,7 @@ int oai_nfapi_dl_tti_req(nfapi_nr_dl_tti_request_t *dl_config_req)
   dl_config_req->header.message_id= NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST;
   dl_config_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
 
-  int retval = nfapi_vnf_p7_nr_dl_config_req(p7_config, dl_config_req);
+  int retval = vnf_nr_p7_send_dl_tti_request(p7_config, dl_config_req);
 
   dl_config_req->dl_tti_request_body.nPDUs                        = 0;
   dl_config_req->dl_tti_request_body.nGroup                       = 0;
@@ -2066,7 +2137,7 @@ int oai_nfapi_tx_data_req(nfapi_nr_tx_data_request_t *tx_data_req)
   tx_data_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
   tx_data_req->header.message_id = NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST;
   //LOG_D(PHY, "[VNF] %s() TX_REQ sfn_sf:%d number_of_pdus:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(tx_req->sfn_sf), tx_req->tx_request_body.number_of_pdus);
-  int retval = nfapi_vnf_p7_tx_data_req(p7_config, tx_data_req);
+  int retval = vnf_nr_p7_send_tx_data_request(p7_config, tx_data_req);
 
   if (retval!=0) {
     LOG_E(PHY, "%s() Problem sending retval:%d\n", __FUNCTION__, retval);
@@ -2099,7 +2170,7 @@ int oai_nfapi_ul_dci_req(nfapi_nr_ul_dci_request_t *ul_dci_req) {
   ul_dci_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
   ul_dci_req->header.message_id = NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST;
   //LOG_D(PHY, "[VNF] %s() HI_DCI0_REQ sfn_sf:%d dci:%d hi:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(hi_dci0_req->sfn_sf), hi_dci0_req->hi_dci0_request_body.number_of_dci, hi_dci0_req->hi_dci0_request_body.number_of_hi);
-  int retval = nfapi_vnf_p7_ul_dci_req(p7_config, ul_dci_req);
+  int retval = vnf_nr_p7_send_ul_dci_request(p7_config, ul_dci_req);
 
   if (retval!=0) {
     LOG_E(PHY, "%s() Problem sending retval:%d\n", __FUNCTION__, retval);
@@ -2152,7 +2223,7 @@ int oai_nfapi_ul_tti_req(nfapi_nr_ul_tti_request_t *ul_tti_req) {
   ul_tti_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
   ul_tti_req->header.message_id = NFAPI_NR_PHY_MSG_TYPE_UL_TTI_REQUEST;
 
-  int retval = nfapi_vnf_p7_ul_tti_req(p7_config, ul_tti_req);
+  int retval = vnf_nr_p7_send_ul_tti_request(p7_config, ul_tti_req);
 
   if (retval!=0) {
     LOG_E(PHY, "%s() Problem sending retval:%d\n", __FUNCTION__, retval);
