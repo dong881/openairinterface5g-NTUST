@@ -2284,6 +2284,105 @@ static void maybe_slow_down_pnf(int mu)
   last_execution = current_execution;
 }
 
+static const int32_t PNF_TIMING_LATE_THRESHOLD_US = 100;
+static const int32_t PNF_TIMING_EARLY_THRESHOLD_US = 100;
+
+static uint64_t monotonic_time_us(void)
+{
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (uint64_t)ts.tv_sec * 1000000ULL + (uint64_t)ts.tv_nsec / 1000ULL;
+}
+
+static void reset_timing_extrema_state(pnf_p7_rfc3550_state_t *state)
+{
+  if (!state)
+    return;
+  state->latest_delay = 0;
+  state->earliest_arrival = 0;
+}
+
+static void reset_pnf_timing_extrema(pnf_p7_t *pnf_p7)
+{
+  if (!pnf_p7)
+    return;
+  reset_timing_extrema_state(&pnf_p7->timing_stats.dl_tti);
+  reset_timing_extrema_state(&pnf_p7->timing_stats.tx_data);
+  reset_timing_extrema_state(&pnf_p7->timing_stats.ul_tti);
+  reset_timing_extrema_state(&pnf_p7->timing_stats.ul_dci);
+}
+
+static int timing_state_has_violation(const pnf_p7_rfc3550_state_t *state)
+{
+  if (!state)
+    return 0;
+  if (state->latest_delay > PNF_TIMING_LATE_THRESHOLD_US)
+    return 1;
+  if (state->earliest_arrival < -PNF_TIMING_EARLY_THRESHOLD_US)
+    return 1;
+  return 0;
+}
+
+static int pnf_nr_has_timing_violation(const pnf_p7_t *pnf_p7)
+{
+  if (!pnf_p7)
+    return 0;
+  if (timing_state_has_violation(&pnf_p7->timing_stats.dl_tti))
+    return 1;
+  if (timing_state_has_violation(&pnf_p7->timing_stats.tx_data))
+    return 1;
+  if (timing_state_has_violation(&pnf_p7->timing_stats.ul_tti))
+    return 1;
+  if (timing_state_has_violation(&pnf_p7->timing_stats.ul_dci))
+    return 1;
+  return 0;
+}
+
+static void pnf_nr_send_timing_info(pnf_p7_t *pnf_p7)
+{
+  if (!pnf_p7)
+    return;
+
+  uint64_t now_us = monotonic_time_us();
+  uint32_t elapsed_ms = 0;
+
+  if (pnf_p7->last_timing_info_time_us != 0 && now_us >= pnf_p7->last_timing_info_time_us) {
+    elapsed_ms = (uint32_t)((now_us - pnf_p7->last_timing_info_time_us) / 1000ULL);
+  } else {
+    elapsed_ms = pnf_p7->timing_info_ms_counter;
+  }
+
+  nfapi_nr_timing_info_t timing_info;
+  memset(&timing_info, 0, sizeof(timing_info));
+  timing_info.header.message_id = NFAPI_TIMING_INFO;
+  timing_info.header.phy_id = pnf_p7->_public.phy_id;
+  timing_info.last_sfn = pnf_p7->sfn;
+  timing_info.last_slot = pnf_p7->slot;
+  timing_info.time_since_last_timing_info = elapsed_ms;
+
+  timing_info.dl_tti_jitter = pnf_p7->timing_stats.dl_tti.jitter;
+  timing_info.tx_data_request_jitter = pnf_p7->timing_stats.tx_data.jitter;
+  timing_info.ul_tti_jitter = pnf_p7->timing_stats.ul_tti.jitter;
+  timing_info.ul_dci_jitter = pnf_p7->timing_stats.ul_dci.jitter;
+
+  timing_info.dl_tti_latest_delay = pnf_p7->timing_stats.dl_tti.latest_delay;
+  timing_info.tx_data_request_latest_delay = pnf_p7->timing_stats.tx_data.latest_delay;
+  timing_info.ul_tti_latest_delay = pnf_p7->timing_stats.ul_tti.latest_delay;
+  timing_info.ul_dci_latest_delay = pnf_p7->timing_stats.ul_dci.latest_delay;
+
+  timing_info.dl_tti_earliest_arrival = pnf_p7->timing_stats.dl_tti.earliest_arrival;
+  timing_info.tx_data_request_earliest_arrival = pnf_p7->timing_stats.tx_data.earliest_arrival;
+  timing_info.ul_tti_earliest_arrival = pnf_p7->timing_stats.ul_tti.earliest_arrival;
+  timing_info.ul_dci_earliest_arrival = pnf_p7->timing_stats.ul_dci.earliest_arrival;
+
+  if (pnf_nr_p7_pack_and_send_p7_message(pnf_p7, &timing_info.header, sizeof(timing_info)) != 0)
+    return;
+
+  pnf_p7->timing_info_ms_counter = 0;
+  pnf_p7->last_timing_info_time_us = now_us;
+  reset_pnf_timing_extrema(pnf_p7);
+}
+
 void handle_nr_slot_ind(uint16_t sfn, uint16_t slot)
 {
   nfapi_pnf_p7_config_t *config = p7_config_g;
@@ -2310,6 +2409,9 @@ void handle_nr_slot_ind(uint16_t sfn, uint16_t slot)
 
   // copy data from appropriate p7 slot buffers into channel structures for PHY processing
   nfapi_pnf_p7_slot_ind(config, config->phy_id, sfn, slot);
+
+  if (pnf_nr_has_timing_violation(_this))
+    pnf_nr_send_timing_info(_this);
 
   return;
 }

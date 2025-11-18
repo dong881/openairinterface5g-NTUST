@@ -138,6 +138,7 @@ typedef struct {
 	uint8_t timing_info_aperiodic_send; // 0:false 1:true
 
 	uint32_t timing_info_ms_counter; // number of ms since last timing info
+	uint64_t last_timing_info_time_us;
 
 	uint32_t dl_config_jitter;
 	uint32_t ul_config_jitter;
