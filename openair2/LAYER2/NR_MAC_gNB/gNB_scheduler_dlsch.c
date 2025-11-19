@@ -972,6 +972,10 @@ void nr_schedule_ue_spec(module_id_t module_id,
     if (sched_pdsch->rbSize <= 0)
       continue;
 
+    // LOG_I(NR_MAC, "DL PRB for UE %04x: Size %d Start %d\n", UE->rnti, sched_pdsch->rbSize, sched_pdsch->rbStart);
+    char print_info[64];
+    snprintf(print_info, sizeof(print_info), "UE %04x: Size %d", UE->rnti, sched_pdsch->rbSize);
+    log_mmap_entry(0, frame , slot , print_info);
     const rnti_t rnti = UE->rnti;
 
     /* POST processing */
