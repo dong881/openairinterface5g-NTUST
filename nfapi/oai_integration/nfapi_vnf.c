@@ -1647,6 +1647,20 @@ static void oai_vnf_apply_timing_adjustments(struct timespec *tick_time)
               snapshot.last_slot);
 }
 
+static void oai_vnf_publish_autonomous_slot(vnf_p7_t *vnf_p7, uint16_t sfn, uint16_t slot)
+{
+  if (vnf_p7 == NULL)
+    return;
+
+  nfapi_vnf_p7_connection_info_t *conn = vnf_p7->p7_connections;
+  while (conn)
+  {
+    conn->sfn = sfn;
+    conn->slot = slot;
+    conn = conn->next;
+  }
+}
+
 // VNF autonomous tick thread per nFAPI spec section 2.1.3.4
 // VNF maintains its own slot timing independent of PNF slot.indication
 void *vnf_nr_autonomous_tick_thread(void *ptr) {
@@ -1705,6 +1719,7 @@ void *vnf_nr_autonomous_tick_thread(void *ptr) {
     if (p7_vnf->config) {
       vnf_p7_t *vnf_p7 = (vnf_p7_t *)p7_vnf->config;
       vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
+      oai_vnf_publish_autonomous_slot(vnf_p7, current_sfn, current_slot);
     }
 
     if (p7_vnf->periodic_timing_enabled && p7_vnf->periodic_timing_period != 0) {
