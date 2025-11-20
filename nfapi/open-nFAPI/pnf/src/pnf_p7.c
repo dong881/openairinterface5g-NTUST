@@ -2018,8 +2018,8 @@ void pnf_nr_handle_dl_node_sync(void *pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 	ul_node_sync.header.message_id = NFAPI_NR_PHY_MSG_TYPE_UL_NODE_SYNC;
 	ul_node_sync.header.phy_id = dl_node_sync.header.phy_id;
 	ul_node_sync.t1 = dl_node_sync.t1;
-	ul_node_sync.t2 = calculate_nr_t2(rx_hr_time, pnf_p7->mu, pnf_p7->sfn,pnf_p7->slot, pnf_p7->slot_start_time_hr);
-	ul_node_sync.t3 = calculate_nr_t3(pnf_p7->mu, pnf_p7->sfn,pnf_p7->slot, pnf_p7->slot_start_time_hr);
+	ul_node_sync.t2 = rx_hr_time % 10240000;
+	ul_node_sync.t3 = pnf_get_current_time_hr() % 10240000;
 
 	if(pthread_mutex_unlock(&(pnf_p7->mutex)) != 0)
 	{

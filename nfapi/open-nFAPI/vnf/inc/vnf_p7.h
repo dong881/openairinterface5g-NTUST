@@ -25,6 +25,16 @@
 
 
 typedef struct {
+    int32_t rtt_us, oneway_latency_us, clock_offset_us;
+    uint32_t tx_advance_time_us;
+    uint16_t slot_offset;  // VNF sends DL_TTI for slot N at slot (N - slot_offset)
+    uint32_t pnf_processing_margin_us;  // From TLV 0x0106
+    uint32_t vnf_processing_time_us;    // VNF overhead (e.g., 200μs)
+    int32_t rtt_samples[16];  // Circular buffer
+    uint8_t rtt_sample_index;
+} link_timing_state_t;
+
+typedef struct {
 	uint8_t* buffer;
 	uint32_t length;
 } vnf_p7_rx_message_segment_t;
@@ -102,6 +112,8 @@ typedef struct nfapi_vnf_p7_connection_info {
 	uint32_t reassembly_buffer_size;
 
 	uint32_t sequence_number;
+
+	link_timing_state_t timing_state;
 
 	struct nfapi_vnf_p7_connection_info* next;
 

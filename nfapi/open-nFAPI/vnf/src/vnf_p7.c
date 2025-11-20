@@ -1554,6 +1554,13 @@ void vnf_handle_nr_rach_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf
 	}
 }
 
+static int32_t time_diff_wrap(uint32_t t_new, uint32_t t_old) {
+    int32_t diff = t_new - t_old;
+    if (diff > 5120000) diff -= 10240000; // 10.24s wrap
+    else if (diff < -5120000) diff += 10240000;
+    return diff;
+}
+
 void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 {	
 	//printf("received UL Node sync");
@@ -1577,6 +1584,64 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	//NFAPI_TRACE(NFAPI_TRACE_INFO, "Received UL_NODE_SYNC phy_id:%d t1:%d t2:%d t3:%d\n", ind.header.phy_id, ind.t1, ind.t2, ind.t3);
 
 	nfapi_vnf_p7_connection_info_t* phy = vnf_p7_connection_info_list_find(vnf_p7, ind.header.phy_id);
+	
+    if (phy)
+    {
+        uint32_t t4 = calculate_nr_t4(now_time_hr, phy->mu, phy->sfn, phy->slot, vnf_p7->slot_start_time_hr);
+
+        // 1. Calculate RTT
+        int32_t rtt = time_diff_wrap(t4, ind.t1) - time_diff_wrap(ind.t3, ind.t2);
+        phy->timing_state.rtt_us = rtt;
+
+        // 2. Update circular buffer and average
+        phy->timing_state.rtt_samples[phy->timing_state.rtt_sample_index] = rtt;
+        phy->timing_state.rtt_sample_index = (phy->timing_state.rtt_sample_index + 1) % 16;
+        
+        int32_t rtt_sum = 0;
+        for(int i=0; i<16; i++) rtt_sum += phy->timing_state.rtt_samples[i];
+        int32_t avg_rtt = rtt_sum / 16;
+
+        // 3. Calculate DL Latency and Clock Offset
+        // User requested instantaneous RTT for oneway calculation
+        phy->timing_state.oneway_latency_us = rtt / 2; 
+        phy->timing_state.clock_offset_us = time_diff_wrap(ind.t2, ind.t1) - phy->timing_state.oneway_latency_us;
+
+        // 4. Calculate TX Advance
+        if (phy->timing_state.vnf_processing_time_us == 0) phy->timing_state.vnf_processing_time_us = 200; // Default 200us
+
+        phy->timing_state.tx_advance_time_us = phy->timing_state.oneway_latency_us + 
+                                               phy->timing_state.pnf_processing_margin_us + 
+                                               phy->timing_state.vnf_processing_time_us;
+
+        // 5. Calculate Slot Offset
+        uint32_t slot_duration_us = 1000 / (1 << phy->mu);
+        phy->timing_state.slot_offset = (phy->timing_state.tx_advance_time_us + slot_duration_us - 1) / slot_duration_us;
+
+        // vnf_ctx->phy_slot_offset[phy_id] = slot_offset; // Stored in phy->timing_state.slot_offset
+        NFAPI_TRACE(NFAPI_TRACE_INFO, "PHY %u: RTT=%dus, OneWay=%dus, SlotOffset=%u\n",
+            ind.header.phy_id, rtt, phy->timing_state.oneway_latency_us, phy->timing_state.slot_offset);
+
+        if(phy->in_sync == 0)
+        {
+            phy->in_sync = 1;
+            phy->min_sync_cycle_count = 8;
+        }
+        
+        // Update sfn/slot based on PNF time + Slot Offset
+        uint32_t current_pnf_time_us = t4 + phy->timing_state.clock_offset_us;
+        uint32_t current_pnf_slot_dec = current_pnf_time_us / slot_duration_us;
+        
+        uint32_t target_vnf_slot_dec = current_pnf_slot_dec + phy->timing_state.slot_offset;
+        
+        // Handle wrapping
+        target_vnf_slot_dec %= NFAPI_MAX_SFNSLOTDEC(phy->mu);
+        
+        phy->sfn = NFAPI_SFNSLOTDEC2SFN(phy->mu, target_vnf_slot_dec);
+        phy->slot = NFAPI_SFNSLOTDEC2SLOT(phy->mu, target_vnf_slot_dec);
+        
+        return; // Skip legacy logic
+    }
+
 	uint32_t t4 = calculate_nr_t4(now_time_hr, phy->mu, phy->sfn, phy->slot, vnf_p7->slot_start_time_hr);
 
 	uint32_t tx_2_rx = t4>ind.t1 ? t4 - ind.t1 : t4 + NFAPI_MAX_SFNSLOTDEC(phy->mu) - ind.t1 ; //time taken to receive ul node sync - time taken to send dl node sync
