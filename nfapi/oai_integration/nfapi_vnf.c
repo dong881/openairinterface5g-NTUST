@@ -1027,11 +1027,94 @@ int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind)
 
 int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
 {
-  LOG_D(MAC, "VNF SFN/Slot %d.%d \n", ind->sfn, ind->slot);
+  LOG_I(MAC, "VNF SFN/Slot %d.%d \n", ind->sfn, ind->slot);
 
-  trigger_scheduler(ind);
+  // trigger_scheduler(ind);
 
   return 1;
+}
+#include <time.h>
+
+typedef struct {
+    pthread_t thread;
+    uint16_t sfn;
+    uint16_t slot;
+    uint8_t mu;
+    uint32_t slot_duration_us;
+    struct timespec next_slot_time;
+    pthread_mutex_t mutex;
+    bool running;
+} vnf_timing_context_t;
+
+vnf_timing_context_t vnf_timing_ctx;
+
+// VNF Autonomous Timing Module
+
+void timespec_add_us(struct timespec *t, long us) {
+    t->tv_nsec += us * 1000;
+    if (t->tv_nsec >= 1000000000) {
+        t->tv_sec += t->tv_nsec / 1000000000;
+        t->tv_nsec %= 1000000000;
+    }
+}
+
+void *vnf_timing_thread(void *arg) {
+    LOG_I(NFAPI_VNF, "Starting VNF autonomous timing thread\n");
+    
+    // Wait for configuration
+    // Prefer to obtain mu (subcarrier spacing index) from the NFAPI NR config
+    // (ssb_config.scs_common) which is set when handling PARAM/CONFIG responses.
+    // If that's not available yet, fallback to RC.gNB frame_parms numerology_index.
+    int mu = -1;
+    while (1) {
+        if (RC.nrmac && RC.nrmac[0]) {
+            nfapi_nr_config_request_scf_t *req = &RC.nrmac[0]->config[0];
+            const nfapi_uint8_tlv_t *scs = &req->ssb_config.scs_common;
+            if (scs && scs->tl.tag == NFAPI_NR_CONFIG_SCS_COMMON_TAG) {
+                mu = scs->value;
+                break;
+            }
+        }
+
+        if (RC.gNB && RC.gNB[0] && RC.gNB[0]->configured && RC.gNB[0]->frame_parms.numerology_index > 0) {
+            mu = RC.gNB[0]->frame_parms.numerology_index;
+            break;
+        }
+
+        usleep(100000);
+        LOG_I(NFAPI_VNF, "Waiting for gNB or NFAPI NR configuration... mu:%d\n", mu);
+    }
+
+    if (mu < 0) mu = 0;
+    vnf_timing_ctx.mu = mu;
+    vnf_timing_ctx.slot_duration_us = 1000 >> vnf_timing_ctx.mu; // 1ms / 2^mu
+    vnf_timing_ctx.sfn = 0;
+    vnf_timing_ctx.slot = 0;
+    vnf_timing_ctx.running = true;
+
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing_ctx.next_slot_time);
+
+    while (vnf_timing_ctx.running) {
+        clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &vnf_timing_ctx.next_slot_time, NULL);
+
+        nfapi_nr_slot_indication_scf_t ind = {0};
+        ind.sfn = vnf_timing_ctx.sfn;
+        ind.slot = vnf_timing_ctx.slot;
+        LOG_I(MAC, "[VNF Timing] Triggering slot indication for SFN/Slot %d/%d\n", ind.sfn, ind.slot);
+        // trigger_scheduler(&ind);
+
+        timespec_add_us(&vnf_timing_ctx.next_slot_time, vnf_timing_ctx.slot_duration_us);
+
+        vnf_timing_ctx.slot++;
+        if (vnf_timing_ctx.slot >= (10 * (1 << vnf_timing_ctx.mu))) {
+            vnf_timing_ctx.slot = 0;
+            vnf_timing_ctx.sfn++;
+            if (vnf_timing_ctx.sfn >= 1024) {
+                vnf_timing_ctx.sfn = 0;
+            }
+        }
+    }
+    return NULL;
 }
 
 int phy_nr_srs_indication(nfapi_nr_srs_indication_t *ind)
@@ -1359,6 +1442,10 @@ void *configure_nr_p7_vnf(void *ptr)
   p7_vnf->config->pack_func = &fapi_nr_p7_message_pack;
   p7_vnf->config->send_p7_msg = &aerial_nr_send_p7_message;
 #endif
+
+  // Start VNF autonomous timing thread
+  threadCreate(&vnf_timing_ctx.thread, &vnf_timing_thread, NULL, "vnf_timing", -1, OAI_PRIORITY_RT);
+
   return 0;
 }
 
@@ -1392,7 +1479,7 @@ void *vnf_p7_thread_start(void *ptr) {
   p7_vnf->config->codec_config.deallocate = &vnf_deallocate;
   p7_vnf->config->allocate_p7_vendor_ext = &phy_allocate_p7_vendor_ext;
   p7_vnf->config->deallocate_p7_vendor_ext = &phy_deallocate_p7_vendor_ext;
-  NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Creating VNF NFAPI P7 start thread %s\n", __FUNCTION__);
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Creating VNF NFAPI start thread %s\n", __FUNCTION__);
   pthread_create(&vnf_p7_start_pthread, NULL, &vnf_p7_start_thread, p7_vnf->config);
   return 0;
 }
@@ -1788,8 +1875,8 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   config->codec_config.pack_p4_p5_vendor_extension = &vnf_nr_pack_p4_p5_vendor_extension;
   config->allocate_p4_p5_vendor_ext = &vnf_nr_allocate_p4_p5_vendor_ext;
   config->deallocate_p4_p5_vendor_ext = &vnf_nr_deallocate_p4_p5_vendor_ext;
-  config->codec_config.allocate = &vnf_nr_allocate;
-  config->codec_config.deallocate = &vnf_nr_deallocate;
+  config->codec_config.allocate = &vnf_allocate;
+  config->codec_config.deallocate = &vnf_deallocate;
   memset(&UL_RCC_INFO, 0, sizeof(UL_RCC_IND_t));
 
 #ifdef ENABLE_WLS
