@@ -890,14 +890,53 @@ int oai_nfapi_ul_dci_req(nfapi_nr_ul_dci_request_t* ul_dci_req);
 
 int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
 {
-  LOG_D(MAC, "VNF SFN/Slot %d.%d \n", ind->sfn, ind->slot);
+  // PNF slot indication is now ignored for scheduling
+  // It can be used for synchronization in the future
+  // LOG_D(MAC, "PNF SFN/Slot %d.%d (Ignored)\n", ind->sfn, ind->slot);
+  return 1;
+}
 
-  // this variable is very big (multiple MB), so we put it into static storage
-  // to not overflow the stack while still having it in local (function) scope
-  // also, phy_nr_slot_indication() is only executed by one thread, serially
-  static NR_Sched_Rsp_t sched_response;
-  NR_IF_Module_t *ifi = RC.nrmac[0]->if_inst;
-  ifi->NR_slot_indication(ind, &sched_response);
+#include <time.h>
+
+typedef struct {
+    pthread_t thread;
+    uint16_t sfn;
+    uint16_t slot;
+    uint8_t mu;
+    uint32_t slot_duration_us;
+    struct timespec next_slot_time;
+    pthread_mutex_t mutex;
+    bool running;
+} vnf_timing_context_t;
+
+vnf_timing_context_t vnf_timing_ctx;
+
+// VNF Autonomous Timing Module
+
+void timespec_add_us(struct timespec *t, long us) {
+    t->tv_nsec += us * 1000;
+    if (t->tv_nsec >= 1000000000) {
+        t->tv_sec += t->tv_nsec / 1000000000;
+        t->tv_nsec %= 1000000000;
+    }
+}
+
+int vnf_handle_slot_ind(uint16_t sfn, uint16_t slot) {
+    nfapi_nr_slot_indication_scf_t ind;
+    ind.sfn = sfn;
+    ind.slot = slot;
+    ind.header.message_id = NFAPI_NR_PHY_MSG_TYPE_SLOT_INDICATION;
+    ind.header.phy_id = 0; // Assuming 0 for now
+
+    // LOG_D(MAC, "VNF Autonomous SFN/Slot %d.%d \n", ind.sfn, ind.slot);
+
+    static NR_Sched_Rsp_t sched_response;
+    NR_IF_Module_t *ifi = RC.nrmac[0]->if_inst;
+    if (ifi && ifi->NR_slot_indication) {
+        ifi->NR_slot_indication(&ind, &sched_response);
+    } else {
+        return 0;
+    }
 
 #ifdef ENABLE_AERIAL
     bool send_slt_resp = false;
@@ -918,30 +957,63 @@ int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
       send_slt_resp = true;
     }
     if (send_slt_resp) {
-      oai_fapi_send_end_request(0, ind->sfn, ind->slot);
+      oai_fapi_send_end_request(0, ind.sfn, ind.slot);
     }
 #else
-  if (sched_response.DL_req.dl_tti_request_body.nPDUs > 0)
-    oai_nfapi_dl_tti_req(&sched_response.DL_req);
+    if (sched_response.DL_req.dl_tti_request_body.nPDUs > 0)
+        oai_nfapi_dl_tti_req(&sched_response.DL_req);
 
-  if (sched_response.UL_tti_req.n_pdus > 0)
-    oai_nfapi_ul_tti_req(&sched_response.UL_tti_req);
+    if (sched_response.UL_tti_req.n_pdus > 0)
+        oai_nfapi_ul_tti_req(&sched_response.UL_tti_req);
 
-  if (sched_response.TX_req.Number_of_PDUs > 0)
-    oai_nfapi_tx_data_req(&sched_response.TX_req);
+    if (sched_response.TX_req.Number_of_PDUs > 0)
+        oai_nfapi_tx_data_req(&sched_response.TX_req);
 
-  if (sched_response.UL_dci_req.numPdus > 0)
-    oai_nfapi_ul_dci_req(&sched_response.UL_dci_req);
+    if (sched_response.UL_dci_req.numPdus > 0)
+        oai_nfapi_ul_dci_req(&sched_response.UL_dci_req);
 #endif
 
-  /* the below works because the function behind the callback collects
-   * messages from queue into which messages have been copied.
-   * TODO we should have different callbacks for received messages and call
-   * into the scheduler separately for each message instead of one big one. */
-  NR_UL_IND_t ul_ind = {.frame = ind->sfn, .slot = ind->slot, };
-  ifi->NR_UL_indication(&ul_ind);
+    NR_UL_IND_t ul_ind = {.frame = ind.sfn, .slot = ind.slot, };
+    if (ifi && ifi->NR_UL_indication) {
+        ifi->NR_UL_indication(&ul_ind);
+    }
 
-  return 1;
+    return 1;
+}
+
+void *vnf_timing_thread(void *arg) {
+    LOG_I(NFAPI_VNF, "Starting VNF autonomous timing thread\n");
+    
+    // Wait for configuration
+    while (RC.gNB[0] == NULL || RC.gNB[0]->frame_parms.numerology_index == 0) {
+        usleep(100000);
+    }
+
+    vnf_timing_ctx.mu = RC.gNB[0]->frame_parms.numerology_index;
+    vnf_timing_ctx.slot_duration_us = 1000 >> vnf_timing_ctx.mu; // 1ms / 2^mu
+    vnf_timing_ctx.sfn = 0;
+    vnf_timing_ctx.slot = 0;
+    vnf_timing_ctx.running = true;
+
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing_ctx.next_slot_time);
+
+    while (vnf_timing_ctx.running) {
+        clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &vnf_timing_ctx.next_slot_time, NULL);
+
+        vnf_handle_slot_ind(vnf_timing_ctx.sfn, vnf_timing_ctx.slot);
+
+        timespec_add_us(&vnf_timing_ctx.next_slot_time, vnf_timing_ctx.slot_duration_us);
+
+        vnf_timing_ctx.slot++;
+        if (vnf_timing_ctx.slot >= (10 * (1 << vnf_timing_ctx.mu))) {
+            vnf_timing_ctx.slot = 0;
+            vnf_timing_ctx.sfn++;
+            if (vnf_timing_ctx.sfn >= 1024) {
+                vnf_timing_ctx.sfn = 0;
+            }
+        }
+    }
+    return NULL;
 }
 
 int phy_nr_srs_indication(nfapi_nr_srs_indication_t *ind)
@@ -1269,6 +1341,10 @@ void *configure_nr_p7_vnf(void *ptr)
   p7_vnf->config->pack_func = &fapi_nr_p7_message_pack;
   p7_vnf->config->send_p7_msg = &aerial_nr_send_p7_message;
 #endif
+
+  // Start VNF autonomous timing thread
+  threadCreate(&vnf_timing_ctx.thread, &vnf_timing_thread, NULL, "vnf_timing", -1, OAI_PRIORITY_RT);
+
   return 0;
 }
 
