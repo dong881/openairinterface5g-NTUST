@@ -1027,7 +1027,7 @@ int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind)
 
 int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
 {
-  LOG_I(MAC, "VNF SFN/Slot %d.%d \n", ind->sfn, ind->slot);
+  LOG_I(MAC, "[From PNF] VNF SFN/Slot %d.%d \n", ind->sfn, ind->slot);
 
   // trigger_scheduler(ind);
 
@@ -1057,32 +1057,35 @@ void timespec_add_us(struct timespec *t, long us) {
         t->tv_nsec %= 1000000000;
     }
 }
+static volatile int nr_start_resp_received = 0;
 
 void *vnf_timing_thread(void *arg) {
     LOG_I(NFAPI_VNF, "Starting VNF autonomous timing thread\n");
-    
+    vnf_p7_info *p7_vnf = (vnf_p7_info *)arg;
     // Wait for configuration
     // Prefer to obtain mu (subcarrier spacing index) from the NFAPI NR config
     // (ssb_config.scs_common) which is set when handling PARAM/CONFIG responses.
     // If that's not available yet, fallback to RC.gNB frame_parms numerology_index.
     int mu = -1;
     while (1) {
-        if (RC.nrmac && RC.nrmac[0]) {
-            nfapi_nr_config_request_scf_t *req = &RC.nrmac[0]->config[0];
-            const nfapi_uint8_tlv_t *scs = &req->ssb_config.scs_common;
-            if (scs && scs->tl.tag == NFAPI_NR_CONFIG_SCS_COMMON_TAG) {
-                mu = scs->value;
+        if (nr_start_resp_received) {
+            if (RC.nrmac && RC.nrmac[0]) {
+                nfapi_nr_config_request_scf_t *req = &RC.nrmac[0]->config[0];
+                const nfapi_uint8_tlv_t *scs = &req->ssb_config.scs_common;
+                if (scs && scs->tl.tag == NFAPI_NR_CONFIG_SCS_COMMON_TAG) {
+                    mu = scs->value;
+                    break;
+                }
+            }
+
+            if (RC.gNB && RC.gNB[0] && RC.gNB[0]->configured && RC.gNB[0]->frame_parms.numerology_index > 0) {
+                mu = RC.gNB[0]->frame_parms.numerology_index;
                 break;
             }
         }
 
-        if (RC.gNB && RC.gNB[0] && RC.gNB[0]->configured && RC.gNB[0]->frame_parms.numerology_index > 0) {
-            mu = RC.gNB[0]->frame_parms.numerology_index;
-            break;
-        }
-
         usleep(100000);
-        LOG_I(NFAPI_VNF, "Waiting for gNB or NFAPI NR configuration... mu:%d\n", mu);
+        LOG_I(NFAPI_VNF, "Waiting for gNB or NFAPI NR configuration... mu:%d start_resp:%d\n", mu, nr_start_resp_received);
     }
 
     if (mu < 0) mu = 0;
@@ -1102,7 +1105,17 @@ void *vnf_timing_thread(void *arg) {
         ind.slot = vnf_timing_ctx.slot;
         LOG_I(MAC, "[VNF Timing] Triggering slot indication for SFN/Slot %d/%d\n", ind.sfn, ind.slot);
         // trigger_scheduler(&ind);
-
+        if (p7_vnf) {
+            vnf_p7_t *vnf_p7 = (vnf_p7_t *)p7_vnf->config;
+            nfapi_vnf_p7_connection_info_t *curr = vnf_p7->p7_connections;
+            while (curr != NULL) {
+                curr->sfn = vnf_timing_ctx.sfn;
+                curr->slot = vnf_timing_ctx.slot;
+                // curr->delta_sfn_slot = -(curr->slot_offset / (int32_t)vnf_timing_ctx.slot_duration_us);
+                vnf_nr_sync(vnf_p7, curr);
+                curr = curr->next;
+            }
+        }
         timespec_add_us(&vnf_timing_ctx.next_slot_time, vnf_timing_ctx.slot_duration_us);
 
         vnf_timing_ctx.slot++;
@@ -1444,7 +1457,7 @@ void *configure_nr_p7_vnf(void *ptr)
 #endif
 
   // Start VNF autonomous timing thread
-  threadCreate(&vnf_timing_ctx.thread, &vnf_timing_thread, NULL, "vnf_timing", -1, OAI_PRIORITY_RT);
+  threadCreate(&vnf_timing_ctx.thread, &vnf_timing_thread, p7_vnf, "vnf_timing", -1, OAI_PRIORITY_RT);
 
   return 0;
 }
@@ -1707,6 +1720,7 @@ int start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_start_response_t
 
 int nr_start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_start_response_scf_t *resp) {
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Received NFAPI_START_RESP idx:%d phy_id:%d\n", p5_idx, resp->header.phy_id);
+  nr_start_resp_received = 1;
   return 0;
 }
 

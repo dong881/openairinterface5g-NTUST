@@ -592,7 +592,7 @@ int vnf_nr_build_send_dl_node_sync(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_inf
 	dl_node_sync.header.message_id = NFAPI_NR_PHY_MSG_TYPE_DL_NODE_SYNC;
 	//dl_node_sync.t1 = calculate_t1(p7_info->sfn_sf, vnf_p7->sf_start_time_hr);
 	dl_node_sync.t1 = calculate_nr_t1(p7_info->mu, p7_info->sfn,p7_info->slot, vnf_p7->slot_start_time_hr);
-	dl_node_sync.delta_sfn_slot = 0;
+	dl_node_sync.delta_sfn_slot = p7_info->slot_offset;
 
 	return config->send_p7_msg(vnf_p7, &dl_node_sync.header);
 }
@@ -1582,7 +1582,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	uint32_t tx_2_rx = t4>ind.t1 ? t4 - ind.t1 : t4 + NFAPI_MAX_SFNSLOTDEC(phy->mu) - ind.t1 ; //time taken to receive ul node sync - time taken to send dl node sync
 	uint32_t pnf_proc_time = ind.t3 - ind.t2;
 
-	// divide by 2 using shift operator
+	// divide by 2 using shift operator (TOTAL(t4 - t1) - PNF_PROCESS(t3 - t2)) / 2 = RTT / 2 = latency
 	uint32_t latency =  (tx_2_rx - pnf_proc_time) >> 1;
 
 	//phy->in_sync = 1;
@@ -1635,7 +1635,11 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 		{
                   struct timespec ts;
                   clock_gettime(CLOCK_MONOTONIC, &ts);
-
+			NFAPI_TRACE(NFAPI_TRACE_NOTE, "(%4d/%1d) %ld.%ld PNF to VNF phy_id:%2d (t1/2/3/4:%8u, %8u, %8u, %8u) txrx:%4u procT:%3u latency(us):%4d(avg:%4d) offset(us):%8d filtered(us):%8d wrap[t1:%u t2:%u]\n", 
+					phy->sfn, phy->slot, ts.tv_sec, ts.tv_nsec, ind.header.phy_id,
+					ind.t1, ind.t2, ind.t3, t4, 
+					tx_2_rx, pnf_proc_time, latency, phy->average_latency, phy->slot_offset, phy->slot_offset_filtered,
+					(ind.t1<phy->previous_t1), (ind.t2<phy->previous_t2));
 			// NFAPI_TRACE(NFAPI_TRACE_NOTE, "(%4d/%1d) %d.%d PNF to VNF phy_id:%2d (t1/2/3/4:%8u, %8u, %8u, %8u) txrx:%4u procT:%3u latency(us):%4d(avg:%4d) offset(us):%8d filtered(us):%8d wrap[t1:%u t2:%u]\n", 
 			// 		phy->sfn, phy->slot, ts.tv_sec, ts.tv_nsec, ind.header.phy_id,
 			// 		ind.t1, ind.t2, ind.t3, t4, 
@@ -1676,9 +1680,9 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 
 			phy->slot_offset = ind.t2 - (ind.t1 - phy->average_latency);
 
-			sfn_slot_dec += (phy->slot_offset / 500);
+			sfn_slot_dec += (phy->slot_offset / 500); // mu:1 -> 500us slot
 			
-			NFAPI_TRACE(NFAPI_TRACE_NOTE, "PNF to VNF slot offset:%d sfn :%d slot:%d \n",phy->slot_offset,NFAPI_SFNSLOTDEC2SFN(phy->mu, sfn_slot_dec),NFAPI_SFNSLOTDEC2SLOT(phy->mu, sfn_slot_dec) );
+			NFAPI_TRACE(NFAPI_TRACE_NOTE, "PNF to VNF slot offset:%d us, sfn :%d slot:%d \n",phy->slot_offset,NFAPI_SFNSLOTDEC2SFN(phy->mu, sfn_slot_dec),NFAPI_SFNSLOTDEC2SLOT(phy->mu, sfn_slot_dec) );
 
 
 		}
@@ -1935,6 +1939,12 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 
 			if(phy->in_sync == 0)
 			{
+				NFAPI_TRACE(NFAPI_TRACE_NOTE, "***** Adjusting VNF phy_id:%d SFN/SF (%s) from %d to %d (%d) mode:%s zeroCount:%u sync:%s\n",
+					ind.header.phy_id, (phy->in_sync ? "via sfn" : "now"),
+					NFAPI_SFNSLOT2DEC(phy->mu, curr_sfn, curr_slot), NFAPI_SFNSLOT2DEC(phy->mu, new_sfn, new_slot), phy->adjustment, 
+					phy->filtered_adjust ? "FILTERED" : "ABSOLUTE",
+					phy->zero_count,
+					phy->in_sync ? "IN_SYNC" : "OUT_OF_SYNC");
 				/*NFAPI_TRACE(NFAPI_TRACE_NOTE, "***** Adjusting VNF phy_id:%d SFN/SF (%s) from %d to %d (%d) mode:%s zeroCount:%u sync:%s\n",
 					ind.header.phy_id, (phy->in_sync ? "via sfn" : "now"),
 					NFAPI_SFNSF2DEC(curr_sfn_sf), NFAPI_SFNSF2DEC(new_sfn_sf), phy->adjustment, 

@@ -672,7 +672,7 @@ void send_dummy_subframe(pnf_p7_t* pnf_p7, uint16_t sfn_sf)
 	}
 }
 
-
+// copy data from appropriate p7 slot buffers into channel structures for PHY processing
 int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t slot)
 {	
 	//This function is aligned with rx sfn/slot
@@ -709,16 +709,22 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
 		// apply the shift to the incoming sfn_sf
 		if(pnf_p7->slot_shift != 0) // see in vnf_build_send_dl_node_sync
 		{
-			uint16_t shifted_slot = slot + pnf_p7->slot_shift; 
+			// uint16_t shifted_slot = slot + pnf_p7->slot_shift; 
 
-			// adjust for wrap-around
-			if(shifted_slot < 0)
-				shifted_slot += NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
-			else if(shifted_slot > NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu))
-				shifted_slot -= NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
+			// adjust for wrap-around and handle SFN carry
+			int32_t shifted_sfn_slot = NFAPI_SFNSLOT2DEC(pnf_p7->mu, sfn, slot) + pnf_p7->slot_shift;
+			if (shifted_sfn_slot + NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu) < 0)
+				shifted_sfn_slot += NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
+			else if (shifted_sfn_slot >= NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu))
+				shifted_sfn_slot -= NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
+
+			sfn = NFAPI_SFNSLOTDEC2SFN(pnf_p7->mu, shifted_sfn_slot);
+			slot = NFAPI_SFNSLOTDEC2SLOT(pnf_p7->mu, shifted_sfn_slot);
+			NFAPI_TRACE(NFAPI_TRACE_INFO, "Applying shift %d to sfn/slot (%d/%d -> %d/%d)\n", pnf_p7->slot_shift, pnf_p7->sfn, pnf_p7->slot, sfn, slot);
+			pnf_p7->sfn = sfn;
+			pnf_p7->slot = slot;
 
 	//		NFAPI_TRACE(NFAPI_TRACE_INFO, "Applying shift %d to sfn/slot (%d -> %d)\n", pnf_p7->sfn_slot_shift, NFAPI_SFNSF2DEC(sfn_slot), shifted_sfn_slot);
-			slot = shifted_slot;
 
 			//
 			// why does the shift not apply to pnf_p7->sfn_sf???
@@ -1993,6 +1999,12 @@ void pnf_nr_handle_dl_node_sync(void *pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 		return;
 	}
 
+	// /* Print unpacked DL_NODE_SYNC info */
+	// NFAPI_TRACE(NFAPI_TRACE_INFO, "Unpacked NR DL_NODE_SYNC: message_id=%d phy_id=%d t1=%llu delta_sfn_slot=%d\n",
+	// 			dl_node_sync.header.message_id,
+	// 			dl_node_sync.header.phy_id,
+	// 			(unsigned long long)dl_node_sync.t1,
+	// 			(int)dl_node_sync.delta_sfn_slot);
 
 	if (dl_node_sync.delta_sfn_slot != 0)
 	{
