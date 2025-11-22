@@ -117,6 +117,7 @@ struct pnf_p7_t {
 	uint16_t sfn_slot;
 	uint32_t slot_start_time_hr;
 	int32_t slot_shift;
+	int32_t shift_applied;
 
 	uint8_t timing_info_period_counter;
 	uint8_t timing_info_aperiodic_send; // 0:false 1:true

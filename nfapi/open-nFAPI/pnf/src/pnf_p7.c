@@ -31,6 +31,8 @@
 #include "nr_fapi_p7_utils.h" // for 5G/NR message utils
 
 #include "common/ran_context.h"
+#include "common/utils/LOG/log.h"
+#include "PHY/defs_RU.h"
 #include <SCHED_NR/phy_frame_config_nr.h>
 
 extern int sf_ahead;
@@ -2013,13 +2015,29 @@ void pnf_nr_handle_dl_node_sync(void *pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 		pnf_p7->slot_shift = dl_node_sync.delta_sfn_slot;
 	}
 
+	// Calculate shifted sfn/slot for reporting
+	uint16_t sfn = pnf_p7->sfn;
+	uint16_t slot = pnf_p7->slot;
+
+	if (pnf_p7->slot_shift != 0)
+	{
+		int32_t shifted_sfn_slot = NFAPI_SFNSLOT2DEC(pnf_p7->mu, sfn, slot) + pnf_p7->slot_shift;
+		int32_t max_sfn_slot = NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
+		shifted_sfn_slot %= max_sfn_slot;
+		if (shifted_sfn_slot < 0)
+			shifted_sfn_slot += max_sfn_slot;
+
+		sfn = NFAPI_SFNSLOTDEC2SFN(pnf_p7->mu, shifted_sfn_slot);
+		slot = NFAPI_SFNSLOTDEC2SLOT(pnf_p7->mu, shifted_sfn_slot);
+	}
+
 	nfapi_nr_ul_node_sync_t ul_node_sync;
 	memset(&ul_node_sync, 0, sizeof(ul_node_sync));
 	ul_node_sync.header.message_id = NFAPI_NR_PHY_MSG_TYPE_UL_NODE_SYNC;
 	ul_node_sync.header.phy_id = dl_node_sync.header.phy_id;
 	ul_node_sync.t1 = dl_node_sync.t1;
-	ul_node_sync.t2 = calculate_nr_t2(rx_hr_time, pnf_p7->mu, pnf_p7->sfn,pnf_p7->slot, pnf_p7->slot_start_time_hr);
-	ul_node_sync.t3 = calculate_nr_t3(pnf_p7->mu, pnf_p7->sfn,pnf_p7->slot, pnf_p7->slot_start_time_hr);
+	ul_node_sync.t2 = calculate_nr_t2(rx_hr_time, pnf_p7->mu, sfn, slot, pnf_p7->slot_start_time_hr);
+	ul_node_sync.t3 = calculate_nr_t3(pnf_p7->mu, sfn, slot, pnf_p7->slot_start_time_hr);
 
 	if(pthread_mutex_unlock(&(pnf_p7->mutex)) != 0)
 	{

@@ -1177,8 +1177,13 @@ void *ru_thread(void *param)
     proc->timestamp_tx = proc->timestamp_rx;
     for (int i = proc->tti_rx; i < proc->tti_rx + ru->sl_ahead; i++)
       proc->timestamp_tx += fp->get_samples_per_slot(i % fp->slots_per_frame, fp);
-    proc->tti_tx = (proc->tti_rx + ru->sl_ahead) % fp->slots_per_frame;
-    proc->frame_tx = proc->tti_rx > proc->tti_tx ? (proc->frame_rx + 1) & 1023 : proc->frame_rx;
+    
+    int slot_tx_unwrapped = proc->tti_rx + ru->sl_ahead;
+    proc->tti_tx = slot_tx_unwrapped % fp->slots_per_frame;
+    if (proc->tti_tx < 0)
+      proc->tti_tx += fp->slots_per_frame;
+    int frame_offset = (slot_tx_unwrapped - proc->tti_tx) / fp->slots_per_frame;
+    proc->frame_tx = (proc->frame_rx + frame_offset) & 1023;
     LOG_D(PHY,
           "AFTER fh_south_in - SFN/SL:%d%d RU->proc[RX:%d.%d TX:%d.%d] RC.gNB[0]:[RX:%d%d TX(SFN):%d]\n",
           frame,
