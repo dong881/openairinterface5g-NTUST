@@ -1692,13 +1692,10 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 			
 		}
 
+		sfn_slot_dec %= NFAPI_MAX_SFNSLOTDEC(phy->mu);
 		if(sfn_slot_dec < 0)
 		{
 			sfn_slot_dec += NFAPI_MAX_SFNSLOTDEC(phy->mu);
-		}
-		else if( sfn_slot_dec >= NFAPI_MAX_SFNSLOTDEC(phy->mu))
-		{
-			sfn_slot_dec -= NFAPI_MAX_SFNSLOTDEC(phy->mu);
 		}
 
 		

@@ -713,13 +713,14 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
 
 			// adjust for wrap-around and handle SFN carry
 			int32_t shifted_sfn_slot = NFAPI_SFNSLOT2DEC(pnf_p7->mu, sfn, slot) + pnf_p7->slot_shift;
-			if (shifted_sfn_slot + NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu) < 0)
-				shifted_sfn_slot += NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
-			else if (shifted_sfn_slot >= NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu))
-				shifted_sfn_slot -= NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
+			int32_t max_sfn_slot = NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
+			shifted_sfn_slot %= max_sfn_slot;
+			if (shifted_sfn_slot < 0)
+				shifted_sfn_slot += max_sfn_slot;
 
 			sfn = NFAPI_SFNSLOTDEC2SFN(pnf_p7->mu, shifted_sfn_slot);
 			slot = NFAPI_SFNSLOTDEC2SLOT(pnf_p7->mu, shifted_sfn_slot);
+			NFAPI_TRACE(NFAPI_TRACE_INFO, "shifted_sfn_slot: %d\n", shifted_sfn_slot);
 			NFAPI_TRACE(NFAPI_TRACE_INFO, "Applying shift %d to sfn/slot (%d/%d -> %d/%d)\n", pnf_p7->slot_shift, pnf_p7->sfn, pnf_p7->slot, sfn, slot);
 			pnf_p7->sfn = sfn;
 			pnf_p7->slot = slot;
@@ -851,13 +852,12 @@ int pnf_p7_subframe_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn_sf)
 		{
 			int32_t sfn_sf_dec = NFAPI_SFNSF2DEC(sfn_sf);
 
-			int32_t shifted_sfn_sf = sfn_sf_dec += pnf_p7->sfn_sf_shift;
+			int32_t shifted_sfn_sf = sfn_sf_dec + pnf_p7->sfn_sf_shift;
 
 			// adjust for wrap-around
+			shifted_sfn_sf %= NFAPI_MAX_SFNSFDEC;
 			if(shifted_sfn_sf < 0)
 				shifted_sfn_sf += NFAPI_MAX_SFNSFDEC;
-			else if(shifted_sfn_sf > NFAPI_MAX_SFNSFDEC)
-				shifted_sfn_sf -= NFAPI_MAX_SFNSFDEC;
 
 			NFAPI_TRACE(NFAPI_TRACE_INFO, "Applying shift %d to sfn/sf (%d -> %d)\n", pnf_p7->sfn_sf_shift, NFAPI_SFNSF2DEC(sfn_sf), shifted_sfn_sf);
 			sfn_sf = shifted_sfn_sf;
