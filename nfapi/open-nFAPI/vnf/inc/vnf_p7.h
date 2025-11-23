@@ -93,6 +93,12 @@ typedef struct nfapi_vnf_p7_connection_info {
   int mu; // some 5G slot calculations need the numerology to know the number
           // of slots
 
+	struct timespec next_slot_time;
+	uint32_t slot_duration_us;
+	uint8_t running;
+	pthread_t thread;
+	pthread_mutex_t mutex;
+
 	int socket;
 	struct sockaddr_in local_addr;
 	struct sockaddr_in remote_addr;

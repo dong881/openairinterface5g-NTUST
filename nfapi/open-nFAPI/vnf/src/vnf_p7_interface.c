@@ -442,13 +442,13 @@ int nfapi_vnf_p7_add_pnf(nfapi_vnf_p7_config_t* config, const char* pnf_p7_addr,
 	node->phy_id = phy_id;
 	node->in_sync = 0;
 	node->dl_out_sync_offset = 30;//TODO: Values need to be changed for NR,How to set the values
-	node->dl_out_sync_period = 10;
+	node->dl_out_sync_period = 2;
 	node->dl_in_sync_offset = 30;
 	node->dl_in_sync_period = 512;
 	//node->sfn_sf = 0;
 	node->sfn = 0;
     node->slot = 0;
-	node->min_sync_cycle_count = 8;
+	node->min_sync_cycle_count = 1;
   node->mu = mu;
 #ifndef ENABLE_AERIAL
 	// save the remote endpoint information
