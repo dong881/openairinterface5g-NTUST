@@ -187,7 +187,7 @@ static int read_prach_data(ru_info_t *ru, int frame, int slot)
   /* If it is PRACH slot, copy prach IQ from XRAN PRACH buffer to OAI PRACH buffer */
   if (is_prach_slot) {
     if (!ru->prach_buf) {
-      LOG_W(HW, "we get rach data from ru, but it is not scheduled %d.%d\n", frame, slot);
+      LOG_D(HW, "we get rach data from ru, but it is not scheduled %d.%d\n", frame, slot);
       return -1;
     }
     for (sym_idx = 0; sym_idx < prach_info.N_dur; sym_idx++) {
