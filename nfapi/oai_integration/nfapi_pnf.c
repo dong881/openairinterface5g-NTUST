@@ -1823,15 +1823,15 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nf
 #ifndef ENABLE_WLS
   printf("[PNF] Sending PNF_START_RESP\n");
   nfapi_nr_send_pnf_start_resp(config, p7_config->phy_id);
-  printf("[PNF] Sending first P7 slot indication\n");
+  // printf("[PNF] Sending first P7 slot indication\n");
 #endif
-#if 1
-  nfapi_pnf_p7_slot_ind(p7_config, p7_config->phy_id, 0, 0);
-  printf("[PNF] Sent first P7 slot ind\n");
-#else
-  nfapi_pnf_p7_subframe_ind(p7_config, p7_config->phy_id, 0); // SFN_SF set to zero - correct???
-  printf("[PNF] Sent first P7 subframe ind\n");
-#endif
+// #if 1
+//   nfapi_pnf_p7_slot_ind(p7_config, p7_config->phy_id, 0, 0);
+//   printf("[PNF] Sent first P7 slot ind\n");
+// #else
+//   nfapi_pnf_p7_subframe_ind(p7_config, p7_config->phy_id, 0); // SFN_SF set to zero - correct???
+//   printf("[PNF] Sent first P7 subframe ind\n");
+// #endif
 
   return 0;
 }
@@ -2338,18 +2338,18 @@ void handle_nr_slot_ind(uint16_t sfn, uint16_t slot)
     //send VNF slot indication, which is aligned with TX thread, so that it can call the scheduler
     //we give four additional slots (2ms) which should be enough time for the VNF to
     //answer
-#ifndef ENABLE_WLS
-  int slot_ahead = 2 << mu;
-#else
-  int slot_ahead = 1;
-#endif
+// #ifndef ENABLE_WLS
+//   int slot_ahead = 2 << mu;
+// #else
+//   int slot_ahead = 1;
+// #endif
   uint16_t sfn_tx = sfn;
   uint16_t slot_tx = slot;
-  sfnslot_add_slot(mu, &sfn_tx, &slot_tx, slot_ahead); // modify: do in place
+  // sfnslot_add_slot(mu, &sfn_tx, &slot_tx, slot_ahead); // modify: do in place
 
   // printf("send slot indication for sfn/slot:%4d.%2d current:%4d.%2d\n", sfn_tx, slot_tx, sfn, slot);
-  nfapi_nr_slot_indication_scf_t ind = {.sfn = sfn_tx, .slot = slot_tx};
-  oai_nfapi_nr_slot_indication(&ind);
+  // nfapi_nr_slot_indication_scf_t ind = {.sfn = sfn_tx, .slot = slot_tx};
+  // oai_nfapi_nr_slot_indication(&ind);
 
   // copy data from appropriate p7 slot buffers into channel structures for PHY processing
   nfapi_pnf_p7_slot_ind(config, config->phy_id, sfn, slot);
