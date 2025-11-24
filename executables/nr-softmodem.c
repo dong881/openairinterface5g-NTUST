@@ -513,7 +513,293 @@ static void initialize_agent(ngran_node_t node_type, e2_agent_args_t oai_args)
 
 void init_eNB_afterRU(void);
 configmodule_interface_t *uniqCfg = NULL;
+// char *print_str;
+// asprintf(&print_str, "");
+// log_mmap_entry(0, sfn, slot, print_str);
+// free(print_str);
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <time.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <pthread.h>
+#include <signal.h>
+
+// Log file parameters
+// Set to 512MB, pre-allocate space
+#define INITIAL_LOG_SIZE (512 * 1024 * 1024)
+#define MAX_LOG_FILES 10
+
+typedef struct {
+  char filename[256];
+  char* log_ptr;
+  size_t log_offset;
+  size_t current_log_size;
+  int log_fd;
+  int is_active;
+  pthread_mutex_t lock;
+} mmap_log_file_t;
+
+static mmap_log_file_t log_files[MAX_LOG_FILES] = {0};
+static int num_log_files = 0;
+
+// Cleanup function prototype (no longer needs parameters)
+void cleanup_mmap_logger();
+
+// Signal Handler for Ctrl+C
+void log_signal_handler(int signum) {
+    // When receiving Ctrl+C, perform cleanup and exit
+    // Do not use unsafe functions like printf here, perform cleanup directly
+    cleanup_mmap_logger();
+    _exit(0); // Use _exit to terminate directly, avoid flushing stdio buffers multiple times
+}
+
+int init_mmap_logger(const char* filename) {
+  if (num_log_files >= MAX_LOG_FILES) {
+    fprintf(stderr, "Maximum number of log files reached\n");
+    return -1;
+  }
+
+  // Register signal handler (only for Ctrl+C / SIGTERM)
+  static int signal_registered = 0;
+  if (!signal_registered) {
+      struct sigaction sa;
+      sa.sa_handler = log_signal_handler;
+      sigemptyset(&sa.sa_mask);
+      sa.sa_flags = 0; 
+
+      sigaction(SIGINT, &sa, NULL);  // Ctrl+C
+      sigaction(SIGTERM, &sa, NULL); // Kill command
+      // SIGSEGV handler removed, let crash use system default behavior
+      signal_registered = 1;
+  }
+
+  int log_id = num_log_files;
+  mmap_log_file_t *log = &log_files[log_id];
+  
+  if (pthread_mutex_init(&log->lock, NULL) != 0) {
+      fprintf(stderr, "Mutex init failed\n");
+      return -1;
+  }
+
+  strncpy(log->filename, filename, sizeof(log->filename) - 1);
+  log->filename[sizeof(log->filename) - 1] = '\0';
+  
+  log->log_offset = 0;
+  log->current_log_size = INITIAL_LOG_SIZE;
+  
+  // O_TRUNC: Clear the old file and start fresh each time the program restarts
+  log->log_fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, 0644);
+  if (log->log_fd == -1) {
+    fprintf(stderr, "Failed to open %s\n", filename);
+    return -1;
+  }
+
+  // Pre-allocate file size (128MB)
+  if (ftruncate(log->log_fd, log->current_log_size) == -1) {
+    fprintf(stderr, "ftruncate failed\n");
+    close(log->log_fd);
+    return -1;
+  }
+
+  log->log_ptr = mmap(NULL, log->current_log_size, PROT_READ | PROT_WRITE,
+                      MAP_SHARED, log->log_fd, 0);
+  if (log->log_ptr == MAP_FAILED) {
+    fprintf(stderr, "mmap failed\n");
+    close(log->log_fd);
+    return -1;
+  }
+
+  log->is_active = 1;
+  num_log_files++;
+  
+  return log_id;
+}
+
+void log_mmap_entry(int log_id, int frame_tx, int slot_tx, const char *custom_message) {
+  if (log_id < 0 || log_id >= num_log_files || !log_files[log_id].is_active) {
+    return;
+  }
+
+  mmap_log_file_t *log = &log_files[log_id];
+  struct timespec ts;
+  
+  pthread_mutex_lock(&log->lock);
+
+  clock_gettime(CLOCK_REALTIME, &ts);
+  
+  int estimated_len = 256 + (custom_message ? strlen(custom_message) : 0);
+  
+  // Check if there is enough space
+  if ((log->current_log_size - log->log_offset) < (size_t)estimated_len) {
+      const char* msg = "\n[LOG FULL STOPPED]\n";
+      if ((log->current_log_size - log->log_offset) > strlen(msg)) {
+           sprintf(log->log_ptr + log->log_offset, "%s", msg);
+           log->log_offset += strlen(msg);
+      }
+      pthread_mutex_unlock(&log->lock);
+      return;
+  }
+
+  char timestamp[64];
+  snprintf(timestamp, sizeof(timestamp), "%ld.%09ld", ts.tv_sec, ts.tv_nsec);
+
+  int written = sprintf(log->log_ptr + log->log_offset,
+                        "[%s] %d.%d %s\n",
+                        timestamp, frame_tx, slot_tx, custom_message);
+
+  if (written > 0) {
+      log->log_offset += written;
+  }
+
+  pthread_mutex_unlock(&log->lock);
+}
+
+// Helper function to clean log file: remove null bytes and empty lines
+static void clean_log_file(const char *filename) {
+    FILE *fp = fopen(filename, "rb");
+    if (!fp) return;
+    
+    // Read the entire file content
+    fseek(fp, 0, SEEK_END);
+    long file_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    
+    if (file_size <= 0) {
+        fclose(fp);
+        return;
+    }
+    
+    char *buffer = (char *)malloc(file_size);
+    if (!buffer) {
+        fclose(fp);
+        return;
+    }
+    
+    size_t bytes_read = fread(buffer, 1, file_size, fp);
+    fclose(fp);
+    
+    if (bytes_read == 0) {
+        free(buffer);
+        return;
+    }
+    
+    // First pass: remove null bytes (\0)
+    char *clean_buffer = (char *)malloc(bytes_read);
+    if (!clean_buffer) {
+        free(buffer);
+        return;
+    }
+    
+    size_t clean_len = 0;
+    for (size_t j = 0; j < bytes_read; j++) {
+        if (buffer[j] != '\0') {
+            clean_buffer[clean_len++] = buffer[j];
+        }
+    }
+    free(buffer);
+    
+    // Second pass: remove empty lines (lines with only whitespace)
+    char *final_buffer = (char *)malloc(clean_len + 1);
+    if (!final_buffer) {
+        free(clean_buffer);
+        return;
+    }
+    
+    size_t final_len = 0;
+    size_t line_start = 0;
+    
+    for (size_t j = 0; j <= clean_len; j++) {
+        // Check for end of line or end of buffer
+        if (j == clean_len || clean_buffer[j] == '\n') {
+            // Check if the line is non-empty (has non-whitespace characters)
+            int has_content = 0;
+            for (size_t k = line_start; k < j; k++) {
+                if (clean_buffer[k] != ' ' && clean_buffer[k] != '\t' && 
+                    clean_buffer[k] != '\r') {
+                    has_content = 1;
+                    break;
+                }
+            }
+            
+            // Copy non-empty lines
+            if (has_content) {
+                for (size_t k = line_start; k < j; k++) {
+                    final_buffer[final_len++] = clean_buffer[k];
+                }
+                if (j < clean_len) {
+                    final_buffer[final_len++] = '\n';
+                }
+            }
+            
+            line_start = j + 1;
+        }
+    }
+    free(clean_buffer);
+    
+    // Write the cleaned content back to file
+    fp = fopen(filename, "wb");
+    if (fp) {
+        fwrite(final_buffer, 1, final_len, fp);
+        fclose(fp);
+    }
+    free(final_buffer);
+}
+
+// Cleanup function: sync, unmap, truncate and remove null bytes/empty lines
+void cleanup_mmap_logger() {
+  for (int i = 0; i < num_log_files; i++) {
+    mmap_log_file_t *log = &log_files[i];
+    
+    // Prevent duplicate cleanup
+    if (log->is_active) {
+        log->is_active = 0; // Mark as inactive to prevent other threads from writing
+
+        // Do not lock here, as it may cause deadlock if entering from Signal Handler
+        // Directly operate on memory mapping for synchronization since we are exiting.
+        
+        size_t actual_size = log->log_offset; // Save actual data size before cleanup
+        char filename_copy[256];
+        strncpy(filename_copy, log->filename, sizeof(filename_copy) - 1);
+        filename_copy[sizeof(filename_copy) - 1] = '\0';
+        
+        if (log->log_ptr != NULL) {
+          // Force memory content to be written back to disk
+          msync(log->log_ptr, log->log_offset, MS_SYNC);
+          
+          // Unmap
+          munmap(log->log_ptr, log->current_log_size);
+          log->log_ptr = NULL;
+        }
+        
+        if (log->log_fd != -1) {
+          // Truncate file to actual content size (remove trailing zeros)
+          if (actual_size > 0) {
+              ftruncate(log->log_fd, actual_size);
+          }
+          close(log->log_fd);
+          log->log_fd = -1;
+        }
+        
+        // Clean the log file: remove null bytes and empty lines
+        if (actual_size > 0) {
+            clean_log_file(filename_copy);
+        }
+        
+        // Destroy lock
+        pthread_mutex_destroy(&log->lock);
+    }
+  }
+}
 int main( int argc, char **argv ) {
+  init_mmap_logger("margin.txt");
+  init_mmap_logger("vnf-prb.txt");
+  init_mmap_logger("NR_TIMING_INFO.txt");
+  init_mmap_logger("ul_node_sync.txt");
+  init_mmap_logger("nfapi_path.txt");
   int ru_id, CC_id = 0;
   start_background_system();
 
@@ -733,7 +1019,7 @@ int main( int argc, char **argv ) {
   pthread_mutex_destroy(&sync_mutex);
   pthread_cond_destroy(&nfapi_sync_cond);
   pthread_mutex_destroy(&nfapi_sync_mutex);
-
+  cleanup_mmap_logger();
   time_manager_finish();
 
   free(pckg);
