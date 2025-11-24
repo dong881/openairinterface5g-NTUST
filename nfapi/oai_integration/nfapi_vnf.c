@@ -1615,7 +1615,6 @@ req->nfapi_config.tx_data_timing_offset.tl.tag = NFAPI_NR_NFAPI_TX_DATA_TIMING_O
 #endif
   nfapi_nr_vnf_config_req(config, p5_idx, req);
   printf("[VNF] Sent NFAPI_VNF_CONFIG_REQ num_tlv:%u\n",req->num_tlv);
-  nr_start_resp_received = 1;
   return 0;
 }
 
@@ -1710,6 +1709,7 @@ int start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_start_response_t
 
 int nr_start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_start_response_scf_t *resp) {
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Received NFAPI_START_RESP idx:%d phy_id:%d\n", p5_idx, resp->header.phy_id);
+  nr_start_resp_received = 1;
   return 0;
 }
 
@@ -1834,10 +1834,10 @@ void configure_nr_nfapi_vnf(eth_params_t params)
 #endif
   memset(&vnf, 0, sizeof(vnf));
   memset(vnf.p7_vnfs, 0, sizeof(vnf.p7_vnfs));
-  vnf.p7_vnfs[0].timing_window = 30;
+  vnf.p7_vnfs[0].timing_window = 1;
   vnf.p7_vnfs[0].periodic_timing_enabled = 0;
-  vnf.p7_vnfs[0].aperiodic_timing_enabled = 0;
-  vnf.p7_vnfs[0].periodic_timing_period = 1;
+  vnf.p7_vnfs[0].aperiodic_timing_enabled = 1;
+  vnf.p7_vnfs[0].periodic_timing_period = 0;
   vnf.p7_vnfs[0].config = nfapi_vnf_p7_config_create();
 #ifndef ENABLE_AERIAL
   NFAPI_TRACE(NFAPI_TRACE_INFO,
