@@ -259,6 +259,9 @@ static int get_ntn_timervalues(NR_UE_RRC_SI_INFO *SI_info, NR_NTN_Config_r17_t *
   // TODO remove the hardoded values and define a better strategy to determine the time of expiry
   // with real GEO/LEO/MEO SATs.
   int expire_before_ms = ((val430 >= 120) ? 10000 : 2000);
+  // SIB19 periodicity even for LEO could be configured to be more than epoch time interval (2 secs)
+  if (expire_before_ms < 2 * sib19_periodicity_ms)
+    expire_before_ms = 2 * sib19_periodicity_ms;
   int diff = *val430_ms - expire_before_ms;
   int sib19_timer_ms = (diff > 0) ? diff : ((*val430_ms - sib19_periodicity_ms) > 0) ? (*val430_ms - sib19_periodicity_ms) : 0;
   LOG_I(NR_RRC, "val430:%d s, T430:%d ms, sib19_timer:%d ms\n", val430, *val430_ms, sib19_timer_ms);
