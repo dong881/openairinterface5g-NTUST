@@ -1042,6 +1042,10 @@ void timespec_add_us(struct timespec *t, long us) {
     if (t->tv_nsec >= 1000000000) {
         t->tv_sec += t->tv_nsec / 1000000000;
         t->tv_nsec %= 1000000000;
+    } else if (t->tv_nsec < 0) {
+        long sec_diff = (-t->tv_nsec / 1000000000) + 1;
+        t->tv_sec -= sec_diff;
+        t->tv_nsec += sec_diff * 1000000000;
     }
 }
 static volatile int nr_start_resp_received = 0;
@@ -1091,9 +1095,19 @@ void *vnf_timing_thread(void *arg) {
     phy->thread = pthread_self();
     pthread_mutex_init(&phy->mutex, NULL);
 
+    phy->initial_sync_received = 0;
     vnf_nr_sync(vnf_p7, phy);
 
+    while (!phy->initial_sync_received) {
+        usleep(1000);
+    }
+
     clock_gettime(CLOCK_MONOTONIC, &phy->next_slot_time);
+    long adjustment_us = (long)((phy->t2_sync - phy->t1_sync) % phy->slot_duration_us) - (long)((phy->t4_sync - phy->t3_sync) % phy->slot_duration_us);
+    LOG_I(NFAPI_VNF, "VNF Timing t1: %ld, t2: %ld, t3: %ld, t4: %ld\n", phy->t1_sync, phy->t2_sync, phy->t3_sync, phy->t4_sync);
+    LOG_I(NFAPI_VNF, "VNF Timing initial adjustment: %ld -> %ld us\n", adjustment_us, adjustment_us-200);
+    adjustment_us -= 300;
+    timespec_add_us(&phy->next_slot_time, adjustment_us);
 
     while (phy->running) {
         clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &phy->next_slot_time, NULL);

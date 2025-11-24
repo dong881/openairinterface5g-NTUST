@@ -1597,6 +1597,11 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	uint32_t latency =  (tx_2_rx - pnf_proc_time) >> 1;
 	NFAPI_TRACE(NFAPI_TRACE_INFO, "vnf_nr_handle_ul_node_sync phy_id:%d tx_2_rx:%u pnf_proc_time:%u latency:%u\n", ind.header.phy_id, tx_2_rx, pnf_proc_time, latency);
 
+	phy->t1_sync = ind.t1;
+	phy->t2_sync = ind.t2;
+	phy->t3_sync = ind.t3;
+	phy->t4_sync = t4;
+
 	//phy->in_sync = 1;
 
 	if(!(phy->filtered_adjust))
@@ -1715,7 +1720,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 			sfn_slot_dec += NFAPI_MAX_SFNSLOTDEC(phy->mu);
 		}
 
-		
+		sfn_slot_dec+=2;
 		uint16_t new_sfn = NFAPI_SFNSLOTDEC2SFN(phy->mu, sfn_slot_dec);
 		uint16_t new_slot = NFAPI_SFNSLOTDEC2SLOT(phy->mu, sfn_slot_dec);
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "new_sfn:%d new_slot:%d curr_sfn:%d curr_slot:%d\n", new_sfn, new_slot, curr_sfn, curr_slot);
@@ -1984,6 +1989,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 		phy->previous_t1 = ind.t1;
 		phy->previous_t2 = ind.t2;
 	}
+	phy->initial_sync_received = 1;
 }
 
 void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
@@ -2054,7 +2060,7 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
                         vnf_p7->p7_connections[0].sfn, vnf_p7->p7_connections[0].slot);
             // Panos: Careful here!!! Modification of the original nfapi-code
 			uint16_t new_sfn = ind.last_sfn;
-			uint16_t new_slot = ind.last_slot +1;
+			uint16_t new_slot = ind.last_slot +2;
 			if (new_slot >= (10 * (1 << vnf_p7->p7_connections[0].mu))) {
 				new_slot = 0;
 				new_sfn++;

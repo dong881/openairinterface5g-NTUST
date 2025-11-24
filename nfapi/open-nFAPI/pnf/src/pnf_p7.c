@@ -1102,7 +1102,7 @@ bool is_nr_p7_request_in_window(const uint16_t sfn, const uint16_t slot, const c
 {
   const uint32_t recv = NFAPI_SFNSLOT2DEC(phy->mu, sfn, slot); // unpack sfn/slot
   const uint32_t curr = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
-  const uint8_t timing_window = phy->_public.slot_buffer_size; // TODO check
+  const uint8_t timing_window = 1; //phy->_public.slot_buffer_size; // TODO check
   uint32_t diff = curr < recv ? recv - curr : curr - recv;
   if (diff > NFAPI_MAX_SFNSLOTDEC(phy->mu) / 2)
     diff = NFAPI_MAX_SFNSLOTDEC(phy->mu) - diff;

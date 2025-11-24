@@ -87,6 +87,13 @@ typedef struct nfapi_vnf_p7_connection_info {
 	uint32_t previous_t2;
 	int32_t previous_sf_offset_filtered;
 	int32_t previous_slot_offset_filtered;
+	
+	uint8_t initial_sync_received;
+	uint32_t t1_sync;
+	uint32_t t2_sync;
+	uint32_t t3_sync;
+	uint32_t t4_sync;
+
 	int sfn_sf;
 	int sfn;
 	int slot;
