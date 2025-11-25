@@ -134,6 +134,29 @@ struct pnf_p7_t {
 	uint32_t ul_dci_jitter;
 	uint32_t tx_data_jitter;
 
+	int32_t dl_tti_prev_transit_time_diff;
+	int32_t ul_tti_prev_transit_time_diff;
+	int32_t ul_dci_prev_transit_time_diff;
+	int32_t tx_data_prev_transit_time_diff;
+
+	uint32_t dl_tti_latest_delay;
+	uint32_t dl_tti_earliest_arrival;
+	uint32_t ul_tti_latest_delay;
+	uint32_t ul_tti_earliest_arrival;
+	uint32_t ul_dci_latest_delay;
+	uint32_t ul_dci_earliest_arrival;
+	uint32_t tx_data_latest_delay;
+	uint32_t tx_data_earliest_arrival;
+
+	// Configuration
+	uint32_t dl_tti_timing_offset;
+	uint32_t ul_tti_timing_offset;
+	uint32_t ul_dci_timing_offset;
+	uint32_t tx_data_timing_offset;
+	uint32_t timing_window;
+	uint32_t timing_info_mode;
+	uint32_t timing_info_period;
+
 	uint32_t tick;
 	pnf_p7_stats_t stats;
 	pnf_p7_nr_stats_t nr_stats;

@@ -126,6 +126,11 @@ typedef struct {
   unsigned aperiodic_timing_enabled;
   unsigned periodic_timing_period;
 
+  uint32_t dl_tti_timing_offset;
+  uint32_t ul_tti_timing_offset;
+  uint32_t ul_dci_timing_offset;
+  uint32_t tx_data_timing_offset;
+
   // This is not really the right place if we have multiple PHY,
   // should be part of the phy struct
   udp_data udp;

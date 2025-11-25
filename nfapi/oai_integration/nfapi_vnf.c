@@ -1615,11 +1615,20 @@ int nr_param_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_param_resp
       req->num_tlv++;
     }
   }
-//TODO: Assign tag and value for P7 message offsets
-req->nfapi_config.dl_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET;
-req->nfapi_config.ul_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET;
-req->nfapi_config.ul_dci_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET;
-req->nfapi_config.tx_data_timing_offset.tl.tag = NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET;
+  // Assign tag and value for P7 message offsets
+  req->nfapi_config.dl_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET;
+  req->nfapi_config.dl_tti_timing_offset.value = p7_vnf->dl_tti_timing_offset;
+
+  req->nfapi_config.ul_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET;
+  req->nfapi_config.ul_tti_timing_offset.value = p7_vnf->ul_tti_timing_offset;
+
+  req->nfapi_config.ul_dci_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET;
+  req->nfapi_config.ul_dci_timing_offset.value = p7_vnf->ul_dci_timing_offset;
+
+  req->nfapi_config.tx_data_timing_offset.tl.tag = NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET;
+  req->nfapi_config.tx_data_timing_offset.value = p7_vnf->tx_data_timing_offset;
+
+  req->num_tlv += 4;
 
   vendor_ext_tlv_2 ve2;
   memset(&ve2, 0, sizeof(ve2));
@@ -1848,7 +1857,11 @@ void configure_nr_nfapi_vnf(eth_params_t params)
 #endif
   memset(&vnf, 0, sizeof(vnf));
   memset(vnf.p7_vnfs, 0, sizeof(vnf.p7_vnfs));
-  vnf.p7_vnfs[0].timing_window = 1;
+  vnf.p7_vnfs[0].timing_window = 400;
+  vnf.p7_vnfs[0].dl_tti_timing_offset = 50;
+  vnf.p7_vnfs[0].ul_tti_timing_offset = 50;
+  vnf.p7_vnfs[0].ul_dci_timing_offset = 50;
+  vnf.p7_vnfs[0].tx_data_timing_offset = 50;
   vnf.p7_vnfs[0].periodic_timing_enabled = 0;
   vnf.p7_vnfs[0].aperiodic_timing_enabled = 1;
   vnf.p7_vnfs[0].periodic_timing_period = 0;
