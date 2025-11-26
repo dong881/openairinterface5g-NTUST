@@ -1101,33 +1101,32 @@ void *vnf_timing_thread(void *arg) {
     while (!phy->initial_sync_received) {
         usleep(1000);
     }
-
-    clock_gettime(CLOCK_MONOTONIC, &phy->next_slot_time);
-    long adjustment_us = (long)((phy->t2_sync - phy->t1_sync) % phy->slot_duration_us) - (long)((phy->t4_sync - phy->t3_sync) % phy->slot_duration_us);
-    LOG_I(NFAPI_VNF, "VNF Timing t1: %ld, t2: %ld, t3: %ld, t4: %ld\n", phy->t1_sync, phy->t2_sync, phy->t3_sync, phy->t4_sync);
-    LOG_I(NFAPI_VNF, "VNF Timing initial adjustment: %ld -> %ld us\n", adjustment_us, adjustment_us-200);
-    adjustment_us -= 300;
-    timespec_add_us(&phy->next_slot_time, adjustment_us);
-
     while (phy->running) {
-        clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &phy->next_slot_time, NULL);
-
-        nfapi_nr_slot_indication_scf_t ind = {0};
-        ind.sfn = phy->sfn;
-        ind.slot = phy->slot;
-        ind.header.phy_id = phy->phy_id;
-        LOG_D(MAC, "[VNF Timing] Triggering slot indication for SFN/Slot %d/%d\n", ind.sfn, ind.slot);
-        trigger_scheduler(&ind);
-        timespec_add_us(&phy->next_slot_time, phy->slot_duration_us);
-
-        phy->slot++;
-        if (phy->slot >= (10 * (1 << phy->mu))) {
-            phy->slot = 0;
-            phy->sfn++;
-            if (phy->sfn >= 1024) {
-                phy->sfn = 0;
-            }
-        }
+      clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &phy->next_slot_time, NULL);
+      
+      int sfnslot_dec = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
+      sfnslot_dec++;
+      if (phy->adjustment) {
+        sfnslot_dec += phy->adjustment +1;
+        NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF Timing] Applying timing adjustment of %d slots -> (new sfn:slot %d:%d)\n", phy->adjustment, NFAPI_SFNSLOTDEC2SFN(phy->mu, sfnslot_dec) % 1024,
+                    NFAPI_SFNSLOTDEC2SLOT(phy->mu, sfnslot_dec));
+        phy->adjustment = 0;
+      }
+      if (sfnslot_dec < 0) {
+        // handle negative sfnslot_dec (wrap-around), support multiple rounds
+        int slots_per_frame = NFAPI_SLOTNUM(phy->mu);
+        int total_slots = slots_per_frame * 1024;
+        sfnslot_dec = (sfnslot_dec % total_slots + total_slots) % total_slots;
+      }
+      phy->sfn = NFAPI_SFNSLOTDEC2SFN(phy->mu, sfnslot_dec) % 1024;
+      phy->slot = NFAPI_SFNSLOTDEC2SLOT(phy->mu, sfnslot_dec);
+      nfapi_nr_slot_indication_scf_t ind = {0};
+      ind.sfn = phy->sfn;
+      ind.slot = phy->slot;
+      ind.header.phy_id = phy->phy_id;
+      LOG_D(MAC, "[VNF Timing] Triggering slot indication for SFN/Slot %d/%d\n", ind.sfn, ind.slot);
+      trigger_scheduler(&ind);
+      timespec_add_us(&phy->next_slot_time, phy->slot_duration_us);
     }
     return NULL;
 }
@@ -1886,6 +1885,10 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   config->pnf_list = 0;
   config->phy_list = 0;
 
+  config->timing_window = vnf.p7_vnfs[0].timing_window;
+  config->timing_info_mode = (vnf.p7_vnfs[0].aperiodic_timing_enabled << 1) | (vnf.p7_vnfs[0].periodic_timing_enabled);
+  config->timing_info_period = vnf.p7_vnfs[0].periodic_timing_period;
+
   config->pnf_nr_connection_indication = &pnf_nr_connection_indication_cb;
   config->pnf_disconnect_indication = &pnf_disconnection_indication_cb;
 
@@ -1999,6 +2002,10 @@ void configure_nfapi_vnf(char *vnf_addr, int vnf_p5_port, char *pnf_ip_addr, int
   config->vnf_ipv6 = 0;
   config->pnf_list = 0;
   config->phy_list = 0;
+
+  config->timing_window = vnf.p7_vnfs[0].timing_window;
+  config->timing_info_mode = (vnf.p7_vnfs[0].aperiodic_timing_enabled << 1) | (vnf.p7_vnfs[0].periodic_timing_enabled);
+  config->timing_info_period = vnf.p7_vnfs[0].periodic_timing_period;
 
   config->pnf_connection_indication = &pnf_connection_indication_cb;
   config->pnf_disconnect_indication = &pnf_disconnection_indication_cb;

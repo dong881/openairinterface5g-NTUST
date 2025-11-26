@@ -113,6 +113,10 @@ typedef struct nfapi_vnf_config
 	/*! Optional user defined data that will be avaliable in the callbacks*/
 	void* user_data;
 
+	uint8_t timing_window;
+	uint8_t timing_info_mode;
+	uint8_t timing_info_period;
+
 	/*! \brief Callback indicating that a pnf has established connection 
 	 *  \param config A pointer to the vnf configuration
 	 *  \param p5_idx The p5 used to indicate this pnf p5 connection

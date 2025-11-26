@@ -2052,24 +2052,18 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
           // Panos: Careful here!!! Modification of the original nfapi-code
           //if (vnf_pnf_sfnsf_delta>1 || vnf_pnf_sfnsf_delta < -1)
 		  //printf("VNF-PNF delta - %d", vnf_pnf_sfnslot_delta);
-          if (vnf_pnf_sfnslot_delta > 1) // we need to have a small delta, otherwise it would mean we don't advance
+          if (vnf_pnf_sfnslot_delta > 2) // we need to have a small delta, otherwise it would mean we don't advance
           {
             NFAPI_TRACE(NFAPI_TRACE_WARN, "%s() LARGE SFN/SLOT DELTA between PNF and VNF. Delta %d slots. PNF:%d.%d VNF:%d.%d\n",
                         __FUNCTION__, vnf_pnf_sfnslot_delta,
                         ind.last_sfn, ind.last_slot,
-                        vnf_p7->p7_connections[0].sfn, vnf_p7->p7_connections[0].slot);
+                        p7_con->sfn, p7_con->slot);
             // Panos: Careful here!!! Modification of the original nfapi-code
 			uint16_t new_sfn = ind.last_sfn;
-			uint16_t new_slot = ind.last_slot +2;
-			if (new_slot >= (10 * (1 << vnf_p7->p7_connections[0].mu))) {
-				new_slot = 0;
-				new_sfn++;
-				if (new_sfn >= 1024) {
-					new_sfn = 0;
-				}
-			}
-            vnf_p7->p7_connections[0].sfn = new_sfn;
-            vnf_p7->p7_connections[0].slot = new_slot;
+			uint16_t new_slot = ind.last_slot;
+            int32_t current_val = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn, p7_con->slot);
+            int32_t target_val = NFAPI_SFNSLOT2DEC(p7_con->mu, new_sfn, new_slot);
+            p7_con->adjustment = target_val - current_val;
           }
         }
 }
