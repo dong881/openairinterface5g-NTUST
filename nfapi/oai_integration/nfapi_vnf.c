@@ -2002,10 +2002,6 @@ void configure_nfapi_vnf(char *vnf_addr, int vnf_p5_port, char *pnf_ip_addr, int
   config->pnf_list = 0;
   config->phy_list = 0;
 
-  config->timing_window = vnf.p7_vnfs[0].timing_window;
-  config->timing_info_mode = (vnf.p7_vnfs[0].aperiodic_timing_enabled << 1) | (vnf.p7_vnfs[0].periodic_timing_enabled);
-  config->timing_info_period = vnf.p7_vnfs[0].periodic_timing_period;
-
   config->pnf_connection_indication = &pnf_connection_indication_cb;
   config->pnf_disconnect_indication = &pnf_disconnection_indication_cb;
 
