@@ -1181,13 +1181,12 @@ int pnf_p7_subframe_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn_sf)
 
 bool is_nr_p7_request_in_window(const uint16_t sfn, const uint16_t slot, const char* name, pnf_p7_t* phy, uint32_t timing_offset, uint16_t message_id)
 {
-    uint32_t now_hr = pnf_get_current_time_hr();
-    uint32_t elapsed_us = get_slot_time(now_hr, phy->slot_start_time_hr);
-	NFAPI_TRACE(NFAPI_TRACE_DEBUG, "%s: now_hr: %u, slot_start_time_hr: %u, elapsed_us: %u\n", name, now_hr, phy->slot_start_time_hr, elapsed_us);
-    
-    int32_t current_abs_slot = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
+	int32_t current_abs_slot = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
     int32_t target_abs_slot = NFAPI_SFNSLOT2DEC(phy->mu, sfn, slot);
     int32_t diff_slots = target_abs_slot - current_abs_slot;
+ 
+	uint32_t now_hr = pnf_get_current_time_hr();
+    uint32_t elapsed_us = get_slot_time(now_hr, phy->slot_start_time_hr);
     
     int32_t max_slots = NFAPI_MAX_SFNSLOTDEC(phy->mu);
     if (diff_slots < -max_slots/2) diff_slots += max_slots;
@@ -1196,10 +1195,9 @@ bool is_nr_p7_request_in_window(const uint16_t sfn, const uint16_t slot, const c
     uint32_t slot_len_us = 10000 / NFAPI_SLOTNUM(phy->mu);
 
     if (elapsed_us > slot_len_us) {
-        int32_t slots_passed = elapsed_us / slot_len_us;
-        if (diff_slots < slots_passed / 2) {
-             elapsed_us = elapsed_us % slot_len_us;
-        }
+		// NFAPI_TRACE(NFAPI_TRACE_WARN, "%s: !!!!! elapsed_us %u > slot_len_us %u, adjusting\n", name, elapsed_us, slot_len_us);
+		// NFAPI_TRACE(NFAPI_TRACE_WARN, "%s: now_hr: %u, slot_start_time_hr: %u, elapsed_us: %u\n", name, now_hr, phy->slot_start_time_hr, elapsed_us);
+        elapsed_us = elapsed_us % slot_len_us;
     }
     
     int32_t time_to_target_start_us = (diff_slots * slot_len_us) - elapsed_us;
