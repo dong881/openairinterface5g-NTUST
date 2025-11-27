@@ -1215,7 +1215,7 @@ bool is_nr_p7_request_in_window(const uint16_t sfn, const uint16_t slot, const c
         else if (message_id == NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST) phy->tx_data_latest_delay = lateness;
         
         return false; 
-    } else if (phy->timing_window > 0 && margin > (int32_t)phy->timing_window) {
+    } else if (phy->_public.slot_buffer_size > 0 && margin > phy->_public.slot_buffer_size) {
         uint32_t earliness = (uint32_t)(margin);
         NFAPI_TRACE(NFAPI_TRACE_WARN, "%s is too early by %d us (Window: %d us)\n", name, margin - phy->timing_window, phy->timing_window);
 
