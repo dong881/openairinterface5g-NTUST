@@ -94,6 +94,12 @@ typedef struct nfapi_vnf_p7_connection_info {
 	uint32_t t3_sync;
 	uint32_t t4_sync;
 
+	// Timing Info synchronization state
+	int32_t timing_info_delta_filtered;     // IIR-filtered slot delta
+	uint32_t timing_info_sample_count;      // Number of samples for filter initialization
+	uint32_t timing_info_oow_count;         // Consecutive out-of-window count
+	int32_t timing_info_last_adjustment;    // Last adjustment applied via timing_info
+
 	int sfn_sf;
 	int sfn;
 	int slot;

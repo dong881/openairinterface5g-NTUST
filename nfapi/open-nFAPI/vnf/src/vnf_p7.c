@@ -1969,49 +1969,257 @@ void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
         }
 }
 
-static int16_t vnf_pnf_sfnslot_delta;
+// ============================================================================
+// Timing Info Synchronization Module
+// ============================================================================
+// 
+// Design Philosophy:
+// ------------------
+// 1. INITIAL SYNC: When delta > threshold, jump directly to PNF time (one-shot sync)
+//    - This is efficient for startup or large drift scenarios
+//    - Original logic preserved: immediate sync to get VNF aligned
+//
+// 2. NORMAL OPERATION: VNF should trigger scheduler HALF A SLOT AHEAD of PNF
+//    - This ensures messages arrive at PNF within the timing window
+//    - Target: VNF_time = PNF_time + 0.5 * slot_duration
+//
+// 3. GRADUAL ADJUSTMENT: When timing info shows we're drifting from the target
+//    - If delta is far from target (0.5 slot ahead), gradually adjust back
+//    - Use jitter/delay statistics to detect connection quality improvement
+//    - Periodic timing info can trigger this adjustment
+//
+// Timing Info Triggers:
+// - Aperiodic: Sent when messages arrive out-of-window (indicates problem)
+// - Periodic: Sent at configured intervals (for monitoring/tuning)
+// ============================================================================
 
+// --- Timing Info Constants ---
+#define TIMING_INFO_INITIAL_SYNC_THRESHOLD  2   // Slots delta to trigger initial hard sync
+#define TIMING_INFO_TARGET_AHEAD_SLOTS      0   // Target: VNF ahead of PNF by N slots (was 0.5, use 0 for exact)
+#define TIMING_INFO_FINE_TUNE_THRESHOLD     1   // Slots delta from target before fine-tuning
+#define TIMING_INFO_GRADUAL_STEP_SLOTS      1   // Max slots to adjust per timing_info in gradual mode
+#define TIMING_INFO_JITTER_GOOD_THRESHOLD   100 // us - jitter below this indicates stable connection
+#define TIMING_INFO_DELAY_MARGIN_US         250 // us - acceptable delay margin
+
+/**
+ * @brief Calculate slot delta between VNF and PNF with wrap-around handling
+ * 
+ * @param phy      PHY connection info containing VNF's current SFN/Slot
+ * @param pnf_sfn  PNF's last SFN from timing_info
+ * @param pnf_slot PNF's last slot from timing_info  
+ * @return int32_t Slot delta (positive = VNF ahead, negative = VNF behind)
+ */
+static int32_t calculate_timing_info_slot_delta(nfapi_vnf_p7_connection_info_t *phy,
+                                                 uint32_t pnf_sfn, uint32_t pnf_slot)
+{
+    int32_t max_slots = NFAPI_MAX_SFNSLOTDEC(phy->mu);
+    int32_t half_max = max_slots / 2;
+    
+    int32_t vnf_dec = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
+    int32_t pnf_dec = NFAPI_SFNSLOT2DEC(phy->mu, pnf_sfn, pnf_slot);
+    
+    int32_t delta = vnf_dec - pnf_dec;
+    
+    // Handle wrap-around: if delta is more than half the range, it wrapped
+    if (delta > half_max) {
+        delta -= max_slots;
+    } else if (delta < -half_max) {
+        delta += max_slots;
+    }
+    
+    return delta;
+}
+
+/**
+ * @brief Analyze timing info statistics to assess connection quality
+ * 
+ * @param ind Timing info indication from PNF
+ * @param is_good_quality Output: true if quality is good enough for fine-tuning
+ * @return int32_t Maximum delay in microseconds (negative = early, positive = late)
+ */
+static int32_t analyze_timing_info_quality(const nfapi_nr_timing_info_t *ind, bool *is_good_quality)
+{
+    // Find maximum delay across all message types
+    int32_t max_delay = ind->dl_tti_latest_delay;
+    if (ind->tx_data_request_latest_delay > max_delay)
+        max_delay = ind->tx_data_request_latest_delay;
+    if (ind->ul_tti_latest_delay > max_delay)
+        max_delay = ind->ul_tti_latest_delay;
+    if (ind->ul_dci_latest_delay > max_delay)
+        max_delay = ind->ul_dci_latest_delay;
+    
+    // Find maximum jitter across all message types
+    uint32_t max_jitter = ind->dl_tti_jitter;
+    if (ind->tx_data_request_jitter > max_jitter)
+        max_jitter = ind->tx_data_request_jitter;
+    if (ind->ul_tti_jitter > max_jitter)
+        max_jitter = ind->ul_tti_jitter;
+    if (ind->ul_dci_jitter > max_jitter)
+        max_jitter = ind->ul_dci_jitter;
+    
+    // Determine if connection quality is good
+    // Good quality = low jitter AND reasonable delay
+    *is_good_quality = (max_jitter < TIMING_INFO_JITTER_GOOD_THRESHOLD) && 
+                       (max_delay < TIMING_INFO_DELAY_MARGIN_US && max_delay > -TIMING_INFO_DELAY_MARGIN_US);
+    
+    return max_delay;
+}
+
+/**
+ * @brief Handle NR timing info message from PNF
+ * 
+ * Strategy:
+ * 1. INITIAL SYNC: If delta > threshold, jump directly to PNF time (original logic)
+ * 2. OUT-OF-WINDOW: If this is aperiodic timing info (triggered by OOW), 
+ *    apply immediate correction to get back in window
+ * 3. PERIODIC/FINE-TUNE: If connection quality is good and we're drifting
+ *    from the target (half slot ahead), gradually adjust
+ * 
+ * The goal is to maintain VNF ~0.5 slot ahead of PNF during normal operation,
+ * ensuring messages arrive at PNF within the timing window.
+ */
 void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 {
-	if (pRecvMsg == NULL || vnf_p7 == NULL)
-	{
-		NFAPI_TRACE(NFAPI_TRACE_ERROR, "vnf_handle_timing_info: NULL parameters\n");
-		return;
-	}
+    // 1. Parameter validation
+    if (pRecvMsg == NULL || vnf_p7 == NULL) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "vnf_nr_handle_timing_info: NULL parameters\n");
+        return;
+    }
 
-	nfapi_nr_timing_info_t ind;
-  const bool result = vnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, &ind, sizeof(ind), &vnf_p7->_public.codec_config);
-	if(!result)
-	{
-		NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack timing_info\n");
-		return;
-	}
+    // 2. Unpack timing info message
+    nfapi_nr_timing_info_t ind;
+    const bool result = vnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, &ind, sizeof(ind), 
+                                                     &vnf_p7->_public.codec_config);
+    if (!result) {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack timing_info\n");
+        return;
+    }
 
-        if (vnf_p7 && vnf_p7->p7_connections)
-        {
-          //int16_t vnf_pnf_sfnsf_delta = NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf) - NFAPI_SFNSF2DEC(ind.last_sfn_sf);
-          nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
-            vnf_pnf_sfnslot_delta = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn,p7_con->slot) - NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn,ind.last_slot);
-          //NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() PNF:SFN/SF:%d VNF:SFN/SF:%d deltaSFNSF:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(ind.last_sfn_sf), NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf), vnf_pnf_sfnsf_delta);
-
-          // Panos: Careful here!!! Modification of the original nfapi-code
-          //if (vnf_pnf_sfnsf_delta>1 || vnf_pnf_sfnsf_delta < -1)
-		  //printf("VNF-PNF delta - %d", vnf_pnf_sfnslot_delta);
-          if (vnf_pnf_sfnslot_delta > 2) // we need to have a small delta, otherwise it would mean we don't advance
-          {
-            NFAPI_TRACE(NFAPI_TRACE_WARN, "%s() LARGE SFN/SLOT DELTA between PNF and VNF. Delta %d slots. PNF:%d.%d VNF:%d.%d\n",
-                        __FUNCTION__, vnf_pnf_sfnslot_delta,
-                        ind.last_sfn, ind.last_slot,
-                        p7_con->sfn, p7_con->slot);
-            // Panos: Careful here!!! Modification of the original nfapi-code
-			uint16_t new_sfn = ind.last_sfn;
-			uint16_t new_slot = ind.last_slot;
-            int32_t current_val = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn, p7_con->slot);
-            int32_t target_val = NFAPI_SFNSLOT2DEC(p7_con->mu, new_sfn, new_slot);
-            p7_con->adjustment = target_val - current_val;
-          }
-		  p7_con->initial_sync_received = 1; 
+    // 3. Get PHY connection
+    if (vnf_p7 == NULL || vnf_p7->p7_connections == NULL) {
+        NFAPI_TRACE(NFAPI_TRACE_WARN, "vnf_nr_handle_timing_info: No P7 connections\n");
+        return;
+    }
+    nfapi_vnf_p7_connection_info_t *phy = &vnf_p7->p7_connections[0];
+    
+    // 4. Calculate VNF-PNF slot delta
+    //    Positive = VNF ahead of PNF
+    //    Negative = VNF behind PNF
+    int32_t vnf_pnf_sfnslot_delta = calculate_timing_info_slot_delta(phy, ind.last_sfn, ind.last_slot);
+    
+    // 5. Analyze timing statistics
+    bool is_good_quality;
+    int32_t max_delay_us = analyze_timing_info_quality(&ind, &is_good_quality);
+    uint32_t slot_len_us = 1000 >> phy->mu;
+    
+    // 6. Logging for debugging
+    NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[Timing Info] PNF:%d.%d VNF:%d.%d Delta:%d slots, "
+                "MaxDelay:%d us, Quality:%s, TimeSinceLast:%u ms\n",
+                ind.last_sfn, ind.last_slot, phy->sfn, phy->slot, vnf_pnf_sfnslot_delta,
+                max_delay_us, is_good_quality ? "GOOD" : "BAD", ind.time_since_last_timing_info);
+    
+    // ========================================================================
+    // CASE A: INITIAL SYNC / LARGE DRIFT
+    // ========================================================================
+    // If delta is large (> threshold), jump directly to PNF time
+    // This preserves the original logic for efficient initial synchronization
+    // 
+    if (vnf_pnf_sfnslot_delta > TIMING_INFO_INITIAL_SYNC_THRESHOLD) {
+        // VNF is too far ahead - need to slow down significantly
+        // Jump directly to PNF's time (original behavior)
+        uint16_t new_sfn = ind.last_sfn;
+        uint16_t new_slot = ind.last_slot;
+        
+        int32_t current_val = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
+        int32_t target_val = NFAPI_SFNSLOT2DEC(phy->mu, new_sfn, new_slot);
+        phy->adjustment = target_val - current_val;
+        
+        NFAPI_TRACE(NFAPI_TRACE_WARN, "[Timing Info] INITIAL SYNC: Large delta %d slots. "
+                    "Jumping VNF %d.%d -> PNF %d.%d (adj=%d)\n",
+                    vnf_pnf_sfnslot_delta, phy->sfn, phy->slot, 
+                    new_sfn, new_slot, phy->adjustment);
+    }
+    // ========================================================================
+    // CASE B: OUT-OF-WINDOW CORRECTION
+    // ========================================================================
+    // If timing info is triggered by out-of-window (aperiodic) and delta is negative
+    // or too small, we need to speed up VNF to get ahead of PNF
+    //
+    else if (vnf_pnf_sfnslot_delta < -TIMING_INFO_INITIAL_SYNC_THRESHOLD) {
+        // VNF is behind PNF - need to speed up significantly
+        // Jump to PNF's time + target ahead
+        uint16_t new_sfn = ind.last_sfn;
+        uint16_t new_slot = ind.last_slot;
+        
+        // Add target ahead slots
+        int32_t target_dec = NFAPI_SFNSLOT2DEC(phy->mu, new_sfn, new_slot) + TIMING_INFO_TARGET_AHEAD_SLOTS;
+        int32_t max_slots = NFAPI_MAX_SFNSLOTDEC(phy->mu);
+        if (target_dec >= max_slots) target_dec -= max_slots;
+        if (target_dec < 0) target_dec += max_slots;
+        
+        int32_t current_val = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
+        phy->adjustment = target_dec - current_val;
+        
+        NFAPI_TRACE(NFAPI_TRACE_WARN, "[Timing Info] OOW CORRECTION: VNF behind by %d slots. "
+                    "Adjusting by %d slots\n",
+                    -vnf_pnf_sfnslot_delta, phy->adjustment);
+    }
+    // ========================================================================
+    // CASE C: FINE-TUNING (Gradual Adjustment)
+    // ========================================================================
+    // When connection quality is good (periodic timing info with low jitter),
+    // gradually adjust VNF to maintain the target offset (ahead by ~0.5 slot)
+    //
+    // This handles the case where VNF has drifted from the ideal position
+    // but is still within acceptable range
+    //
+    else if (is_good_quality) {
+        // Calculate deviation from target
+        // Target: VNF should be TIMING_INFO_TARGET_AHEAD_SLOTS ahead of PNF
+        int32_t deviation_from_target = vnf_pnf_sfnslot_delta - TIMING_INFO_TARGET_AHEAD_SLOTS;
+        
+        if (deviation_from_target > TIMING_INFO_FINE_TUNE_THRESHOLD) {
+            // VNF is too far ahead of target - slow down slightly
+            int32_t adj = (deviation_from_target > TIMING_INFO_GRADUAL_STEP_SLOTS) 
+                          ? -TIMING_INFO_GRADUAL_STEP_SLOTS 
+                          : -deviation_from_target;
+            phy->adjustment = adj;
+            
+            NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[Timing Info] FINE-TUNE: VNF %d slots ahead of target. "
+                        "Slowing down by %d slot(s)\n",
+                        deviation_from_target, -adj);
         }
+        else if (deviation_from_target < -TIMING_INFO_FINE_TUNE_THRESHOLD) {
+            // VNF is behind target - speed up slightly
+            int32_t adj = (-deviation_from_target > TIMING_INFO_GRADUAL_STEP_SLOTS) 
+                          ? TIMING_INFO_GRADUAL_STEP_SLOTS 
+                          : -deviation_from_target;
+            phy->adjustment = adj;
+            
+            NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[Timing Info] FINE-TUNE: VNF %d slots behind target. "
+                        "Speeding up by %d slot(s)\n",
+                        -deviation_from_target, adj);
+        }
+        else {
+            // Within fine-tune tolerance - no adjustment needed
+            NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[Timing Info] STABLE: VNF is %d slots from target (within tolerance)\n",
+                        deviation_from_target);
+        }
+    }
+    // ========================================================================
+    // CASE D: WAITING FOR BETTER CONDITIONS
+    // ========================================================================
+    // Connection quality is not good enough for fine-tuning, but delta is acceptable
+    // Just log and wait - don't adjust during unstable conditions
+    //
+    else {
+        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[Timing Info] HOLD: Delta=%d OK but quality not good enough "
+                    "(delay=%d us). Waiting for stable connection.\n",
+                    vnf_pnf_sfnslot_delta, max_delay_us);
+    }
+    
+    // 7. Mark initial sync received (timing_info confirms connectivity)
+    phy->initial_sync_received = 1;
 }
 
 void vnf_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
