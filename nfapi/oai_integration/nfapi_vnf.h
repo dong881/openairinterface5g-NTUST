@@ -59,7 +59,7 @@ typedef struct {
   uint8_t first_subframe_ind;
 
   // timing information recevied from the vnf
-  uint8_t timing_window;
+  uint16_t timing_window;
   uint8_t timing_info_mode;
   uint8_t timing_info_period;
 
@@ -121,7 +121,7 @@ typedef struct {
   int local_port;
   char local_addr[80];
 
-  unsigned timing_window;
+  uint16_t timing_window;
   unsigned periodic_timing_enabled;
   unsigned aperiodic_timing_enabled;
   unsigned periodic_timing_period;

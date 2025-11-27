@@ -44,7 +44,7 @@ typedef struct nfapi_vnf_phy_info
 	int phy_id; //phy_id
 
 	/*! Timing window */
-	uint8_t timing_window;
+	uint16_t timing_window;
 	/*! Timing info mode */
 	uint8_t timing_info_mode;
 	/*! Timing info period */
@@ -113,7 +113,7 @@ typedef struct nfapi_vnf_config
 	/*! Optional user defined data that will be avaliable in the callbacks*/
 	void* user_data;
 
-	uint8_t timing_window;
+	uint16_t timing_window;
 	uint8_t timing_info_mode;
 	uint8_t timing_info_period;
 

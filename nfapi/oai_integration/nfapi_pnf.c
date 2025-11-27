@@ -140,7 +140,7 @@ typedef struct {
   uint8_t first_subframe_ind;
 
   // timing information recevied from the vnf
-  uint8_t timing_window;
+  uint16_t timing_window;
   uint8_t timing_info_mode;
   uint8_t timing_info_period;
   uint32_t dl_tti_timing_offset;
