@@ -1851,7 +1851,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
     // 8. Cleanup and Release Lock
     phy->previous_slot_offset_filtered = phy->slot_offset_filtered;
     // Signal the thread that sync is received and next_slot_time is set
-    phy->initial_sync_received = 1; 
+    
 }
 
 void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
@@ -1927,6 +1927,7 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
             int32_t target_val = NFAPI_SFNSLOT2DEC(p7_con->mu, new_sfn, new_slot);
             p7_con->adjustment = target_val - current_val;
           }
+		  p7_con->initial_sync_received = 1; 
         }
 }
 

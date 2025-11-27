@@ -1066,6 +1066,7 @@ void *vnf_timing_thread(void *arg) {
         if (nr_start_resp_received) {
             if (vnf_p7->p7_connections) {
                 phy = vnf_p7->p7_connections;
+                phy->initial_sync_received = 0;
                 if (RC.nrmac && RC.nrmac[0]) {
                     nfapi_nr_config_request_scf_t *req = &RC.nrmac[0]->config[0];
                     const nfapi_uint8_tlv_t *scs = &req->ssb_config.scs_common;
@@ -1084,9 +1085,10 @@ void *vnf_timing_thread(void *arg) {
 
         usleep(100000);
         LOG_I(NFAPI_VNF, "Waiting for gNB or NFAPI NR configuration... mu:%d start_resp:%d\n", mu, nr_start_resp_received);
+    }    
+    while (!phy->initial_sync_received) {
+        usleep(1000);
     }
-    // usleep(1000000);
-    if (mu < 0) mu = 0;
     phy->mu = mu;
     phy->slot_duration_us = 1000 >> phy->mu; // 1ms / 2^mu
     phy->sfn = 0;
@@ -1095,12 +1097,8 @@ void *vnf_timing_thread(void *arg) {
     phy->thread = pthread_self();
     pthread_mutex_init(&phy->mutex, NULL);
 
-    phy->initial_sync_received = 0;
     vnf_nr_sync(vnf_p7, phy);
 
-    while (!phy->initial_sync_received) {
-        usleep(1000);
-    }
     while (phy->running) {
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &phy->next_slot_time, NULL);
       
