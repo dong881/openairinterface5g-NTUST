@@ -415,9 +415,9 @@ static uint32_t get_slot_time(uint32_t now_hr, uint32_t slot_start_hr)
 		uint32_t slot_start_us = TIMEHR_USEC(slot_start_hr);
 
 		// if the us have wrapped adjust for it
-		if(now_hr < slot_start_us)
+		if(now_us < slot_start_us)
 		{
-			now_us += 500000; 
+			now_us += 1000000; 
 		}
 
 		return now_us - slot_start_us;
