@@ -1160,24 +1160,24 @@ int pnf_p7_subframe_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn_sf)
 	return 0;
 }
 
-bool is_nr_p7_request_in_buffer_window(const uint16_t sfn, const uint16_t slot, const char* name, const pnf_p7_t* phy)
-{
-  const uint32_t recv = NFAPI_SFNSLOT2DEC(phy->mu, sfn, slot); // unpack sfn/slot
-  const uint32_t curr = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
-  const uint8_t timing_window = phy->_public.slot_buffer_size; // TODO check
-  uint32_t diff = curr < recv ? recv - curr : curr - recv;
-  if (diff > NFAPI_MAX_SFNSLOTDEC(phy->mu) / 2)
-    diff = NFAPI_MAX_SFNSLOTDEC(phy->mu) - diff;
-  if (diff > timing_window) {
-    NFAPI_TRACE(NFAPI_TRACE_WARN, "%s is out of buffer window recv: %d.%d curr: %d.%d (delta:%d) [max:%d]\n", name,
-				sfn, slot,
-				phy->sfn, phy->slot,
-				diff * (curr < recv ? 1 : -1),
-				timing_window);
-	return false;
-  }
-  return true;
-}
+// bool is_nr_p7_request_in_buffer_window(const uint16_t sfn, const uint16_t slot, const char* name, const pnf_p7_t* phy)
+// {
+//   const uint32_t recv = NFAPI_SFNSLOT2DEC(phy->mu, sfn, slot); // unpack sfn/slot
+//   const uint32_t curr = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
+//   const uint8_t timing_window = phy->_public.slot_buffer_size; // TODO check
+//   uint32_t diff = curr < recv ? recv - curr : curr - recv;
+//   if (diff > NFAPI_MAX_SFNSLOTDEC(phy->mu) / 2)
+//     diff = NFAPI_MAX_SFNSLOTDEC(phy->mu) - diff;
+//   if (diff > timing_window) {
+//     NFAPI_TRACE(NFAPI_TRACE_WARN, "%s is out of buffer window recv: %d.%d curr: %d.%d (delta:%d) [max:%d]\n", name,
+// 				sfn, slot,
+// 				phy->sfn, phy->slot,
+// 				diff * (curr < recv ? 1 : -1),
+// 				timing_window);
+// 	return false;
+//   }
+//   return true;
+// }
 
 bool is_nr_p7_request_in_window(const uint16_t sfn, const uint16_t slot, const char* name, pnf_p7_t* phy, uint32_t timing_offset, uint16_t message_id)
 {
@@ -1327,8 +1327,7 @@ void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
     pnf_update_nr_timing_info(pnf_p7, frame, slot, &pnf_p7->dl_tti_jitter, &pnf_p7->dl_tti_latest_delay, &pnf_p7->dl_tti_earliest_arrival, header.transmit_timestamp, &pnf_p7->dl_tti_prev_transit_time_diff, pnf_p7->dl_tti_timing_offset);
 
     if (check_nr_nfapi_p7_slot_type(frame, slot, "DL_TTI.request", NR_DOWNLINK_SLOT)
-        && is_nr_p7_request_in_window(frame, slot, "dl_tti_request", pnf_p7, pnf_p7->dl_tti_timing_offset, NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST)
-        && is_nr_p7_request_in_buffer_window(frame, slot, "dl_tti_request", pnf_p7)) {
+        && is_nr_p7_request_in_window(frame, slot, "dl_tti_request", pnf_p7, pnf_p7->dl_tti_timing_offset, NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
       uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
       pnf_p7->slot_buffer[buffer_index].sfn = frame;
@@ -1469,8 +1468,7 @@ void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
     pnf_update_nr_timing_info(pnf_p7, frame, slot, &pnf_p7->ul_tti_jitter, &pnf_p7->ul_tti_latest_delay, &pnf_p7->ul_tti_earliest_arrival, header.transmit_timestamp, &pnf_p7->ul_tti_prev_transit_time_diff, pnf_p7->ul_tti_timing_offset);
 
     if (check_nr_nfapi_p7_slot_type(frame, slot, "UL_TTI.request", NR_UPLINK_SLOT)
-        && is_nr_p7_request_in_window(frame, slot, "ul_tti_request", pnf_p7, pnf_p7->ul_tti_timing_offset, NFAPI_NR_PHY_MSG_TYPE_UL_TTI_REQUEST)
-        && is_nr_p7_request_in_buffer_window(frame, slot, "ul_tti_request", pnf_p7)) {
+        && is_nr_p7_request_in_window(frame, slot, "ul_tti_request", pnf_p7, pnf_p7->ul_tti_timing_offset, NFAPI_NR_PHY_MSG_TYPE_UL_TTI_REQUEST)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
       uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
       pnf_p7->slot_buffer[buffer_index].sfn = frame;
@@ -1598,8 +1596,7 @@ void pnf_handle_ul_dci_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
     pnf_update_nr_timing_info(pnf_p7, frame, slot, &pnf_p7->ul_dci_jitter, &pnf_p7->ul_dci_latest_delay, &pnf_p7->ul_dci_earliest_arrival, header.transmit_timestamp, &pnf_p7->ul_dci_prev_transit_time_diff, pnf_p7->ul_dci_timing_offset);
 
     if (check_nr_nfapi_p7_slot_type(frame, slot, "UL_DCI.request", NR_DOWNLINK_SLOT)
-        && is_nr_p7_request_in_window(frame, slot, "ul_dci_request", pnf_p7, pnf_p7->ul_dci_timing_offset, NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST)
-        && is_nr_p7_request_in_buffer_window(frame, slot, "ul_dci_request", pnf_p7)) {
+        && is_nr_p7_request_in_window(frame, slot, "ul_dci_request", pnf_p7, pnf_p7->ul_dci_timing_offset, NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
       uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
       pnf_p7->slot_buffer[buffer_index].sfn = frame;
@@ -1729,8 +1726,7 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
     }
     pnf_update_nr_timing_info(pnf_p7, frame, slot, &pnf_p7->tx_data_jitter, &pnf_p7->tx_data_latest_delay, &pnf_p7->tx_data_earliest_arrival, header.transmit_timestamp, &pnf_p7->tx_data_prev_transit_time_diff, pnf_p7->tx_data_timing_offset);
     if (check_nr_nfapi_p7_slot_type(frame, slot, "TX_DATA.REQUEST", NR_DOWNLINK_SLOT)
-        && is_nr_p7_request_in_window(frame, slot, "tx_request", pnf_p7, pnf_p7->tx_data_timing_offset, NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST)
-        && is_nr_p7_request_in_buffer_window(frame, slot, "tx_request", pnf_p7)) {
+        && is_nr_p7_request_in_window(frame, slot, "tx_request", pnf_p7, pnf_p7->tx_data_timing_offset, NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
       uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu); // TODO where is buffer length?
       pnf_p7->slot_buffer[buffer_index].sfn = frame;
