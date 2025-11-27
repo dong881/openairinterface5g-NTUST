@@ -1576,16 +1576,10 @@ void vnf_handle_nr_rach_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf
 // Helper Functions
 // ============================================================================
 
-// Calculate the maximum time value in microseconds for wrap-around handling
-static inline uint32_t get_max_time_us(uint8_t mu) {
-    // max_time = 1024 * 10 * (1 << mu) * slot_len_us = 1024 * 10 * 1000 = 10,240,000 us
-    return NFAPI_MAX_SFNSLOTDEC(mu) * (1000 >> mu);
-}
-
 // Calculate VNF-PNF time delta with proper wrap-around handling
 // Returns: Clock Offset + One-way Latency (T2 - T1)
 static int64_t calculate_vnf_pnf_delta(nfapi_nr_ul_node_sync_t *ind, nfapi_vnf_p7_connection_info_t *phy) {
-    uint32_t max_time_val = get_max_time_us(phy->mu);
+	uint32_t max_time_val = NFAPI_MAX_SFNSLOTDEC(phy->mu) * (1000 >> phy->mu);
     uint32_t half_max = max_time_val / 2;
     int64_t delta;
 
@@ -1657,14 +1651,9 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
     // B. Projected PNF Time when VNF receives the sync message
     int64_t projected_pnf_time = (int64_t)t4 + vnf_to_pnf_delta;
     
-    // Normalize to positive range
-    uint32_t max_time_us = get_max_time_us(phy->mu);
-    while (projected_pnf_time < 0) {
-        projected_pnf_time += max_time_us;
-    }
-    while (projected_pnf_time >= max_time_us) {
-        projected_pnf_time -= max_time_us;
-    }
+	// Normalize to positive range using modulo
+	uint32_t max_time_us = NFAPI_MAX_SFNSLOTDEC(phy->mu) * (1000 >> phy->mu);
+	projected_pnf_time = ((projected_pnf_time % max_time_us) + max_time_us) % max_time_us;
 
     // C. Find the boundary of the NEXT PNF Slot
     uint32_t remainder = (uint32_t)projected_pnf_time % slot_len_us;
