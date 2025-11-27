@@ -1564,18 +1564,13 @@ void vnf_handle_nr_rach_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf
 	}
 }
 #include <time.h>
-#include <stdbool.h>
 #include <stdint.h>
 
 // ============================================================================
 // Synchronization Constants
 // ============================================================================
-#define SYNC_CYCLE_COUNT 2              // Number of samples to collect before adjustment
-#define MAX_DRIFT_THRESHOLD_US 1000000  // 1 second threshold for drift reset
-#define SYNC_TOLERANCE_US 250           // Tolerance range for sync (us)
-#define STABLE_COUNT_THRESHOLD 10       // Threshold for consecutive stable counts
 #define SAFETY_MARGIN_SLOTS 0           // Safety buffer slots to avoid scheduling in the past
-#define USER_TIMING_SHIFT_US (0)     // User defined timing advance (negative = VNF sends later)
+#define USER_TIMING_SHIFT_US (0)        // User defined timing advance (negative = VNF sends later)
 
 // ============================================================================
 // Helper Functions
@@ -1583,73 +1578,28 @@ void vnf_handle_nr_rach_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf
 
 // Calculate the maximum time value in microseconds for wrap-around handling
 static inline uint32_t get_max_time_us(uint8_t mu) {
-    // NFAPI_SLOTLEN returns float, we need integer for precise calculation
-    // slot_len_us = 1000 / (1 << mu)
     // max_time = 1024 * 10 * (1 << mu) * slot_len_us = 1024 * 10 * 1000 = 10,240,000 us
     return NFAPI_MAX_SFNSLOTDEC(mu) * (1000 >> mu);
 }
 
 // Calculate VNF-PNF time delta with proper wrap-around handling
 // Returns: Clock Offset + One-way Latency (T2 - T1)
-// Handles all wrap-around scenarios correctly
 static int64_t calculate_vnf_pnf_delta(nfapi_nr_ul_node_sync_t *ind, nfapi_vnf_p7_connection_info_t *phy) {
     uint32_t max_time_val = get_max_time_us(phy->mu);
     uint32_t half_max = max_time_val / 2;
     int64_t delta;
 
-    // Use signed difference to detect wrap-around direction
     int64_t raw_diff = (int64_t)ind->t2 - (int64_t)ind->t1;
     
     if (raw_diff > (int64_t)half_max) {
-        // T1 wrapped around: t2 is in new cycle, t1 was near end of old cycle
-        // Actual delta = t2 - (t1 + max) = t2 - t1 - max (negative adjustment)
         delta = raw_diff - max_time_val;
     } else if (raw_diff < -(int64_t)half_max) {
-        // T2 wrapped around: t2 is near start, t1 was near end
-        // Actual delta = (t2 + max) - t1 = t2 - t1 + max (positive adjustment)
         delta = raw_diff + max_time_val;
     } else {
-        // Normal case: no wrap-around
         delta = raw_diff;
     }
     
     return delta;
-}
-
-// Calculate RTT with wrap-around handling
-static uint32_t calculate_rtt(uint32_t t4, uint32_t t1, uint8_t mu) {
-    uint32_t max_time_val = get_max_time_us(mu);
-    
-    if (t4 >= t1) {
-        uint32_t diff = t4 - t1;
-        // Check if this is actually a wrap-around case
-        if (diff > max_time_val / 2) {
-            // t1 wrapped, actual RTT = (t1_end_of_cycle - t4) is what we want
-            // But since t4 > t1 with large diff, it means t1 is in future cycle
-            return max_time_val - diff;
-        }
-        return diff;
-    } else {
-        // t4 < t1: wrap-around occurred
-        return (max_time_val - t1) + t4;
-    }
-}
-
-// Calculate Slot Offset for filtering
-// Offset = (T2 - T1) - Latency = Clock Offset
-static int32_t calculate_slot_offset(nfapi_nr_ul_node_sync_t *ind, nfapi_vnf_p7_connection_info_t *phy, uint32_t latency) {
-    int64_t delta = calculate_vnf_pnf_delta(ind, phy);
-    return (int32_t)(delta - (int64_t)latency);
-}
-
-// Normalize SFN/Slot decimal value to valid range [0, max)
-static inline int32_t normalize_sfn_slot_dec(int32_t sfn_slot_dec, uint8_t mu) {
-    int32_t max_val = NFAPI_MAX_SFNSLOTDEC(mu);
-    sfn_slot_dec %= max_val;
-    if (sfn_slot_dec < 0) {
-        sfn_slot_dec += max_val;
-    }
-    return sfn_slot_dec;
 }
 
 // Normalize timespec to ensure tv_nsec is in [0, 999999999]
@@ -1672,12 +1622,9 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
         return;
     }
 
-    // Get current VNF time (T4) in microseconds
-    // Assumption: This is aligned with CLOCK_MONOTONIC or the system uptime
     uint32_t now_time_hr = vnf_get_current_time_hr(); 
     nfapi_nr_ul_node_sync_t ind;
     
-    // Unpack message
     if (!vnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, &ind, sizeof(ind), &vnf_p7->_public.codec_config)) {
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack ul_node_sync\n");
         return;
@@ -1692,249 +1639,69 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
     // 2. Calculate Basic Time Parameters
     uint32_t t4 = calculate_nr_t4(now_time_hr, phy->mu, phy->sfn, phy->slot, vnf_p7->slot_start_time_hr);
     uint32_t slot_len_us = 1000 >> phy->mu;
-    
-    // Calculate RTT using helper function (handles wrap-around correctly)
-    uint32_t tx_2_rx_diff = calculate_rtt(t4, ind.t1, phy->mu);
-    
-    // PNF processing time (T3 - T2), handle potential wrap-around
-    uint32_t pnf_proc_time;
-    if (ind.t3 >= ind.t2) {
-        pnf_proc_time = ind.t3 - ind.t2;
-    } else {
-        // Wrap-around during PNF processing (very unlikely but handle it)
-        pnf_proc_time = get_max_time_us(phy->mu) - ind.t2 + ind.t3;
-    }
-    
-    // Validate RTT > PNF processing time
-    if (tx_2_rx_diff < pnf_proc_time) {
-        NFAPI_TRACE(NFAPI_TRACE_WARN, "Invalid timing: RTT(%u) < PNF_proc(%u), skipping\n", tx_2_rx_diff, pnf_proc_time);
-        return;
-    }
-    
-    // Latency = (RTT - PNF_Processing_Time) / 2
-    uint32_t latency = (tx_2_rx_diff - pnf_proc_time) >> 1;
 
     // Update PHY synchronization state
     phy->t1_sync = ind.t1;
     phy->t2_sync = ind.t2;
     phy->t3_sync = ind.t3;
     phy->t4_sync = t4;
+
+    // ==========================================
+    // Precise Physical Time Alignment Logic
+    // ==========================================
+    // Calculate phy->next_slot_time to align exactly with PNF boundaries.
     
-    // Store latency sample in circular buffer
-    // Use modulo to ensure valid index [0, SYNC_CYCLE_COUNT-1]
-    int latency_idx = (SYNC_CYCLE_COUNT - 1) - (phy->min_sync_cycle_count > 0 ? phy->min_sync_cycle_count - 1 : 0);
-    if (latency_idx < 0) latency_idx = 0;
-    if (latency_idx >= SYNC_CYCLE_COUNT) latency_idx = SYNC_CYCLE_COUNT - 1;
-    phy->latency[latency_idx] = latency;
+    // A. Calculate physical time difference (Delta = T2 - T1)
+    int64_t vnf_to_pnf_delta = calculate_vnf_pnf_delta(&ind, phy);
 
-    // 3. Filter Slot Offset (IIR Filter)
-    if (phy->filtered_adjust) {
-        phy->slot_offset = calculate_slot_offset(&ind, phy, latency);
-
-        // IIR Filter Implementation: y[n] = (x[n] + 7 * y[n-1]) / 8
-        // First sample case: use in_sync as initialization indicator
-        // When we first enter filtered_adjust mode, in_sync is 0 and zero_count is 0
-        if (!phy->in_sync && phy->zero_count == 0 && phy->slot_offset_filtered == 0) {
-            // First sample after entering filtered mode
-            phy->slot_offset_filtered = phy->slot_offset;
-        } else {
-            // Normal IIR filter update
-            phy->slot_offset_filtered = (phy->slot_offset + (phy->slot_offset_filtered * 7)) >> 3;
-        }
-    }
-
-    // 4. Drift Check (Safety Mechanism)
-    // If offset exceeds 1 second, force a hard reset
-    if (phy->filtered_adjust && abs(phy->slot_offset_filtered) > MAX_DRIFT_THRESHOLD_US) {
-        NFAPI_TRACE(NFAPI_TRACE_ERROR, "ADJUST TOO BAD: Resetting sync. Offset:%d\n", phy->slot_offset_filtered);
-        phy->filtered_adjust = 0;
-        phy->zero_count = 0;
-        phy->min_sync_cycle_count = SYNC_CYCLE_COUNT;
-        phy->in_sync = 0;
-        phy->slot_offset_filtered = 0;
-    }
-
-    phy->previous_t1 = ind.t1;
-    phy->previous_t2 = ind.t2;
-
-    // 5. Cycle Check
-    // Wait until we have collected SYNC_CYCLE_COUNT samples
-    if (phy->min_sync_cycle_count > 0) {
-        phy->min_sync_cycle_count--;
-        if (phy->min_sync_cycle_count > 0) {
-            return; // Continue collecting samples
-        }
-    }
-
-    // ==========================================
-    // 6. Core Adjustment Logic (State Machine)
-    // ==========================================
+    // B. Projected PNF Time when VNF receives the sync message
+    int64_t projected_pnf_time = (int64_t)t4 + vnf_to_pnf_delta;
     
-    phy->min_sync_cycle_count = SYNC_CYCLE_COUNT; // Reset cycle counter
-    uint32_t curr_sfn = phy->sfn;
-    uint32_t curr_slot = phy->slot;
-    int32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
-    bool perform_hard_resync = false;
-
-    // --- Branch A: Absolute Mode (Initial Sync or Recovery) ---
-    if (!phy->filtered_adjust) {
-        // Calculate average latency
-        phy->average_latency = 0;
-        for(int i = 0; i < SYNC_CYCLE_COUNT; ++i) phy->average_latency += phy->latency[i];
-        phy->average_latency /= SYNC_CYCLE_COUNT;
-
-        // Calculate offset based on average
-        phy->slot_offset = calculate_slot_offset(&ind, phy, phy->average_latency);
-        
-        // Flag to perform a Hard Resync (Physical time alignment)
-        perform_hard_resync = true;
-        
-        // Check for stability to switch to Filtered Mode
-        if (abs(phy->slot_offset) < 100) { // Assume <100us is stable enough
-             phy->zero_count++;
-             if (phy->zero_count >= STABLE_COUNT_THRESHOLD) {
-                 phy->filtered_adjust = 1; // Switch mode
-                 phy->zero_count = 0;
-                 NFAPI_TRACE(NFAPI_TRACE_NOTE, "***** Switching to FILTERED mode *****\n");
-             }
-        } else {
-            phy->zero_count = 0;
-        }
-    } 
-    // --- Branch B: Filtered Mode (Fine Tuning) ---
-    else {
-        // Calculate adjustment in slots (rounding to nearest slot)
-        // Formula: round(offset / slot_len) = (offset + slot_len/2) / slot_len
-        int32_t half_slot = (int32_t)(slot_len_us / 2);
-        int32_t adjustment_slots;
-        if (phy->slot_offset_filtered >= 0) {
-            adjustment_slots = (phy->slot_offset_filtered + half_slot) / (int32_t)slot_len_us;
-        } else {
-            adjustment_slots = (phy->slot_offset_filtered - half_slot) / (int32_t)slot_len_us;
-        }
-        sfn_slot_dec += adjustment_slots;
-
-        // Calculate Trend: weighted moving average of current and previous offset
-        // This helps predict the direction of drift
-        phy->slot_offset_trend = (phy->slot_offset_filtered + phy->previous_slot_offset_filtered) / 2;
-
-        if (adjustment_slots == 0) {
-            if (phy->zero_count++ >= STABLE_COUNT_THRESHOLD) {
-                if (!phy->in_sync) {
-                     NFAPI_TRACE(NFAPI_TRACE_NOTE, "VNF In Sync with PHY %d\n", phy->phy_id);
-                     if (vnf_p7->_public.sync_indication)
-                        vnf_p7->_public.sync_indication(&vnf_p7->_public, 1);
-                     phy->in_sync = 1;
-                }
-            }
-        } else {
-            phy->zero_count = 0;
-            // If offset is large enough to cause a slot jump in filtered mode, force resync
-            perform_hard_resync = true; 
-        }
-
-        // Soft Sync (Minor Adjustment Strategy)
-        if (phy->in_sync && abs(phy->slot_offset_filtered) > SYNC_TOLERANCE_US) {
-            // Dynamic factor: adjust faster if error is large (>1000us)
-            int factor = (abs(phy->slot_offset_filtered) > 1000) ? 2 : 6;
-            int step_us = phy->slot_offset_trend / factor;
-            // Minimum step size
-            if (step_us == 0) step_us = (phy->slot_offset_filtered > 0) ? 2 : -2;
-
-            phy->insync_minor_adjustment = step_us;
-            phy->insync_minor_adjustment_duration = abs(phy->slot_offset_filtered / step_us);
-            
-            NFAPI_TRACE(NFAPI_TRACE_INFO, "Soft Sync: Offset:%d, Adjust:%d us for %d slots\n", 
-                        phy->slot_offset_filtered, phy->insync_minor_adjustment, phy->insync_minor_adjustment_duration);
-        } else {
-            phy->insync_minor_adjustment = 0;
-        }
+    // Normalize to positive range
+    uint32_t max_time_us = get_max_time_us(phy->mu);
+    while (projected_pnf_time < 0) {
+        projected_pnf_time += max_time_us;
+    }
+    while (projected_pnf_time >= max_time_us) {
+        projected_pnf_time -= max_time_us;
     }
 
-    // ==========================================
-    // 7. Precise Physical Time Alignment Logic
-    // ==========================================
-    // When performing a Hard Resync (Initial sync or severe drift), 
-    // we recalculate phy->next_slot_time to align exactly with PNF boundaries.
-    if (perform_hard_resync) {
-        
-        // A. Calculate physical time difference (Delta = T2 - T1)
-        // This maps VNF time to PNF time.
-        int64_t vnf_to_pnf_delta = calculate_vnf_pnf_delta(&ind, phy);
+    // C. Find the boundary of the NEXT PNF Slot
+    uint32_t remainder = (uint32_t)projected_pnf_time % slot_len_us;
+    uint32_t time_to_next_grid = (remainder == 0) ? 0 : (slot_len_us - remainder);
 
-        // B. Projected PNF Time when VNF receives the sync message
-        // projected_pnf_time = vnf_time(t4) + delta
-        // Handle case where delta might be negative (VNF ahead of PNF)
-        int64_t projected_pnf_time = (int64_t)t4 + vnf_to_pnf_delta;
-        
-        // Normalize to positive range
-        uint32_t max_time_us = get_max_time_us(phy->mu);
-        while (projected_pnf_time < 0) {
-            projected_pnf_time += max_time_us;
-        }
-        while (projected_pnf_time >= max_time_us) {
-            projected_pnf_time -= max_time_us;
-        }
-
-        // C. Find the boundary of the NEXT PNF Slot
-        uint32_t remainder = (uint32_t)projected_pnf_time % slot_len_us;
-        uint32_t time_to_next_grid = (remainder == 0) ? 0 : (slot_len_us - remainder);
-
-        // D. Calculate total wait time including safety margin and user shift
-        // time_to_wait = time_to_next_grid + safety_margin_us + user_timing_shift
-        int64_t time_to_wait_us = time_to_next_grid + (SAFETY_MARGIN_SLOTS * slot_len_us) - USER_TIMING_SHIFT_US;
-        
-        // Ensure non-negative wait time
-        if (time_to_wait_us < 0) {
-            time_to_wait_us = 0;
-        }
-
-        // E. Set phy->next_slot_time for the VNF Thread
-        struct timespec now_monotonic;
-        clock_gettime(CLOCK_MONOTONIC, &now_monotonic);
-        
-        // Calculate next slot time correctly
-        int64_t wait_ns = time_to_wait_us * 1000LL;
-        phy->next_slot_time.tv_sec = now_monotonic.tv_sec;
-        phy->next_slot_time.tv_nsec = now_monotonic.tv_nsec + wait_ns;
-        normalize_timespec(&phy->next_slot_time);
-
-        // F. Align Logical SFN/Slot Counters
-        // Calculate target PNF arrival time
-        uint64_t target_pnf_time_us = (uint64_t)projected_pnf_time + time_to_wait_us;
-        target_pnf_time_us %= max_time_us;  // Normalize
-        
-        // Convert to SFN/Slot
-        uint64_t total_slots = target_pnf_time_us / slot_len_us;
-        uint32_t slots_per_frame = NFAPI_SLOTNUM(phy->mu);  // 10 * (1 << mu)
-        
-        uint32_t target_sfn = (total_slots / slots_per_frame) % 1024;
-        uint32_t target_slot = total_slots % slots_per_frame;
-        
-        // Calculate the jump adjustment for logging
-        int32_t current_val = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
-        int32_t target_val = NFAPI_SFNSLOT2DEC(phy->mu, target_sfn, target_slot);
-        phy->adjustment = target_val - current_val;
-
-        NFAPI_TRACE(NFAPI_TRACE_NOTE, "HARD SYNC: Wait %ld us, Target SFN/Slot: %d.%d (Adj:%d, Delta:%ld us)\n", 
-                    time_to_wait_us, target_sfn, target_slot, phy->adjustment, vnf_to_pnf_delta);
-
-    } else {
-        // If not Hard Resync, just update Logical Counters (Handle Wrap)
-        sfn_slot_dec = normalize_sfn_slot_dec(sfn_slot_dec, phy->mu);
-
-        uint16_t new_sfn = NFAPI_SFNSLOTDEC2SFN(phy->mu, sfn_slot_dec);
-        uint16_t new_slot = NFAPI_SFNSLOTDEC2SLOT(phy->mu, sfn_slot_dec);
-
-        if (new_sfn != curr_sfn || new_slot != curr_slot) {
-             phy->adjustment = sfn_slot_dec - NFAPI_SFNSLOT2DEC(phy->mu, curr_sfn, curr_slot);
-             NFAPI_TRACE(NFAPI_TRACE_NOTE, "Logical Adjust: %d.%d -> %d.%d (Adj:%d)\n", 
-                         curr_sfn, curr_slot, new_sfn, new_slot, phy->adjustment);
-        }
+    // D. Calculate total wait time including safety margin and user shift
+    int64_t time_to_wait_us = time_to_next_grid + (SAFETY_MARGIN_SLOTS * slot_len_us) - USER_TIMING_SHIFT_US;
+    
+    if (time_to_wait_us < 0) {
+        time_to_wait_us = 0;
     }
 
-    // 8. Cleanup
-    phy->previous_slot_offset_filtered = phy->slot_offset_filtered;
+    // E. Set phy->next_slot_time for the VNF Thread
+    struct timespec now_monotonic;
+    clock_gettime(CLOCK_MONOTONIC, &now_monotonic);
+    
+    int64_t wait_ns = time_to_wait_us * 1000LL;
+    phy->next_slot_time.tv_sec = now_monotonic.tv_sec;
+    phy->next_slot_time.tv_nsec = now_monotonic.tv_nsec + wait_ns;
+    normalize_timespec(&phy->next_slot_time);
+
+    // F. Align Logical SFN/Slot Counters
+    uint64_t target_pnf_time_us = (uint64_t)projected_pnf_time + time_to_wait_us;
+    target_pnf_time_us %= max_time_us;
+    
+    uint64_t total_slots = target_pnf_time_us / slot_len_us;
+    uint32_t slots_per_frame = NFAPI_SLOTNUM(phy->mu);
+    
+    uint32_t target_sfn = (total_slots / slots_per_frame) % 1024;
+    uint32_t target_slot = total_slots % slots_per_frame;
+    
+    int32_t current_val = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
+    int32_t target_val = NFAPI_SFNSLOT2DEC(phy->mu, target_sfn, target_slot);
+    phy->adjustment = target_val - current_val;
+
+    NFAPI_TRACE(NFAPI_TRACE_NOTE, "SYNC: Wait %ld us, Target SFN/Slot: %d.%d (Adj:%d, Delta:%ld us)\n", 
+                time_to_wait_us, target_sfn, target_slot, phy->adjustment, vnf_to_pnf_delta);
 }
 
 void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
