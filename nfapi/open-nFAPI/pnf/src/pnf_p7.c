@@ -556,6 +556,10 @@ static bool check_nr_p7_timing_at_execution(pnf_p7_t* pnf_p7, uint16_t sfn, uint
     // Positive margin means packet arrived early enough
     // Negative margin means packet arrived too late
     int64_t margin = time_to_target_us - (int64_t)timing_offset;
+	char *print_str;
+	asprintf(&print_str, "m:%d", margin);
+	log_mmap_entry(0, sfn, slot, print_str);
+	free(print_str);
     
     if (margin < 0) {
         // Packet arrived too late
