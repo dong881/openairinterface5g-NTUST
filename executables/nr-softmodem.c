@@ -513,7 +513,187 @@ static void initialize_agent(ngran_node_t node_type, e2_agent_args_t oai_args)
 
 void init_eNB_afterRU(void);
 configmodule_interface_t *uniqCfg = NULL;
+// char *print_str;
+// asprintf(&print_str, "");
+// log_mmap_entry(0, sfn, slot, print_str);
+// free(print_str);
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <time.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <pthread.h>
+#include <signal.h>
+
+// Log file parameters
+// 設定為 128MB，預分配空間
+#define INITIAL_LOG_SIZE (128 * 1024 * 1024)
+#define MAX_LOG_FILES 10
+
+typedef struct {
+  char filename[256];
+  char* log_ptr;
+  size_t log_offset;
+  size_t current_log_size;
+  int log_fd;
+  int is_active;
+  pthread_mutex_t lock;
+} mmap_log_file_t;
+
+static mmap_log_file_t log_files[MAX_LOG_FILES] = {0};
+static int num_log_files = 0;
+
+// 清理函數原型 (不再需要參數)
+void cleanup_mmap_logger();
+
+// Signal Handler for Ctrl+C
+void log_signal_handler(int signum) {
+    // 收到 Ctrl+C 時，執行清理並退出
+    // 這裡不使用 printf 等不安全函數，直接清理
+    cleanup_mmap_logger();
+    _exit(0); // 使用 _exit 直接結束，避免重複刷新標準 I/O 緩衝區
+}
+
+int init_mmap_logger(const char* filename) {
+  if (num_log_files >= MAX_LOG_FILES) {
+    fprintf(stderr, "Maximum number of log files reached\n");
+    return -1;
+  }
+
+  // 註冊 Signal Handler (只針對 Ctrl+C / SIGTERM)
+  static int signal_registered = 0;
+  if (!signal_registered) {
+      struct sigaction sa;
+      sa.sa_handler = log_signal_handler;
+      sigemptyset(&sa.sa_mask);
+      sa.sa_flags = 0; 
+
+      sigaction(SIGINT, &sa, NULL);  // Ctrl+C
+      sigaction(SIGTERM, &sa, NULL); // Kill command
+      // 已移除 SIGSEGV 處理，讓 Crash 回歸系統預設行為
+      signal_registered = 1;
+  }
+
+  int log_id = num_log_files;
+  mmap_log_file_t *log = &log_files[log_id];
+  
+  if (pthread_mutex_init(&log->lock, NULL) != 0) {
+      fprintf(stderr, "Mutex init failed\n");
+      return -1;
+  }
+
+  strncpy(log->filename, filename, sizeof(log->filename) - 1);
+  log->filename[sizeof(log->filename) - 1] = '\0';
+  
+  log->log_offset = 0;
+  log->current_log_size = INITIAL_LOG_SIZE;
+  
+  // O_TRUNC: 每次程式重新啟動時，清空舊檔案重新開始
+  log->log_fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, 0644);
+  if (log->log_fd == -1) {
+    fprintf(stderr, "Failed to open %s\n", filename);
+    return -1;
+  }
+
+  // 預分配檔案大小 (128MB)
+  if (ftruncate(log->log_fd, log->current_log_size) == -1) {
+    fprintf(stderr, "ftruncate failed\n");
+    close(log->log_fd);
+    return -1;
+  }
+
+  log->log_ptr = mmap(NULL, log->current_log_size, PROT_READ | PROT_WRITE,
+                      MAP_SHARED, log->log_fd, 0);
+  if (log->log_ptr == MAP_FAILED) {
+    fprintf(stderr, "mmap failed\n");
+    close(log->log_fd);
+    return -1;
+  }
+
+  log->is_active = 1;
+  num_log_files++;
+  
+  return log_id;
+}
+
+void log_mmap_entry(int log_id, int frame_tx, int slot_tx, const char *custom_message) {
+  if (log_id < 0 || log_id >= num_log_files || !log_files[log_id].is_active) {
+    return;
+  }
+
+  mmap_log_file_t *log = &log_files[log_id];
+  struct timespec ts;
+  
+  pthread_mutex_lock(&log->lock);
+
+  clock_gettime(CLOCK_REALTIME, &ts);
+  
+  int estimated_len = 256 + (custom_message ? strlen(custom_message) : 0);
+  
+  // 檢查空間是否足夠
+  if ((log->current_log_size - log->log_offset) < (size_t)estimated_len) {
+      const char* msg = "\n[LOG FULL STOPPED]\n";
+      if ((log->current_log_size - log->log_offset) > strlen(msg)) {
+           sprintf(log->log_ptr + log->log_offset, "%s", msg);
+           log->log_offset += strlen(msg);
+      }
+      pthread_mutex_unlock(&log->lock);
+      return;
+  }
+
+  char timestamp[64];
+  snprintf(timestamp, sizeof(timestamp), "%ld.%09ld", ts.tv_sec, ts.tv_nsec);
+
+  int written = sprintf(log->log_ptr + log->log_offset,
+                        "[%s] frame=%d slot=%d %s\n",
+                        timestamp, frame_tx, slot_tx, custom_message);
+
+  if (written > 0) {
+      log->log_offset += written;
+  }
+
+  pthread_mutex_unlock(&log->lock);
+}
+
+// 簡化後的清理函數：不做裁切，只做同步
+void cleanup_mmap_logger() {
+  for (int i = 0; i < num_log_files; i++) {
+    mmap_log_file_t *log = &log_files[i];
+    
+    // 防止重複清理
+    if (log->is_active) {
+        log->is_active = 0; // 標記為非活動，防止其他線程繼續寫入
+
+        // 這裡我們不加鎖，因為如果是從 Signal Handler 進來，
+        // 而主線程剛好持有鎖，會導致 Deadlock。
+        // 既然要結束了，直接操作記憶體映射進行同步。
+        
+        if (log->log_ptr != NULL) {
+          // 強制將記憶體內容寫回硬碟
+          msync(log->log_ptr, log->log_offset, MS_SYNC);
+          
+          // 解除映射
+          munmap(log->log_ptr, log->current_log_size);
+          log->log_ptr = NULL;
+        }
+        
+        if (log->log_fd != -1) {
+          // 注意：這裡移除了 ftruncate
+          // 檔案將保持 128MB 大小，後面補 0
+          close(log->log_fd);
+          log->log_fd = -1;
+        }
+        
+        // 銷毀鎖
+        pthread_mutex_destroy(&log->lock);
+    }
+  }
+}
 int main( int argc, char **argv ) {
+  init_mmap_logger("measure.txt");
   int ru_id, CC_id = 0;
   start_background_system();
 
@@ -733,7 +913,7 @@ int main( int argc, char **argv ) {
   pthread_mutex_destroy(&sync_mutex);
   pthread_cond_destroy(&nfapi_sync_cond);
   pthread_mutex_destroy(&nfapi_sync_mutex);
-
+  cleanup_mmap_logger();
   time_manager_finish();
 
   free(pckg);
