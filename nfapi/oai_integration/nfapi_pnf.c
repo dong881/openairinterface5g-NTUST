@@ -1721,9 +1721,13 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nf
   p7_config->slot_buffer_size = phy_info->timing_window; // TODO: check if correct for NR
   printf("subframe_buffer_size configured using phy_info->timing_window:%d\n", phy_info->timing_window);
 
+  // Reset timing info defaults from nfapi_pnf_p7_config_create, use VNF config values instead
+  p7_config->timing_info_mode_periodic = 0;
+  p7_config->timing_info_mode_aperiodic = 0;
+  p7_config->timing_info_period = phy_info->timing_info_period;
+
   if (phy_info->timing_info_mode & 0x1) {
     p7_config->timing_info_mode_periodic = 1;
-    p7_config->timing_info_period = phy_info->timing_info_period;
   }
 
   if (phy_info->timing_info_mode & 0x2) {
