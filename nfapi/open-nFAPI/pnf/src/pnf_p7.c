@@ -1317,54 +1317,6 @@ bool is_nr_p7_request_in_buffer_size(const uint16_t sfn, const uint16_t slot, co
   return true;
 }
 
-bool is_nr_p7_request_in_window(const uint16_t sfn, const uint16_t slot, const char* name, pnf_p7_t* phy, uint32_t timing_offset, uint16_t message_id)
-{
-	int32_t current_abs_slot = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
-    int32_t target_abs_slot = NFAPI_SFNSLOT2DEC(phy->mu, sfn, slot);
-    int32_t diff_slots = target_abs_slot - current_abs_slot;
- 
-	uint32_t now_hr = pnf_get_current_time_hr();
-    uint32_t elapsed_us = get_slot_time(now_hr, phy->slot_start_time_hr);
-    
-    int32_t max_slots = NFAPI_MAX_SFNSLOTDEC(phy->mu);
-    if (diff_slots < -max_slots/2) diff_slots += max_slots;
-    if (diff_slots > max_slots/2) diff_slots -= max_slots;
-    
-    uint32_t slot_len_us = 10000 / NFAPI_SLOTNUM(phy->mu);
-
-    if (elapsed_us > slot_len_us) {
-		// NFAPI_TRACE(NFAPI_TRACE_WARN, "%s: !!!!! elapsed_us %u > slot_len_us %u, adjusting\n", name, elapsed_us, slot_len_us);
-		// NFAPI_TRACE(NFAPI_TRACE_WARN, "%s: now_hr: %u, slot_start_time_hr: %u, elapsed_us: %u\n", name, now_hr, phy->slot_start_time_hr, elapsed_us);
-        elapsed_us = elapsed_us % slot_len_us;
-    }
-    
-    int32_t time_to_target_start_us = (diff_slots * slot_len_us) - elapsed_us;
-    int32_t margin = time_to_target_start_us - (int32_t)timing_offset;
-    
-    if (margin < 0) {
-		uint32_t lateness = (uint32_t)(-margin);
-        NFAPI_TRACE(NFAPI_TRACE_WARN, "%s is late by %d us (Timing Offset: %d us)\n", name, lateness, timing_offset);
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "diff_slots: %d, elapsed_us: %d, time_to_target_start_us: %d, margin: %d\n", diff_slots, elapsed_us, time_to_target_start_us, margin);
-        if (message_id == NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST) phy->dl_tti_latest_delay = lateness;
-        else if (message_id == NFAPI_NR_PHY_MSG_TYPE_UL_TTI_REQUEST) phy->ul_tti_latest_delay = lateness;
-        else if (message_id == NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST) phy->ul_dci_latest_delay = lateness;
-        else if (message_id == NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST) phy->tx_data_latest_delay = lateness;
-        
-        return false; 
-    } else if (phy->_public.slot_buffer_size > 0 && margin > phy->_public.slot_buffer_size) {
-        uint32_t earliness = (uint32_t)(margin);
-        NFAPI_TRACE(NFAPI_TRACE_WARN, "%s is too early by %d us (Window: %d us)\n", name, margin - phy->timing_window, phy->timing_window);
-
-        if (message_id == NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST) phy->dl_tti_earliest_arrival = earliness;
-        else if (message_id == NFAPI_NR_PHY_MSG_TYPE_UL_TTI_REQUEST) phy->ul_tti_earliest_arrival = earliness;
-        else if (message_id == NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST) phy->ul_dci_earliest_arrival = earliness;
-        else if (message_id == NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST) phy->tx_data_earliest_arrival = earliness;
-
-        return false;
-    }
-    
-    return true;
-}
 
 /*! \brief Checks if the slot a message is intended to configure is of the appropriate type ( DL or UL slot )
  *  \param sfn The SFN from a P7 message
