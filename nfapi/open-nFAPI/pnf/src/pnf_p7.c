@@ -693,6 +693,7 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
 
 	// save the curren time, sfn and slot
 	pnf_p7->slot_start_time_hr = pnf_get_current_time_hr();
+	log_mmap_entry(0, sfn, slot, "");
 
 	//We align the pnf_p7 sfn/slot with tx sfn/slot, and vnf is synced with pnf_p7 sfn/slot. This is so that the scheduler runs slot_ahead from rx thread.
 
