@@ -1570,7 +1570,7 @@ void vnf_handle_nr_rach_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf
 // Synchronization Constants
 // ============================================================================
 #define SAFETY_MARGIN_SLOTS 0           // Safety buffer slots to avoid scheduling in the past
-#define USER_TIMING_SHIFT_US (-90)        // User defined timing advance (negative = VNF sends later)
+#define USER_TIMING_SHIFT_US (0)        // User defined timing advance (negative = VNF sends later)
 
 // ============================================================================
 // Helper Functions
