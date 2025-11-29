@@ -3666,7 +3666,7 @@ static inline int get_beam_index(const NR_beam_info_t *beam_info, int frame, int
   return ((frame * slots_per_frame + slot) / beam_info->beam_duration) % beam_info->beam_allocation_size;
 }
 
-NR_beam_alloc_t beam_allocation_procedure(NR_beam_info_t *beam_info, int frame, int slot, int beam_index, int slots_per_frame)
+NR_beam_alloc_t beam_allocation_procedure(NR_beam_info_t *beam_info, int frame, int slot, int16_t beam_index, int slots_per_frame)
 {
   // if no beam allocation for analog beamforming we always return beam index 0 (no multiple beams)
   if (beam_info->beam_mode == NO_BEAM_MODE)
@@ -3675,7 +3675,7 @@ NR_beam_alloc_t beam_allocation_procedure(NR_beam_info_t *beam_info, int frame, 
   const int index = get_beam_index(beam_info, frame, slot, slots_per_frame);
   for (int i = 0; i < beam_info->beams_per_period; i++) {
     NR_beam_alloc_t beam_struct = {.new_beam = false, .idx = i};
-    int *beam = &beam_info->beam_allocation[i][index];
+    int16_t *beam = &beam_info->beam_allocation[i][index];
     if (*beam == -1) {
       beam_struct.new_beam = true;
       *beam = beam_index;
@@ -3689,7 +3689,7 @@ NR_beam_alloc_t beam_allocation_procedure(NR_beam_info_t *beam_info, int frame, 
   return (NR_beam_alloc_t) {.new_beam = false, .idx = -1};
 }
 
-void reset_beam_status(NR_beam_info_t *beam_info, int frame, int slot, int beam_index, int slots_per_frame, bool new_beam)
+void reset_beam_status(NR_beam_info_t *beam_info, int frame, int slot, int16_t beam_index, int slots_per_frame, bool new_beam)
 {
   if(!new_beam) // need to reset only if the beam was allocated specifically for this instance
     return;

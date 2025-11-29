@@ -826,7 +826,7 @@ typedef enum {
 
 typedef struct {
   /// list of allocated beams per period
-  int **beam_allocation;
+  int16_t **beam_allocation;
   int beam_duration; // in slots
   int beams_per_period;
   int beam_allocation_size;
