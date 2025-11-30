@@ -1567,36 +1567,21 @@ void vnf_handle_nr_rach_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf
 #include <stdint.h>
 
 // ============================================================================
+// ============================================================================
 // Synchronization Constants
 // ============================================================================
-#define SAFETY_MARGIN_SLOTS 0           // Safety buffer slots to avoid scheduling in the past
-#define USER_TIMING_SHIFT_US (0)        // User defined timing advance (negative = VNF sends later)
+// TARGET_PNF_MARGIN_US: The desired margin (in microseconds) at PNF reception.
+//
+// When VNF sends slot N message, PNF should receive it TARGET_PNF_MARGIN_US
+// before PNF's slot N starts, resulting in:
+//   diff_slots = 1, recv_phase = slot_len - TARGET_PNF_MARGIN_US
+//   margin = slot_len - recv_phase = TARGET_PNF_MARGIN_US
+#define TARGET_PNF_MARGIN_US 500
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
 
-// Calculate VNF-PNF time delta with proper wrap-around handling
-// Returns: Clock Offset + One-way Latency (T2 - T1)
-static int64_t calculate_vnf_pnf_delta(nfapi_nr_ul_node_sync_t *ind, nfapi_vnf_p7_connection_info_t *phy) {
-	uint32_t max_time_val = NFAPI_MAX_SFNSLOTDEC(phy->mu) * (1000 >> phy->mu);
-    uint32_t half_max = max_time_val / 2;
-    int64_t delta;
-
-    int64_t raw_diff = (int64_t)ind->t2 - (int64_t)ind->t1;
-    
-    if (raw_diff > (int64_t)half_max) {
-        delta = raw_diff - max_time_val;
-    } else if (raw_diff < -(int64_t)half_max) {
-        delta = raw_diff + max_time_val;
-    } else {
-        delta = raw_diff;
-    }
-    
-    return delta;
-}
-
-// Normalize timespec to ensure tv_nsec is in [0, 999999999]
 static inline void normalize_timespec(struct timespec *ts) {
     while (ts->tv_nsec >= 1000000000) {
         ts->tv_sec++;
@@ -1608,9 +1593,27 @@ static inline void normalize_timespec(struct timespec *ts) {
     }
 }
 
+/*! \brief Handle UL_NODE_SYNC from PNF and synchronize VNF timing
+ *
+ * SIMPLIFIED APPROACH:
+ * We know exactly when PNF received our message (T2) and what time it was in PNF's frame.
+ * T2 is offset from PNF's SFN/slot 0/0 in microseconds.
+ * 
+ * Goal: VNF sends slot N message, PNF receives it TARGET_PNF_MARGIN_US before PNF's slot N.
+ * 
+ * At T2 (PNF time), PNF received our DL_NODE_SYNC.
+ * T2 tells us where PNF is in its 10.24s frame.
+ * 
+ * For VNF to send slot N and have it arrive TARGET_PNF_MARGIN_US before PNF slot N:
+ * - VNF must send when PNF is at: slot_N_start - TARGET_PNF_MARGIN_US - one_way_delay
+ * - In other words, VNF's slot N boundary should occur when PNF is at:
+ *   PNF_slot_N - one_way_delay - TARGET_PNF_MARGIN_US
+ *
+ * Since VNF and PNF have same SFN/Slot numbering (just different phase),
+ * VNF's slot boundary should be (one_way_delay + TARGET_PNF_MARGIN_US) ahead of PNF's.
+ */
 void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 {
-    // 1. Parameter Validation
     if (!pRecvMsg || !vnf_p7) {
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "vnf_handle_ul_node_sync: NULL parameters\n");
         return;
@@ -1630,67 +1633,114 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
          return;
     }
 
-    // 2. Calculate Basic Time Parameters
+    // ==========================================
+    // Basic parameters
+    // ==========================================
     uint32_t t4 = calculate_nr_t4(now_time_hr, phy->mu, phy->sfn, phy->slot, vnf_p7->slot_start_time_hr);
-    uint32_t slot_len_us = 1000 >> phy->mu;
+    uint32_t slot_len_us = 1000 >> phy->mu;  // mu=1 -> 500us
+    uint32_t max_time_us = NFAPI_MAX_SFNSLOTDEC(phy->mu) * slot_len_us;  // 10240000 for mu=1
+    uint32_t half_max = max_time_us / 2;
+    uint32_t slots_per_frame = NFAPI_SLOTNUM(phy->mu);  // 20 for mu=1
 
-    // Update PHY synchronization state
     phy->t1_sync = ind.t1;
     phy->t2_sync = ind.t2;
     phy->t3_sync = ind.t3;
     phy->t4_sync = t4;
 
     // ==========================================
-    // Precise Physical Time Alignment Logic
+    // Calculate one-way delay using RTT
     // ==========================================
-    // Calculate phy->next_slot_time to align exactly with PNF boundaries.
+    // All timestamps wrap at max_time_us
+    #define WRAP_DIFF(a, b) ({ \
+        int64_t _d = (int64_t)(a) - (int64_t)(b); \
+        if (_d > (int64_t)half_max) _d -= (int64_t)max_time_us; \
+        if (_d < -(int64_t)half_max) _d += (int64_t)max_time_us; \
+        _d; \
+    })
     
-    // A. Calculate physical time difference (Delta = T2 - T1)
-    int64_t vnf_to_pnf_delta = calculate_vnf_pnf_delta(&ind, phy);
-
-    // B. Projected PNF Time when VNF receives the sync message
-    int64_t projected_pnf_time = (int64_t)t4 + vnf_to_pnf_delta;
+    int64_t t4_t1 = WRAP_DIFF(t4, ind.t1);      // Total time from VNF's view
+    int64_t t3_t2 = WRAP_DIFF(ind.t3, ind.t2);  // PNF processing time
     
-	// Normalize to positive range using modulo
-	uint32_t max_time_us = NFAPI_MAX_SFNSLOTDEC(phy->mu) * (1000 >> phy->mu);
-	projected_pnf_time = ((projected_pnf_time % max_time_us) + max_time_us) % max_time_us;
-
-    // C. Find the boundary of the NEXT PNF Slot
-    uint32_t remainder = (uint32_t)projected_pnf_time % slot_len_us;
-    uint32_t time_to_next_grid = (remainder == 0) ? 0 : (slot_len_us - remainder);
-
-    // D. Calculate total wait time including safety margin and user shift
-    int64_t time_to_wait_us = time_to_next_grid + (SAFETY_MARGIN_SLOTS * slot_len_us) - USER_TIMING_SHIFT_US;
+    #undef WRAP_DIFF
     
-    if (time_to_wait_us < 0) {
-        time_to_wait_us = 0;
-    }
+    // RTT = time for packet round trip (excluding PNF processing)
+    int64_t rtt = t4_t1 - t3_t2;
+    if (rtt < 0) rtt = 100;  // Sanity check: minimum 100us RTT
+    int64_t one_way_delay = rtt / 2;
 
-    // E. Set phy->next_slot_time for the VNF Thread
+    // ==========================================
+    // Calculate VNF timing based on T2 (PNF's reception time)
+    // ==========================================
+    // T2 = PNF's time when it received our message (offset from PNF's 0/0)
+    // T3 = PNF's time when it sent response
+    // "Now" in PNF's time ≈ T3 + (processing since T3)
+    // But we can use T3 as reference point.
+    
+    // T3 is PNF's current time reference (when UL_NODE_SYNC was sent)
+    // PNF is now at approximately T3 + one_way_delay (accounting for message travel)
+    int64_t pnf_current_time = ((int64_t)ind.t3 + one_way_delay) % max_time_us;
+    
+    // Where is PNF in its slot?
+    uint32_t pnf_phase = pnf_current_time % slot_len_us;
+    uint64_t pnf_abs_slot = pnf_current_time / slot_len_us;
+    uint32_t pnf_sfn = (pnf_abs_slot / slots_per_frame) % 1024;
+    uint32_t pnf_slot_in_frame = pnf_abs_slot % slots_per_frame;
+    
+    // ==========================================
+    // VNF should be (one_way_delay + TARGET_PNF_MARGIN_US) ahead of PNF
+    // ==========================================
+    // "Ahead" means: when VNF is at slot boundary, PNF is at 
+    // (slot_boundary - one_way_delay - TARGET_PNF_MARGIN_US)
+    //
+    // In terms of phase:
+    // VNF_phase = PNF_phase + one_way_delay + TARGET_PNF_MARGIN_US (mod slot_len)
+    
+    int64_t vnf_ahead = one_way_delay + TARGET_PNF_MARGIN_US;
+    int64_t target_vnf_phase = (pnf_phase + vnf_ahead) % slot_len_us;
+    
+    // Wait time = time until VNF should hit its next slot boundary
+    // Currently VNF is at some phase, we want it to be at target_vnf_phase
+    // Then wait until next boundary = slot_len - target_vnf_phase
+    int64_t wait_us = slot_len_us - target_vnf_phase;
+    if (wait_us < 50) wait_us += slot_len_us;  // Ensure minimum wait
+    
+    // ==========================================
+    // Set VNF's next slot time
+    // ==========================================
     struct timespec now_monotonic;
     clock_gettime(CLOCK_MONOTONIC, &now_monotonic);
     
-    int64_t wait_ns = time_to_wait_us * 1000LL;
     phy->next_slot_time.tv_sec = now_monotonic.tv_sec;
-    phy->next_slot_time.tv_nsec = now_monotonic.tv_nsec + wait_ns;
+    phy->next_slot_time.tv_nsec = now_monotonic.tv_nsec + wait_us * 1000LL;
     normalize_timespec(&phy->next_slot_time);
 
-    // F. Align Logical SFN/Slot Counters
-    uint64_t target_pnf_time_us = (uint64_t)projected_pnf_time + time_to_wait_us;
-    target_pnf_time_us %= max_time_us;
+    // ==========================================
+    // Set SFN/Slot - VNF should have SAME SFN/Slot as PNF
+    // ==========================================
+    // After wait_us, we enter next slot.
+    // VNF's next slot = PNF's current slot + 1 (since we're ahead by phase only)
+    uint64_t vnf_next_abs_slot = (pnf_abs_slot + 1) % NFAPI_MAX_SFNSLOTDEC(phy->mu);
+    uint32_t vnf_next_sfn = (vnf_next_abs_slot / slots_per_frame) % 1024;
+    uint32_t vnf_next_slot = vnf_next_abs_slot % slots_per_frame;
     
-    uint64_t total_slots = target_pnf_time_us / slot_len_us;
-    uint32_t slots_per_frame = NFAPI_SLOTNUM(phy->mu);
+    // Calculate adjustment
+    int32_t current_dec = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
+    int32_t target_dec = NFAPI_SFNSLOT2DEC(phy->mu, vnf_next_sfn, vnf_next_slot);
     
-    uint32_t target_sfn = (total_slots / slots_per_frame) % 1024;
-    uint32_t target_slot = total_slots % slots_per_frame;
+    phy->adjustment = target_dec - current_dec - 2;  // -2 for processing delay
     
-    int32_t current_val = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
-    int32_t target_val = NFAPI_SFNSLOT2DEC(phy->mu, target_sfn, target_slot);
-    phy->adjustment = target_val - current_val;
+    // Handle wraparound
+    int32_t max_slots = NFAPI_MAX_SFNSLOTDEC(phy->mu);
+    if (phy->adjustment > max_slots/2) phy->adjustment -= max_slots;
+    if (phy->adjustment < -max_slots/2) phy->adjustment += max_slots;
 
-    NFAPI_TRACE(NFAPI_TRACE_NOTE, "SYNC: Wait %ld us, Target SFN/Slot: %d.%d (Adj:%d, Delta:%ld us)\n", 
-                time_to_wait_us, target_sfn, target_slot, phy->adjustment, vnf_to_pnf_delta);
+    NFAPI_TRACE(NFAPI_TRACE_NOTE, 
+                "SYNC: T1=%u T2=%u T3=%u T4=%u | RTT=%ld OWD=%ld | "
+                "PNF_time=%ld PNF_ph=%u tgt_ph=%ld wait=%ld | PNF:%d.%d VNF:%d.%d->%d.%d Adj=%d\n", 
+                ind.t1, ind.t2, ind.t3, t4, rtt, one_way_delay,
+                pnf_current_time, pnf_phase, target_vnf_phase, wait_us,
+                pnf_sfn, pnf_slot_in_frame, phy->sfn, phy->slot, 
+                vnf_next_sfn, vnf_next_slot, phy->adjustment);
 }
 
 void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
@@ -1748,6 +1798,43 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
           //int16_t vnf_pnf_sfnsf_delta = NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf) - NFAPI_SFNSF2DEC(ind.last_sfn_sf);
           nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
             vnf_pnf_sfnslot_delta = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn,p7_con->slot) - NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn,ind.last_slot);
+		// Only print if any jitter/delay/arrival value is non-zero
+		if (
+			ind.dl_tti_jitter != 0 ||
+			ind.tx_data_request_jitter != 0 ||
+			ind.ul_tti_jitter != 0 ||
+			ind.ul_dci_jitter != 0 ||
+			ind.dl_tti_latest_delay != 0 ||
+			ind.tx_data_request_latest_delay != 0 ||
+			ind.ul_tti_latest_delay != 0 ||
+			ind.ul_dci_latest_delay != 0 ||
+			ind.dl_tti_earliest_arrival != 0 ||
+			ind.tx_data_request_earliest_arrival != 0 ||
+			ind.ul_tti_earliest_arrival != 0 ||
+			ind.ul_dci_earliest_arrival != 0
+		) {
+			NFAPI_TRACE(NFAPI_TRACE_INFO,
+				"NFAPI_NR_TIMING_INFO: last_sfn=%u, last_slot=%u, time_since_last_timing_info=%u\n"
+				"  dl_tti_jitter=%u, tx_data_request_jitter=%u, ul_tti_jitter=%u, ul_dci_jitter=%u\n"
+				"  dl_tti_latest_delay=%d, tx_data_request_latest_delay=%d, ul_tti_latest_delay=%d, ul_dci_latest_delay=%d\n"
+				"  dl_tti_earliest_arrival=%d, tx_data_request_earliest_arrival=%d, ul_tti_earliest_arrival=%d, ul_dci_earliest_arrival=%d\n",
+				ind.last_sfn,
+				ind.last_slot,
+				ind.time_since_last_timing_info,
+				ind.dl_tti_jitter,
+				ind.tx_data_request_jitter,
+				ind.ul_tti_jitter,
+				ind.ul_dci_jitter,
+				ind.dl_tti_latest_delay,
+				ind.tx_data_request_latest_delay,
+				ind.ul_tti_latest_delay,
+				ind.ul_dci_latest_delay,
+				ind.dl_tti_earliest_arrival,
+				ind.tx_data_request_earliest_arrival,
+				ind.ul_tti_earliest_arrival,
+				ind.ul_dci_earliest_arrival
+			);
+		}
           //NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() PNF:SFN/SF:%d VNF:SFN/SF:%d deltaSFNSF:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(ind.last_sfn_sf), NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf), vnf_pnf_sfnsf_delta);
 
           // Panos: Careful here!!! Modification of the original nfapi-code
