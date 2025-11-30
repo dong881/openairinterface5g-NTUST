@@ -489,12 +489,12 @@ static bool check_nr_p7_late_at_reception(pnf_p7_t* pnf_p7, uint16_t msg_sfn, ui
     // Margin = time remaining until deadline
     int64_t margin = (target_slot_start_us - recv_time_us) - (int64_t)timing_offset;
     
-	char *print_str;
-	asprintf(&print_str, "m:%d", margin);
-	log_mmap_entry(0,pnf_p7->sfn,pnf_p7->slot,print_str);
-	free(print_str);
     if (margin < 0) {
         // TOO LATE - packet arrived after deadline
+		char *print_str;
+		asprintf(&print_str, "m:%d, %s", margin, name);
+		log_mmap_entry(0,msg_sfn,msg_slot,print_str);
+		free(print_str);
         uint32_t lateness = (uint32_t)(-margin);
         NFAPI_TRACE(NFAPI_TRACE_WARN, "%s [%d.%d] TOO LATE by %u us at reception (cur:%d.%d offset:%u)\n", 
                     name, msg_sfn, msg_slot, lateness, pnf_p7->sfn, pnf_p7->slot, timing_offset);
@@ -509,38 +509,58 @@ static bool check_nr_p7_late_at_reception(pnf_p7_t* pnf_p7, uint16_t msg_sfn, ui
  *  Called when processing buffered messages. Only checks for EARLY arrivals
  *  since late packets were already dropped at reception.
  *  
+ *  \param pnf_p7 The PNF P7 context (for mu and slot timing info)
  *  \param recv_time_hr The time when the packet was received
- *  \param exec_time_hr The current execution time (slot start)
+ *  \param msg_sfn The SFN of the message being processed
+ *  \param msg_slot The slot of the message being processed
  *  \param timing_offset The timing offset for this message type
  *  \param earliest_arrival Pointer to store the earliest arrival value
  *  \param timing_window Maximum early arrival time in microseconds
+ *  \param name The name of the message type for logging
  *  \return margin value in microseconds (how early the packet was)
  */
-static int64_t check_nr_p7_early_at_execution(uint32_t recv_time_hr, uint32_t exec_time_hr,
+static int64_t check_nr_p7_early_at_execution(pnf_p7_t* pnf_p7, uint32_t recv_time_hr,
+                                               uint16_t msg_sfn, uint16_t msg_slot,
                                                uint32_t timing_offset, uint32_t* earliest_arrival,
-                                               uint32_t timing_window, const char* name,
-                                               uint16_t sfn, uint16_t slot)
+                                               uint32_t timing_window, const char* name)
 {
+    uint32_t slot_len_us = 10000 / NFAPI_SLOTNUM(pnf_p7->mu);
+    
+    // Calculate slot difference between current slot and message's target slot
+    int32_t current_abs_slot = NFAPI_SFNSLOT2DEC(pnf_p7->mu, pnf_p7->sfn, pnf_p7->slot);
+    int32_t msg_target_abs_slot = NFAPI_SFNSLOT2DEC(pnf_p7->mu, msg_sfn, msg_slot);
+    int32_t diff_slots = msg_target_abs_slot - current_abs_slot;
+    
+    // Handle wrap-around
+    int32_t max_slots = NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
+    if (diff_slots < -max_slots/2) diff_slots += max_slots;
+    if (diff_slots > max_slots/2) diff_slots -= max_slots;
+    
+    // Get timestamps
+    int64_t current_slot_start_us = (int64_t)TIMEHR_SEC(pnf_p7->slot_start_time_hr) * 1000000 
+                                    + TIMEHR_USEC(pnf_p7->slot_start_time_hr);
     int64_t recv_time_us = (int64_t)TIMEHR_SEC(recv_time_hr) * 1000000 + TIMEHR_USEC(recv_time_hr);
-    int64_t exec_time_us = (int64_t)TIMEHR_SEC(exec_time_hr) * 1000000 + TIMEHR_USEC(exec_time_hr);
     
-    // margin = (exec_time - recv_time) - timing_offset
+    // Calculate target slot start time (adjust for slot offset)
+    int64_t target_slot_start_us = current_slot_start_us + (int64_t)diff_slots * slot_len_us;
+    
+    // margin = (target_slot_start - recv_time) - timing_offset
     // This represents how early the packet arrived before the deadline
-    int64_t margin = (exec_time_us - recv_time_us) - (int64_t)timing_offset;
+    int64_t margin = (target_slot_start_us - recv_time_us) - (int64_t)timing_offset;
     
-	char *print_str;
-	asprintf(&print_str, "m:%d", margin);
-	log_mmap_entry(0,sfn,slot,print_str);
-	free(print_str);
     // Update earliest arrival statistic
-    if (margin > 0) {
+    if (margin >= 0) {
+		char *print_str;
+		asprintf(&print_str, "m:%ld %s", margin, name);
+		log_mmap_entry(0, msg_sfn, msg_slot, print_str);
+		free(print_str);
         uint32_t earliness = (uint32_t)margin;
         if (earliness > *earliest_arrival) *earliest_arrival = earliness;
         
         // Check if too early (outside timing window)
         if (timing_window > 0 && margin > (int64_t)timing_window) {
             NFAPI_TRACE(NFAPI_TRACE_WARN, "%s [%d.%d] too early by %ld us (window:%u)\n",
-                        name, sfn, slot, (long)(margin - timing_window), timing_window);
+                        name, msg_sfn, msg_slot, (long)(margin - timing_window), timing_window);
         }
     }
     
@@ -851,13 +871,13 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
       DevAssert(pnf_p7->_public.dl_tti_req_fn != NULL);
       
       // Check early timing and update statistics
-      int64_t margin = check_nr_p7_early_at_execution(tx_slot_buffer->dl_tti_recv_time_hr,
-                                                       pnf_p7->slot_start_time_hr,
+      int64_t margin = check_nr_p7_early_at_execution(pnf_p7,
+                                                       tx_slot_buffer->dl_tti_recv_time_hr,
+                                                       dl_tti_req->SFN, dl_tti_req->Slot,
                                                        pnf_p7->dl_tti_timing_offset,
                                                        &pnf_p7->dl_tti_earliest_arrival,
                                                        pnf_p7->timing_window,
-                                                       "dl_tti_request",
-                                                       dl_tti_req->SFN, dl_tti_req->Slot);
+                                                       "dl_tti_request");
       
       // Execute the request (late ones were already dropped)
       (pnf_p7->_public.dl_tti_req_fn)(NULL, &(pnf_p7->_public), dl_tti_req);
@@ -876,13 +896,13 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
     if (tx_data_req->Number_of_PDUs > 0) {
       DevAssert(pnf_p7->_public.tx_data_req_fn != NULL);
       
-      int64_t margin = check_nr_p7_early_at_execution(tx_slot_buffer->tx_data_recv_time_hr,
-                                                       pnf_p7->slot_start_time_hr,
+      int64_t margin = check_nr_p7_early_at_execution(pnf_p7,
+                                                       tx_slot_buffer->tx_data_recv_time_hr,
+                                                       tx_data_req->SFN, tx_data_req->Slot,
                                                        pnf_p7->tx_data_timing_offset,
                                                        &pnf_p7->tx_data_earliest_arrival,
                                                        pnf_p7->timing_window,
-                                                       "tx_data_request",
-                                                       tx_data_req->SFN, tx_data_req->Slot);
+                                                       "tx_data_request");
       
       (pnf_p7->_public.tx_data_req_fn)(&(pnf_p7->_public), tx_data_req);
       pnf_p7->nr_stats.tx_data.ontime++;
@@ -899,14 +919,14 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
     if (tx_slot_buffer->ul_tti_req.n_pdus > 0) {
       DevAssert(pnf_p7->_public.ul_tti_req_fn != NULL);
       
-      int64_t margin = check_nr_p7_early_at_execution(tx_slot_buffer->ul_tti_recv_time_hr,
-                                                       pnf_p7->slot_start_time_hr,
+      int64_t margin = check_nr_p7_early_at_execution(pnf_p7,
+                                                       tx_slot_buffer->ul_tti_recv_time_hr,
+                                                       tx_slot_buffer->ul_tti_req.SFN,
+                                                       tx_slot_buffer->ul_tti_req.Slot,
                                                        pnf_p7->ul_tti_timing_offset,
                                                        &pnf_p7->ul_tti_earliest_arrival,
                                                        pnf_p7->timing_window,
-                                                       "ul_tti_request",
-                                                       tx_slot_buffer->ul_tti_req.SFN,
-                                                       tx_slot_buffer->ul_tti_req.Slot);
+                                                       "ul_tti_request");
       
       (pnf_p7->_public.ul_tti_req_fn)(NULL, &(pnf_p7->_public), &tx_slot_buffer->ul_tti_req);
       pnf_p7->nr_stats.ul_tti.ontime++;
@@ -923,14 +943,14 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
     if (tx_slot_buffer->ul_dci_req.numPdus > 0) {
       DevAssert(pnf_p7->_public.ul_dci_req_fn != NULL);
       
-      int64_t margin = check_nr_p7_early_at_execution(tx_slot_buffer->ul_dci_recv_time_hr,
-                                                       pnf_p7->slot_start_time_hr,
+      int64_t margin = check_nr_p7_early_at_execution(pnf_p7,
+                                                       tx_slot_buffer->ul_dci_recv_time_hr,
+                                                       tx_slot_buffer->ul_dci_req.SFN,
+                                                       tx_slot_buffer->ul_dci_req.Slot,
                                                        pnf_p7->ul_dci_timing_offset,
                                                        &pnf_p7->ul_dci_earliest_arrival,
                                                        pnf_p7->timing_window,
-                                                       "ul_dci_request",
-                                                       tx_slot_buffer->ul_dci_req.SFN,
-                                                       tx_slot_buffer->ul_dci_req.Slot);
+                                                       "ul_dci_request");
       
       (pnf_p7->_public.ul_dci_req_fn)(NULL, &(pnf_p7->_public), &tx_slot_buffer->ul_dci_req);
       pnf_p7->nr_stats.ul_dci.ontime++;
