@@ -1060,13 +1060,13 @@ void *vnf_timing_thread(void *arg) {
     // (ssb_config.scs_common) which is set when handling PARAM/CONFIG responses.
     // If that's not available yet, fallback to RC.gNB frame_parms numerology_index.
     int mu = -1;
-    nfapi_vnf_p7_connection_info_t *phy = NULL;
+    nfapi_vnf_p7_connection_info_t *p7_info = NULL;
 
     while (1) {
         if (nr_start_resp_received) {
             if (vnf_p7->p7_connections) {
-                phy = vnf_p7->p7_connections;
-                phy->initial_sync_received = 0;
+                p7_info = vnf_p7->p7_connections;
+                p7_info->initial_timinginfo_received = 0;
                 if (RC.nrmac && RC.nrmac[0]) {
                     nfapi_nr_config_request_scf_t *req = &RC.nrmac[0]->config[0];
                     const nfapi_uint8_tlv_t *scs = &req->ssb_config.scs_common;
@@ -1086,48 +1086,57 @@ void *vnf_timing_thread(void *arg) {
         usleep(100000);
         LOG_I(NFAPI_VNF, "Waiting for gNB or NFAPI NR configuration... mu:%d start_resp:%d\n", mu, nr_start_resp_received);
     }    
-    while (!phy->initial_sync_received) {
+    while (!p7_info->initial_timinginfo_received) {
         usleep(1000);
     }
-    phy->mu = mu;
-    phy->slot_duration_us = 1000 >> phy->mu; // 1ms / 2^mu
-    phy->sfn = 0;
-    phy->slot = 0;
-    phy->running = 1;
-    phy->thread = pthread_self();
-    pthread_mutex_init(&phy->mutex, NULL);
+    p7_info->mu = mu;
+    p7_info->slot_duration_us = 1000 >> p7_info->mu; // 1ms / 2^mu
+    p7_info->sfn = 0;
+    p7_info->slot = 0;
+    p7_info->running = 1;
+    p7_info->thread = pthread_self();
+    pthread_mutex_init(&p7_info->mutex, NULL);
 
-    vnf_nr_sync(vnf_p7, phy);
-
-    while (phy->running) {
-      clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &phy->next_slot_time, NULL);
-      
-      int sfnslot_dec = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
+    clock_gettime(CLOCK_MONOTONIC, &p7_info->next_slot_time);
+    vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
+    vnf_nr_sync(vnf_p7, p7_info);
+    
+    while (p7_info->running) {
+      int sfnslot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, p7_info->sfn, p7_info->slot);
       sfnslot_dec++;
-      if (phy->adjustment) {
-        sfnslot_dec += phy->adjustment +1;
-        NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF Timing] Applying timing adjustment of %d slots -> (new sfn:slot %d:%d)\n", phy->adjustment, NFAPI_SFNSLOTDEC2SFN(phy->mu, sfnslot_dec) % 1024,
-                    NFAPI_SFNSLOTDEC2SLOT(phy->mu, sfnslot_dec));
-        phy->adjustment = 0;
+      if (p7_info->slot_adjustment) {
+        sfnslot_dec += p7_info->slot_adjustment;
+        if (sfnslot_dec < 0) {
+          // handle negative sfnslot_dec (wrap-around), support multiple rounds
+          int slots_per_frame = NFAPI_SLOTNUM(p7_info->mu);
+          int total_slots = slots_per_frame * 1024;
+          sfnslot_dec = (sfnslot_dec % total_slots + total_slots) % total_slots;
+        }
+        NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF Timing] Applying slot adjustment of %d slots -> (new sfn:slot %d:%d)\n", p7_info->slot_adjustment, NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec) % 1024,
+                    NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec));
+        p7_info->slot_adjustment = 0;
       }
-      if (sfnslot_dec < 0) {
-        // handle negative sfnslot_dec (wrap-around), support multiple rounds
-        int slots_per_frame = NFAPI_SLOTNUM(phy->mu);
-        int total_slots = slots_per_frame * 1024;
-        sfnslot_dec = (sfnslot_dec % total_slots + total_slots) % total_slots;
+      p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec) % 1024;
+      p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
+      
+      // Apply us_adjustment to fine-tune slot timing phase
+      if (p7_info->us_adjustment) {
+        timespec_add_us(&p7_info->next_slot_time, p7_info->us_adjustment);
+        NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF Timing] Applying us adjustment of %d us\n", p7_info->us_adjustment);
+        p7_info->us_adjustment = 0;
       }
-      phy->sfn = NFAPI_SFNSLOTDEC2SFN(phy->mu, sfnslot_dec) % 1024;
-      phy->slot = NFAPI_SFNSLOTDEC2SLOT(phy->mu, sfnslot_dec);
+      timespec_add_us(&p7_info->next_slot_time, p7_info->slot_duration_us);
+      clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
+      vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
       nfapi_nr_slot_indication_scf_t ind = {0};
-      ind.sfn = phy->sfn;
-      ind.slot = phy->slot;
-      ind.header.phy_id = phy->phy_id;
+      ind.sfn = p7_info->sfn;
+      ind.slot = p7_info->slot;
+      ind.header.phy_id = p7_info->phy_id;
       LOG_D(MAC, "[VNF Timing] Triggering slot indication for SFN/Slot %d/%d\n", ind.sfn, ind.slot);
       trigger_scheduler(&ind);
-      timespec_add_us(&phy->next_slot_time, phy->slot_duration_us);
     }
     return NULL;
-}
+  }
 
 int phy_nr_srs_indication(nfapi_nr_srs_indication_t *ind)
 {

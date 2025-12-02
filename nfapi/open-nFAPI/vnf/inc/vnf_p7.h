@@ -80,6 +80,8 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t slot_offset_filtered;
 	uint16_t zero_count;
 	int32_t adjustment;
+	int32_t slot_adjustment;
+	int32_t us_adjustment;
 	int32_t insync_minor_adjustment;
 	int32_t insync_minor_adjustment_duration;
 
@@ -88,12 +90,7 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t previous_sf_offset_filtered;
 	int32_t previous_slot_offset_filtered;
 	
-	uint8_t initial_sync_received;
-	uint32_t t1_sync;
-	uint32_t t2_sync;
-	uint32_t t3_sync;
-	uint32_t t4_sync;
-
+	uint8_t initial_timinginfo_received;
 	int sfn_sf;
 	int sfn;
 	int slot;
