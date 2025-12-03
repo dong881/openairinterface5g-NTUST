@@ -372,6 +372,8 @@ typedef struct {
   int nbAnt;
   int flags;
   int aarx;
+  int batch_size;
+  int num_batches;
   c16_t saved_samples[MAX_NUM_ANTENNAS_TX][SAVED_SAMPLES_LEN];
 } channel_modelling_args_t;
 
@@ -415,48 +417,55 @@ static void perform_channel_modelling(void *arg)
     }
   }
 
-  for (int aatx = 0; aatx < nb_tx_ant; aatx++) {
-    for (int i = 0; i < nsamps; i++) {
-      cf_t *impulse_response = channel_impulse_response_p[aatx];
-      for (int l = 0; l < channel_desc->channel_length; l++) {
-        int idx = i - l;
-        // TODO: Use AVX2 for this
-        c16_t tx_input = idx >= 0 ? input_samples[aatx][idx]
-                                  : channel_modelling_args->saved_samples[aatx][SAVED_SAMPLES_LEN + idx];
-        samples[i].r += tx_input.r * impulse_response[l].r - tx_input.i * impulse_response[l].i;
-        samples[i].i += tx_input.i * impulse_response[l].r + tx_input.r * impulse_response[l].i;
+  for (int batch_index = 0; batch_index < channel_modelling_args->num_batches; batch_index++) {
+    int start_sample = batch_index * channel_modelling_args->batch_size;
+    int num_samples = min(channel_modelling_args->batch_size, nsamps - start_sample);
+    if (start_sample >= nsamps) {
+      break;
+    }
+    for (int aatx = 0; aatx < nb_tx_ant; aatx++) {
+      for (int i = start_sample; i < start_sample + num_samples; i++) {
+        cf_t *impulse_response = channel_impulse_response_p[aatx];
+        for (int l = 0; l < channel_desc->channel_length; l++) {
+          int idx = i - l;
+          // TODO: Use AVX2 for this
+          c16_t tx_input = idx >= 0 ? input_samples[aatx][idx]
+                                    : channel_modelling_args->saved_samples[aatx][SAVED_SAMPLES_LEN + idx];
+          samples[i].r += tx_input.r * impulse_response[l].r - tx_input.i * impulse_response[l].i;
+          samples[i].i += tx_input.i * impulse_response[l].r + tx_input.r * impulse_response[l].i;
+        }
       }
     }
-  }
 
-  // Convert to c16_t
-  c16_t samples_out[aligned_nsamps] __attribute__((aligned(64)));
-#if defined(__AVX512F__)
-  for (int i = 0; i < aligned_nsamps / 8; i++) {
-    simde__m512 *in = (simde__m512 *)&samples[i * 8];
-    simde__m256i *out = (simde__m256i *)&samples_out[i * 8];
-    *out = simde_mm512_cvtsepi32_epi16(simde_mm512_cvtps_epi32(*in));
-  }
-#elif defined(__AVX2__)
-  for (int i = 0; i < aligned_nsamps / 4; i++) {
-    simde__m256 *in = (simde__m256 *)&samples[i * 4];
-    simde__m128i *out = (simde__m128i *)&samples_out[i * 4];
-    *out = simde_mm256_cvtsepi32_epi16(simde_mm256_cvtps_epi32(*in));
-  }
-#else
-  for (int i = 0; i < nsamps; i++) {
-    samples_out[i].r = lroundf(samples[i].r);
-    samples_out[i].i = lroundf(samples[i].i);
-  }
-#endif
+    // Convert to c16_t
+    c16_t samples_out[aligned_nsamps] __attribute__((aligned(64)));
+  #if defined(__AVX512F__)
+    for (int i = 0; i < aligned_nsamps / 8; i++) {
+      simde__m512 *in = (simde__m512 *)&samples[i * 8];
+      simde__m256i *out = (simde__m256i *)&samples_out[i * 8];
+      *out = simde_mm512_cvtsepi32_epi16(simde_mm512_cvtps_epi32(*in));
+    }
+  #elif defined(__AVX2__)
+    for (int i = 0; i < aligned_nsamps / 4; i++) {
+      simde__m256 *in = (simde__m256 *)&samples[i * 4];
+      simde__m128i *out = (simde__m128i *)&samples_out[i * 4];
+      *out = simde_mm256_cvtsepi32_epi16(simde_mm256_cvtps_epi32(*in));
+    }
+  #else
+    for (int i = 0; i < nsamps; i++) {
+      samples_out[i].r = lroundf(samples[i].r);
+      samples_out[i].i = lroundf(samples[i].i);
+    }
+  #endif
 
-  vrtsim_write_internal(channel_modelling_args->vrtsim_state,
-                        channel_modelling_args->timestamp,
-                        samples_out,
-                        channel_modelling_args->nsamps,
-                        aarx,
-                        channel_modelling_args->flags,
-                        aarx);
+    vrtsim_write_internal(channel_modelling_args->vrtsim_state,
+                          channel_modelling_args->timestamp,
+                          samples_out,
+                          channel_modelling_args->nsamps,
+                          aarx,
+                          channel_modelling_args->flags,
+                          aarx);
+  }
 }
 
 static int vrtsim_write_with_chanmod(vrtsim_state_t *vrtsim_state,
@@ -470,6 +479,7 @@ static int vrtsim_write_with_chanmod(vrtsim_state_t *vrtsim_state,
   static c16_t saved_samples[MAX_NUM_ANTENNAS_TX][SAVED_SAMPLES_LEN] __attribute__((aligned(32))) = {0};
   // Indicates what samples are saves in saved_samples
   static openair0_timestamp last_timestamp = 0;
+  const int batch_size = 4096;
 
   AssertFatal(nbAnt <= MAX_NUM_ANTENNAS_TX, "Number of antennas %d exceeds maximum %d\n", nbAnt, MAX_NUM_ANTENNAS_TX);
   for (int aarx = 0; aarx < vrtsim_state->peer_info.num_rx_antennas; aarx++) {
@@ -481,6 +491,8 @@ static int vrtsim_write_with_chanmod(vrtsim_state_t *vrtsim_state,
     args->nbAnt = nbAnt;
     args->flags = flags;
     args->aarx = aarx;
+    args->batch_size = batch_size;
+    args->num_batches = (nsamps + batch_size - 1) / batch_size;
     for (int i = 0; i < nbAnt; i++) {
       args->samples[i] = samplesVoid[i];
     }
