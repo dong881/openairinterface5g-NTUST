@@ -471,7 +471,7 @@ static int vrtsim_write_with_chanmod(vrtsim_state_t *vrtsim_state,
   // Indicates what samples are saves in saved_samples
   static openair0_timestamp last_timestamp = 0;
 
-  AssertFatal(nbAnt < MAX_NUM_ANTENNAS_TX, "Number of antennas %d exceeds maximum %d\n", nbAnt, MAX_NUM_ANTENNAS_TX);
+  AssertFatal(nbAnt <= MAX_NUM_ANTENNAS_TX, "Number of antennas %d exceeds maximum %d\n", nbAnt, MAX_NUM_ANTENNAS_TX);
   for (int aarx = 0; aarx < vrtsim_state->peer_info.num_rx_antennas; aarx++) {
     notifiedFIFO_elt_t *task = newNotifiedFIFO_elt(sizeof(channel_modelling_args_t), 0, NULL, perform_channel_modelling);
     channel_modelling_args_t *args = (channel_modelling_args_t *)NotifiedFifoData(task);
