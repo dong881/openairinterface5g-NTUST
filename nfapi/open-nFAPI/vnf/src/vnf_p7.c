@@ -1575,7 +1575,7 @@ void vnf_handle_nr_rach_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf
 	}
 }
 
-#define TARGET_PNF_MARGIN_US 500 // Target: VNF leads PNF by this many microseconds
+#define TARGET_PNF_MARGIN_US 400 // Target: VNF leads PNF by this many microseconds
 
 /*===========================================================================
  * vnf_nr_handle_ul_node_sync - Handle UL_NODE_SYNC from PNF
@@ -1629,7 +1629,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
     p7_info->us_adjustment = -offsetus;
     p7_info->slot_adjustment = offsetslot;
 
-    NFAPI_TRACE(NFAPI_TRACE_INFO, 
+    NFAPI_TRACE(NFAPI_TRACE_DEBUG, 
         "[P7_SYNC] ul_node_sync phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) offset:%d owd:%d slot_adj:%d us_adj:%d\n",
         ind.header.phy_id, ind.t1, ind.t2, ind.t3, t4,
         offset, owd, p7_info->slot_adjustment, p7_info->us_adjustment);
