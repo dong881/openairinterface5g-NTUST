@@ -1027,7 +1027,7 @@ int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind)
 
 int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
 {
-  LOG_D(MAC, "[From PNF] VNF SFN/Slot %d.%d \n", ind->sfn, ind->slot);
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[From PNF] SFN/Slot %d.%d \n", ind->sfn, ind->slot);
 
   // trigger_scheduler(ind);
 
@@ -1050,6 +1050,26 @@ void timespec_add_us(struct timespec *t, long us) {
 }
 static volatile int nr_start_resp_received = 0;
 
+/*===========================================================================
+ * P7 Timing Synchronization - Simplified Periodic Sync
+ *===========================================================================*/
+
+#define P7_SYNC_PERIOD_SLOTS_DEFAULT 2  // Send vnf_nr_sync every N slots
+
+/**
+ * p7_sync_init - Initialize sync parameters (simplified, no FSM)
+ */
+static inline void p7_sync_init(nfapi_vnf_p7_connection_info_t *p7_info)
+{
+    p7_info->sync_slot_counter = 0;
+    p7_info->sync_period_slots = P7_SYNC_PERIOD_SLOTS_DEFAULT;
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Initialized: period=%u slots\n",
+                p7_info->sync_period_slots);
+}
+
+/*===========================================================================
+ * vnf_timing_thread - Main VNF autonomous timing thread with periodic sync
+ *===========================================================================*/
 void *vnf_timing_thread(void *arg) {
     LOG_I(NFAPI_VNF, "Starting VNF autonomous timing thread\n");
     vnf_p7_info *p7_vnf = (vnf_p7_info *)arg;
@@ -1083,7 +1103,7 @@ void *vnf_timing_thread(void *arg) {
             }
         }
 
-        usleep(100000);
+        usleep(1000000);
         LOG_I(NFAPI_VNF, "Waiting for gNB or NFAPI NR configuration... mu:%d start_resp:%d\n", mu, nr_start_resp_received);
     }    
     while (!p7_info->initial_timinginfo_received) {
@@ -1097,42 +1117,67 @@ void *vnf_timing_thread(void *arg) {
     p7_info->thread = pthread_self();
     pthread_mutex_init(&p7_info->mutex, NULL);
 
+    // Initialize P7 Sync (simplified, no FSM)
+    p7_sync_init(p7_info);
+
     clock_gettime(CLOCK_MONOTONIC, &p7_info->next_slot_time);
     vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
-    vnf_nr_sync(vnf_p7, p7_info);
-    
+
     while (p7_info->running) {
-      int sfnslot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, p7_info->sfn, p7_info->slot);
-      sfnslot_dec++;
-      if (p7_info->slot_adjustment) {
-        sfnslot_dec += p7_info->slot_adjustment;
-        if (sfnslot_dec < 0) {
-          // handle negative sfnslot_dec (wrap-around), support multiple rounds
-          int slots_per_frame = NFAPI_SLOTNUM(p7_info->mu);
-          int total_slots = slots_per_frame * 1024;
-          sfnslot_dec = (sfnslot_dec % total_slots + total_slots) % total_slots;
-        }
-        NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF Timing] Applying slot adjustment of %d slots -> (new sfn:slot %d:%d)\n", p7_info->slot_adjustment, NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec) % 1024,
-                    NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec));
-        p7_info->slot_adjustment = 0;
-      }
-      p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec) % 1024;
-      p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
-      
-      // Apply us_adjustment to fine-tune slot timing phase
-      if (p7_info->us_adjustment) {
+      /*=======================================================================
+       * Apply us_adjustment to fine-tune slot timing phase
+       * Applied immediately when available, no FSM state check
+       *=======================================================================*/
+      if (p7_info->us_adjustment != 0) {
         timespec_add_us(&p7_info->next_slot_time, p7_info->us_adjustment);
-        NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF Timing] Applying us adjustment of %d us\n", p7_info->us_adjustment);
+        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC][VNF Timing] Applying us adjustment of %d us\n", 
+                    p7_info->us_adjustment);
         p7_info->us_adjustment = 0;
       }
       timespec_add_us(&p7_info->next_slot_time, p7_info->slot_duration_us);
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
       vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
+      int sfnslot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, p7_info->sfn, p7_info->slot);
+      sfnslot_dec++;
+      
+      /*=======================================================================
+       * Apply slot_adjustment and us_adjustment simultaneously
+       * No FSM gating - adjustments are applied immediately when available
+       *=======================================================================*/
+      if (p7_info->slot_adjustment != 0) {
+        sfnslot_dec += p7_info->slot_adjustment;
+        if (sfnslot_dec < 0) {
+          // Handle negative sfnslot_dec (wrap-around), support multiple rounds
+          int slots_per_frame = NFAPI_SLOTNUM(p7_info->mu);
+          int total_slots = slots_per_frame * 1024;
+          sfnslot_dec = (sfnslot_dec % total_slots + total_slots) % total_slots;
+        }
+        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC][VNF Timing] Applying slot adjustment of %d slots -> (new sfn:slot %d:%d)\n", 
+                    p7_info->slot_adjustment, 
+                    NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec) % 1024,
+                    NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec));
+        p7_info->slot_adjustment = 0;
+      }
+      
+      p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec) % 1024;
+      p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
+      
+      /*=======================================================================
+       * Periodic Sync - Simple counter-based, no FSM
+       * Send vnf_nr_sync every sync_period_slots
+       *=======================================================================*/
+      p7_info->sync_slot_counter++;
+      if (p7_info->sync_slot_counter >= p7_info->sync_period_slots) {
+        p7_info->sync_slot_counter = 0;
+        vnf_nr_sync(vnf_p7, p7_info);
+        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC] Sent periodic sync at sfn:slot %d:%d\n",
+                    p7_info->sfn, p7_info->slot);
+      }
       nfapi_nr_slot_indication_scf_t ind = {0};
       ind.sfn = p7_info->sfn;
       ind.slot = p7_info->slot;
       ind.header.phy_id = p7_info->phy_id;
-      LOG_D(MAC, "[VNF Timing] Triggering slot indication for SFN/Slot %d/%d\n", ind.sfn, ind.slot);
+      // NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF Timing] Triggering slot indication for SFN/Slot %d/%d\n", ind.sfn, ind.slot);
       trigger_scheduler(&ind);
     }
     return NULL;
@@ -1864,7 +1909,7 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   memset(&vnf, 0, sizeof(vnf));
   memset(vnf.p7_vnfs, 0, sizeof(vnf.p7_vnfs));
   /* [Setting nfapi delay management] */
-  vnf.p7_vnfs[0].timing_window = 2000;
+  vnf.p7_vnfs[0].timing_window = 1500;
   vnf.p7_vnfs[0].dl_tti_timing_offset = 0;
   vnf.p7_vnfs[0].ul_tti_timing_offset = 0;
   vnf.p7_vnfs[0].ul_dci_timing_offset = 0;

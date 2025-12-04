@@ -1816,6 +1816,7 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nf
   DevAssert(scs->tl.tag == NFAPI_NR_CONFIG_SCS_COMMON_TAG);
   pnf_p7_t* pnf_p7 = (pnf_p7_t*)(p7_config);
   pnf_p7->mu = scs->value;
+  pnf_p7->timing_window = phy_info->timing_window;
   pnf_p7->dl_tti_timing_offset = phy_info->dl_tti_timing_offset;
   pnf_p7->ul_tti_timing_offset = phy_info->ul_tti_timing_offset;
   pnf_p7->ul_dci_timing_offset = phy_info->ul_dci_timing_offset;

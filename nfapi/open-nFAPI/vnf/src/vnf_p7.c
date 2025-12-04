@@ -310,6 +310,27 @@ struct timespec timespec_delta(struct timespec start, struct timespec end)
 	return temp;
 }
 
+/*! Compute signed difference between two TIMEHR timestamps in microseconds.
+ *  Handles 12-bit second wrap-around (every 4096 seconds) correctly
+ *  for differences up to ~2048 seconds.
+ */
+static inline int64_t timehr_diff_us(uint32_t time_hr_a, uint32_t time_hr_b)
+{
+    // Extract seconds and microseconds
+    int32_t sec_a = TIMEHR_SEC(time_hr_a);
+    int32_t sec_b = TIMEHR_SEC(time_hr_b);
+    int32_t usec_a = TIMEHR_USEC(time_hr_a);
+    int32_t usec_b = TIMEHR_USEC(time_hr_b);
+    
+    // Handle 12-bit second wrap-around
+    // sec_a - sec_b should be in range [-2048, 2047] for valid comparisons
+    int32_t sec_diff = sec_a - sec_b;
+    if (sec_diff > 2048) sec_diff -= 4096;   // sec_a wrapped, sec_b didn't
+    if (sec_diff < -2048) sec_diff += 4096;  // sec_b wrapped, sec_a didn't
+    
+    return (int64_t)sec_diff * 1000000 + (usec_a - usec_b);
+}
+
 static uint32_t get_sf_time(uint32_t now_hr, uint32_t sf_start_hr)
 {
 	if(now_hr < sf_start_hr)
@@ -334,24 +355,13 @@ static uint32_t get_sf_time(uint32_t now_hr, uint32_t sf_start_hr)
 
 static uint32_t get_slot_time(uint32_t now_hr, uint32_t slot_start_hr)
 {
-	if(now_hr < slot_start_hr)
-	{
+	// Use proper signed difference to handle wrap-around
+	int64_t diff_us = timehr_diff_us(now_hr, slot_start_hr);
+	if (diff_us < 0) {
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "now is earlier than start of slot\n");
 		return 0;
 	}
-	else
-	{
-		uint32_t now_us = TIMEHR_USEC(now_hr);
-		uint32_t slot_start_us = TIMEHR_USEC(slot_start_hr);
-
-		// if the us have wrapped adjust for it
-		if(now_us < slot_start_us)
-		{
-			now_us += 1000000;
-		}
-
-		return now_us - slot_start_us;
-	}
+	return (uint32_t)diff_us;
 }
 
 uint32_t calculate_t1(uint16_t sfn_sf, uint32_t sf_start_time_hr)
@@ -600,7 +610,9 @@ int vnf_nr_build_send_dl_node_sync(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_inf
 
 int vnf_nr_sync(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info)
 {
-	NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() phy_id:%d in_sync:%d sfn:%d slot:%d\n", __FUNCTION__, p7_info->phy_id, p7_info->in_sync, p7_info->sfn, p7_info->slot);
+	vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
+	return 0;
+	NFAPI_TRACE(NFAPI_TRACE_DEBUG, "%s() phy_id:%d in_sync:%d sfn:%d slot:%d\n", __FUNCTION__, p7_info->phy_id, p7_info->in_sync, p7_info->sfn, p7_info->slot);
 	if(p7_info->in_sync == 1)
 	{
 		uint16_t dl_sync_period_mask = p7_info->dl_in_sync_period-1;
@@ -1563,7 +1575,15 @@ void vnf_handle_nr_rach_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf
 	}
 }
 
-#define TARGET_PNF_MARGIN_US 200
+#define TARGET_PNF_MARGIN_US 500 // Target: VNF leads PNF by this many microseconds
+
+/*===========================================================================
+ * vnf_nr_handle_ul_node_sync - Handle UL_NODE_SYNC from PNF
+ * 
+ * This function handles the sync response from PNF and calculates
+ * slot_adjustment and us_adjustment for timing correction.
+ * Both adjustments can be applied simultaneously in the timing thread.
+ *===========================================================================*/
 void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 {
     if (!pRecvMsg || !vnf_p7) {
@@ -1585,16 +1605,34 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
          NFAPI_TRACE(NFAPI_TRACE_ERROR, "PHY instance not found for phy_id:%d\n", ind.header.phy_id);
          return;
     }
+
     int32_t t4 = calculate_nr_t4(now_time_hr, p7_info->mu, p7_info->sfn, p7_info->slot, vnf_p7->slot_start_time_hr);
-	int32_t offset = ((ind.t2 - ind.t1) - (t4 - ind.t3)) >> 1;
-	/*Only Print*/int32_t owd = ((t4 - ind.t1) - (ind.t3 - ind.t2)) >> 1;
-	int16_t slot_length_us = 1000 >> p7_info->mu; // slot length in us
-	p7_info->slot_adjustment = (offset / slot_length_us) % 1024;
-	offset -= TARGET_PNF_MARGIN_US;
-    p7_info->us_adjustment =  offset % slot_length_us;
-	NFAPI_TRACE(NFAPI_TRACE_INFO, "PNF to VNF ul_node_sync phy_id:%d (t1/2/3/4:%8u, %8u, %8u, %8u) offset(us):%d owd:%d us_adjustment:%d slot_adjustment:%d\n",
-			ind.header.phy_id, ind.t1, ind.t2, ind.t3, t4,
-			offset + TARGET_PNF_MARGIN_US, owd, p7_info->us_adjustment, p7_info->slot_adjustment);
+    
+    // Calculate offset using int64_t for proper handling of large values
+    // NTP formula: offset = ((t2 - t1) - (t4 - t3)) / 2
+    // Positive offset means VNF clock is BEHIND PNF (VNF needs to speed up / reduce delay)
+    // Negative offset means VNF clock is AHEAD of PNF (VNF needs to slow down / add delay)
+    int32_t offset = (int32_t)( ((int64_t)ind.t2 - (int64_t)ind.t1 - ((int64_t)t4 - (int64_t)ind.t3)) / 2 );
+    int32_t owd = (int32_t)( ((int64_t)t4 - (int64_t)ind.t1 - ((int64_t)ind.t3 - (int64_t)ind.t2)) / 2 );
+    
+    int32_t slot_us = (int32_t)p7_info->slot_duration_us;
+    
+	// CRITICAL: Negate the adjustment direction!
+    // If offset < 0, VNF is ahead -> we need to ADD delay (positive adjustment to next_slot_time)
+    // If offset > 0, VNF is behind -> we need to REDUCE delay (negative adjustment)
+    // So: us_adjustment = -offset
+	int32_t offsetslot = (offset + TARGET_PNF_MARGIN_US) / slot_us;
+	int32_t offsetus = (offset  + TARGET_PNF_MARGIN_US) % slot_us;
+	
+    // Use raw value directly - EMA causes over-correction in this application
+    // The settling period provides sufficient smoothing
+    p7_info->us_adjustment = -offsetus;
+    p7_info->slot_adjustment = offsetslot;
+
+    NFAPI_TRACE(NFAPI_TRACE_INFO, 
+        "[P7_SYNC] ul_node_sync phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) offset:%d owd:%d slot_adj:%d us_adj:%d\n",
+        ind.header.phy_id, ind.t1, ind.t2, ind.t3, t4,
+        offset, owd, p7_info->slot_adjustment, p7_info->us_adjustment);
 }
 
 void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
@@ -1629,8 +1667,6 @@ void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
         }
 }
 
-static int16_t vnf_pnf_sfnslot_delta;
-
 void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 {
 	if (pRecvMsg == NULL || vnf_p7 == NULL)
@@ -1646,12 +1682,13 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack timing_info\n");
 		return;
 	}
-
-        if (vnf_p7 && vnf_p7->p7_connections)
-        {
-          //int16_t vnf_pnf_sfnsf_delta = NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf) - NFAPI_SFNSF2DEC(ind.last_sfn_sf);
-          nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
-            vnf_pnf_sfnslot_delta = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn,p7_con->slot) - NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn,ind.last_slot);
+	
+	if (vnf_p7 && vnf_p7->p7_connections)
+	{
+		//int16_t vnf_pnf_sfnsf_delta = NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf) - NFAPI_SFNSF2DEC(ind.last_sfn_sf);
+		nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
+		int32_t vnf_current_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn, p7_con->slot);
+		int32_t pnf_ind_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn, ind.last_slot);
 		// Only print if any jitter/delay/arrival value is non-zero
 		if (
 			ind.dl_tti_jitter != 0 ||
@@ -1668,12 +1705,12 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 			ind.ul_dci_earliest_arrival != 0
 		) {
 			NFAPI_TRACE(NFAPI_TRACE_INFO,
-				"NFAPI_NR_TIMING_INFO: last_sfn=%u, last_slot=%u, time_since_last_timing_info=%u\n"
-				"  dl_tti_jitter=%u, tx_data_request_jitter=%u, ul_tti_jitter=%u, ul_dci_jitter=%u\n"
-				"  dl_tti_latest_delay=%d, tx_data_request_latest_delay=%d, ul_tti_latest_delay=%d, ul_dci_latest_delay=%d\n"
-				"  dl_tti_earliest_arrival=%d, tx_data_request_earliest_arrival=%d, ul_tti_earliest_arrival=%d, ul_dci_earliest_arrival=%d\n",
+				"NR_TIMING_INFO: PNF:%u.%u VNF:%u.%u delta_slots=%d time_since_last=%u jitter(dl:%u,tx:%u,ul:%u,dci:%u) latest_delay(dl:%d,tx:%d,ul:%d,dci:%d) earliest_arr(dl:%d,tx:%d,ul:%d,dci:%d)\n",
 				ind.last_sfn,
 				ind.last_slot,
+				p7_con->sfn,
+				p7_con->slot,
+				pnf_ind_DEC - vnf_current_DEC,
 				ind.time_since_last_timing_info,
 				ind.dl_tti_jitter,
 				ind.tx_data_request_jitter,
@@ -1694,19 +1731,19 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
           // Panos: Careful here!!! Modification of the original nfapi-code
           //if (vnf_pnf_sfnsf_delta>1 || vnf_pnf_sfnsf_delta < -1)
 		  //printf("VNF-PNF delta - %d", vnf_pnf_sfnslot_delta);
-        //   if (vnf_pnf_sfnslot_delta > 1) // we need to have a small delta, otherwise it would mean we don't advance
-        //   {
-        //     NFAPI_TRACE(NFAPI_TRACE_WARN, "%s() LARGE SFN/SLOT DELTA between PNF and VNF. Delta %d slots. PNF:%d.%d VNF:%d.%d\n",
-        //                 __FUNCTION__, vnf_pnf_sfnslot_delta,
-        //                 ind.last_sfn, ind.last_slot,
-        //                 p7_con->sfn, p7_con->slot);
-        //     // Panos: Careful here!!! Modification of the original nfapi-code
-		// 	uint16_t new_sfn = ind.last_sfn;
-		// 	uint16_t new_slot = ind.last_slot;
-        //     int32_t current_val = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn, p7_con->slot);
-        //     int32_t target_val = NFAPI_SFNSLOT2DEC(p7_con->mu, new_sfn, new_slot);
-        //     p7_con->slot_adjustment = target_val - current_val;
-        //   }
+		  
+		// int32_t max_slots = NFAPI_MAX_SFNSLOTDEC(p7_con->mu);
+		// int32_t delta = pnf_ind_DEC - vnf_current_DEC;
+
+		// /* Normalize to range [-M/2, +M/2) robustly */
+		// int64_t M = (int64_t) max_slots;
+		// int64_t t = (int64_t)delta + M + (M/2);
+		// t %= M;                        /* now in [0, M) */
+		// delta = (int32_t)(t - (M/2));  /* now in [-M/2, +M/2) */
+
+		// if (delta != -1) {
+			// p7_con->slot_adjustment = delta +1;
+		// }
 		  p7_con->initial_timinginfo_received = 1; 
         }
 }

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#define _GNU_SOURCE  // for asprintf
 
 #include <sys/select.h>
 #include <sys/time.h>
@@ -34,6 +35,7 @@
 #include <SCHED_NR/phy_frame_config_nr.h>
 
 extern int sf_ahead;
+extern void log_mmap_entry(int log_id, int frame_tx, int slot_tx, const char *custom_message);
 
 static void add_slot(int mu, uint16_t *frameP, uint16_t *slotP, int offset)
 {
@@ -402,26 +404,36 @@ void pnf_p7_rx_reassembly_queue_remove_old_msgs(pnf_p7_t* pnf_p7, pnf_p7_rx_reas
 }
 
 
+/*! Compute signed difference between two TIMEHR timestamps in microseconds.
+ *  Handles 12-bit second wrap-around (every 4096 seconds) correctly
+ *  for differences up to ~2048 seconds.
+ */
+static inline int64_t timehr_diff_us(uint32_t time_hr_a, uint32_t time_hr_b)
+{
+    // Extract seconds and microseconds
+    int32_t sec_a = TIMEHR_SEC(time_hr_a);
+    int32_t sec_b = TIMEHR_SEC(time_hr_b);
+    int32_t usec_a = TIMEHR_USEC(time_hr_a);
+    int32_t usec_b = TIMEHR_USEC(time_hr_b);
+    
+    // Handle 12-bit second wrap-around
+    // sec_a - sec_b should be in range [-2048, 2047] for valid comparisons
+    int32_t sec_diff = sec_a - sec_b;
+    if (sec_diff > 2048) sec_diff -= 4096;   // sec_a wrapped, sec_b didn't
+    if (sec_diff < -2048) sec_diff += 4096;  // sec_b wrapped, sec_a didn't
+    
+    return (int64_t)sec_diff * 1000000 + (usec_a - usec_b);
+}
+
 static uint32_t get_slot_time(uint32_t now_hr, uint32_t slot_start_hr)
 {
-	if(now_hr < slot_start_hr)
-	{
-		//NFAPI_TRACE(NFAPI_TRACE_INFO, "now is earlier than start of subframe now_hr:%u sf_start_hr:%u\n", now_hr, sf_start_hr);
+	// Use proper signed difference to handle wrap-around
+	int64_t diff_us = timehr_diff_us(now_hr, slot_start_hr);
+	if (diff_us < 0) {
+		//NFAPI_TRACE(NFAPI_TRACE_INFO, "now is earlier than start of slot now_hr:%u slot_start_hr:%u\n", now_hr, slot_start_hr);
 		return 0;
 	}
-	else
-	{
-		uint32_t now_us = TIMEHR_USEC(now_hr);
-		uint32_t slot_start_us = TIMEHR_USEC(slot_start_hr);
-
-		// if the us have wrapped adjust for it
-		if(now_us < slot_start_us)
-		{
-			now_us += 1000000; 
-		}
-
-		return now_us - slot_start_us;
-	}
+	return (uint32_t)diff_us;
 }
 
 static uint32_t get_sf_time(uint32_t now_hr, uint32_t sf_start_hr)
@@ -446,125 +458,74 @@ static uint32_t get_sf_time(uint32_t now_hr, uint32_t sf_start_hr)
 	}
 }
 
-/*! \brief Check if a P7 message is TOO LATE at reception time
- *  Called from pnf_handle_* functions when packet arrives.
+/*! \brief Calculate slot difference with wrap-around handling
+ *  Helper function used by timing check functions
+ */
+static inline int32_t calc_slot_diff(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_t msg_slot)
+{
+    int32_t diff = NFAPI_SFNSLOT2DEC(pnf_p7->mu, msg_sfn, msg_slot) 
+                 - NFAPI_SFNSLOT2DEC(pnf_p7->mu, pnf_p7->sfn, pnf_p7->slot);
+    int32_t half_max = NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu) / 2;
+    if (diff < -half_max) diff += 2 * half_max;
+    if (diff > half_max) diff -= 2 * half_max;
+    return diff;
+}
+
+/*! \brief Check if P7 message arrived on time at reception
+ *  \return true if on-time (not late), false if too late (should be dropped)
  *  
- *  \param pnf_p7 The PNF P7 context (provides current sfn/slot and slot_start_time_hr)
- *  \param msg_sfn The SFN from the P7 message (message's target slot)
- *  \param msg_slot The Slot from the P7 message (message's target slot)
- *  \param name A string with the message name for logging
- *  \param recv_time_hr The time when the packet was received
- *  \param timing_offset The timing offset for this message type (time needed before slot starts)
- *  \param latest_delay Pointer to store the latest delay value (updated if late)
- *  \return true if packet arrived in time (not too late), false if too late (should be dropped)
- *
- * Calculation:
- *   target_slot_start = current_slot_start + (msg_slot - current_slot) * slot_len
- *   margin = (target_slot_start - recv_time) - timing_offset
- *   If margin < 0: packet is TOO LATE, drop it immediately
+ *  This function is designed to be used in combined if conditions:
+ *    if (slot_type_ok && buffer_size_ok && check_nr_p7_late_at_reception(...))
+ *  When false is returned, the packet should be dropped.
+ *  
+ *  margin = target_slot_time - recv_time - timing_offset
+ *         = (diff_slots * slot_len) - elapsed_since_slot_start - timing_offset
  */
 static bool check_nr_p7_late_at_reception(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_t msg_slot, 
                                           const char* name, uint32_t recv_time_hr, 
                                           uint32_t timing_offset, uint32_t* latest_delay)
 {
-    uint32_t slot_len_us = 10000 / NFAPI_SLOTNUM(pnf_p7->mu);
-    
-    // Calculate slot difference
-    int32_t current_abs_slot = NFAPI_SFNSLOT2DEC(pnf_p7->mu, pnf_p7->sfn, pnf_p7->slot);
-    int32_t msg_target_abs_slot = NFAPI_SFNSLOT2DEC(pnf_p7->mu, msg_sfn, msg_slot);
-    int32_t diff_slots = msg_target_abs_slot - current_abs_slot;
-    
-    int32_t max_slots = NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
-    if (diff_slots < -max_slots/2) diff_slots += max_slots;
-    if (diff_slots > max_slots/2) diff_slots -= max_slots;
-    
-    // Get timestamps
-    int64_t current_slot_start_us = (int64_t)TIMEHR_SEC(pnf_p7->slot_start_time_hr) * 1000000 
-                                    + TIMEHR_USEC(pnf_p7->slot_start_time_hr);
-    int64_t recv_time_us = (int64_t)TIMEHR_SEC(recv_time_hr) * 1000000 + TIMEHR_USEC(recv_time_hr);
-    
-    // Calculate target slot start time
-    int64_t target_slot_start_us = current_slot_start_us + (int64_t)diff_slots * slot_len_us;
-    
-    // Margin = time remaining until deadline
-    int64_t margin = (target_slot_start_us - recv_time_us) - (int64_t)timing_offset;
+    int32_t diff_slots = calc_slot_diff(pnf_p7, msg_sfn, msg_slot);
+    int64_t slot_len_us = 10000 / NFAPI_SLOTNUM(pnf_p7->mu);
+    int64_t margin = diff_slots * slot_len_us 
+                   - timehr_diff_us(recv_time_hr, pnf_p7->slot_start_time_hr) 
+                   - timing_offset;
     
     if (margin < 0) {
-        // TOO LATE - packet arrived after deadline
-		char *print_str;
-		asprintf(&print_str, "m:%d, %s", margin, name);
-		log_mmap_entry(0,msg_sfn,msg_slot,print_str);
-		free(print_str);
-        uint32_t lateness = (uint32_t)(-margin);
-        NFAPI_TRACE(NFAPI_TRACE_WARN, "%s [%d.%d] TOO LATE by %u us at reception (cur:%d.%d offset:%u)\n", 
-                    name, msg_sfn, msg_slot, lateness, pnf_p7->sfn, pnf_p7->slot, timing_offset);
+        char *print_str;
+        asprintf(&print_str, "m:%ld, %s", (long)margin, name);
+        log_mmap_entry(0, msg_sfn, msg_slot, print_str);
+        free(print_str);
+		uint32_t lateness = (uint32_t)(-margin);
+        NFAPI_TRACE(NFAPI_TRACE_WARN, "%s [%d.%d] TOO LATE by %u us\n", name, msg_sfn, msg_slot, lateness);
         if (lateness > *latest_delay) *latest_delay = lateness;
-        return false;  // Drop packet
+        if (pnf_p7->_public.timing_info_mode_aperiodic)
+            pnf_p7->timing_info_aperiodic_send = 1;
+        return false;
     }
-    
-    return true;  // Packet is on time, store in buffer
+    return true;
 }
 
-/*! \brief Check timing at execution time in pnf_p7_slot_ind
- *  Called when processing buffered messages. Only checks for EARLY arrivals
- *  since late packets were already dropped at reception.
+/*! \brief Check if P7 message arrived too early at execution time
+ *  Called in pnf_p7_slot_ind. Late packets already dropped at reception.
  *  
- *  \param pnf_p7 The PNF P7 context (for mu and slot timing info)
- *  \param recv_time_hr The time when the packet was received
- *  \param msg_sfn The SFN of the message being processed
- *  \param msg_slot The slot of the message being processed
- *  \param timing_offset The timing offset for this message type
- *  \param earliest_arrival Pointer to store the earliest arrival value
- *  \param timing_window Maximum early arrival time in microseconds
- *  \param name The name of the message type for logging
- *  \return margin value in microseconds (how early the packet was)
+ *  At execution: current slot == target slot, so margin = time_since_recv - timing_offset
  */
-static int64_t check_nr_p7_early_at_execution(pnf_p7_t* pnf_p7, uint32_t recv_time_hr,
-                                               uint16_t msg_sfn, uint16_t msg_slot,
-                                               uint32_t timing_offset, uint32_t* earliest_arrival,
-                                               uint32_t timing_window, const char* name)
+static void check_nr_p7_early_at_execution(pnf_p7_t* pnf_p7, uint32_t recv_time_hr,
+                                           uint32_t timing_offset, const char* name)
 {
-    uint32_t slot_len_us = 10000 / NFAPI_SLOTNUM(pnf_p7->mu);
-    
-    // Calculate slot difference between current slot and message's target slot
-    int32_t current_abs_slot = NFAPI_SFNSLOT2DEC(pnf_p7->mu, pnf_p7->sfn, pnf_p7->slot);
-    int32_t msg_target_abs_slot = NFAPI_SFNSLOT2DEC(pnf_p7->mu, msg_sfn, msg_slot);
-    int32_t diff_slots = msg_target_abs_slot - current_abs_slot;
-    
-    // Handle wrap-around
-    int32_t max_slots = NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
-    if (diff_slots < -max_slots/2) diff_slots += max_slots;
-    if (diff_slots > max_slots/2) diff_slots -= max_slots;
-    
-    // Get timestamps
-    int64_t current_slot_start_us = (int64_t)TIMEHR_SEC(pnf_p7->slot_start_time_hr) * 1000000 
-                                    + TIMEHR_USEC(pnf_p7->slot_start_time_hr);
-    int64_t recv_time_us = (int64_t)TIMEHR_SEC(recv_time_hr) * 1000000 + TIMEHR_USEC(recv_time_hr);
-    
-    // Calculate target slot start time (adjust for slot offset)
-    int64_t target_slot_start_us = current_slot_start_us + (int64_t)diff_slots * slot_len_us;
-    
-    // margin = (target_slot_start - recv_time) - timing_offset
-    // This represents how early the packet arrived before the deadline
-    int64_t margin = (target_slot_start_us - recv_time_us) - (int64_t)timing_offset;
-    
-    // Update earliest arrival statistic
-    if (margin >= 0) {
-		char *print_str;
-		asprintf(&print_str, "m:%ld %s", margin, name);
-		log_mmap_entry(0, msg_sfn, msg_slot, print_str);
-		free(print_str);
-        uint32_t earliness = (uint32_t)margin;
-        if (earliness > *earliest_arrival) *earliest_arrival = earliness;
-        
-        // Check if too early (outside timing window)
-        if (timing_window > 0 && margin > (int64_t)timing_window) {
-            NFAPI_TRACE(NFAPI_TRACE_WARN, "%s [%d.%d] too early by %ld us (window:%u)\n",
-                        name, msg_sfn, msg_slot, (long)(margin - timing_window), timing_window);
-        }
+    // At execution time, we're processing the target slot, so just measure time since reception
+    int64_t margin = timehr_diff_us(pnf_p7->slot_start_time_hr, recv_time_hr) - timing_offset;
+	char *print_str;
+	asprintf(&print_str, "m:%ld %s", (long)margin, name);
+	log_mmap_entry(0, pnf_p7->sfn, pnf_p7->slot, print_str);
+	free(print_str);
+    if (margin > (int64_t)pnf_p7->timing_window) {
+		NFAPI_TRACE(NFAPI_TRACE_WARN, "%s too early by %ld us (window:%u)\n",
+                    name, (long)(margin - pnf_p7->timing_window), pnf_p7->timing_window);
+        if (pnf_p7->_public.timing_info_mode_aperiodic)
+            pnf_p7->timing_info_aperiodic_send = 1;
     }
-    
-    return margin;
 }
 
 int pnf_p7_send_message(pnf_p7_t* pnf_p7, uint8_t* msg, uint32_t len)
@@ -867,74 +828,66 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
     nfapi_nr_tx_data_request_t* tx_data_req = &tx_slot_buffer->tx_data_req;
     
     // Process dl_tti_req - late packets already dropped at reception, check early here
-    if (dl_tti_req->dl_tti_request_body.nPDUs > 0) {
+    // if (dl_tti_req->dl_tti_request_body.nPDUs > 0) {
+    //   DevAssert(pnf_p7->_public.dl_tti_req_fn != NULL);
+      
+    //   // Check early timing (flag setting done inside if too early)
+    //   check_nr_p7_early_at_execution(pnf_p7, tx_slot_buffer->dl_tti_recv_time_hr,
+    //                                  pnf_p7->dl_tti_timing_offset, "dl_tti_request");
+      
+    //   // Execute the request (late ones were already dropped)
+    //   (pnf_p7->_public.dl_tti_req_fn)(NULL, &(pnf_p7->_public), dl_tti_req);
+    //   pnf_p7->nr_stats.dl_tti.ontime++;
+      
+    //   dl_tti_req->dl_tti_request_body.nPDUs = 0;
+    // }
+    
+    // // Process tx_data_req - late packets already dropped at reception
+    // if (tx_data_req->Number_of_PDUs > 0) {
+    //   DevAssert(pnf_p7->_public.tx_data_req_fn != NULL);
+      
+    //   // Check early timing (flag setting done inside if too early)
+    //   check_nr_p7_early_at_execution(pnf_p7, tx_slot_buffer->tx_data_recv_time_hr,
+    //                                  pnf_p7->tx_data_timing_offset, "tx_data_request");
+      
+    //   (pnf_p7->_public.tx_data_req_fn)(&(pnf_p7->_public), tx_data_req);
+    //   pnf_p7->nr_stats.tx_data.ontime++;
+      
+    //   tx_data_req->Number_of_PDUs = 0;
+    // }
+
+	 // Process tx_data_req
+    if (dl_tti_req->dl_tti_request_body.nPDUs > 0 && tx_data_req->Number_of_PDUs > 0) {
       DevAssert(pnf_p7->_public.dl_tti_req_fn != NULL);
+	  DevAssert(pnf_p7->_public.tx_data_req_fn != NULL);
       
-      // Check early timing and update statistics
-      int64_t margin = check_nr_p7_early_at_execution(pnf_p7,
-                                                       tx_slot_buffer->dl_tti_recv_time_hr,
-                                                       dl_tti_req->SFN, dl_tti_req->Slot,
-                                                       pnf_p7->dl_tti_timing_offset,
-                                                       &pnf_p7->dl_tti_earliest_arrival,
-                                                       pnf_p7->timing_window,
-                                                       "dl_tti_request");
-      
+      // Check early timing (flag setting done inside if too early)
+      check_nr_p7_early_at_execution(pnf_p7, tx_slot_buffer->dl_tti_recv_time_hr,
+                                     pnf_p7->dl_tti_timing_offset, "dl_tti_request");
+      check_nr_p7_early_at_execution(pnf_p7, tx_slot_buffer->tx_data_recv_time_hr,
+                                     pnf_p7->tx_data_timing_offset, "tx_data_request");
+
       // Execute the request (late ones were already dropped)
       (pnf_p7->_public.dl_tti_req_fn)(NULL, &(pnf_p7->_public), dl_tti_req);
       pnf_p7->nr_stats.dl_tti.ontime++;
-      
-      // If too early, trigger timing info
-      if (pnf_p7->timing_window > 0 && margin > (int64_t)pnf_p7->timing_window) {
-        if (pnf_p7->_public.timing_info_mode_aperiodic)
-          pnf_p7->timing_info_aperiodic_send = 1;
-      }
-      
-      dl_tti_req->dl_tti_request_body.nPDUs = 0;
-    }
-    
-    // Process tx_data_req - late packets already dropped at reception
-    if (tx_data_req->Number_of_PDUs > 0) {
-      DevAssert(pnf_p7->_public.tx_data_req_fn != NULL);
-      
-      int64_t margin = check_nr_p7_early_at_execution(pnf_p7,
-                                                       tx_slot_buffer->tx_data_recv_time_hr,
-                                                       tx_data_req->SFN, tx_data_req->Slot,
-                                                       pnf_p7->tx_data_timing_offset,
-                                                       &pnf_p7->tx_data_earliest_arrival,
-                                                       pnf_p7->timing_window,
-                                                       "tx_data_request");
-      
-      (pnf_p7->_public.tx_data_req_fn)(&(pnf_p7->_public), tx_data_req);
+
+	  (pnf_p7->_public.tx_data_req_fn)(&(pnf_p7->_public), tx_data_req);
       pnf_p7->nr_stats.tx_data.ontime++;
       
-      if (pnf_p7->timing_window > 0 && margin > (int64_t)pnf_p7->timing_window) {
-        if (pnf_p7->_public.timing_info_mode_aperiodic)
-          pnf_p7->timing_info_aperiodic_send = 1;
-      }
-      
-      tx_data_req->Number_of_PDUs = 0;
+      dl_tti_req->dl_tti_request_body.nPDUs = 0;
+	  tx_data_req->Number_of_PDUs = 0;
     }
 
     // Process ul_tti_req - late packets already dropped at reception
     if (tx_slot_buffer->ul_tti_req.n_pdus > 0) {
       DevAssert(pnf_p7->_public.ul_tti_req_fn != NULL);
       
-      int64_t margin = check_nr_p7_early_at_execution(pnf_p7,
-                                                       tx_slot_buffer->ul_tti_recv_time_hr,
-                                                       tx_slot_buffer->ul_tti_req.SFN,
-                                                       tx_slot_buffer->ul_tti_req.Slot,
-                                                       pnf_p7->ul_tti_timing_offset,
-                                                       &pnf_p7->ul_tti_earliest_arrival,
-                                                       pnf_p7->timing_window,
-                                                       "ul_tti_request");
+      // Check early timing (flag setting done inside if too early)
+      check_nr_p7_early_at_execution(pnf_p7, tx_slot_buffer->ul_tti_recv_time_hr,
+                                     pnf_p7->ul_tti_timing_offset, "ul_tti_request");
       
       (pnf_p7->_public.ul_tti_req_fn)(NULL, &(pnf_p7->_public), &tx_slot_buffer->ul_tti_req);
       pnf_p7->nr_stats.ul_tti.ontime++;
-      
-      if (pnf_p7->timing_window > 0 && margin > (int64_t)pnf_p7->timing_window) {
-        if (pnf_p7->_public.timing_info_mode_aperiodic)
-          pnf_p7->timing_info_aperiodic_send = 1;
-      }
       
       tx_slot_buffer->ul_tti_req.n_pdus = 0;
     }
@@ -943,22 +896,12 @@ int pnf_p7_slot_ind(pnf_p7_t* pnf_p7, uint16_t phy_id, uint16_t sfn, uint16_t sl
     if (tx_slot_buffer->ul_dci_req.numPdus > 0) {
       DevAssert(pnf_p7->_public.ul_dci_req_fn != NULL);
       
-      int64_t margin = check_nr_p7_early_at_execution(pnf_p7,
-                                                       tx_slot_buffer->ul_dci_recv_time_hr,
-                                                       tx_slot_buffer->ul_dci_req.SFN,
-                                                       tx_slot_buffer->ul_dci_req.Slot,
-                                                       pnf_p7->ul_dci_timing_offset,
-                                                       &pnf_p7->ul_dci_earliest_arrival,
-                                                       pnf_p7->timing_window,
-                                                       "ul_dci_request");
+      // Check early timing (flag setting done inside if too early)
+      check_nr_p7_early_at_execution(pnf_p7, tx_slot_buffer->ul_dci_recv_time_hr,
+                                     pnf_p7->ul_dci_timing_offset, "ul_dci_request");
       
       (pnf_p7->_public.ul_dci_req_fn)(NULL, &(pnf_p7->_public), &tx_slot_buffer->ul_dci_req);
       pnf_p7->nr_stats.ul_dci.ontime++;
-      
-      if (pnf_p7->timing_window > 0 && margin > (int64_t)pnf_p7->timing_window) {
-        if (pnf_p7->_public.timing_info_mode_aperiodic)
-          pnf_p7->timing_info_aperiodic_send = 1;
-      }
       
       tx_slot_buffer->ul_dci_req.numPdus = 0;
     }
@@ -1299,7 +1242,7 @@ bool is_nr_p7_request_in_buffer_size(const uint16_t sfn, const uint16_t slot, co
 {
   const uint32_t recv = NFAPI_SFNSLOT2DEC(phy->mu, sfn, slot); // unpack sfn/slot
   const uint32_t curr = NFAPI_SFNSLOT2DEC(phy->mu, phy->sfn, phy->slot);
-  const uint8_t timing_window = phy->_public.slot_buffer_size; // TODO check
+  const uint16_t timing_window = phy->_public.slot_buffer_size; // TODO check
   uint32_t diff = curr < recv ? recv - curr : curr - recv;
   if (diff > NFAPI_MAX_SFNSLOTDEC(phy->mu) / 2)
     diff = NFAPI_MAX_SFNSLOTDEC(phy->mu) - diff;
@@ -1411,25 +1354,13 @@ void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       return;
     }
 
+    // Combined check: slot type, buffer size, and timing (not late)
+    // If any check fails, packet is dropped (not processed)
     if (check_nr_nfapi_p7_slot_type(frame, slot, "DL_TTI.request", NR_DOWNLINK_SLOT)
-        && is_nr_p7_request_in_buffer_size(frame, slot, "dl_tti_request", pnf_p7)) {
-      
-      // Check if packet is TOO LATE - if so, drop immediately
-      bool not_late = check_nr_p7_late_at_reception(pnf_p7, frame, slot, "dl_tti_request",
-                                                     recv_time_hr, pnf_p7->dl_tti_timing_offset,
-                                                     &pnf_p7->dl_tti_latest_delay);
-      if (!not_late) {
-        // Packet is too late - drop it and send timing info
-        pnf_p7->nr_stats.dl_tti.late++;
-        if (pnf_p7->_public.timing_info_mode_aperiodic) {
-          pnf_nr_pack_and_send_timing_info(pnf_p7);
-        }
-        if (pthread_mutex_unlock(&(pnf_p7->mutex)) != 0) {
-          NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to unlock mutex\n");
-        }
-        return;  // Drop the packet
-      }
-      
+        && is_nr_p7_request_in_buffer_size(frame, slot, "dl_tti_request", pnf_p7)
+        && check_nr_p7_late_at_reception(pnf_p7, frame, slot, "dl_tti_request",
+                                         recv_time_hr, pnf_p7->dl_tti_timing_offset,
+                                         &pnf_p7->dl_tti_latest_delay)) {
       // Packet arrived on time - store in buffer
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
       uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
@@ -1562,24 +1493,13 @@ void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       return;
     }
 
+    // Combined check: slot type, buffer size, and timing (not late)
+    // If any check fails, packet is dropped (not processed)
     if (check_nr_nfapi_p7_slot_type(frame, slot, "UL_TTI.request", NR_UPLINK_SLOT)
-        && is_nr_p7_request_in_buffer_size(frame, slot, "ul_tti_request", pnf_p7)) {
-      
-      // Check if packet is TOO LATE - if so, drop immediately
-      bool not_late = check_nr_p7_late_at_reception(pnf_p7, frame, slot, "ul_tti_request",
-                                                     recv_time_hr, pnf_p7->ul_tti_timing_offset,
-                                                     &pnf_p7->ul_tti_latest_delay);
-      if (!not_late) {
-        pnf_p7->nr_stats.ul_tti.late++;
-        if (pnf_p7->_public.timing_info_mode_aperiodic) {
-          pnf_nr_pack_and_send_timing_info(pnf_p7);
-        }
-        if (pthread_mutex_unlock(&(pnf_p7->mutex)) != 0) {
-          NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to unlock mutex\n");
-        }
-        return;
-      }
-      
+        && is_nr_p7_request_in_buffer_size(frame, slot, "ul_tti_request", pnf_p7)
+        && check_nr_p7_late_at_reception(pnf_p7, frame, slot, "ul_tti_request",
+                                         recv_time_hr, pnf_p7->ul_tti_timing_offset,
+                                         &pnf_p7->ul_tti_latest_delay)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
       uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
       pnf_p7->slot_buffer[buffer_index].sfn = frame;
@@ -1694,24 +1614,13 @@ void pnf_handle_ul_dci_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       return;
     }
 
+    // Combined check: slot type, buffer size, and timing (not late)
+    // If any check fails, packet is dropped (not processed)
     if (check_nr_nfapi_p7_slot_type(frame, slot, "UL_DCI.request", NR_DOWNLINK_SLOT)
-        && is_nr_p7_request_in_buffer_size(frame, slot, "ul_dci_request", pnf_p7)) {
-      
-      // Check if packet is TOO LATE - if so, drop immediately
-      bool not_late = check_nr_p7_late_at_reception(pnf_p7, frame, slot, "ul_dci_request",
-                                                     recv_time_hr, pnf_p7->ul_dci_timing_offset,
-                                                     &pnf_p7->ul_dci_latest_delay);
-      if (!not_late) {
-        pnf_p7->nr_stats.ul_dci.late++;
-        if (pnf_p7->_public.timing_info_mode_aperiodic) {
-          pnf_nr_pack_and_send_timing_info(pnf_p7);
-        }
-        if (pthread_mutex_unlock(&(pnf_p7->mutex)) != 0) {
-          NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to unlock mutex\n");
-        }
-        return;
-      }
-      
+        && is_nr_p7_request_in_buffer_size(frame, slot, "ul_dci_request", pnf_p7)
+        && check_nr_p7_late_at_reception(pnf_p7, frame, slot, "ul_dci_request",
+                                         recv_time_hr, pnf_p7->ul_dci_timing_offset,
+                                         &pnf_p7->ul_dci_latest_delay)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
       uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
       pnf_p7->slot_buffer[buffer_index].sfn = frame;
@@ -1829,24 +1738,13 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
       NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to lock mutex\n");
       return;
     }
+    // Combined check: slot type, buffer size, and timing (not late)
+    // If any check fails, packet is dropped (not processed)
     if (check_nr_nfapi_p7_slot_type(frame, slot, "TX_DATA.REQUEST", NR_DOWNLINK_SLOT)
-        && is_nr_p7_request_in_buffer_size(frame, slot, "tx_request", pnf_p7)) {
-      
-      // Check if packet is TOO LATE - if so, drop immediately
-      bool not_late = check_nr_p7_late_at_reception(pnf_p7, frame, slot, "tx_data_request",
-                                                     recv_time_hr, pnf_p7->tx_data_timing_offset,
-                                                     &pnf_p7->tx_data_latest_delay);
-      if (!not_late) {
-        pnf_p7->nr_stats.tx_data.late++;
-        if (pnf_p7->_public.timing_info_mode_aperiodic) {
-          pnf_nr_pack_and_send_timing_info(pnf_p7);
-        }
-        if (pthread_mutex_unlock(&(pnf_p7->mutex)) != 0) {
-          NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to unlock mutex\n");
-        }
-        return;
-      }
-      
+        && is_nr_p7_request_in_buffer_size(frame, slot, "tx_data_request", pnf_p7)
+        && check_nr_p7_late_at_reception(pnf_p7, frame, slot, "tx_data_request",
+                                         recv_time_hr, pnf_p7->tx_data_timing_offset,
+                                         &pnf_p7->tx_data_latest_delay)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
       uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
       pnf_p7->slot_buffer[buffer_index].sfn = frame;
