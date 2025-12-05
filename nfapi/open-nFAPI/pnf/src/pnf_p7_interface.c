@@ -37,6 +37,8 @@ nfapi_pnf_p7_config_t* nfapi_pnf_p7_config_create()
 	_this->_public.timing_info_period = 32;
 	_this->_public.timing_info_mode_aperiodic = 1;
 	
+	// By default enable aperiodic timing info send flag (for VNF tick sync)
+	_this->timing_info_aperiodic_send = 1;
 	_this->_public.checksum_enabled = 1;
 	
 	_this->_public.malloc = &malloc;
