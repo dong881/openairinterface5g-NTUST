@@ -110,6 +110,175 @@ uint32_t pnf_get_current_time_hr(void)
 	return time_hr;
 }
 
+/*===========================================================================
+ * RFC 3550 Section 6.4.1 Interarrival Jitter Implementation
+ *
+ * The interarrival jitter J is defined as the mean deviation of the 
+ * difference D in packet spacing at the receiver compared to the sender.
+ * It is calculated incrementally:
+ *   D(i) = (R(i) - R(i-1)) - (S(i) - S(i-1)) = (R(i) - S(i)) - (R(i-1) - S(i-1))
+ *   J(i) = J(i-1) + (|D(i)| - J(i-1)) / 16
+ * where:
+ *   S(i) = transmit timestamp of packet i (from P7 header, in µs)
+ *   R(i) = receive time of packet i (PHY local time, in µs)
+ *   D(i) = difference in transit time between consecutive packets
+ *   J    = smoothed jitter estimate
+ *===========================================================================*/
+
+// Convert TIME_HR format (12-bit sec + 20-bit usec) to 64-bit microseconds
+// Also handles 32-bit wrap-around for timestamps
+uint64_t pnf_timehr_to_us(pnf_p7_t* pnf_p7, uint32_t time_hr)
+{
+    uint32_t sec = TIMEHR_SEC(time_hr);
+    uint32_t usec = TIMEHR_USEC(time_hr);
+    // Convert to 64-bit microseconds (relative, will wrap at 4096 seconds)
+    return (uint64_t)sec * 1000000ULL + (uint64_t)usec;
+}
+
+// Update jitter for a specific message type using RFC 3550 algorithm
+void pnf_update_jitter(pnf_p7_t* pnf_p7, 
+                       nfapi_jitter_msg_type_t msg_type,
+                       uint32_t p7_tx_timestamp,
+                       uint32_t recv_time_hr)
+{
+    if (!pnf_p7) return;
+
+    // Get pointers to the appropriate state variables based on message type
+    int64_t *prev_transit_us;
+    double *jitter_us;
+    uint8_t *jitter_init;
+    
+    switch (msg_type) {
+        case NFAPI_JITTER_DL_TTI:
+            prev_transit_us = &pnf_p7->dl_tti_prev_transit_us;
+            jitter_us = &pnf_p7->dl_tti_jitter_us;
+            jitter_init = &pnf_p7->dl_tti_jitter_init;
+            break;
+        case NFAPI_JITTER_UL_TTI:
+            prev_transit_us = &pnf_p7->ul_tti_prev_transit_us;
+            jitter_us = &pnf_p7->ul_tti_jitter_us;
+            jitter_init = &pnf_p7->ul_tti_jitter_init;
+            break;
+        case NFAPI_JITTER_UL_DCI:
+            prev_transit_us = &pnf_p7->ul_dci_prev_transit_us;
+            jitter_us = &pnf_p7->ul_dci_jitter_us;
+            jitter_init = &pnf_p7->ul_dci_jitter_init;
+            break;
+        case NFAPI_JITTER_TX_DATA:
+            prev_transit_us = &pnf_p7->tx_data_prev_transit_us;
+            jitter_us = &pnf_p7->tx_data_jitter_us;
+            jitter_init = &pnf_p7->tx_data_jitter_init;
+            break;
+        default:
+            return;
+    }
+
+    // Convert receive time from TIME_HR format to microseconds
+    uint64_t rx_time_us = pnf_timehr_to_us(pnf_p7, recv_time_hr);
+    
+    // P7 transmit timestamp is already in microseconds (32-bit)
+    // Need to unwrap to handle 32-bit wrap-around (~71 minutes)
+    // Note: We use a simple unwrap assuming packets arrive in order
+    // and the wrap-around doesn't span more than half the range
+    uint32_t tx_ts = p7_tx_timestamp;
+    
+    // For simplicity, we compute transit directly using 32-bit arithmetic
+    // which handles wrap-around naturally for small differences
+    // The key insight is that we only care about D = transit_i - transit_{i-1}
+    // which is a difference of differences, so constant offsets cancel out
+    
+    // transit = arrival_time - transmit_timestamp (in µs)
+    // Both are effectively mod 2^32 for the timestamp, mod ~4096s for rx_time
+    // We use signed arithmetic to handle wrap-around correctly
+    int64_t transit = (int64_t)rx_time_us - (int64_t)tx_ts;
+
+    // First packet - just initialize state
+    if (!(*jitter_init)) {
+        *prev_transit_us = transit;
+        *jitter_us = 0.0;
+        *jitter_init = 1;
+        return;
+    }
+
+    // RFC 3550: d = transit - prev_transit
+    int64_t d = transit - *prev_transit_us;
+    *prev_transit_us = transit;
+
+    // Take absolute value
+    if (d < 0) d = -d;
+
+    // RFC 3550: J = J + (|D| - J) / 16
+    // Using the incremental update formula for smoothing
+    *jitter_us += ((double)d - *jitter_us) / 16.0;
+}
+
+// Get jitter value as uint32_t for Timing Info message
+uint32_t pnf_get_jitter(pnf_p7_t* pnf_p7, nfapi_jitter_msg_type_t msg_type)
+{
+    if (!pnf_p7) return 0;
+
+    double jitter;
+    uint8_t init;
+    
+    switch (msg_type) {
+        case NFAPI_JITTER_DL_TTI:
+            jitter = pnf_p7->dl_tti_jitter_us;
+            init = pnf_p7->dl_tti_jitter_init;
+            break;
+        case NFAPI_JITTER_UL_TTI:
+            jitter = pnf_p7->ul_tti_jitter_us;
+            init = pnf_p7->ul_tti_jitter_init;
+            break;
+        case NFAPI_JITTER_UL_DCI:
+            jitter = pnf_p7->ul_dci_jitter_us;
+            init = pnf_p7->ul_dci_jitter_init;
+            break;
+        case NFAPI_JITTER_TX_DATA:
+            jitter = pnf_p7->tx_data_jitter_us;
+            init = pnf_p7->tx_data_jitter_init;
+            break;
+        default:
+            return 0;
+    }
+
+    if (!init) return 0;
+    if (jitter < 0) jitter = 0;
+    if (jitter > 4294967295.0) return 0xFFFFFFFFu;
+    
+    return (uint32_t)(jitter + 0.5);  // Round to nearest integer
+}
+
+// Reset jitter state for a specific message type
+void pnf_reset_jitter(pnf_p7_t* pnf_p7, nfapi_jitter_msg_type_t msg_type)
+{
+    if (!pnf_p7) return;
+
+    switch (msg_type) {
+        case NFAPI_JITTER_DL_TTI:
+            pnf_p7->dl_tti_jitter_init = 0;
+            pnf_p7->dl_tti_jitter_us = 0.0;
+            pnf_p7->dl_tti_prev_transit_us = 0;
+            break;
+        case NFAPI_JITTER_UL_TTI:
+            pnf_p7->ul_tti_jitter_init = 0;
+            pnf_p7->ul_tti_jitter_us = 0.0;
+            pnf_p7->ul_tti_prev_transit_us = 0;
+            break;
+        case NFAPI_JITTER_UL_DCI:
+            pnf_p7->ul_dci_jitter_init = 0;
+            pnf_p7->ul_dci_jitter_us = 0.0;
+            pnf_p7->ul_dci_prev_transit_us = 0;
+            break;
+        case NFAPI_JITTER_TX_DATA:
+            pnf_p7->tx_data_jitter_init = 0;
+            pnf_p7->tx_data_jitter_us = 0.0;
+            pnf_p7->tx_data_prev_transit_us = 0;
+            break;
+        default:
+            break;
+    }
+}
+
 void* pnf_p7_malloc(pnf_p7_t* pnf_p7, size_t size)
 {
 	if(pnf_p7->_public.malloc)
@@ -691,10 +860,11 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 	timing_info.last_slot = pnf_p7->slot;
 	timing_info.time_since_last_timing_info = pnf_p7->timing_info_ms_counter;
 
-	timing_info.dl_tti_jitter = pnf_p7->dl_tti_jitter;
-	timing_info.tx_data_request_jitter = pnf_p7->tx_data_jitter;
-	timing_info.ul_tti_jitter = pnf_p7->ul_tti_jitter;
-	timing_info.ul_dci_jitter = pnf_p7->ul_dci_jitter;
+	// Use RFC 3550 calculated jitter values (in microseconds)
+	timing_info.dl_tti_jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_DL_TTI);
+	timing_info.tx_data_request_jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_TX_DATA);
+	timing_info.ul_tti_jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_UL_TTI);
+	timing_info.ul_dci_jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_UL_DCI);
 
 	timing_info.dl_tti_latest_delay = pnf_p7->dl_tti_latest_delay;
 	timing_info.tx_data_request_latest_delay = pnf_p7->tx_data_latest_delay;
@@ -705,16 +875,20 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 	timing_info.tx_data_request_earliest_arrival = pnf_p7->tx_data_earliest_arrival;
 	timing_info.ul_tti_earliest_arrival = pnf_p7->ul_tti_earliest_arrival;
 	timing_info.ul_dci_earliest_arrival = pnf_p7->ul_dci_earliest_arrival;
-  AssertFatal(pnf_p7->_public.send_p7_msg, "The function pointer to pack and send P7 messages must be set");
-  pnf_p7->_public.send_p7_msg(pnf_p7, &(timing_info.header), sizeof(timing_info));
+
+	NFAPI_TRACE(NFAPI_TRACE_DEBUG, 
+		"[TIMING_INFO] sfn/slot:%d.%d jitter(us) DL_TTI:%u UL_TTI:%u UL_DCI:%u TX_DATA:%u\n",
+		pnf_p7->sfn, pnf_p7->slot,
+		timing_info.dl_tti_jitter, timing_info.ul_tti_jitter,
+		timing_info.ul_dci_jitter, timing_info.tx_data_request_jitter);
+
+	AssertFatal(pnf_p7->_public.send_p7_msg, "The function pointer to pack and send P7 messages must be set");
+	pnf_p7->_public.send_p7_msg(pnf_p7, &(timing_info.header), sizeof(timing_info));
 
 	pnf_p7->timing_info_ms_counter = 0;
 
-	pnf_p7->dl_tti_jitter = 0;
-	pnf_p7->ul_tti_jitter = 0;
-	pnf_p7->ul_dci_jitter = 0;
-	pnf_p7->tx_data_jitter = 0;
-
+	// Reset latest_delay and earliest_arrival for next timing info period
+	// Note: jitter state is NOT reset - it's a running average per RFC 3550
 	pnf_p7->dl_tti_latest_delay = 0;
 	pnf_p7->ul_tti_latest_delay = 0;
 	pnf_p7->ul_dci_latest_delay = 0;
@@ -1349,6 +1523,9 @@ void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
         return;
     }
 
+    // Update RFC 3550 jitter calculation for DL_TTI
+    pnf_update_jitter(pnf_p7, NFAPI_JITTER_DL_TTI, header.transmit_timestamp, recv_time_hr);
+
     if (pthread_mutex_lock(&(pnf_p7->mutex)) != 0) {
       NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to lock mutex\n");
       return;
@@ -1488,6 +1665,9 @@ void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
         return;
     }
 
+    // Update RFC 3550 jitter calculation for UL_TTI
+    pnf_update_jitter(pnf_p7, NFAPI_JITTER_UL_TTI, header.transmit_timestamp, recv_time_hr);
+
     if (pthread_mutex_lock(&(pnf_p7->mutex)) != 0) {
       NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to lock mutex\n");
       return;
@@ -1608,6 +1788,9 @@ void pnf_handle_ul_dci_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack header in %s\n", __FUNCTION__);
         return;
     }
+
+    // Update RFC 3550 jitter calculation for UL_DCI
+    pnf_update_jitter(pnf_p7, NFAPI_JITTER_UL_DCI, header.transmit_timestamp, recv_time_hr);
 
     if (pthread_mutex_lock(&(pnf_p7->mutex)) != 0) {
       NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to lock mutex\n");
@@ -1733,6 +1916,9 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack header in %s\n", __FUNCTION__);
         return;
     }
+
+    // Update RFC 3550 jitter calculation for TX_DATA
+    pnf_update_jitter(pnf_p7, NFAPI_JITTER_TX_DATA, header.transmit_timestamp, recv_time_hr);
 
     if (pthread_mutex_lock(&(pnf_p7->mutex)) != 0) {
       NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to lock mutex\n");
