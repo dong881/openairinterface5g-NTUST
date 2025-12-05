@@ -1575,7 +1575,7 @@ void vnf_handle_nr_rach_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf
 	}
 }
 
-#define TARGET_PNF_MARGIN_US 400 // Target: VNF leads PNF by this many microseconds
+#define TARGET_PNF_MARGIN_US 2000 // Target: VNF leads PNF by this many microseconds
 
 /*===========================================================================
  * vnf_nr_handle_ul_node_sync - Handle UL_NODE_SYNC from PNF
@@ -1624,15 +1624,28 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	int32_t offsetslot = (offset + TARGET_PNF_MARGIN_US) / slot_us;
 	int32_t offsetus = (offset  + TARGET_PNF_MARGIN_US) % slot_us;
 	
-    // Use raw value directly - EMA causes over-correction in this application
-    // The settling period provides sufficient smoothing
-    p7_info->us_adjustment = -offsetus;
-    p7_info->slot_adjustment = offsetslot;
+    // Check if sync has converged (offset within ±10) - once locked, permanently stop adjusting
+    if (!p7_info->sync_locked) {
+        if (offset + TARGET_PNF_MARGIN_US >= -10 && offset + TARGET_PNF_MARGIN_US <= 10) {
+            // Offset converged within ±10, permanently lock sync and stop adjustments
+            p7_info->sync_locked = 1;
+            p7_info->us_adjustment = 0;
+            p7_info->slot_adjustment = 0;
+            NFAPI_TRACE(NFAPI_TRACE_INFO, 
+                "[P7_SYNC] SYNC LOCKED! phy_id:%d offset:%d within ±10, permanently stopping adjustments\n",
+                ind.header.phy_id, offset);
+        } else {
+            // Still converging, apply adjustments
+            p7_info->us_adjustment = -offsetus;
+            p7_info->slot_adjustment = offsetslot;
+        }
+    }
+    // else: sync_locked=1, do not modify adjustment values (keep them at 0)
 
-    NFAPI_TRACE(NFAPI_TRACE_DEBUG, 
-        "[P7_SYNC] ul_node_sync phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) offset:%d owd:%d slot_adj:%d us_adj:%d\n",
+    NFAPI_TRACE(NFAPI_TRACE_INFO, 
+        "[P7_SYNC] ul_node_sync phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) offset:%d owd:%d slot_adj:%d us_adj:%d locked:%d\n",
         ind.header.phy_id, ind.t1, ind.t2, ind.t3, t4,
-        offset, owd, p7_info->slot_adjustment, p7_info->us_adjustment);
+        offset, owd, p7_info->slot_adjustment, p7_info->us_adjustment, p7_info->sync_locked);
 }
 
 void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)

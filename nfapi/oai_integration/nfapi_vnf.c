@@ -1909,7 +1909,7 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   memset(&vnf, 0, sizeof(vnf));
   memset(vnf.p7_vnfs, 0, sizeof(vnf.p7_vnfs));
   /* [Setting nfapi delay management] */
-  vnf.p7_vnfs[0].timing_window = 1500;
+  vnf.p7_vnfs[0].timing_window = 2200;
   vnf.p7_vnfs[0].dl_tti_timing_offset = 0;
   vnf.p7_vnfs[0].ul_tti_timing_offset = 0;
   vnf.p7_vnfs[0].ul_dci_timing_offset = 0;
