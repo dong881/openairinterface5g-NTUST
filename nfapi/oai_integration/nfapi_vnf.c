@@ -949,14 +949,163 @@ int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
     oai_nfapi_ul_dci_req(&sched_response.UL_dci_req);
 #endif
 
-  /* the below works because the function behind the callback collects
-   * messages from queue into which messages have been copied.
-   * TODO we should have different callbacks for received messages and call
-   * into the scheduler separately for each message instead of one big one. */
-  NR_UL_IND_t ul_ind = {.frame = ind->sfn, .slot = ind->slot, };
-  ifi->NR_UL_indication(&ul_ind);
+  NR_UL_IND_t ind = {.frame = slot_ind->sfn, .slot = slot_ind->slot, };
+  NR_UL_indication(&ind);
 
   return 1;
+}
+
+int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
+{
+  LOG_D(MAC, "VNF SFN/Slot %d.%d \n", ind->sfn, ind->slot);
+
+  trigger_scheduler(ind);
+
+  return 1;
+}
+#include <time.h>
+
+// VNF Autonomous Timing Module
+
+void timespec_add_us(struct timespec *t, long us) {
+    t->tv_nsec += us * 1000;
+    if (t->tv_nsec >= 1000000000) {
+        t->tv_sec += t->tv_nsec / 1000000000;
+        t->tv_nsec %= 1000000000;
+    } else if (t->tv_nsec < 0) {
+        long sec_diff = (-t->tv_nsec / 1000000000) + 1;
+        t->tv_sec -= sec_diff;
+        t->tv_nsec += sec_diff * 1000000000;
+    }
+}
+static volatile int nr_start_resp_received = 0;
+
+/*===========================================================================
+ * P7 Timing Synchronization - Simplified Periodic Sync
+ *===========================================================================*/
+
+#define P7_SYNC_PERIOD_SLOTS_DEFAULT 2  // Send vnf_nr_sync every N slots
+
+/**
+ * p7_sync_init - Initialize sync parameters (simplified, no FSM)
+ */
+static inline void p7_sync_init(nfapi_vnf_p7_connection_info_t *p7_info)
+{
+    p7_info->sync_slot_counter = 0;
+    p7_info->sync_period_slots = P7_SYNC_PERIOD_SLOTS_DEFAULT;
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Initialized: period=%u slots\n",
+                p7_info->sync_period_slots);
+}
+
+/*===========================================================================
+ * vnf_timing_thread - Main VNF autonomous timing thread with periodic sync
+ *===========================================================================*/
+void *vnf_timing_thread(void *arg) {
+    LOG_I(NFAPI_VNF, "Starting VNF autonomous timing thread\n");
+    vnf_p7_info *p7_vnf = (vnf_p7_info *)arg;
+    vnf_p7_t *vnf_p7 = (vnf_p7_t *)p7_vnf->config;
+    
+    // Wait for configuration
+    // Prefer to obtain mu (subcarrier spacing index) from the NFAPI NR config
+    // (ssb_config.scs_common) which is set when handling PARAM/CONFIG responses.
+    // If that's not available yet, fallback to RC.gNB frame_parms numerology_index.
+    int mu = -1;
+    nfapi_vnf_p7_connection_info_t *p7_info = NULL;
+
+    while (1) {
+        if (nr_start_resp_received) {
+            if (vnf_p7->p7_connections) {
+                p7_info = vnf_p7->p7_connections;
+                if (RC.nrmac && RC.nrmac[0]) {
+                    nfapi_nr_config_request_scf_t *req = &RC.nrmac[0]->config[0];
+                    const nfapi_uint8_tlv_t *scs = &req->ssb_config.scs_common;
+                    if (scs && scs->tl.tag == NFAPI_NR_CONFIG_SCS_COMMON_TAG) {
+                        mu = scs->value;
+                    }
+                }
+
+                if (mu < 0 && RC.gNB && RC.gNB[0] && RC.gNB[0]->configured && RC.gNB[0]->frame_parms.numerology_index > 0) {
+                    mu = RC.gNB[0]->frame_parms.numerology_index;
+                }
+                
+                if (mu >= 0) break;
+            }
+        }
+
+        usleep(1000000);
+        LOG_I(NFAPI_VNF, "Waiting for gNB or NFAPI NR configuration... mu:%d start_resp:%d\n", mu, nr_start_resp_received);
+    }    
+    while (!p7_info->initial_timinginfo_received) {
+        usleep(1000);
+    }
+    p7_info->mu = mu;
+    p7_info->slot_duration_us = 1000 >> p7_info->mu; // 1ms / 2^mu
+    p7_info->sfn = 0;
+    p7_info->slot = 0;
+    p7_info->running = 1;
+    p7_info->thread = pthread_self();
+    pthread_mutex_init(&p7_info->mutex, NULL);
+
+    // Initialize P7 Sync (simplified, no FSM)
+    p7_sync_init(p7_info);
+
+    clock_gettime(CLOCK_MONOTONIC, &p7_info->next_slot_time);
+    vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
+
+    while (p7_info->running) {
+      /*=======================================================================
+       * Apply us_adjustment to fine-tune slot timing phase
+       * Applied immediately when available, no FSM state check
+       *=======================================================================*/
+      if (p7_info->us_adjustment != 0) {
+        timespec_add_us(&p7_info->next_slot_time, p7_info->us_adjustment);
+        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC][VNF Timing] Applying us adjustment of %d us\n", 
+                    p7_info->us_adjustment);
+        p7_info->us_adjustment = 0;
+      }
+      timespec_add_us(&p7_info->next_slot_time, p7_info->slot_duration_us);
+      clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
+      vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
+      int sfnslot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, p7_info->sfn, p7_info->slot);
+      sfnslot_dec++;
+      
+      /*=======================================================================
+       * Apply slot_adjustment and us_adjustment simultaneously
+       * No FSM gating - adjustments are applied immediately when available
+       *=======================================================================*/
+      if (p7_info->slot_adjustment != 0) {
+        sfnslot_dec += p7_info->slot_adjustment;
+        if (sfnslot_dec < 0) {
+          // Handle negative sfnslot_dec (wrap-around), support multiple rounds
+          int slots_per_frame = NFAPI_SLOTNUM(p7_info->mu);
+          int total_slots = slots_per_frame * 1024;
+          sfnslot_dec = (sfnslot_dec % total_slots + total_slots) % total_slots;
+        }
+        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC][VNF Timing] Applying slot adjustment of %d slots -> (new sfn:slot %d:%d)\n", 
+                    p7_info->slot_adjustment, 
+                    NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec) % 1024,
+                    NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec));
+        p7_info->slot_adjustment = 0;
+      }
+      
+      p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec) % 1024;
+      p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
+      
+      p7_info->sync_slot_counter++;
+      if (p7_info->sync_slot_counter >= p7_info->sync_period_slots) {
+        p7_info->sync_slot_counter = 0;
+        vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
+        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC] Sent periodic sync at sfn:slot %d:%d\n",
+                    p7_info->sfn, p7_info->slot);
+      }
+      nfapi_nr_slot_indication_scf_t ind = {0};
+      ind.sfn = p7_info->sfn;
+      ind.slot = p7_info->slot;
+      ind.header.phy_id = p7_info->phy_id;
+      // NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF Timing] Triggering slot indication for SFN/Slot %d/%d\n", ind.sfn, ind.slot);
+      trigger_scheduler(&ind);
+    }
+    return NULL;
 }
 
 int phy_nr_srs_indication(nfapi_nr_srs_indication_t *ind)
@@ -1245,7 +1394,15 @@ void *configure_nr_p7_vnf(void *ptr)
   p7_vnf->config->nb_harq_indication = &phy_nb_harq_indication;
   p7_vnf->config->nrach_indication = &phy_nrach_indication;
 #endif
+#ifdef ENABLE_AERIAL
   p7_vnf->config->nr_slot_indication = &phy_nr_slot_indication;
+#else
+  if (NFAPI_MODE == NFAPI_MODE_VNF) {
+    p7_vnf->config->nr_slot_indication = NULL;
+  } else {
+    p7_vnf->config->nr_slot_indication = &phy_nr_slot_indication;
+  }
+#endif
   p7_vnf->config->nr_srs_indication = &phy_nr_srs_indication;
   p7_vnf->config->malloc = &vnf_allocate;
   p7_vnf->config->free = &vnf_deallocate;
@@ -1283,6 +1440,13 @@ void *configure_nr_p7_vnf(void *ptr)
   p7_vnf->config->pack_func = &fapi_nr_p7_message_pack;
   p7_vnf->config->send_p7_msg = &aerial_nr_send_p7_message;
 #endif
+
+  // Start VNF autonomous timing thread
+  if (NFAPI_MODE == NFAPI_MODE_VNF) {
+    pthread_t t;
+    threadCreate(&t, &vnf_timing_thread, p7_vnf, "vnf_timing", -1, OAI_PRIORITY_RT);
+  }
+
   return 0;
 }
 
@@ -1316,7 +1480,7 @@ void *vnf_p7_thread_start(void *ptr) {
   p7_vnf->config->codec_config.deallocate = &vnf_deallocate;
   p7_vnf->config->allocate_p7_vendor_ext = &phy_allocate_p7_vendor_ext;
   p7_vnf->config->deallocate_p7_vendor_ext = &phy_deallocate_p7_vendor_ext;
-  NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Creating VNF NFAPI P7 start thread %s\n", __FUNCTION__);
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Creating VNF NFAPI start thread %s\n", __FUNCTION__);
   pthread_create(&vnf_p7_start_pthread, NULL, &vnf_p7_start_thread, p7_vnf->config);
   return 0;
 }
@@ -1436,11 +1600,20 @@ int nr_param_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_param_resp
       req->num_tlv++;
     }
   }
-//TODO: Assign tag and value for P7 message offsets
-req->nfapi_config.dl_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET;
-req->nfapi_config.ul_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET;
-req->nfapi_config.ul_dci_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET;
-req->nfapi_config.tx_data_timing_offset.tl.tag = NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET;
+  // Assign tag and value for P7 message offsets
+  req->nfapi_config.dl_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET;
+  req->nfapi_config.dl_tti_timing_offset.value = p7_vnf->dl_tti_timing_offset;
+
+  req->nfapi_config.ul_tti_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET;
+  req->nfapi_config.ul_tti_timing_offset.value = p7_vnf->ul_tti_timing_offset;
+
+  req->nfapi_config.ul_dci_timing_offset.tl.tag = NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET;
+  req->nfapi_config.ul_dci_timing_offset.value = p7_vnf->ul_dci_timing_offset;
+
+  req->nfapi_config.tx_data_timing_offset.tl.tag = NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET;
+  req->nfapi_config.tx_data_timing_offset.value = p7_vnf->tx_data_timing_offset;
+
+  req->num_tlv += 4;
 
   vendor_ext_tlv_2 ve2;
   memset(&ve2, 0, sizeof(ve2));
@@ -1544,6 +1717,7 @@ int start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_start_response_t
 
 int nr_start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_start_response_scf_t *resp) {
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Received NFAPI_START_RESP idx:%d phy_id:%d\n", p5_idx, resp->header.phy_id);
+  nr_start_resp_received = 1;
   return 0;
 }
 
@@ -1720,13 +1894,13 @@ void configure_nr_nfapi_vnf(eth_params_t params)
 #ifndef ENABLE_AERIAL
   nfapi_setmode(NFAPI_MODE_VNF);
 #endif
-  vnf_info *vnf = calloc(1, sizeof(vnf_info));
-  memset(vnf->p7_vnfs, 0, sizeof(vnf->p7_vnfs));
-  vnf->p7_vnfs[0].timing_window = 30;
-  vnf->p7_vnfs[0].periodic_timing_enabled = 0;
-  vnf->p7_vnfs[0].aperiodic_timing_enabled = 0;
-  vnf->p7_vnfs[0].periodic_timing_period = 1;
-  vnf->p7_vnfs[0].config = nfapi_vnf_p7_config_create();
+  memset(&vnf, 0, sizeof(vnf));
+  memset(vnf.p7_vnfs, 0, sizeof(vnf.p7_vnfs));
+  vnf.p7_vnfs[0].timing_window = 30;
+  vnf.p7_vnfs[0].periodic_timing_enabled = 0;
+  vnf.p7_vnfs[0].aperiodic_timing_enabled = 0;
+  vnf.p7_vnfs[0].periodic_timing_period = 1;
+  vnf.p7_vnfs[0].config = nfapi_vnf_p7_config_create();
 #ifndef ENABLE_AERIAL
   NFAPI_TRACE(NFAPI_TRACE_INFO,
               "[VNF] %s() vnf->p7_vnfs[0].config:%p VNF ADDRESS:%s:%d\n",
@@ -1746,6 +1920,10 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   config->vnf_ipv6 = 0;
   config->pnf_list = 0;
   config->phy_list = 0;
+
+  config->timing_window = vnf.p7_vnfs[0].timing_window;
+  config->timing_info_mode = (vnf.p7_vnfs[0].aperiodic_timing_enabled << 1) | (vnf.p7_vnfs[0].periodic_timing_enabled);
+  config->timing_info_period = vnf.p7_vnfs[0].periodic_timing_period;
 
   config->pnf_nr_connection_indication = &pnf_nr_connection_indication_cb;
   config->pnf_disconnect_indication = &pnf_disconnection_indication_cb;
