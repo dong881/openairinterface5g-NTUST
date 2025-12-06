@@ -1,24 +1,24 @@
 #!/bin/bash
 
-# 設定參數
+# Configuration parameters
 TARGET_IP="192.168.9.9"
 USER="padmin"
 PASS="Pega@2025"
 NMAP_CMD="nmap -p 1-65535 -sS $TARGET_IP"
 
-echo "=== 開始執行 RU 自動重啟流程 ==="
+echo "=== Starting RU Auto-Reboot Process ==="
 
 while true; do
-    echo "[Step 1] 嘗試 SSH 連線至 $TARGET_IP..."
+    echo "[Step 1] Attempting SSH connection to $TARGET_IP..."
     
-    # 使用 expect 處理 SSH 互動
-    # 返回值: 0=成功重啟, 1=需要 Trigger (Nmap), 2=其他錯誤
+    # Use expect to handle SSH interaction
+    # Return values: 0=reboot success, 1=trigger needed (Nmap), 2=other error
     expect -c "
         set timeout 10
         spawn ssh $USER@$TARGET_IP
         
         expect {
-            # 如果匹配到 Banner 中的特殊區塊符號，代表狀態正確
+            # If banner block symbol is matched, state is correct
             \"██\" {
                 expect \"password:\"
                 send \"$PASS\r\"
@@ -28,7 +28,7 @@ while true; do
                 expect eof
                 exit 0
             }
-            # 如果在看到 Banner 之前直接出現密碼提示，代表狀態錯誤
+            # If password prompt appears before banner, state is incorrect
             \"$USER@$TARGET_IP's password:\" {
                 puts \"\n>> Error: No Banner detected. Host needs triggering.\"
                 exit 1
@@ -44,44 +44,74 @@ while true; do
         }
     "
     
-    # 獲取 expect 的退出代碼
+    # Get expect exit code
     RET_VAL=$?
 
     if [ $RET_VAL -eq 0 ]; then
-        echo "[Success] 重啟指令已發送。"
+        echo "[Success] Reboot command has been sent."
         break
     elif [ $RET_VAL -eq 1 ]; then
-        echo "[Trigger Needed] 偵測到 Host 未觸發，執行 Nmap..."
-        # 這裡執行 sudo nmap，可能會要求輸入本地 sudo 密碼
+        echo "[Trigger Needed] Host not triggered, running Nmap..."
+        # Run sudo nmap, may require local sudo password
         echo ">> Running: sudo $NMAP_CMD"
         sudo $NMAP_CMD
-        echo ">> 等待 2 秒後重試..."
+        echo ">> Waiting 2 seconds before retry..."
         sleep 2
     else
-        echo "[Error] 連線發生預期外的錯誤，5秒後重試..."
+        echo "[Error] Unexpected connection error, retrying in 5 seconds..."
         sleep 5
     fi
 done
 
 echo "------------------------------------------------"
-echo "[Step 2] 等待 RU 重啟完成 (Ping Monitoring)..."
+echo "[Step 2] Waiting for RU reboot to complete (Ping Monitoring)..."
 
-# 簡單的等待邏輯：先等它斷線(通常reboot指令後就斷了)，再等它上線
-# 為了保險，先睡 10 秒讓它完全關機
+# Simple wait logic: wait for disconnect (usually after reboot command), then wait for online
+# Sleep 10 seconds first to ensure complete shutdown
 sleep 10
 
-echo ">> 開始 Ping 偵測，等待回應..."
+echo ">> Starting ping detection, waiting for response..."
 while ! ping -c 1 -W 1 $TARGET_IP &> /dev/null; do
     printf "."
     sleep 1
 done
 
 echo ""
-echo "[Online] $TARGET_IP 已恢復連線！"
+echo "[Online] $TARGET_IP is back online!"
 echo "------------------------------------------------"
-echo "[Step 3] 執行 alias 'pegam'..."
+echo "[Step 3] Running NETCONF configuration (will retry until success)..."
 
-# 因為 pegam 是 alias，普通 script 讀不到
-# 我們呼叫 zsh 的互動模式 (-i) 來執行它
-# 請確保您的 .zshrc 中有定義 pegam
-zsh -i -c "pegam"
+# NETCONF service may start later than network, need to wait
+sleep 30
+
+PEGAM_SCRIPT="$HOME/SMO-Mplane/Pegatron/Mplane_pega.sh"
+MAX_RETRIES=30
+RETRY_INTERVAL=10
+
+for ((i=1; i<=MAX_RETRIES; i++)); do
+    echo ">> Attempting NETCONF configuration (attempt $i/$MAX_RETRIES)..."
+    
+    # Run the expect script directly and capture exit code
+    if $PEGAM_SCRIPT; then
+        echo ""
+        echo "=========================================="
+        echo "[Success] NETCONF configuration completed!"
+        echo "=========================================="
+        break
+    else
+        echo ">> [Failed] NETCONF configuration failed, waiting ${RETRY_INTERVAL} seconds before retry..."
+        sleep $RETRY_INTERVAL
+    fi
+    
+    if [ $i -eq $MAX_RETRIES ]; then
+        echo ""
+        echo "=========================================="
+        echo "[Failed] Maximum retries reached ($MAX_RETRIES)"
+        echo "Please manually check RU status and run: $PEGAM_SCRIPT"
+        echo "=========================================="
+        exit 1
+    fi
+done
+
+echo ""
+echo "=== RU Auto-Reboot Process Completed ==="
