@@ -72,7 +72,7 @@ services:
     oai-ext-dn:
         privileged: true
         container_name: rfsim5g-oai-ext-dn
-        image: oaisoftwarealliance/trf-gen-cn5g:focal
+        image: oaisoftwarealliance/trf-gen-cn5g:latest
         init: true
         entrypoint: /bin/bash -c \
               "iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE;"\
