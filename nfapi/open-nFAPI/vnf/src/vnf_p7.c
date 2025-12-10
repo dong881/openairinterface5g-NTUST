@@ -1582,49 +1582,112 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
     nfapi_vnf_p7_connection_info_t* p7_info = vnf_p7_connection_info_list_find(vnf_p7, ind.header.phy_id);
     if (!p7_info) {
          NFAPI_TRACE(NFAPI_TRACE_ERROR, "PHY instance not found for phy_id:%d\n", ind.header.phy_id);
-
+         return;
     }
 
     int32_t t4 = calculate_nr_t4(now_time_hr, p7_info->mu, p7_info->sfn, p7_info->slot, vnf_p7->slot_start_time_hr);
     
-    // Calculate offset using int64_t for proper handling of large values
-    // formula: offset = ((t2 - t1) - (t4 - t3)) / 2
-    // Positive offset means VNF clock is BEHIND PNF (VNF needs to speed up / reduce delay)
-    // Negative offset means VNF clock is AHEAD of PNF (VNF needs to slow down / add delay)
-    int32_t offset = (int32_t)( ((int64_t)ind.t2 - (int64_t)ind.t1 - ((int64_t)t4 - (int64_t)ind.t3)) / 2 );
-    int32_t owd = (int32_t)( ((int64_t)t4 - (int64_t)ind.t1 - ((int64_t)ind.t3 - (int64_t)ind.t2)) / 2 );
+    /*=========================================================================
+     * ROBUST DYNAMIC TIMING CONTROLLER
+     * 
+     * Uses Windowed Minimum Filter instead of simple averaging:
+     * - Traditional offset = ((t2-t1) - (t4-t3))/2 fails under network load
+     * - Queuing delays corrupt the offset calculation
+     * - Solution: Track min(OWD) over a sliding window to find "clean" samples
+     * 
+     * The timing controller is allocated on first use and persists for the
+     * lifetime of the P7 connection.
+     *=========================================================================*/
     
-	int32_t TARGET_PNF_MARGIN_US = 500*(2 << p7_info->mu); // 500us for mu0, 1000us for mu1, 2000us for mu2, 4000us for mu3
-    int32_t slot_us = (int32_t)p7_info->slot_duration_us;
-    
-	// CRITICAL: Negate the adjustment direction!
-    // If offset < 0, VNF is ahead -> we need to ADD delay (positive adjustment to next_slot_time)
-    // If offset > 0, VNF is behind -> we need to REDUCE delay (negative adjustment)
-    // So: us_adjustment = -offset
-	int32_t offsetslot = (offset + TARGET_PNF_MARGIN_US) / slot_us;
-	int32_t offsetus = (offset  + TARGET_PNF_MARGIN_US) % slot_us;
-	
-    // Check if sync has converged (offset within ±10) - once locked, permanently stop adjusting
-    if (!p7_info->sync_locked) {
-        if (offset + TARGET_PNF_MARGIN_US >= -10 && offset + TARGET_PNF_MARGIN_US <= 10) {
-            // Offset converged within ±10, permanently lock sync and stop adjustments
-            p7_info->sync_locked = 1;
-            p7_info->us_adjustment = 0;
-            p7_info->slot_adjustment = 0;
-            NFAPI_TRACE(NFAPI_TRACE_INFO, 
-                "[P7_SYNC] SYNC LOCKED! phy_id:%d offset:%d within ±10, permanently stopping adjustments\n",
-                ind.header.phy_id, offset);
-        } else {
-            // Still converging, apply adjustments
-            p7_info->us_adjustment = -offsetus;
-            p7_info->slot_adjustment = offsetslot;
+    /* Allocate timing controller on first use */
+    if (!p7_info->timing_controller) {
+        p7_info->timing_controller = vnf_tc_allocate(p7_info->mu);
+        if (!p7_info->timing_controller) {
+            NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to allocate timing controller\n");
+            /* Fall back to legacy behavior */
+            goto legacy_sync;
         }
+        NFAPI_TRACE(NFAPI_TRACE_INFO, 
+            "[VNF_TC] Allocated timing controller for phy_id:%d mu:%d\n",
+            ind.header.phy_id, p7_info->mu);
     }
-
+    
+    /* Feed timing sample to the controller */
+    vnf_tc_update_clock_offset(p7_info->timing_controller,
+                               ind.t1, ind.t2, ind.t3, (uint32_t)t4,
+                               p7_info->sfn, p7_info->slot);
+    
+    /* Get adjustments from the controller */
+    int32_t tc_us_adj = 0, tc_slot_adj = 0;
+    vnf_tc_get_adjustments(p7_info->timing_controller, &tc_us_adj, &tc_slot_adj);
+    
+    /* Apply adjustments to p7_info for the timing thread to consume */
+    if (!p7_info->timing_controller->sync_locked) {
+        p7_info->us_adjustment = tc_us_adj;
+        p7_info->slot_adjustment = tc_slot_adj;
+        p7_info->sync_locked = 0;
+    } else {
+        p7_info->us_adjustment = 0;
+        p7_info->slot_adjustment = 0;
+        p7_info->sync_locked = 1;
+    }
+    
+    /* Get stats for logging */
+    vnf_tc_stats_t stats;
+    vnf_tc_get_stats(p7_info->timing_controller, &stats);
+    
     NFAPI_TRACE(NFAPI_TRACE_INFO, 
-        "[P7_SYNC] ul_node_sync phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) offset:%d owd:%d slot_adj:%d us_adj:%d locked:%d\n",
+        "[P7_SYNC] ul_node_sync phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) "
+        "rtt:%d min_rtt:%d min_owd:%d jitter:%.1f locked:%d samples:%u\n",
         ind.header.phy_id, ind.t1, ind.t2, ind.t3, t4,
-        offset, owd, p7_info->slot_adjustment, p7_info->us_adjustment, p7_info->sync_locked);
+        stats.offset_raw, stats.offset_filtered, stats.owd_min, 
+        stats.jitter_estimate_us,
+        p7_info->sync_locked, stats.samples_in_window);
+    
+    return;
+
+legacy_sync:
+    /* Legacy synchronization code - fallback when timing controller unavailable */
+    {
+        // Calculate offset using int64_t for proper handling of large values
+        // formula: offset = ((t2 - t1) - (t4 - t3)) / 2
+        // Positive offset means VNF clock is BEHIND PNF (VNF needs to speed up / reduce delay)
+        // Negative offset means VNF clock is AHEAD of PNF (VNF needs to slow down / add delay)
+        int32_t offset = (int32_t)( ((int64_t)ind.t2 - (int64_t)ind.t1 - ((int64_t)t4 - (int64_t)ind.t3)) / 2 );
+        int32_t owd = (int32_t)( ((int64_t)t4 - (int64_t)ind.t1 - ((int64_t)ind.t3 - (int64_t)ind.t2)) / 2 );
+        
+        int32_t TARGET_PNF_MARGIN_US = 500*(2 << p7_info->mu); // 500us for mu0, 1000us for mu1, 2000us for mu2, 4000us for mu3
+        int32_t slot_us = (int32_t)p7_info->slot_duration_us;
+        
+        // CRITICAL: Negate the adjustment direction!
+        // If offset < 0, VNF is ahead -> we need to ADD delay (positive adjustment to next_slot_time)
+        // If offset > 0, VNF is behind -> we need to REDUCE delay (negative adjustment)
+        // So: us_adjustment = -offset
+        int32_t offsetslot = (offset + TARGET_PNF_MARGIN_US) / slot_us;
+        int32_t offsetus = (offset  + TARGET_PNF_MARGIN_US) % slot_us;
+        
+        // Check if sync has converged (offset within ±10) - once locked, permanently stop adjusting
+        if (!p7_info->sync_locked) {
+            if (offset + TARGET_PNF_MARGIN_US >= -10 && offset + TARGET_PNF_MARGIN_US <= 10) {
+                // Offset converged within ±10, permanently lock sync and stop adjustments
+                p7_info->sync_locked = 1;
+                p7_info->us_adjustment = 0;
+                p7_info->slot_adjustment = 0;
+                NFAPI_TRACE(NFAPI_TRACE_INFO, 
+                    "[P7_SYNC] SYNC LOCKED! phy_id:%d offset:%d within ±10, permanently stopping adjustments\n",
+                    ind.header.phy_id, offset);
+            } else {
+                // Still converging, apply adjustments
+                p7_info->us_adjustment = -offsetus;
+                p7_info->slot_adjustment = offsetslot;
+            }
+        }
+
+        NFAPI_TRACE(NFAPI_TRACE_INFO, 
+            "[P7_SYNC] ul_node_sync (LEGACY) phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) offset:%d owd:%d slot_adj:%d us_adj:%d locked:%d\n",
+            ind.header.phy_id, ind.t1, ind.t2, ind.t3, t4,
+            offset, owd, p7_info->slot_adjustment, p7_info->us_adjustment, p7_info->sync_locked);
+    }
 }
 
 void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
@@ -1677,6 +1740,184 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
 	int32_t vnf_current_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn, p7_con->slot);
 	int32_t pnf_ind_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn, ind.last_slot);
+	
+	/*=========================================================================
+	 * TIMING CONTROLLER FEEDBACK LOOP
+	 * 
+	 * Process the TIMING_INFO message to detect late packet arrivals and
+	 * calculate necessary timing adjustments. This is the closed-loop 
+	 * feedback that ensures packets arrive on time at the PNF.
+	 *=========================================================================*/
+	if (p7_con->timing_controller) {
+		int32_t slot_adj = 0, us_adj = 0;
+		
+		/*=====================================================================
+		 * STEP 0: Calculate current Margin (HIGHEST PRIORITY)
+		 * 
+		 * Margin = -earliest_arrival (positive = packet arrived early)
+		 * This MUST be calculated first to detect emergency conditions.
+		 *=====================================================================*/
+		int32_t min_earliest = ind.dl_tti_earliest_arrival;
+		if (ind.tx_data_request_earliest_arrival < min_earliest) 
+			min_earliest = ind.tx_data_request_earliest_arrival;
+		if (ind.ul_tti_earliest_arrival < min_earliest) 
+			min_earliest = ind.ul_tti_earliest_arrival;
+		
+		int32_t current_margin_us = -min_earliest;
+		
+		/*=====================================================================
+		 * STEP 1: EMERGENCY RECOVERY MODE (Bypass ALL protections)
+		 * 
+		 * Problem discovered: "Priority Inversion" deadlock
+		 *   - Margin stuck at 6000µs (system unusable, > PNF window 2200µs)
+		 *   - VNF wants to execute Soft Landing (-1 slot)
+		 *   - BUT Jitter protection fires first (jitter > threshold) → return
+		 *   - Soft Landing NEVER executes → Margin NEVER decreases
+		 *   - UE cannot attach (RACH packets dropped)
+		 * 
+		 * Solution: When system is in DANGER ZONE (Margin >> PNF window),
+		 * IGNORE all protections and FORCE correction.
+		 * 
+		 * Thresholds:
+		 *   - PNF Window: ~2200µs
+		 *   - Danger Zone: > 3000µs (window + 800µs buffer)
+		 *   - Critical Zone: > 5000µs (need faster descent)
+		 *=====================================================================*/
+		#define MARGIN_DANGER_THRESHOLD_US  3000
+		#define MARGIN_CRITICAL_THRESHOLD_US 5000
+		
+		if (current_margin_us > MARGIN_DANGER_THRESHOLD_US) {
+			/* EMERGENCY: System is UNUSABLE, force descent! */
+			if (current_margin_us > MARGIN_CRITICAL_THRESHOLD_US) {
+				/* Critical: Very far from target, accelerate descent */
+				slot_adj = -2;
+				NFAPI_TRACE(NFAPI_TRACE_WARN,
+					"[TIMING_INFO] EMERGENCY RECOVERY (CRITICAL): margin=%dus >> %dus. "
+					"Forcing accelerated descent: slot_adj=%d. Bypassing all protections!\n",
+					current_margin_us, MARGIN_CRITICAL_THRESHOLD_US, slot_adj);
+			} else {
+				/* Danger: Getting closer, slow descent */
+				slot_adj = -1;
+				NFAPI_TRACE(NFAPI_TRACE_WARN,
+					"[TIMING_INFO] EMERGENCY RECOVERY: margin=%dus > %dus. "
+					"Forcing descent: slot_adj=%d. Bypassing all protections!\n",
+					current_margin_us, MARGIN_DANGER_THRESHOLD_US, slot_adj);
+			}
+			
+			/* Apply adjustment directly, skip all other checks */
+			p7_con->slot_adjustment = slot_adj;
+			p7_con->us_adjustment = 0;
+			p7_con->sync_locked = 0;
+			goto timing_info_log;
+		}
+		
+		/*=====================================================================
+		 * STEP 2: JITTER SPIKE DETECTION (Only in SAFE ZONE)
+		 * 
+		 * Now that we're in safe zone (Margin < 3000µs), we can afford to
+		 * be conservative and skip adjustments during high jitter.
+		 *=====================================================================*/
+		#define JITTER_SPIKE_THRESHOLD_NS 200000
+		
+		uint32_t max_jitter = ind.dl_tti_jitter;
+		if (ind.tx_data_request_jitter > max_jitter) max_jitter = ind.tx_data_request_jitter;
+		if (ind.ul_tti_jitter > max_jitter) max_jitter = ind.ul_tti_jitter;
+		if (ind.ul_dci_jitter > max_jitter) max_jitter = ind.ul_dci_jitter;
+		
+		if (max_jitter > JITTER_SPIKE_THRESHOLD_NS) {
+			NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+				"[TIMING_INFO] Jitter high (%uns) but margin OK (%dus). Skipping adjustment.\n",
+				max_jitter, current_margin_us);
+			goto timing_info_log;
+		}
+		
+		/*=====================================================================
+		 * STEP 3: Normal timing adjustment processing
+		 *=====================================================================*/
+		vnf_tc_process_timing_info(p7_con->timing_controller,
+		                           ind.last_sfn, ind.last_slot,
+		                           p7_con->sfn, p7_con->slot,
+		                           ind.dl_tti_latest_delay,
+		                           ind.tx_data_request_latest_delay,
+		                           ind.ul_tti_latest_delay,
+		                           &slot_adj, &us_adj);
+		
+		/*=====================================================================
+		 * SAFETY CHECKS before applying adjustment
+		 * 
+		 * CRITICAL: These checks prevent the timing collapse observed during
+		 * iperf load where Delta Slots crashed from 21 to -2.
+		 *=====================================================================*/
+		
+		/*=====================================================================
+		 * SOFT LANDING MECHANISM
+		 * 
+		 * Problem: Previously we blocked ALL negative adjustments, which caused
+		 * "Ratchet Effect" - Margin only goes up, never down, and got stuck at
+		 * 6000µs, exceeding PNF's window (2200µs), causing all packets to DROP.
+		 * 
+		 * Solution: Allow SLOW negative adjustment (-1 slot at a time) when
+		 * Margin is too high (> PNF window threshold).
+		 * 
+		 * From analysis:
+		 *   - PNF window is ~2200µs
+		 *   - If Margin > 3000µs, we're too early and should slowly back off
+		 *   - Use earliest_arrival as Margin indicator
+		 * 
+		 * NOTE: min_earliest and current_margin_us already calculated in STEP 0
+		 *=====================================================================*/
+		#define SOFT_LANDING_STEP -1               /* Only -1 slot per adjustment */
+		
+		if (slot_adj < 0) {
+			/* Negative adjustment requested */
+			if (current_margin_us > MARGIN_DANGER_THRESHOLD_US) {
+				/*
+				 * SOFT LANDING: Margin is too high (packets too early)
+				 * Allow slow descent: -1 slot per adjustment cycle
+				 */
+				slot_adj = SOFT_LANDING_STEP;
+				NFAPI_TRACE(NFAPI_TRACE_INFO,
+					"[TIMING_INFO] SOFT LANDING: margin=%dus > %dus threshold. "
+					"Allowing slow descent: slot_adj=%d\n",
+					current_margin_us, MARGIN_DANGER_THRESHOLD_US, slot_adj);
+			} else {
+				/*
+				 * Margin is in acceptable range - block negative adjustment
+				 * to prevent oscillation
+				 */
+				NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+					"[TIMING_INFO] Blocking negative slot_adj=%d (margin=%dus OK)\n",
+					slot_adj, current_margin_us);
+				slot_adj = 0;
+			}
+		}
+		
+		/* SAFETY 2: Cap maximum single adjustment to 10 slots */
+		/* Large adjustments during transient conditions cause instability */
+		if (slot_adj > 10) {
+			NFAPI_TRACE(NFAPI_TRACE_WARN,
+				"[TIMING_INFO] Capping slot_adj from %d to 10 slots\n",
+				slot_adj);
+			slot_adj = 10;
+		}
+		
+		/* Apply adjustments if needed */
+		if (slot_adj != 0 || us_adj != 0) {
+			p7_con->slot_adjustment = slot_adj;
+			p7_con->us_adjustment = us_adj;
+			p7_con->sync_locked = 0;  /* Unlock to allow adjustment */
+			
+			NFAPI_TRACE(NFAPI_TRACE_WARN,
+				"[TIMING_INFO] Applying adjustment: slot_adj=%d us_adj=%d "
+				"(dl_late:%d tx_late:%d ul_late:%d)\n",
+				slot_adj, us_adj,
+				ind.dl_tti_latest_delay,
+				ind.tx_data_request_latest_delay,
+				ind.ul_tti_latest_delay);
+		}
+	}
+	
+timing_info_log:
 	// Only print if any jitter/delay/arrival value is non-zero
 	if (
 		ind.dl_tti_jitter != 0 ||

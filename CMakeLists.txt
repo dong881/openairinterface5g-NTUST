@@ -728,6 +728,7 @@ set(NFAPI_VNF_SRC
   ${NFAPI_DIR}/vnf/src/vnf_interface.c
   ${NFAPI_DIR}/vnf/src/vnf_p7.c
   ${NFAPI_DIR}/vnf/src/vnf_p7_interface.c
+  ${NFAPI_DIR}/vnf/src/vnf_timing_controller.c
 )
 add_library(NFAPI_VNF_LIB ${NFAPI_VNF_SRC})
 target_link_libraries(NFAPI_VNF_LIB PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs)

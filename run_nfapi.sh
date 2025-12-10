@@ -3,21 +3,6 @@
 # NFAPI Universal Start Script
 # 
 # Usage: ./run_nfapi.sh <MODE> [AUTO_STOP]
-#
-# MODE:
-#   local         - Run VNF + PNF locally (oai_mp_f_ming path)
-#   local-orig    - Run VNF + PNF locally (oai_mp_f_ming_2025w44 - original path)
-#   split         - Run VNF on HPE + PNF locally (oai_mp_f_ming path)
-#   split-orig    - Run VNF on HPE + PNF locally (oai_mp_f_ming_2025w44 - original path)
-#   vnf           - Run VNF only locally (oai_mp_f_ming path)
-#   vnf-orig      - Run VNF only locally (oai_mp_f_ming_2025w44 - original path)
-#   pnf           - Run PNF only locally (oai_mp_f_ming path)
-#   pnf-orig      - Run PNF only locally (oai_mp_f_ming_2025w44 - original path)
-#   hpe-vnf       - Run VNF on HPE server (called via SSH from split mode)
-#   hpe-vnf-orig  - Run VNF on HPE server original (called via SSH from split-orig mode)
-#   help          - Show this help message
-#
-# AUTO_STOP: 0 (default) or 1 (auto-stop after 120 seconds)
 #===============================================================================
 
 #-------------------------------------------------------------------------------
@@ -164,8 +149,9 @@ start_pnf_local() {
 #-------------------------------------------------------------------------------
 start_vnf_hpe() {
     local hpe_script_path=$1
-    echo "Starting VNF on HPE server..."
-    ssh hpe "~/${hpe_script_path}/run_nfapi.sh hpe-vnf"
+    local remote_mode=$2
+    echo "Starting VNF on HPE server ($remote_mode)..."
+    ssh hpe "~/${hpe_script_path}/run_nfapi.sh ${remote_mode}"
 }
 
 #-------------------------------------------------------------------------------
@@ -218,7 +204,7 @@ case "$MODE" in
     #---------------------------------------------------------------------------
     split)
         stop_sessions PNF_SESSION
-        start_vnf_hpe "$PATH_HPE"
+        start_vnf_hpe "$PATH_HPE" "hpe-vnf"
         BUILD_PATH=~/${PATH_MING}/cmake_targets/ran_build/build
         start_pnf_local "$BUILD_PATH" "$CONF_PNF_SPLIT" "f-ming-develop" 1
         handle_auto_stop "split"
@@ -229,7 +215,7 @@ case "$MODE" in
     #---------------------------------------------------------------------------
     split-orig)
         stop_sessions PNF_SESSION
-        start_vnf_hpe "$PATH_HPE_ORIG"
+        start_vnf_hpe "$PATH_HPE_ORIG" "hpe-vnf-orig"
         BUILD_PATH=~/${PATH_ORIG}/cmake_targets/ran_build/build
         start_pnf_local "$BUILD_PATH" "$CONF_PNF_SPLIT" "f-orig-develop" 1
         handle_auto_stop "split"

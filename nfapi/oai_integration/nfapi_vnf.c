@@ -1006,14 +1006,31 @@ int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind)
       oai_fapi_send_end_request(0,slot_ind->sfn, slot_ind->slot);
     }
 #else
+  /*=========================================================================
+   * OPTIMIZED MESSAGE SENDING ORDER
+   * 
+   * tx_data_request contains the actual data payload and is typically the 
+   * largest message. It needs the most time to transmit over the network.
+   * 
+   * Sending order (largest/slowest first):
+   * 1. tx_data_request - largest payload, needs most time
+   * 2. dl_tti_request  - control info
+   * 3. ul_tti_request  - control info
+   * 4. ul_dci_request  - control info
+   * 
+   * This ensures tx_data arrives with adequate margin at PNF.
+   *=========================================================================*/
+  
+  /* Send TX_DATA first - it's the largest and needs most transit time */
+  if (g_sched_resp.TX_req.Number_of_PDUs > 0)
+    oai_nfapi_tx_data_req(&g_sched_resp.TX_req);
+
+  /* Then send control messages */
   if (g_sched_resp.DL_req.dl_tti_request_body.nPDUs > 0)
     oai_nfapi_dl_tti_req(&g_sched_resp.DL_req);
 
   if (g_sched_resp.UL_tti_req.n_pdus > 0)
     oai_nfapi_ul_tti_req(&g_sched_resp.UL_tti_req);
-
-  if (g_sched_resp.TX_req.Number_of_PDUs > 0)
-    oai_nfapi_tx_data_req(&g_sched_resp.TX_req);
 
   if (g_sched_resp.UL_dci_req.numPdus > 0)
     oai_nfapi_ul_dci_req(&g_sched_resp.UL_dci_req);
@@ -1119,6 +1136,34 @@ void *vnf_timing_thread(void *arg) {
 
     // Initialize P7 Sync (simplified, no FSM)
     p7_sync_init(p7_info);
+    
+    /*=========================================================================
+     * Pre-allocate Robust Dynamic Timing Controller
+     * 
+     * This controller implements:
+     * - Windowed Minimum Filter for clock offset estimation
+     * - Traffic-aware advance calculation based on rb_size and jitter
+     * - Cross-slot boundary handling for scheduling
+     * 
+     * Pre-allocation ensures the controller is ready before UL_NODE_SYNC
+     * messages start arriving.
+     *=========================================================================*/
+    if (!p7_info->timing_controller) {
+        p7_info->timing_controller = vnf_tc_allocate(p7_info->mu);
+        if (p7_info->timing_controller) {
+            LOG_I(NFAPI_VNF, "[VNF_TC] Pre-allocated timing controller for mu=%d\n", p7_info->mu);
+            
+            /* Enable CSV logging for offline analysis if environment variable is set */
+            const char* csv_log_path = getenv("VNF_TC_CSV_LOG");
+            if (csv_log_path) {
+                if (vnf_tc_enable_csv_logging(p7_info->timing_controller, csv_log_path) == 0) {
+                    LOG_I(NFAPI_VNF, "[VNF_TC] CSV logging enabled: %s\n", csv_log_path);
+                }
+            }
+        } else {
+            LOG_E(NFAPI_VNF, "[VNF_TC] Failed to allocate timing controller!\n");
+        }
+    }
 
     clock_gettime(CLOCK_MONOTONIC, &p7_info->next_slot_time);
     vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
@@ -1143,19 +1188,33 @@ void *vnf_timing_thread(void *arg) {
       /*=======================================================================
        * Apply slot_adjustment and us_adjustment simultaneously
        * No FSM gating - adjustments are applied immediately when available
+       * 
+       * SAFETY: Block aggressive negative adjustments (< -2)
+       * Allow -1 for "Soft Landing" (margin slightly high)
+       * Allow -2 for "Emergency Recovery" (margin critically high)
        *=======================================================================*/
       if (p7_info->slot_adjustment != 0) {
-        sfnslot_dec += p7_info->slot_adjustment;
-        if (sfnslot_dec < 0) {
-          // Handle negative sfnslot_dec (wrap-around), support multiple rounds
-          int slots_per_frame = NFAPI_SLOTNUM(p7_info->mu);
-          int total_slots = slots_per_frame * 1024;
-          sfnslot_dec = (sfnslot_dec % total_slots + total_slots) % total_slots;
+        /* SAFETY CHECK: Allow -1 (soft landing) and -2 (emergency), block < -2 */
+        if (p7_info->slot_adjustment < -2) {
+          NFAPI_TRACE(NFAPI_TRACE_ERROR, 
+            "[P7_SYNC] BLOCKING aggressive negative slot_adjustment=%d (max -2 allowed for emergency)\n",
+            p7_info->slot_adjustment);
+          p7_info->slot_adjustment = -2;  /* Cap at -2 instead of blocking completely */
         }
-        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC][VNF Timing] Applying slot adjustment of %d slots -> (new sfn:slot %d:%d)\n", 
-                    p7_info->slot_adjustment, 
-                    NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec) % 1024,
-                    NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec));
+        
+        if (p7_info->slot_adjustment != 0) {
+          sfnslot_dec += p7_info->slot_adjustment;
+          /* Handle wraparound for negative adjustment */
+          if (sfnslot_dec < 0) {
+            int slots_per_frame = NFAPI_SLOTNUM(p7_info->mu);
+            int total_slots = slots_per_frame * 1024;
+            sfnslot_dec = (sfnslot_dec % total_slots + total_slots) % total_slots;
+          }
+          NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC][VNF Timing] Applying slot adjustment of %d slots -> (new sfn:slot %d:%d)\n", 
+                      p7_info->slot_adjustment, 
+                      NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec) % 1024,
+                      NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec));
+        }
         p7_info->slot_adjustment = 0;
       }
       
