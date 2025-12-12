@@ -893,6 +893,9 @@ static void pf_dl(gNB_MAC_INST *mac,
     for (int rb = bwp_start; rb < sched_pdsch.rbSize; rb++)
       rballoc_mask[rb + sched_pdsch.rbStart] |= slbitmap;
 
+    char print_info[64];
+    snprintf(print_info, sizeof(print_info), "[%04x] DLPRB:%d", iterator->UE->rnti, sched_pdsch.rbSize);
+    log_mmap_entry(1, frame , slot , print_info);
     remainUEs[beam.idx]--;
     iterator++;
   }
