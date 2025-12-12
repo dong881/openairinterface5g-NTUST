@@ -970,6 +970,36 @@ int phy_cqi_indication(struct nfapi_vnf_p7_config *config, nfapi_cqi_indication_
 
 //NR phy indication
 
+// ============================================================================
+// VNF Timing Instrumentation - Global Variables
+// For tracking time spent in each stage of the NR NFAPI scheduling path
+// ============================================================================
+extern void log_mmap_entry(int log_id, int frame_tx, int slot_tx, const char *custom_message);
+
+// Global timing variables for NR NFAPI mode timing analysis
+// These track timestamps (in microseconds) at various checkpoints
+struct vnf_timing_stats {
+    struct timespec trigger_sched_start;     // Start of trigger_scheduler
+    struct timespec scheduler_end;           // End of gNB_dlsch_ulsch_scheduler
+    struct timespec dl_tti_pack_start;       // Start of DL_TTI packing
+    struct timespec dl_tti_pack_end;         // End of DL_TTI packing
+    struct timespec ul_tti_pack_start;       // Start of UL_TTI packing
+    struct timespec ul_tti_pack_end;         // End of UL_TTI packing
+    struct timespec tx_data_pack_start;      // Start of TX_DATA packing
+    struct timespec tx_data_pack_end;        // End of TX_DATA packing
+    struct timespec ul_dci_pack_start;       // Start of UL_DCI packing
+    struct timespec ul_dci_pack_end;         // End of UL_DCI packing
+    struct timespec trigger_sched_end;       // End of trigger_scheduler (all messages sent)
+    uint16_t current_sfn;
+    uint8_t current_slot;
+    bool valid;  // Indicates if current slot has valid timing data
+} vnf_timing = {0};
+
+// Helper function to calculate elapsed time in microseconds
+static inline long calc_elapsed_us(struct timespec *start, struct timespec *end) {
+    return (end->tv_sec - start->tv_sec) * 1000000L + 
+           (end->tv_nsec - start->tv_nsec) / 1000L;
+}
 
 NR_Sched_Rsp_t g_sched_resp;
 void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, frame_t frame, slot_t slot, NR_Sched_Rsp_t* sched_info);
@@ -980,9 +1010,24 @@ int oai_nfapi_ul_dci_req(nfapi_nr_ul_dci_request_t* ul_dci_req);
 
 int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind)
 {
-  // Call into the scheduler (this is hardcoded and should be init properly!)
-  // memset(sched_resp, 0, sizeof(*sched_resp));
+  char print_info[128];
+  
+  // ===== TIMING CHECKPOINT: Start of trigger_scheduler =====
+  clock_gettime(CLOCK_MONOTONIC, &vnf_timing.trigger_sched_start);
+  vnf_timing.current_sfn = slot_ind->sfn;
+  vnf_timing.current_slot = slot_ind->slot;
+  vnf_timing.valid = true;
+
+  // Call into the scheduler
   gNB_dlsch_ulsch_scheduler(0, slot_ind->sfn, slot_ind->slot, &g_sched_resp);
+  
+  // ===== TIMING CHECKPOINT: End of gNB_dlsch_ulsch_scheduler =====
+  clock_gettime(CLOCK_MONOTONIC, &vnf_timing.scheduler_end);
+  long sched_time_us = calc_elapsed_us(&vnf_timing.trigger_sched_start, &vnf_timing.scheduler_end);
+  if (sched_time_us > 0) {
+    snprintf(print_info, sizeof(print_info), "[SCHED]%ld", sched_time_us);
+    log_mmap_entry(4, slot_ind->sfn, slot_ind->slot, print_info);
+  }
 
 #ifdef ENABLE_AERIAL
     bool send_slt_resp = false;
@@ -1006,18 +1051,66 @@ int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind)
       oai_fapi_send_end_request(0,slot_ind->sfn, slot_ind->slot);
     }
 #else
-  if (g_sched_resp.DL_req.dl_tti_request_body.nPDUs > 0)
+  // ===== TIMING: DL_TTI Request Pack and Send =====
+  if (g_sched_resp.DL_req.dl_tti_request_body.nPDUs > 0) {
+    int saved_nPDUs = g_sched_resp.DL_req.dl_tti_request_body.nPDUs;
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.dl_tti_pack_start);
     oai_nfapi_dl_tti_req(&g_sched_resp.DL_req);
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.dl_tti_pack_end);
+    long dl_tti_time_us = calc_elapsed_us(&vnf_timing.dl_tti_pack_start, &vnf_timing.dl_tti_pack_end);
+    if (dl_tti_time_us > 0) {
+      snprintf(print_info, sizeof(print_info), "[DL_TTI]%ld,%d", dl_tti_time_us, saved_nPDUs);
+      log_mmap_entry(4, slot_ind->sfn, slot_ind->slot, print_info);
+    }
+  }
 
-  if (g_sched_resp.UL_tti_req.n_pdus > 0)
+  // ===== TIMING: UL_TTI Request Pack and Send =====
+  if (g_sched_resp.UL_tti_req.n_pdus > 0) {
+    int saved_nPDUs = g_sched_resp.UL_tti_req.n_pdus;
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.ul_tti_pack_start);
     oai_nfapi_ul_tti_req(&g_sched_resp.UL_tti_req);
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.ul_tti_pack_end);
+    long ul_tti_time_us = calc_elapsed_us(&vnf_timing.ul_tti_pack_start, &vnf_timing.ul_tti_pack_end);
+    if (ul_tti_time_us > 0) {
+      snprintf(print_info, sizeof(print_info), "[UL_TTI]%ld,%d", ul_tti_time_us, saved_nPDUs);
+      log_mmap_entry(4, slot_ind->sfn, slot_ind->slot, print_info);
+    }
+  }
 
-  if (g_sched_resp.TX_req.Number_of_PDUs > 0)
+  // ===== TIMING: TX_DATA Request Pack and Send =====
+  if (g_sched_resp.TX_req.Number_of_PDUs > 0) {
+    int saved_nPDUs = g_sched_resp.TX_req.Number_of_PDUs;
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.tx_data_pack_start);
     oai_nfapi_tx_data_req(&g_sched_resp.TX_req);
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.tx_data_pack_end);
+    long tx_data_time_us = calc_elapsed_us(&vnf_timing.tx_data_pack_start, &vnf_timing.tx_data_pack_end);
+    if (tx_data_time_us > 0) {
+      snprintf(print_info, sizeof(print_info), "[TX_DATA]%ld,%d", tx_data_time_us, saved_nPDUs);
+      log_mmap_entry(4, slot_ind->sfn, slot_ind->slot, print_info);
+    }
+  }
 
-  if (g_sched_resp.UL_dci_req.numPdus > 0)
+  // ===== TIMING: UL_DCI Request Pack and Send =====
+  if (g_sched_resp.UL_dci_req.numPdus > 0) {
+    int saved_nPDUs = g_sched_resp.UL_dci_req.numPdus;
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.ul_dci_pack_start);
     oai_nfapi_ul_dci_req(&g_sched_resp.UL_dci_req);
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.ul_dci_pack_end);
+    long ul_dci_time_us = calc_elapsed_us(&vnf_timing.ul_dci_pack_start, &vnf_timing.ul_dci_pack_end);
+    if (ul_dci_time_us > 0) {
+      snprintf(print_info, sizeof(print_info), "[UL_DCI]%ld,%d", ul_dci_time_us, saved_nPDUs);
+      log_mmap_entry(4, slot_ind->sfn, slot_ind->slot, print_info);
+    }
+  }
 #endif
+
+  // ===== TIMING CHECKPOINT: End of trigger_scheduler (total path) =====
+  clock_gettime(CLOCK_MONOTONIC, &vnf_timing.trigger_sched_end);
+  long total_time_us = calc_elapsed_us(&vnf_timing.trigger_sched_start, &vnf_timing.trigger_sched_end);
+  if (total_time_us > 0) {
+    snprintf(print_info, sizeof(print_info), "[TOTAL]%ld", total_time_us);
+    log_mmap_entry(4, slot_ind->sfn, slot_ind->slot, print_info);
+  }
 
   NR_UL_IND_t ind = {.frame = slot_ind->sfn, .slot = slot_ind->slot, };
   NR_UL_indication(&ind);
