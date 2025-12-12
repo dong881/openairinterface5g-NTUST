@@ -897,15 +897,161 @@ int phy_cqi_indication(struct nfapi_vnf_p7_config *config, nfapi_cqi_indication_
 
 //NR phy indication
 
+// ============================================================================
+// VNF Timing Instrumentation - Global Variables
+// For tracking time spent in each stage of the NR NFAPI scheduling path
+// ============================================================================
+extern void log_mmap_entry(int log_id, int frame_tx, int slot_tx, const char *custom_message);
 
-int oai_nfapi_dl_tti_req(nfapi_nr_dl_tti_request_t *dl_config_req);
-int oai_nfapi_ul_tti_req(nfapi_nr_ul_tti_request_t *ul_tti_req);
-int oai_nfapi_tx_data_req(nfapi_nr_tx_data_request_t* tx_data_req);
-int oai_nfapi_ul_dci_req(nfapi_nr_ul_dci_request_t* ul_dci_req);
+// Global timing variables for NR NFAPI mode timing analysis
+// These track timestamps (in microseconds) at various checkpoints
+struct vnf_timing_stats {
+    struct timespec trigger_sched_start;     // Start of trigger_scheduler
+    struct timespec scheduler_end;           // End of gNB_dlsch_ulsch_scheduler
+    struct timespec dl_tti_pack_start;       // Start of DL_TTI packing
+    struct timespec dl_tti_pack_end;         // End of DL_TTI packing
+    struct timespec ul_tti_pack_start;       // Start of UL_TTI packing
+    struct timespec ul_tti_pack_end;         // End of UL_TTI packing
+    struct timespec tx_data_pack_start;      // Start of TX_DATA packing
+    struct timespec tx_data_pack_end;        // End of TX_DATA packing
+    struct timespec ul_dci_pack_start;       // Start of UL_DCI packing
+    struct timespec ul_dci_pack_end;         // End of UL_DCI packing
+    struct timespec trigger_sched_end;       // End of trigger_scheduler (all messages sent)
+    uint16_t current_sfn;
+    uint8_t current_slot;
+    bool valid;  // Indicates if current slot has valid timing data
+} vnf_timing = {0};
 
-int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
+// Helper function to calculate elapsed time in microseconds
+static inline long calc_elapsed_us(struct timespec *start, struct timespec *end) {
+    return (end->tv_sec - start->tv_sec) * 1000000L + 
+           (end->tv_nsec - start->tv_nsec) / 1000L;
+}
+
+int oai_fapi_dl_tti_req(nfapi_nr_dl_tti_request_t *dl_config_req);
+int oai_fapi_ul_tti_req(nfapi_nr_ul_tti_request_t *ul_tti_req);
+int oai_fapi_tx_data_req(nfapi_nr_tx_data_request_t* tx_data_req);
+int oai_fapi_ul_dci_req(nfapi_nr_ul_dci_request_t* ul_dci_req);
+
+
+int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind)
 {
+  char print_info[128];
+  
+  // ===== TIMING CHECKPOINT: Start of trigger_scheduler =====
+  clock_gettime(CLOCK_MONOTONIC, &vnf_timing.trigger_sched_start);
+  vnf_timing.current_sfn = slot_ind->sfn;
+  vnf_timing.current_slot = slot_ind->slot;
+  vnf_timing.valid = true;
+
+  // Call into the scheduler
+  gNB_dlsch_ulsch_scheduler(0, slot_ind->sfn, slot_ind->slot, &g_sched_resp);
+  
+  // ===== TIMING CHECKPOINT: End of gNB_dlsch_ulsch_scheduler =====
+  clock_gettime(CLOCK_MONOTONIC, &vnf_timing.scheduler_end);
+  long sched_time_us = calc_elapsed_us(&vnf_timing.trigger_sched_start, &vnf_timing.scheduler_end);
+  if (sched_time_us > 0) {
+    snprintf(print_info, sizeof(print_info), "[SCHED]%ld", sched_time_us);
+    log_mmap_entry(4, slot_ind->sfn, slot_ind->slot, print_info);
+  }
+
+#ifdef ENABLE_AERIAL
+    bool send_slt_resp = false;
+    if (g_sched_resp.DL_req.dl_tti_request_body.nPDUs> 0) {
+      oai_fapi_dl_tti_req(&g_sched_resp.DL_req);
+      send_slt_resp = true;
+    }
+    if (g_sched_resp.UL_tti_req.n_pdus > 0) {
+      oai_fapi_ul_tti_req(&g_sched_resp.UL_tti_req);
+      send_slt_resp = true;
+    }
+    if (g_sched_resp.TX_req.Number_of_PDUs > 0) {
+      oai_fapi_tx_data_req(&g_sched_resp.TX_req);
+      send_slt_resp = true;
+    }
+    if (g_sched_resp.UL_dci_req.numPdus > 0) {
+      oai_fapi_ul_dci_req(&g_sched_resp.UL_dci_req);
+      send_slt_resp = true;
+    }
+    if (send_slt_resp) {
+      oai_fapi_send_end_request(0,slot_ind->sfn, slot_ind->slot);
+    }
+#else
+  // ===== TIMING: DL_TTI Request Pack and Send =====
+  if (g_sched_resp.DL_req.dl_tti_request_body.nPDUs > 0) {
+    int saved_nPDUs = g_sched_resp.DL_req.dl_tti_request_body.nPDUs;
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.dl_tti_pack_start);
+    oai_fapi_dl_tti_req(&g_sched_resp.DL_req);
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.dl_tti_pack_end);
+    long dl_tti_time_us = calc_elapsed_us(&vnf_timing.dl_tti_pack_start, &vnf_timing.dl_tti_pack_end);
+    if (dl_tti_time_us > 0) {
+      snprintf(print_info, sizeof(print_info), "[DL_TTI]%ld,%d", dl_tti_time_us, saved_nPDUs);
+      log_mmap_entry(4, slot_ind->sfn, slot_ind->slot, print_info);
+    }
+  }
+
+  // ===== TIMING: UL_TTI Request Pack and Send =====
+  if (g_sched_resp.UL_tti_req.n_pdus > 0) {
+    int saved_nPDUs = g_sched_resp.UL_tti_req.n_pdus;
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.ul_tti_pack_start);
+    oai_fapi_ul_tti_req(&g_sched_resp.UL_tti_req);
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.ul_tti_pack_end);
+    long ul_tti_time_us = calc_elapsed_us(&vnf_timing.ul_tti_pack_start, &vnf_timing.ul_tti_pack_end);
+    if (ul_tti_time_us > 0) {
+      snprintf(print_info, sizeof(print_info), "[UL_TTI]%ld,%d", ul_tti_time_us, saved_nPDUs);
+      log_mmap_entry(4, slot_ind->sfn, slot_ind->slot, print_info);
+    }
+  }
+
+  // ===== TIMING: TX_DATA Request Pack and Send =====
+  if (g_sched_resp.TX_req.Number_of_PDUs > 0) {
+    int saved_nPDUs = g_sched_resp.TX_req.Number_of_PDUs;
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.tx_data_pack_start);
+    oai_fapi_tx_data_req(&g_sched_resp.TX_req);
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.tx_data_pack_end);
+    long tx_data_time_us = calc_elapsed_us(&vnf_timing.tx_data_pack_start, &vnf_timing.tx_data_pack_end);
+    if (tx_data_time_us > 0) {
+      snprintf(print_info, sizeof(print_info), "[TX_DATA]%ld,%d", tx_data_time_us, saved_nPDUs);
+      log_mmap_entry(4, slot_ind->sfn, slot_ind->slot, print_info);
+    }
+  }
+
+  // ===== TIMING: UL_DCI Request Pack and Send =====
+  if (g_sched_resp.UL_dci_req.numPdus > 0) {
+    int saved_nPDUs = g_sched_resp.UL_dci_req.numPdus;
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.ul_dci_pack_start);
+    oai_fapi_ul_dci_req(&g_sched_resp.UL_dci_req);
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.ul_dci_pack_end);
+    long ul_dci_time_us = calc_elapsed_us(&vnf_timing.ul_dci_pack_start, &vnf_timing.ul_dci_pack_end);
+    if (ul_dci_time_us > 0) {
+      snprintf(print_info, sizeof(print_info), "[UL_DCI]%ld,%d", ul_dci_time_us, saved_nPDUs);
+      log_mmap_entry(4, slot_ind->sfn, slot_ind->slot, print_info);
+    }
+  }
+#endif
+
+  // ===== TIMING CHECKPOINT: End of trigger_scheduler (total path) =====
+  clock_gettime(CLOCK_MONOTONIC, &vnf_timing.trigger_sched_end);
+  long total_time_us = calc_elapsed_us(&vnf_timing.trigger_sched_start, &vnf_timing.trigger_sched_end);
+  if (total_time_us > 0) {
+    snprintf(print_info, sizeof(print_info), "[TOTAL]%ld", total_time_us);
+    log_mmap_entry(4, slot_ind->sfn, slot_ind->slot, print_info);
+  }
+
+  NR_UL_IND_t ind = {.frame = slot_ind->sfn, .slot = slot_ind->slot, };
+  NR_UL_indication(&ind);
+
+  return 1;
+}
+
+
+int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind) {
   LOG_D(MAC, "VNF SFN/Slot %d.%d \n", ind->sfn, ind->slot);
+
+  if (NFAPI_MODE == NFAPI_MODE_VNF) {
+    trigger_scheduler(ind);
+    return 1;
+  }
 
   // this variable is very big (multiple MB), so we put it into static storage
   // to not overflow the stack while still having it in local (function) scope
@@ -915,45 +1061,48 @@ int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
   ifi->NR_slot_indication(ind, &sched_response);
 
 #ifdef ENABLE_AERIAL
-    bool send_slt_resp = false;
-    if (sched_response.DL_req.dl_tti_request_body.nPDUs> 0) {
-      oai_fapi_dl_tti_req(&sched_response.DL_req);
-      send_slt_resp = true;
-    }
-    if (sched_response.UL_tti_req.n_pdus > 0) {
-      oai_fapi_ul_tti_req(&sched_response.UL_tti_req);
-      send_slt_resp = true;
-    }
-    if (sched_response.TX_req.Number_of_PDUs > 0) {
-      oai_fapi_tx_data_req(&sched_response.TX_req);
-      send_slt_resp = true;
-    }
-    if (sched_response.UL_dci_req.numPdus > 0) {
-      oai_fapi_ul_dci_req(&sched_response.UL_dci_req);
-      send_slt_resp = true;
-    }
-    if (send_slt_resp) {
-      oai_fapi_send_end_request(0, ind->sfn, ind->slot);
-    }
+  bool send_slt_resp = false;
+  if (sched_response.DL_req.dl_tti_request_body.nPDUs > 0) {
+    oai_fapi_dl_tti_req(&sched_response.DL_req);
+    send_slt_resp = true;
+  }
+  if (sched_response.UL_tti_req.n_pdus > 0) {
+    oai_fapi_ul_tti_req(&sched_response.UL_tti_req);
+    send_slt_resp = true;
+  }
+  if (sched_response.TX_req.Number_of_PDUs > 0) {
+    oai_fapi_tx_data_req(&sched_response.TX_req);
+    send_slt_resp = true;
+  }
+  if (sched_response.UL_dci_req.numPdus > 0) {
+    oai_fapi_ul_dci_req(&sched_response.UL_dci_req);
+    send_slt_resp = true;
+  }
+  if (send_slt_resp) {
+    oai_fapi_send_end_request(0, ind->sfn, ind->slot);
+  }
 #else
   if (sched_response.DL_req.dl_tti_request_body.nPDUs > 0)
-    oai_nfapi_dl_tti_req(&sched_response.DL_req);
+    oai_fapi_dl_tti_req(&sched_response.DL_req);
 
   if (sched_response.UL_tti_req.n_pdus > 0)
-    oai_nfapi_ul_tti_req(&sched_response.UL_tti_req);
+    oai_fapi_ul_tti_req(&sched_response.UL_tti_req);
 
   if (sched_response.TX_req.Number_of_PDUs > 0)
-    oai_nfapi_tx_data_req(&sched_response.TX_req);
+    oai_fapi_tx_data_req(&sched_response.TX_req);
 
   if (sched_response.UL_dci_req.numPdus > 0)
-    oai_nfapi_ul_dci_req(&sched_response.UL_dci_req);
+    oai_fapi_ul_dci_req(&sched_response.UL_dci_req);
 #endif
 
   /* the below works because the function behind the callback collects
    * messages from queue into which messages have been copied.
    * TODO we should have different callbacks for received messages and call
    * into the scheduler separately for each message instead of one big one. */
-  NR_UL_IND_t ul_ind = {.frame = ind->sfn, .slot = ind->slot, };
+  NR_UL_IND_t ul_ind = {
+      .frame = ind->sfn,
+      .slot = ind->slot,
+  };
   ifi->NR_UL_indication(&ul_ind);
 
   return 1;
@@ -1891,7 +2040,7 @@ void configure_nfapi_vnf(char *vnf_addr, int vnf_p5_port, char *pnf_ip_addr, int
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Created VNF NFAPI start thread %s\n", __FUNCTION__);
 }
 
-int oai_nfapi_dl_config_req(nfapi_dl_config_request_t *dl_config_req) {
+int oai_fapi_dl_config_req(nfapi_dl_config_request_t *dl_config_req) {
   nfapi_vnf_p7_config_t *p7_config = get_p7_vnf_config();
   dl_config_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
   dl_config_req->header.message_id = NFAPI_DL_CONFIG_REQUEST;
@@ -1925,9 +2074,9 @@ int oai_nfapi_dl_config_req(nfapi_dl_config_request_t *dl_config_req) {
   return retval;
 }
 
-int oai_nfapi_dl_tti_req(nfapi_nr_dl_tti_request_t *dl_config_req)
+int oai_fapi_dl_tti_req(nfapi_nr_dl_tti_request_t *dl_config_req)
 {
-  LOG_D(NR_PHY, "Entering oai_nfapi_nr_dl_config_req sfn:%d,slot:%d\n", dl_config_req->SFN, dl_config_req->Slot);
+  LOG_D(NR_PHY, "Entering oai_fapi_dl_tti_req sfn:%d,slot:%d\n", dl_config_req->SFN, dl_config_req->Slot);
   nfapi_vnf_p7_config_t *p7_config = get_p7_vnf_config();
   dl_config_req->header.message_id= NFAPI_NR_PHY_MSG_TYPE_DL_TTI_REQUEST;
   dl_config_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
@@ -1944,9 +2093,9 @@ int oai_nfapi_dl_tti_req(nfapi_nr_dl_tti_request_t *dl_config_req)
   return retval;
 }
 
-int oai_nfapi_tx_data_req(nfapi_nr_tx_data_request_t *tx_data_req)
+int oai_fapi_tx_data_req(nfapi_nr_tx_data_request_t *tx_data_req)
 {
-  LOG_D(NR_PHY, "Entering oai_nfapi_nr_tx_data_req sfn:%d,slot:%d\n", tx_data_req->SFN, tx_data_req->Slot);
+  LOG_D(NR_PHY, "Entering oai_fapi_tx_data_req sfn:%d,slot:%d\n", tx_data_req->SFN, tx_data_req->Slot);
   nfapi_vnf_p7_config_t *p7_config = get_p7_vnf_config();
   tx_data_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
   tx_data_req->header.message_id = NFAPI_NR_PHY_MSG_TYPE_TX_DATA_REQUEST;
@@ -1962,7 +2111,7 @@ int oai_nfapi_tx_data_req(nfapi_nr_tx_data_request_t *tx_data_req)
   return retval;
 }
 
-int oai_nfapi_tx_req(nfapi_tx_request_t *tx_req)
+int oai_fapi_tx_req(nfapi_tx_request_t *tx_req)
 {
   nfapi_vnf_p7_config_t *p7_config = get_p7_vnf_config();
   tx_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
@@ -1979,7 +2128,7 @@ int oai_nfapi_tx_req(nfapi_tx_request_t *tx_req)
   return retval;
 }
 
-int oai_nfapi_ul_dci_req(nfapi_nr_ul_dci_request_t *ul_dci_req) {
+int oai_fapi_ul_dci_req(nfapi_nr_ul_dci_request_t *ul_dci_req) {
   nfapi_vnf_p7_config_t *p7_config = get_p7_vnf_config();
   ul_dci_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
   ul_dci_req->header.message_id = NFAPI_NR_PHY_MSG_TYPE_UL_DCI_REQUEST;
@@ -1995,7 +2144,7 @@ int oai_nfapi_ul_dci_req(nfapi_nr_ul_dci_request_t *ul_dci_req) {
   return retval;
 }
 
-int oai_nfapi_hi_dci0_req(nfapi_hi_dci0_request_t *hi_dci0_req) {
+int oai_fapi_hi_dci0_req(nfapi_hi_dci0_request_t *hi_dci0_req) {
   nfapi_vnf_p7_config_t *p7_config = get_p7_vnf_config();
   hi_dci0_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
   hi_dci0_req->header.message_id = NFAPI_HI_DCI0_REQUEST;
@@ -2031,7 +2180,7 @@ static void remove_ul_config_req_pdu(int index, nfapi_ul_config_request_t *ul_co
   ul_config_req->ul_config_request_body.number_of_pdus--;
 }
 
-int oai_nfapi_ul_tti_req(nfapi_nr_ul_tti_request_t *ul_tti_req) {
+int oai_fapi_ul_tti_req(nfapi_nr_ul_tti_request_t *ul_tti_req) {
   nfapi_vnf_p7_config_t *p7_config = get_p7_vnf_config();
 
   ul_tti_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
@@ -2051,7 +2200,7 @@ int oai_nfapi_ul_tti_req(nfapi_nr_ul_tti_request_t *ul_tti_req) {
   return retval;
 }
 
-int oai_nfapi_ul_config_req(nfapi_ul_config_request_t *ul_config_req) {
+int oai_fapi_ul_config_req(nfapi_ul_config_request_t *ul_config_req) {
   nfapi_vnf_p7_config_t *p7_config = get_p7_vnf_config();
   ul_config_req->header.phy_id = 1; // HACK TODO FIXME - need to pass this around!!!!
   ul_config_req->header.message_id = NFAPI_UL_CONFIG_REQUEST;
@@ -2109,7 +2258,7 @@ int oai_nfapi_ul_config_req(nfapi_ul_config_request_t *ul_config_req) {
   return retval;
 }
 
-int oai_nfapi_ue_release_req(nfapi_ue_release_request_t *release_req){
+int oai_fapi_ue_release_req(nfapi_ue_release_request_t *release_req){
     if(release_req->ue_release_request_body.number_of_TLVs <= 0)
         return 0;
     nfapi_vnf_p7_config_t *p7_config = get_p7_vnf_config();
