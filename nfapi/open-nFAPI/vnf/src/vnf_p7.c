@@ -1621,7 +1621,10 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
         }
     }
 
-    NFAPI_TRACE(NFAPI_TRACE_INFO, 
+	char print_info[128];
+    snprintf(print_info, sizeof(print_info), "offset=%d, owd=%d, t(%8u,%8u,%8u,%8u) slot_adj:%d us_adj:%d", offset, owd, ind.t1, ind.t2, ind.t3, t4, p7_info->slot_adjustment, p7_info->us_adjustment);
+    log_mmap_entry(3, p7_info->sfn , p7_info->slot , print_info);	
+    NFAPI_TRACE(NFAPI_TRACE_DEBUG, 
         "[P7_SYNC] ul_node_sync phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) offset:%d owd:%d slot_adj:%d us_adj:%d locked:%d\n",
         ind.header.phy_id, ind.t1, ind.t2, ind.t3, t4,
         offset, owd, p7_info->slot_adjustment, p7_info->us_adjustment, p7_info->sync_locked);
@@ -1692,7 +1695,26 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		ind.ul_tti_earliest_arrival != 0 ||
 		ind.ul_dci_earliest_arrival != 0
 	) {
-		NFAPI_TRACE(NFAPI_TRACE_INFO,
+		char print_info[256];
+		snprintf(print_info, sizeof(print_info), "ds=%d, last=%u, jitter(dl:%u,tx:%u,ul:%u,dci:%u) delay(dl:%d,tx:%d,ul:%d,dci:%d) early(dl:%d,tx:%d,ul:%d,dci:%d)",
+			pnf_ind_DEC - vnf_current_DEC,
+			ind.time_since_last_timing_info,
+			ind.dl_tti_jitter,
+			ind.tx_data_request_jitter,
+			ind.ul_tti_jitter,
+			ind.ul_dci_jitter,
+			ind.dl_tti_latest_delay,
+			ind.tx_data_request_latest_delay,
+			ind.ul_tti_latest_delay,
+			ind.ul_dci_latest_delay,
+			ind.dl_tti_earliest_arrival,
+			ind.tx_data_request_earliest_arrival,
+			ind.ul_tti_earliest_arrival,
+			ind.ul_dci_earliest_arrival
+		);
+		log_mmap_entry(2, p7_con->sfn , p7_con->slot , print_info);
+
+		NFAPI_TRACE(NFAPI_TRACE_DEBUG,
 			"NR_TIMING_INFO: PNF:%u.%u VNF:%u.%u delta_slots=%d time_since_last=%u jitter(dl:%u,tx:%u,ul:%u,dci:%u) latest_delay(dl:%d,tx:%d,ul:%d,dci:%d) earliest_arr(dl:%d,tx:%d,ul:%d,dci:%d)\n",
 			ind.last_sfn,
 			ind.last_slot,
