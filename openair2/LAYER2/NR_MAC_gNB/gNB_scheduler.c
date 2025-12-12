@@ -51,6 +51,7 @@
 
 #include <errno.h>
 #include <string.h>
+#include <time.h>
 
 uint8_t nr_get_rv(int rel_round)
 {
@@ -198,7 +199,10 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, frame_t frame, slot_t slo
   if (gNB->print_ue_stats && (wait_prach_completed || get_softmodem_params()->phy_test) && (slot == 0) && (frame & 127) == 0) {
     char stats_output[32656] = {0};
     dump_mac_stats(gNB, stats_output, sizeof(stats_output), true);
-    LOG_I(NR_MAC, "Frame.Slot %d.%d\n%s\n", frame, slot, stats_output);
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    uint64_t timestamp_ms = (uint64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+    LOG_I(NR_MAC, "[%lu.%03lu] Frame.Slot %d.%d\n%s\n", (unsigned long)ts.tv_sec, timestamp_ms % 1000, frame, slot, stats_output);
 
     // TODO: this should be replaced with a size() operation on connected_ue_list
     int num_ue = 0;
