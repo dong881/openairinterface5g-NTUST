@@ -37,7 +37,6 @@
 #include "defs.h"
 #include "PHY/defs_nr_UE.h"
 #include "PHY/NR_REFSIG/dmrs_nr.h"
-#include "PHY/phy_extern_nr_ue.h"
 #include "PHY/MODULATION/modulation_UE.h"
 #include "PHY/INIT/nr_phy_init.h"
 #include "PHY/nr_phy_common/inc/nr_phy_common.h"

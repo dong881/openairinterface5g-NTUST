@@ -1924,7 +1924,6 @@ INPUT                  = \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair2/SDAP/nr_sdap/nr_sdap_entity.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/defs_gNB.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/impl_defs_top.h \
-@CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/phy_extern_nr_ue.h \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/INIT/lte_parms.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/INIT/nr_init_ru.c \
 @CMAKE_CURRENT_SOURCE_DIR@/../openair1/PHY/INIT/nr_parms.c \

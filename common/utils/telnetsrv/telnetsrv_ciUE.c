@@ -37,14 +37,16 @@
 #include "openair2/LAYER2/NR_MAC_UE/mac_defs.h"
 #include "openair2/LAYER2/NR_MAC_UE/mac_proto.h"
 #include "openair2/RRC/NR_UE/rrc_proto.h"
-#include "openair1/PHY/phy_extern_nr_ue.h"
 #include "openair1/PHY/defs_nr_common.h"
+#include "openair1/PHY/defs_nr_UE.h"
 #include "openair3/NAS/NR_UE/nr_nas_msg.h"
 
 #define TELNETSERVERCODE
 #include "telnetsrv.h"
 
 #define ERROR_MSG_RET(mSG, aRGS...) do { prnt(mSG, ##aRGS); return 1; } while (0)
+
+extern PHY_VARS_NR_UE ***PHY_vars_UE_g;
 
 /* UE L2 state string */
 const char* NR_UE_L2_STATE_STR[] = {

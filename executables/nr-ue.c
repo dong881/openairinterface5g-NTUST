@@ -24,7 +24,6 @@
 #include <pthread.h>
 #include <openair1/PHY/impl_defs_top.h>
 #include "executables/nr-uesoftmodem.h"
-#include "PHY/phy_extern_nr_ue.h"
 #include "PHY/INIT/nr_phy_init.h"
 #include "NR_MAC_UE/mac_proto.h"
 #include "RRC/NR_UE/rrc_proto.h"

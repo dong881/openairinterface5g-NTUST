@@ -34,7 +34,6 @@
 #include "executables/nr-softmodem-common.h"
 #include "PHY/defs_nr_UE.h"
 #include "PHY/INIT/nr_phy_init.h"
-#include "PHY/phy_extern_nr_ue.h"
 #include "common/utils/LOG/log.h"
 #include "PHY/sse_intrin.h"
 #include "SCHED_NR_UE/defs.h"
