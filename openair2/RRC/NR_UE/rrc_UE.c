@@ -248,22 +248,19 @@ static int eval_epoch_time(NR_UE_RRC_SI_INFO *SI_info, NR_NTN_Config_r17_t *ntnc
 static int get_ntn_timervalues(NR_UE_RRC_SI_INFO *SI_info, NR_NTN_Config_r17_t *ntncfg, int diff_frames, int *val430_ms)
 {
   int val430 = get_ulsyncvalidityduration_timer_value(ntncfg);
-  int sib19_periodicity_ms = (SI_info->sib19_periodicity + 1) * 10;
+  int sib19_periodicity_ms = SI_info->sib19_periodicity * 10;
   *val430_ms = val430 * 1000 + diff_frames * 10; // in ms
   if (*val430_ms <= sib19_periodicity_ms)
     LOG_E(NR_RRC, "Too small T430 value. Might result in frequent ULSYNC failure\n");
 
-  // Depending on ulsyncvalidity duration, SIB19 timer expires 15secs/2secs before T430
-  // LArger values might be used for GEO and epoch time interval can be around 10 secs
-  // Lower values will be used for NGSO (LEO/MEO), epoch time interval can be between 2-3 secs.
-  // TODO remove the hardoded values and define a better strategy to determine the time of expiry
-  // with real GEO/LEO/MEO SATs.
-  int expire_before_ms = ((val430 >= 120) ? 10000 : 2000);
-  // SIB19 periodicity even for LEO could be configured to be more than epoch time interval (2 secs)
-  if (expire_before_ms < 2 * sib19_periodicity_ms)
-    expire_before_ms = 2 * sib19_periodicity_ms;
-  int diff = *val430_ms - expire_before_ms;
-  int sib19_timer_ms = (diff > 0) ? diff : ((*val430_ms - sib19_periodicity_ms) > 0) ? (*val430_ms - sib19_periodicity_ms) : 0;
+  // by default SIB19 reception is started from the middle of the ulsyncvalidity duration.(i.e val430 in ms / 2)
+  int sib19_timer_ms = val430 * 500 + diff_frames * 10;
+
+  // if this is less than the SIB19 periodicity, use that instead.
+  // set the timer to expire 1 frame (10 ms) before periodicity, to not miss the SIB19
+  if (sib19_timer_ms <= sib19_periodicity_ms)
+    sib19_timer_ms = sib19_periodicity_ms - 10;
+
   LOG_I(NR_RRC, "val430:%d s, T430:%d ms, sib19_timer:%d ms\n", val430, *val430_ms, sib19_timer_ms);
   return sib19_timer_ms;
 }
