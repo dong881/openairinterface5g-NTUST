@@ -659,6 +659,7 @@ static int vrtsim_set_freq(openair0_device *device, openair0_config_t *openair0_
 
 __attribute__((__visibility__("default"))) int device_init(openair0_device *device, openair0_config_t *openair0_cfg)
 {
+  randominit();
   vrtsim_state_t *vrtsim_state = calloc_or_fail(1, sizeof(vrtsim_state_t));
   vrtsim_readconfig(vrtsim_state);
   LOG_I(HW,
