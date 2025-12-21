@@ -1008,6 +1008,13 @@ int oai_nfapi_ul_tti_req(nfapi_nr_ul_tti_request_t *ul_tti_req);
 int oai_nfapi_tx_data_req(nfapi_nr_tx_data_request_t* tx_data_req);
 int oai_nfapi_ul_dci_req(nfapi_nr_ul_dci_request_t* ul_dci_req);
 
+// Global reference to P7 connection info for dynamic timing adjustment
+// Access to this variable should be synchronized via p7_info->mutex
+static nfapi_vnf_p7_connection_info_t *g_p7_conn_info = NULL;
+
+// Forward declaration
+static void update_processing_time_stats(nfapi_vnf_p7_connection_info_t *p7_info, int32_t proc_time_us);
+
 int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind)
 {
   char print_info[128];
@@ -1112,8 +1119,12 @@ int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind)
     log_mmap_entry(4, slot_ind->sfn, slot_ind->slot, print_info);
     
     // Update processing time statistics for dynamic adjustment algorithm
-    if (g_p7_conn_info && g_p7_conn_info->dynamic_adj_enabled) {
-      update_processing_time_stats(g_p7_conn_info, (int32_t)total_time_us);
+    // Thread-safe: Lock mutex to prevent race condition with vnf_handle_ul_node_sync
+    nfapi_vnf_p7_connection_info_t *p7_conn = g_p7_conn_info;
+    if (p7_conn && p7_conn->dynamic_adj_enabled) {
+      pthread_mutex_lock(&p7_conn->mutex);
+      update_processing_time_stats(p7_conn, (int32_t)total_time_us);
+      pthread_mutex_unlock(&p7_conn->mutex);
     }
   }
 
@@ -1148,9 +1159,6 @@ void timespec_add_us(struct timespec *t, long us) {
 }
 static volatile int nr_start_resp_received = 0;
 
-// Global reference to P7 connection info for dynamic timing adjustment
-static nfapi_vnf_p7_connection_info_t *g_p7_conn_info = NULL;
-
 /*===========================================================================
  * Dynamic Processing Time Tracking
  *===========================================================================*/
@@ -1162,6 +1170,9 @@ static nfapi_vnf_p7_connection_info_t *g_p7_conn_info = NULL;
  * - Maximum processing time observed
  * - Simple moving average
  * - Exponentially weighted moving average (EWMA) with alpha=0.125 (1/8)
+ * 
+ * Thread safety: This function should be called with p7_info->mutex held
+ * to ensure thread-safe access to the statistics fields.
  * 
  * @param p7_info: P7 connection info structure
  * @param proc_time_us: Current processing time in microseconds
@@ -1191,14 +1202,15 @@ static void update_processing_time_stats(nfapi_vnf_p7_connection_info_t *p7_info
         // EWMA_new = alpha * new_value + (1 - alpha) * EWMA_old
         // Using alpha = 1/8 = 0.125 for smooth but responsive tracking
         // Implementation: EWMA_new = (new_value + 7 * EWMA_old) / 8
-        p7_info->proc_time_ewma_us = (proc_time_us + 7 * p7_info->proc_time_ewma_us) / 8;
+        // Use int64_t to prevent overflow
+        int64_t ewma_acc = (int64_t)proc_time_us + 7LL * (int64_t)p7_info->proc_time_ewma_us;
+        p7_info->proc_time_ewma_us = (int32_t)(ewma_acc / 8);
     }
 
-    p7_info->proc_time_sample_count++;
-
-    // Prevent overflow by resetting counter periodically
-    if (p7_info->proc_time_sample_count > 1000) {
-        p7_info->proc_time_sample_count = 100;  // Keep some history
+    // Prevent unbounded growth of the sample counter by saturating at 1000
+    // Once saturated, the simple moving average effectively becomes a bounded window average
+    if (p7_info->proc_time_sample_count < 1000) {
+        p7_info->proc_time_sample_count++;
     }
 }
 

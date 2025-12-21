@@ -1594,7 +1594,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
     int32_t offset = (int32_t)( ((int64_t)ind.t2 - (int64_t)ind.t1 - ((int64_t)t4 - (int64_t)ind.t3)) / 2 );
     int32_t owd = (int32_t)( ((int64_t)t4 - (int64_t)ind.t1 - ((int64_t)ind.t3 - (int64_t)ind.t2)) / 2 );
     
-	int32_t TARGET_PNF_MARGIN_US = 500*(2 << p7_info->mu); // 500us for mu0, 1000us for mu1, 2000us for mu2, 4000us for mu3
+	int32_t TARGET_PNF_MARGIN_US = 500*(2 << p7_info->mu); // 1000us for mu0, 2000us for mu1, 4000us for mu2, 8000us for mu3
     int32_t slot_us = (int32_t)p7_info->slot_duration_us;
     
     /*=======================================================================
@@ -1611,13 +1611,16 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
      * - Use EWMA of processing time for smooth, responsive adjustment
      * - Add processing time buffer to target margin
      * - Only adjust when not sync_locked (converged state)
+     * 
+     * Thread safety: Access to proc_time_ewma_us is protected by p7_info->mutex
      *=======================================================================*/
     int32_t effective_margin = TARGET_PNF_MARGIN_US;
     
     if (p7_info->dynamic_adj_enabled && p7_info->proc_time_sample_count > 0) {
         // Use EWMA for smooth but responsive tracking of processing time
         // Add a safety factor (1.2x) to account for occasional spikes
-        int32_t proc_time_buffer = (p7_info->proc_time_ewma_us * 12) / 10;
+        // Use int64_t to prevent overflow in multiplication
+        int32_t proc_time_buffer = (int32_t)((p7_info->proc_time_ewma_us * 12LL) / 10);
         
         // Adjust the effective margin by the processing time
         // This ensures we trigger early enough to complete processing before deadline
