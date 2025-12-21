@@ -81,6 +81,7 @@ Legacy unmaintained files:
 - [Information on F1](./F1AP/F1-design.md)
 - [Information on how NR nFAPI works](./NR_NFAPI_archi.md)
 - [Dynamic Timing Adjustment Algorithm for VNF Scheduler](./DYNAMIC_TIMING_ADJUSTMENT.md)
+- [Dynamic Timing Adjustment - Visual Diagrams](./DYNAMIC_TIMING_DIAGRAMS.md)
 - [Flow graph of the L1 in gNB](SW-archi-graph.md)
 - [L1 threads in NR-UE](./nr-ue-design.md)
 - [Information on gNB MAC](./MAC/mac-usage.md)
