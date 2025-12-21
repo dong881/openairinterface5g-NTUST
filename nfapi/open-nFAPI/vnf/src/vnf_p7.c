@@ -1643,20 +1643,40 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	int32_t offsetslot = (offset + effective_margin) / slot_us;
 	int32_t offsetus = (offset + effective_margin) % slot_us;
 	
-    // Check if sync has converged (offset within ±10) - once locked, permanently stop adjusting
-    if (!p7_info->sync_locked) {
-        if (offset + effective_margin >= -10 && offset + effective_margin <= 10) {
-            // Offset converged within ±10, permanently lock sync and stop adjustments
+    // Dynamic adjustment approach:
+    // 1. Primary adjustment: Based on measured processing times (effective_margin)
+    //    - Continuously adjusts us_adjustment based on processing time changes
+    //    - This is the main mechanism for handling traffic variations
+    // 
+    // 2. Secondary adjustment: Based on PNF timing_info feedback
+    //    - Acts as a corrective mechanism when primary adjustment has errors
+    //    - Uses max delay/early values from PNF reports
+    //    - Applied in vnf_nr_handle_timing_info() to avoid conflicts
+    //
+    // Note: sync_locked is no longer used to permanently lock adjustments.
+    // Instead, adjustments continue dynamically based on traffic conditions.
+    
+    // Always apply adjustments based on current measurements
+    // This allows the algorithm to adapt to changing traffic patterns
+    p7_info->us_adjustment = -offsetus;
+    p7_info->slot_adjustment = offsetslot;
+    
+    // Track convergence for monitoring, but don't lock adjustments
+    if (offset + effective_margin >= -10 && offset + effective_margin <= 10) {
+        if (!p7_info->sync_locked) {
             p7_info->sync_locked = 1;
-            p7_info->us_adjustment = 0;
-            p7_info->slot_adjustment = 0;
             NFAPI_TRACE(NFAPI_TRACE_INFO, 
-                "[P7_SYNC] SYNC LOCKED! phy_id:%d offset:%d eff_margin:%d within ±10, permanently stopping adjustments\n",
+                "[P7_SYNC] Initial convergence achieved! phy_id:%d offset:%d eff_margin:%d within ±10 (continuing dynamic adjustment)\n",
                 ind.header.phy_id, offset, effective_margin);
-        } else {
-            // Still converging, apply adjustments
-            p7_info->us_adjustment = -offsetus;
-            p7_info->slot_adjustment = offsetslot;
+        }
+    } else {
+        // Reset sync_locked if we drift out of convergence range
+        // This indicates traffic pattern changes requiring re-adjustment
+        if (p7_info->sync_locked) {
+            p7_info->sync_locked = 0;
+            NFAPI_TRACE(NFAPI_TRACE_INFO, 
+                "[P7_SYNC] Re-adjusting due to traffic changes: phy_id:%d offset:%d eff_margin:%d\n",
+                ind.header.phy_id, offset, effective_margin);
         }
     }
 
@@ -1665,7 +1685,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
              offset, owd, ind.t1, ind.t2, ind.t3, t4, p7_info->slot_adjustment, p7_info->us_adjustment, effective_margin);
     log_mmap_entry(3, p7_info->sfn , p7_info->slot , print_info);	
     NFAPI_TRACE(NFAPI_TRACE_DEBUG, 
-        "[P7_SYNC] ul_node_sync phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) offset:%d owd:%d slot_adj:%d us_adj:%d eff_mgn:%d locked:%d\n",
+        "[P7_SYNC] ul_node_sync phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) offset:%d owd:%d slot_adj:%d us_adj:%d eff_mgn:%d converged:%d\n",
         ind.header.phy_id, ind.t1, ind.t2, ind.t3, t4,
         offset, owd, p7_info->slot_adjustment, p7_info->us_adjustment, effective_margin, p7_info->sync_locked);
 }
@@ -1776,7 +1796,73 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 			ind.ul_dci_earliest_arrival
 		);
 	}		
-		p7_con->initial_timinginfo_received = 1; 
+		p7_con->initial_timinginfo_received = 1;
+		
+		// Secondary adjustment mechanism: Apply corrective adjustments based on PNF timing feedback
+		// This supplements the primary adjustment (based on measured processing times)
+		// Only apply significant corrections to avoid over-correction
+		
+		// Find the worst-case delay (positive = too late, negative = too early)
+		int32_t max_delay = 0;
+		if (ind.dl_tti_latest_delay != 0 && abs(ind.dl_tti_latest_delay) > abs(max_delay)) {
+			max_delay = ind.dl_tti_latest_delay;
+		}
+		if (ind.tx_data_request_latest_delay != 0 && abs(ind.tx_data_request_latest_delay) > abs(max_delay)) {
+			max_delay = ind.tx_data_request_latest_delay;
+		}
+		if (ind.ul_tti_latest_delay != 0 && abs(ind.ul_tti_latest_delay) > abs(max_delay)) {
+			max_delay = ind.ul_tti_latest_delay;
+		}
+		if (ind.ul_dci_latest_delay != 0 && abs(ind.ul_dci_latest_delay) > abs(max_delay)) {
+			max_delay = ind.ul_dci_latest_delay;
+		}
+		
+		// Find the worst-case early arrival (negative values)
+		int32_t max_early = 0;
+		if (ind.dl_tti_earliest_arrival != 0 && ind.dl_tti_earliest_arrival < max_early) {
+			max_early = ind.dl_tti_earliest_arrival;
+		}
+		if (ind.tx_data_request_earliest_arrival != 0 && ind.tx_data_request_earliest_arrival < max_early) {
+			max_early = ind.tx_data_request_earliest_arrival;
+		}
+		if (ind.ul_tti_earliest_arrival != 0 && ind.ul_tti_earliest_arrival < max_early) {
+			max_early = ind.ul_tti_earliest_arrival;
+		}
+		if (ind.ul_dci_earliest_arrival != 0 && ind.ul_dci_earliest_arrival < max_early) {
+			max_early = ind.ul_dci_earliest_arrival;
+		}
+		
+		// Apply corrective adjustment if error exceeds threshold (50us)
+		// This helps correct residual errors from the primary adjustment
+		int32_t correction_us = 0;
+		const int32_t CORRECTION_THRESHOLD = 50;  // Only correct if error > 50us
+		
+		if (max_delay > CORRECTION_THRESHOLD) {
+			// Messages arriving too late - need to send earlier (negative adjustment)
+			correction_us = -(max_delay / 2);  // Conservative: correct half the error
+			NFAPI_TRACE(NFAPI_TRACE_INFO,
+				"[P7_TIMING_INFO] Corrective adjustment: too late by %d us, applying %d us correction\n",
+				max_delay, correction_us);
+		} else if (max_early < -CORRECTION_THRESHOLD) {
+			// Messages arriving too early - need to send later (positive adjustment)
+			correction_us = -(max_early / 2);  // Conservative: correct half the error
+			NFAPI_TRACE(NFAPI_TRACE_INFO,
+				"[P7_TIMING_INFO] Corrective adjustment: too early by %d us, applying %d us correction\n",
+				-max_early, correction_us);
+		}
+		
+		// Apply the correction if needed
+		// This is added to the existing us_adjustment from the primary mechanism
+		if (correction_us != 0) {
+			pthread_mutex_lock(&p7_con->mutex);
+			p7_con->us_adjustment += correction_us;
+			pthread_mutex_unlock(&p7_con->mutex);
+			
+			char corr_info[128];
+			snprintf(corr_info, sizeof(corr_info), "timing_corr=%d, max_delay=%d, max_early=%d",
+				correction_us, max_delay, max_early);
+			log_mmap_entry(2, p7_con->sfn, p7_con->slot, corr_info);
+		}
 }
 
 void vnf_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)

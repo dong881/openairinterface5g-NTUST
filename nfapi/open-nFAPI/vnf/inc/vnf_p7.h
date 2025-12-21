@@ -86,7 +86,7 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t us_adjustment;
 	int32_t insync_minor_adjustment;
 	int32_t insync_minor_adjustment_duration;
-	uint8_t sync_locked;  // Flag: once offset converges within ±10, permanently stop adjusting
+	uint8_t sync_locked;  // Flag: indicates initial convergence achieved (but adjustments continue dynamically)
 
 	/* Periodic sync control */
 	uint32_t sync_slot_counter;                // Counter for periodic sync
