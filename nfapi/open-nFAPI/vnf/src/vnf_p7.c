@@ -1582,7 +1582,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
     nfapi_vnf_p7_connection_info_t* p7_info = vnf_p7_connection_info_list_find(vnf_p7, ind.header.phy_id);
     if (!p7_info) {
          NFAPI_TRACE(NFAPI_TRACE_ERROR, "PHY instance not found for phy_id:%d\n", ind.header.phy_id);
-
+         return;
     }
 
     int32_t t4 = calculate_nr_t4(now_time_hr, p7_info->mu, p7_info->sfn, p7_info->slot, vnf_p7->slot_start_time_hr);
@@ -1597,23 +1597,59 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	int32_t TARGET_PNF_MARGIN_US = 500*(2 << p7_info->mu); // 500us for mu0, 1000us for mu1, 2000us for mu2, 4000us for mu3
     int32_t slot_us = (int32_t)p7_info->slot_duration_us;
     
+    /*=======================================================================
+     * Dynamic Adjustment Algorithm
+     * 
+     * Purpose: Compensate for variable scheduler and message packing times
+     * 
+     * The key insight is that we need to send messages early enough so that
+     * they arrive at the PNF at the expected time, accounting for:
+     * 1. Network delay (captured by offset and owd)
+     * 2. Variable processing time (scheduler + packing)
+     * 
+     * Strategy:
+     * - Use EWMA of processing time for smooth, responsive adjustment
+     * - Add processing time buffer to target margin
+     * - Only adjust when not sync_locked (converged state)
+     *=======================================================================*/
+    int32_t effective_margin = TARGET_PNF_MARGIN_US;
+    
+    if (p7_info->dynamic_adj_enabled && p7_info->proc_time_sample_count > 0) {
+        // Use EWMA for smooth but responsive tracking of processing time
+        // Add a safety factor (1.2x) to account for occasional spikes
+        int32_t proc_time_buffer = (p7_info->proc_time_ewma_us * 12) / 10;
+        
+        // Adjust the effective margin by the processing time
+        // This ensures we trigger early enough to complete processing before deadline
+        effective_margin += proc_time_buffer;
+        
+        NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+            "[P7_SYNC][DYNAMIC] phy_id:%d proc_ewma:%d proc_max:%d proc_avg:%d buffer:%d eff_margin:%d\n",
+            ind.header.phy_id,
+            p7_info->proc_time_ewma_us,
+            p7_info->proc_time_max_us,
+            p7_info->proc_time_avg_us,
+            proc_time_buffer,
+            effective_margin);
+    }
+    
 	// CRITICAL: Negate the adjustment direction!
     // If offset < 0, VNF is ahead -> we need to ADD delay (positive adjustment to next_slot_time)
     // If offset > 0, VNF is behind -> we need to REDUCE delay (negative adjustment)
     // So: us_adjustment = -offset
-	int32_t offsetslot = (offset + TARGET_PNF_MARGIN_US) / slot_us;
-	int32_t offsetus = (offset  + TARGET_PNF_MARGIN_US) % slot_us;
+	int32_t offsetslot = (offset + effective_margin) / slot_us;
+	int32_t offsetus = (offset + effective_margin) % slot_us;
 	
     // Check if sync has converged (offset within ±10) - once locked, permanently stop adjusting
     if (!p7_info->sync_locked) {
-        if (offset + TARGET_PNF_MARGIN_US >= -10 && offset + TARGET_PNF_MARGIN_US <= 10) {
+        if (offset + effective_margin >= -10 && offset + effective_margin <= 10) {
             // Offset converged within ±10, permanently lock sync and stop adjustments
             p7_info->sync_locked = 1;
             p7_info->us_adjustment = 0;
             p7_info->slot_adjustment = 0;
             NFAPI_TRACE(NFAPI_TRACE_INFO, 
-                "[P7_SYNC] SYNC LOCKED! phy_id:%d offset:%d within ±10, permanently stopping adjustments\n",
-                ind.header.phy_id, offset);
+                "[P7_SYNC] SYNC LOCKED! phy_id:%d offset:%d eff_margin:%d within ±10, permanently stopping adjustments\n",
+                ind.header.phy_id, offset, effective_margin);
         } else {
             // Still converging, apply adjustments
             p7_info->us_adjustment = -offsetus;
@@ -1622,12 +1658,13 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
     }
 
 	char print_info[128];
-    snprintf(print_info, sizeof(print_info), "offset=%d, owd=%d, t(%8u,%8u,%8u,%8u) slot_adj:%d us_adj:%d", offset, owd, ind.t1, ind.t2, ind.t3, t4, p7_info->slot_adjustment, p7_info->us_adjustment);
+    snprintf(print_info, sizeof(print_info), "offset=%d, owd=%d, t(%8u,%8u,%8u,%8u) slot_adj:%d us_adj:%d eff_mgn:%d", 
+             offset, owd, ind.t1, ind.t2, ind.t3, t4, p7_info->slot_adjustment, p7_info->us_adjustment, effective_margin);
     log_mmap_entry(3, p7_info->sfn , p7_info->slot , print_info);	
     NFAPI_TRACE(NFAPI_TRACE_DEBUG, 
-        "[P7_SYNC] ul_node_sync phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) offset:%d owd:%d slot_adj:%d us_adj:%d locked:%d\n",
+        "[P7_SYNC] ul_node_sync phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) offset:%d owd:%d slot_adj:%d us_adj:%d eff_mgn:%d locked:%d\n",
         ind.header.phy_id, ind.t1, ind.t2, ind.t3, t4,
-        offset, owd, p7_info->slot_adjustment, p7_info->us_adjustment, p7_info->sync_locked);
+        offset, owd, p7_info->slot_adjustment, p7_info->us_adjustment, effective_margin, p7_info->sync_locked);
 }
 
 void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)

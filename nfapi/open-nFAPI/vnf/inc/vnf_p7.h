@@ -92,6 +92,13 @@ typedef struct nfapi_vnf_p7_connection_info {
 	uint32_t sync_slot_counter;                // Counter for periodic sync
 	uint32_t sync_period_slots;                // Period between syncs (configurable)
 
+	/* Dynamic processing time tracking */
+	int32_t proc_time_max_us;                  // Maximum processing time observed
+	int32_t proc_time_avg_us;                  // Running average of processing time
+	uint32_t proc_time_sample_count;           // Number of samples for averaging
+	int32_t proc_time_ewma_us;                 // Exponentially weighted moving average (EWMA)
+	uint8_t dynamic_adj_enabled;               // Flag to enable dynamic adjustment algorithm
+
 	uint32_t previous_t1;
 	uint32_t previous_t2;
 	int32_t previous_sf_offset_filtered;

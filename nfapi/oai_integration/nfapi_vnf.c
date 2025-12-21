@@ -1110,6 +1110,11 @@ int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind)
   if (total_time_us > 0) {
     snprintf(print_info, sizeof(print_info), "[TOTAL]%ld", total_time_us);
     log_mmap_entry(4, slot_ind->sfn, slot_ind->slot, print_info);
+    
+    // Update processing time statistics for dynamic adjustment algorithm
+    if (g_p7_conn_info && g_p7_conn_info->dynamic_adj_enabled) {
+      update_processing_time_stats(g_p7_conn_info, (int32_t)total_time_us);
+    }
   }
 
   NR_UL_IND_t ind = {.frame = slot_ind->sfn, .slot = slot_ind->slot, };
@@ -1142,6 +1147,60 @@ void timespec_add_us(struct timespec *t, long us) {
     }
 }
 static volatile int nr_start_resp_received = 0;
+
+// Global reference to P7 connection info for dynamic timing adjustment
+static nfapi_vnf_p7_connection_info_t *g_p7_conn_info = NULL;
+
+/*===========================================================================
+ * Dynamic Processing Time Tracking
+ *===========================================================================*/
+
+/**
+ * update_processing_time_stats - Update processing time statistics
+ * 
+ * This function maintains running statistics of the processing time:
+ * - Maximum processing time observed
+ * - Simple moving average
+ * - Exponentially weighted moving average (EWMA) with alpha=0.125 (1/8)
+ * 
+ * @param p7_info: P7 connection info structure
+ * @param proc_time_us: Current processing time in microseconds
+ */
+static void update_processing_time_stats(nfapi_vnf_p7_connection_info_t *p7_info, int32_t proc_time_us)
+{
+    if (!p7_info || proc_time_us < 0) {
+        return;
+    }
+
+    // Update maximum
+    if (proc_time_us > p7_info->proc_time_max_us) {
+        p7_info->proc_time_max_us = proc_time_us;
+    }
+
+    // Update running average (simple moving average)
+    // avg_new = (avg_old * count + new_value) / (count + 1)
+    if (p7_info->proc_time_sample_count == 0) {
+        p7_info->proc_time_avg_us = proc_time_us;
+        p7_info->proc_time_ewma_us = proc_time_us;
+    } else {
+        // Simple moving average
+        int64_t sum = (int64_t)p7_info->proc_time_avg_us * p7_info->proc_time_sample_count + proc_time_us;
+        p7_info->proc_time_avg_us = (int32_t)(sum / (p7_info->proc_time_sample_count + 1));
+        
+        // Exponentially weighted moving average (EWMA)
+        // EWMA_new = alpha * new_value + (1 - alpha) * EWMA_old
+        // Using alpha = 1/8 = 0.125 for smooth but responsive tracking
+        // Implementation: EWMA_new = (new_value + 7 * EWMA_old) / 8
+        p7_info->proc_time_ewma_us = (proc_time_us + 7 * p7_info->proc_time_ewma_us) / 8;
+    }
+
+    p7_info->proc_time_sample_count++;
+
+    // Prevent overflow by resetting counter periodically
+    if (p7_info->proc_time_sample_count > 1000) {
+        p7_info->proc_time_sample_count = 100;  // Keep some history
+    }
+}
 
 /*===========================================================================
  * P7 Timing Synchronization - Simplified Periodic Sync
@@ -1209,6 +1268,16 @@ void *vnf_timing_thread(void *arg) {
     p7_info->running = 1;
     p7_info->thread = pthread_self();
     pthread_mutex_init(&p7_info->mutex, NULL);
+    
+    // Initialize dynamic processing time tracking
+    p7_info->proc_time_max_us = 0;
+    p7_info->proc_time_avg_us = 0;
+    p7_info->proc_time_sample_count = 0;
+    p7_info->proc_time_ewma_us = 0;
+    p7_info->dynamic_adj_enabled = 1;  // Enable dynamic adjustment by default
+    
+    // Set global reference for trigger_scheduler to access
+    g_p7_conn_info = p7_info;
 
     // Initialize P7 Sync (simplified, no FSM)
     p7_sync_init(p7_info);
@@ -1261,6 +1330,17 @@ void *vnf_timing_thread(void *arg) {
         vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
         NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC] Sent periodic sync at sfn:slot %d:%d\n",
                     p7_info->sfn, p7_info->slot);
+        
+        // Periodically log processing time statistics for monitoring
+        if (p7_info->dynamic_adj_enabled && p7_info->proc_time_sample_count > 0) {
+          NFAPI_TRACE(NFAPI_TRACE_INFO, 
+              "[P7_SYNC][STATS] sfn:slot %d:%d proc_time: max=%d avg=%d ewma=%d samples=%u\n",
+              p7_info->sfn, p7_info->slot,
+              p7_info->proc_time_max_us,
+              p7_info->proc_time_avg_us,
+              p7_info->proc_time_ewma_us,
+              p7_info->proc_time_sample_count);
+        }
       }
       nfapi_nr_slot_indication_scf_t ind = {0};
       ind.sfn = p7_info->sfn;
