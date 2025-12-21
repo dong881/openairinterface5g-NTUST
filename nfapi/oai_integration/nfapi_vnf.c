@@ -1207,10 +1207,15 @@ static void update_processing_time_stats(nfapi_vnf_p7_connection_info_t *p7_info
         p7_info->proc_time_ewma_us = (int32_t)(ewma_acc / 8);
     }
 
-    // Prevent unbounded growth of the sample counter by saturating at 1000
-    // Once saturated, the simple moving average effectively becomes a bounded window average
+    // Prevent unbounded growth of the sample counter
+    // When saturated at 1000, reset the counter and average to EWMA to maintain accuracy
     if (p7_info->proc_time_sample_count < 1000) {
         p7_info->proc_time_sample_count++;
+    } else {
+        // Reset counter and average to EWMA when saturated
+        // This prevents the average from becoming stale and allows it to track recent changes
+        p7_info->proc_time_sample_count = 1;
+        p7_info->proc_time_avg_us = p7_info->proc_time_ewma_us;
     }
 }
 
