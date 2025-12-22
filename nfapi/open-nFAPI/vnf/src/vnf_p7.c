@@ -1596,30 +1596,79 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
     
 	int32_t TARGET_PNF_MARGIN_US = 500*(2 << p7_info->mu); // 500us for mu0, 1000us for mu1, 2000us for mu2, 4000us for mu3
     int32_t slot_us = (int32_t)p7_info->slot_duration_us;
+
+    // --- Improved Sync Logic Start ---
+
+    // 1. Minimum OWD Baseline
+    if (!p7_info->min_owd_initialized || owd < p7_info->min_owd) {
+        p7_info->min_owd = owd;
+        p7_info->min_owd_initialized = 1;
+        NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] New Min OWD detected: %d us\n", p7_info->min_owd);
+    }
+
+    // 2. Jitter Filtering / Outlier Rejection
+    if (p7_info->min_owd_initialized) {
+        int32_t jitter_threshold = 50; // 50us threshold
+        if (owd > p7_info->min_owd + jitter_threshold) {
+             if (p7_info->sync_locked) {
+                 NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC] OWD Spike detected (OWD:%d, Min:%d). Ignoring packet.\n", owd, p7_info->min_owd);
+				 char print_info[128];
+				 snprintf(print_info, sizeof(print_info), "offset=%d, owd=%d, t(%8u,%8u,%8u,%8u) slot_adj:%d us_adj:%d", offset, owd, ind.t1, ind.t2, ind.t3, t4, p7_info->slot_adjustment, p7_info->us_adjustment);
+				 log_mmap_entry(3, p7_info->sfn , p7_info->slot , print_info);	
+                 return; 
+             }
+        }
+    }
+
+    // 3. Exponential Moving Average (EMA)
+    if (p7_info->filtered_offset == 0 && !p7_info->sync_locked) {
+         p7_info->filtered_offset = offset; 
+    } else {
+         // alpha = 0.1
+         p7_info->filtered_offset = (int32_t)(0.9 * p7_info->filtered_offset + 0.1 * offset);
+    }
     
-	// CRITICAL: Negate the adjustment direction!
-    // If offset < 0, VNF is ahead -> we need to ADD delay (positive adjustment to next_slot_time)
-    // If offset > 0, VNF is behind -> we need to REDUCE delay (negative adjustment)
-    // So: us_adjustment = -offset
-	int32_t offsetslot = (offset + TARGET_PNF_MARGIN_US) / slot_us;
-	int32_t offsetus = (offset  + TARGET_PNF_MARGIN_US) % slot_us;
-	
-    // Check if sync has converged (offset within ±10) - once locked, permanently stop adjusting
-    if (!p7_info->sync_locked) {
-        if (offset + TARGET_PNF_MARGIN_US >= -10 && offset + TARGET_PNF_MARGIN_US <= 10) {
-            // Offset converged within ±10, permanently lock sync and stop adjustments
+    int32_t decision_offset = p7_info->filtered_offset;
+    
+    // 4. Deadzone & Damping (When Locked)
+    if (p7_info->sync_locked) {
+        int32_t deadzone = 20; // ±20us
+        int32_t error = decision_offset + TARGET_PNF_MARGIN_US;
+        
+        if (abs(error) <= deadzone) {
+            p7_info->us_adjustment = 0;
+            p7_info->slot_adjustment = 0;
+        } else {
+            // Damping
+            int32_t max_step = 5; // 5us
+            int32_t needed_adjustment = -error; 
+            
+            if (needed_adjustment > max_step) needed_adjustment = max_step;
+            if (needed_adjustment < -max_step) needed_adjustment = -max_step;
+            
+            p7_info->us_adjustment = needed_adjustment;
+            p7_info->slot_adjustment = 0; 
+            
+            NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC] Damping applied. Error: %d, Adj: %d\n", error, needed_adjustment);
+        }
+    } else {
+        // Original Logic for convergence
+        int32_t offsetslot = (decision_offset + TARGET_PNF_MARGIN_US) / slot_us;
+        int32_t offsetus = (decision_offset  + TARGET_PNF_MARGIN_US) % slot_us;
+        
+        if (decision_offset + TARGET_PNF_MARGIN_US >= -10 && decision_offset + TARGET_PNF_MARGIN_US <= 10) {
             p7_info->sync_locked = 1;
             p7_info->us_adjustment = 0;
             p7_info->slot_adjustment = 0;
             NFAPI_TRACE(NFAPI_TRACE_INFO, 
-                "[P7_SYNC] SYNC LOCKED! phy_id:%d offset:%d within ±10, permanently stopping adjustments\n",
-                ind.header.phy_id, offset);
+                "[P7_SYNC] SYNC LOCKED! phy_id:%d offset:%d (filtered) within ±10, permanently stopping adjustments\n",
+                ind.header.phy_id, decision_offset);
         } else {
-            // Still converging, apply adjustments
             p7_info->us_adjustment = -offsetus;
             p7_info->slot_adjustment = offsetslot;
         }
     }
+    // --- Improved Sync Logic End ---
 
 	char print_info[128];
     snprintf(print_info, sizeof(print_info), "offset=%d, owd=%d, t(%8u,%8u,%8u,%8u) slot_adj:%d us_adj:%d", offset, owd, ind.t1, ind.t2, ind.t3, t4, p7_info->slot_adjustment, p7_info->us_adjustment);
