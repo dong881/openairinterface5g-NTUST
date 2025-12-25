@@ -921,6 +921,13 @@ struct vnf_timing_stats {
     uint8_t current_slot;
     bool valid;  // Indicates if current slot has valid timing data
 } vnf_timing = {0};
+// ============================================================================
+// VNF Execution Cost Tracking
+// For tracking scheduler execution time per slot in the TDD pattern
+// ============================================================================
+#define MAX_TDD_PERIOD_SLOTS 80 // Corresponds to MAX_NUM_SLOTS_ALLOWED
+#define EXECUTION_COST_EWMA_ALPHA 0.8
+long g_execution_cost_table[MAX_TDD_PERIOD_SLOTS] = {0};
 
 // Helper function to calculate elapsed time in microseconds
 static inline long calc_elapsed_us(struct timespec *start, struct timespec *end) {
@@ -1029,6 +1036,8 @@ int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind)
     }
   }
 #endif
+  NR_UL_IND_t ind = {.frame = slot_ind->sfn, .slot = slot_ind->slot, };
+  NR_UL_indication(&ind);
 
   // ===== TIMING CHECKPOINT: End of trigger_scheduler (total path) =====
   clock_gettime(CLOCK_MONOTONIC, &vnf_timing.trigger_sched_end);
@@ -1038,8 +1047,73 @@ int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind)
     log_mmap_entry(4, slot_ind->sfn, slot_ind->slot, print_info);
   }
 
-  NR_UL_IND_t ind = {.frame = slot_ind->sfn, .slot = slot_ind->slot, };
-  NR_UL_indication(&ind);
+  // ===== Execution Cost Table Update =====
+  if (RC.nrmac && RC.nrmac[0]) {
+      int numb_slots_period = RC.nrmac[0]->frame_structure.numb_slots_period;
+      if (numb_slots_period > 0 && numb_slots_period <= MAX_TDD_PERIOD_SLOTS) {
+            int slot_index = slot_ind->slot % numb_slots_period;
+            long old_avg = g_execution_cost_table[slot_index];
+            long new_val = 0;
+            if (old_avg > 0) {
+              new_val = (long)(EXECUTION_COST_EWMA_ALPHA * total_time_us + (1.0 - EXECUTION_COST_EWMA_ALPHA) * old_avg);
+            } else {
+              new_val = total_time_us;
+            }
+            /* Write initial updated value */
+            g_execution_cost_table[slot_index] = new_val;
+
+            /* Determine slot duration (μs) from numerology `mu` and use it
+             * as the maximum execution cost per slot. Default to mu=1
+             * (slot = 500us) if not available. */
+              long exec_cost_max_us = 500; /* default */
+              if (RC.nrmac && RC.nrmac[0]) {
+                nfapi_nr_config_request_scf_t *req = &RC.nrmac[0]->config[0];
+                const nfapi_uint8_tlv_t *scs = &req->ssb_config.scs_common;
+                if (scs && scs->tl.tag == NFAPI_NR_CONFIG_SCS_COMMON_TAG) {
+                  int mu_local = scs->value;
+                  if (mu_local >= 0 && mu_local < 30) {
+                    exec_cost_max_us = 1000L >> mu_local; /* 1000us >> mu */
+                  }
+                }
+              }
+
+              /* If the updated value exceeds the maximum, carry the overflow
+               * into previous slots (circularly). If a full circle is reached
+               * with all slots saturated at exec_cost_max_us, keep them
+               * at the max until some EWMA drops later. */
+              if (new_val > exec_cost_max_us) {
+                long carry = new_val - exec_cost_max_us;
+                g_execution_cost_table[slot_index] = exec_cost_max_us;
+              int cur = slot_index;
+              int start = cur;
+              while (carry > 0) {
+                int prev = (cur - 1 + numb_slots_period) % numb_slots_period;
+                  long sum = g_execution_cost_table[prev] + carry;
+                  if (sum > exec_cost_max_us) {
+                    /* saturate this previous slot and propagate remaining carry */
+                    carry = sum - exec_cost_max_us;
+                    g_execution_cost_table[prev] = exec_cost_max_us;
+                  cur = prev;
+                  /* if we've looped a full circle, saturate all and stop */
+                  if (cur == start) {
+                      for (int j = 0; j < numb_slots_period; j++)
+                        g_execution_cost_table[j] = exec_cost_max_us;
+                    carry = 0;
+                    break;
+                  }
+                } else {
+                  /* fit the carry into this previous slot and finish */
+                  g_execution_cost_table[prev] = sum;
+                  carry = 0;
+                }
+              }
+            }
+          // for (int i = 0; i < numb_slots_period; i++) {
+          //   LOG_I(NR_MAC, "%ld \t", g_execution_cost_table[i]);
+          // }
+          // LOG_I(NR_MAC, "\n");
+      }
+  }
 
   return 1;
 }
@@ -1196,26 +1270,10 @@ void *vnf_timing_thread(void *arg) {
     vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
 
     while (p7_info->running) {
-      /*=======================================================================
-       * Apply us_adjustment to fine-tune slot timing phase
-       * Applied immediately when available, no FSM state check
-       *=======================================================================*/
-      if (p7_info->us_adjustment != 0) {
-        timespec_add_us(&p7_info->next_slot_time, p7_info->us_adjustment);
-        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC][VNF Timing] Applying us adjustment of %d us\n", 
-                    p7_info->us_adjustment);
-        p7_info->us_adjustment = 0;
-      }
-      timespec_add_us(&p7_info->next_slot_time, p7_info->slot_duration_us);
-      clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
       vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
       int sfnslot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, p7_info->sfn, p7_info->slot);
       sfnslot_dec++;
       
-      /*=======================================================================
-       * Apply slot_adjustment and us_adjustment simultaneously
-       * No FSM gating - adjustments are applied immediately when available
-       *=======================================================================*/
       if (p7_info->slot_adjustment != 0) {
         sfnslot_dec += p7_info->slot_adjustment;
         if (sfnslot_dec < 0) {
@@ -1234,12 +1292,9 @@ void *vnf_timing_thread(void *arg) {
       p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec) % 1024;
       p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
       
-      p7_info->sync_slot_counter++;
-      if (p7_info->sync_slot_counter >= p7_info->sync_period_slots) {
+      if (p7_info->sync_slot_counter++ >= p7_info->sync_period_slots) {
         p7_info->sync_slot_counter = 0;
         vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
-        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC] Sent periodic sync at sfn:slot %d:%d\n",
-                    p7_info->sfn, p7_info->slot);
       }
       nfapi_nr_slot_indication_scf_t ind = {0};
       ind.sfn = p7_info->sfn;
@@ -1247,6 +1302,17 @@ void *vnf_timing_thread(void *arg) {
       ind.header.phy_id = p7_info->phy_id;
       // NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF Timing] Triggering slot indication for SFN/Slot %d/%d\n", ind.sfn, ind.slot);
       trigger_scheduler(&ind);
+
+      if (p7_info->us_adjustment != 0) {
+        timespec_add_us(&p7_info->next_slot_time, p7_info->us_adjustment);
+        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC][VNF Timing] Applying us adjustment of %d us\n", 
+                    p7_info->us_adjustment);
+        p7_info->us_adjustment = 0;
+      }
+      
+      timespec_add_us(&p7_info->next_slot_time, p7_info->slot_duration_us);
+      clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
+      
     }
     return NULL;
 }
