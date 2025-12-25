@@ -1331,7 +1331,56 @@ void *vnf_timing_thread(void *arg) {
       }
       
       timespec_add_us(&p7_info->next_slot_time, p7_info->slot_duration_us);
-      clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
+
+      /* Task 5: Optimal Control (Gradient + Headroom) */
+      long current_rlc = 0;
+      int period = 0;
+      if (RC.nrmac && RC.nrmac[0]) {
+          gNB_MAC_INST *mac = RC.nrmac[0];
+          NR_UE_info_t **list = mac->UE_info.connected_ue_list;
+          if (list) {
+              for (int i=0; list[i] != NULL; i++) current_rlc += list[i]->UE_sched_ctrl.num_total_bytes;
+          }
+          period = mac->frame_structure.numb_slots_period;
+      }
+      
+      long gradient = current_rlc - p7_info->prev_rlc_buffer;
+      p7_info->prev_rlc_buffer = current_rlc;
+      
+      extern long g_execution_cost_table[]; 
+      long exec_time = 0;
+      if (period > 0) {
+          exec_time = g_execution_cost_table[p7_info->slot % period];
+      }
+      
+      long headroom = p7_info->slot_duration_us - exec_time;
+      long target_headroom = 200;
+      
+      int next_ahead = atomic_load(&p7_info->dynamic_slot_ahead);
+      
+      // Fast Attack (Traffic Spike)
+      if (gradient > 500) { 
+          next_ahead += 100;
+      }
+      // Safety Margin (Low Headroom)
+      else if (headroom < target_headroom) {
+          next_ahead += 50; 
+      }
+      // Slow Decay (Stable Jitter)
+      else if (p7_info->jitter_stddev < 20.0) {
+          if (next_ahead > 0) next_ahead -= 5;
+      }
+      
+      if (next_ahead > 2500) next_ahead = 2500;
+      if (next_ahead < 0) next_ahead = 0;
+      
+      atomic_store(&p7_info->dynamic_slot_ahead, next_ahead);
+      
+      struct timespec wakeup_time = p7_info->next_slot_time;
+      if (next_ahead > 0) {
+          timespec_add_us(&wakeup_time, -next_ahead);
+      }
+      clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &wakeup_time, NULL);
       
     }
     return NULL;

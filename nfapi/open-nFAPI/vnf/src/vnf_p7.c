@@ -1736,7 +1736,12 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 			ind.ul_dci_earliest_arrival
 		);
 	}		
-		p7_con->initial_timinginfo_received = 1; 
+	/* Task 5: Jitter Stats Update */
+	double current_jitter = (double)ind.dl_tti_jitter;
+	// Simple EWMA for magnitude (proxy for stddev/variation)
+	p7_con->jitter_stddev = 0.9 * p7_con->jitter_stddev + 0.1 * current_jitter;
+
+	p7_con->initial_timinginfo_received = 1; 
 }
 
 void vnf_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
