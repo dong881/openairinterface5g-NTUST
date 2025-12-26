@@ -1594,7 +1594,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
     int32_t offset = (int32_t)( ((int64_t)ind.t2 - (int64_t)ind.t1 - ((int64_t)t4 - (int64_t)ind.t3)) / 2 );
     int32_t owd = (int32_t)( ((int64_t)t4 - (int64_t)ind.t1 - ((int64_t)ind.t3 - (int64_t)ind.t2)) / 2 );
     
-	int32_t TARGET_PNF_MARGIN_US = 500*(2 << p7_info->mu); // 500us for mu0, 1000us for mu1, 2000us for mu2, 4000us for mu3
+	int32_t TARGET_PNF_MARGIN_US = 500; //*(2 << p7_info->mu); // 500us for mu0, 1000us for mu1, 2000us for mu2, 4000us for mu3
     int32_t slot_us = (int32_t)p7_info->slot_duration_us;
     
 	// CRITICAL: Negate the adjustment direction!

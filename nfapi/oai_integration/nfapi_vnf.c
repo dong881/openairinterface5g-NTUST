@@ -1371,7 +1371,7 @@ void *vnf_timing_thread(void *arg) {
           if (next_ahead > 0) next_ahead -= 5;
       }
       
-      if (next_ahead > 2500) next_ahead = 2500;
+      if (next_ahead > 1600) next_ahead = 1600;
       if (next_ahead < 0) next_ahead = 0;
       
       atomic_store(&p7_info->dynamic_slot_ahead, next_ahead);
