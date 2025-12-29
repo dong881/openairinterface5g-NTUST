@@ -969,6 +969,9 @@ static void _nr_rx_sdu(const module_id_t gnb_mod_idP,
       int txpower_calc = UE_scheduling_control->ul_harq_processes[harq_pid].sched_pusch.phr_txpower_calc;
       UE->mac_stats.deltaMCS = txpower_calc;
       UE->mac_stats.NPRB = UE_scheduling_control->ul_harq_processes[harq_pid].sched_pusch.rbSize;
+      char print_info[64];
+      snprintf(print_info, sizeof(print_info), "[%04x] ULPRB:%d", UE->rnti, UE->mac_stats.NPRB);
+      log_mmap_entry(1, frameP , slotP , print_info);
       if (ul_cqi != 0xff)
         UE_scheduling_control->tpc0 = nr_get_tpc(target_snrx10, ul_cqi, 30, txpower_calc);
       if (UE_scheduling_control->ph < 0 && UE_scheduling_control->tpc0 > 1)
