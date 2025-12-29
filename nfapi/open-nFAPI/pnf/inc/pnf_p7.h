@@ -128,11 +128,49 @@ struct pnf_p7_t {
 	uint32_t hi_dci0_jitter;
 	uint32_t tx_jitter;
     
-	//P7 NR
+	//P7 NR - RFC 3550 jitter calculation state
+	// Each message type has: jitter value (uint32_t), prev_transit (int64_t), and init flag
 	uint32_t dl_tti_jitter;
 	uint32_t ul_tti_jitter;
 	uint32_t ul_dci_jitter;
 	uint32_t tx_data_jitter;
+	
+	// RFC 3550 jitter state: previous transit time (arrival - transmit) in microseconds
+	int64_t dl_tti_prev_transit_us;
+	int64_t ul_tti_prev_transit_us;
+	int64_t ul_dci_prev_transit_us;
+	int64_t tx_data_prev_transit_us;
+	
+	// RFC 3550 jitter state (wrap-safe): previous receive time (TIME_HR) and transmit timestamp (µs)
+	// NOTE: In OAI nFAPI, P7 header transmit_timestamp is derived from SFN/slot and wraps every 10.24s.
+	//       Therefore we compute jitter from deltas (R(i)-R(i-1)) and (S(i)-S(i-1)) with wrap handling.
+	uint32_t dl_tti_prev_rx_time_hr;
+	uint32_t ul_tti_prev_rx_time_hr;
+	uint32_t ul_dci_prev_rx_time_hr;
+	uint32_t tx_data_prev_rx_time_hr;
+	
+	uint32_t dl_tti_prev_tx_ts_us;
+	uint32_t ul_tti_prev_tx_ts_us;
+	uint32_t ul_dci_prev_tx_ts_us;
+	uint32_t tx_data_prev_tx_ts_us;
+	
+	// Smoothed jitter estimate (as double for 1/16 smoothing factor)
+	double dl_tti_jitter_us;
+	double ul_tti_jitter_us;
+	double ul_dci_jitter_us;
+	double tx_data_jitter_us;
+	
+	// Init flags for RFC 3550 jitter calculation
+	uint8_t dl_tti_jitter_init;
+	uint8_t ul_tti_jitter_init;
+	uint8_t ul_dci_jitter_init;
+	uint8_t tx_data_jitter_init;
+	
+	// Timestamp unwrap state (32-bit to 64-bit conversion)
+	uint64_t ts_epoch_base;
+	uint32_t last_ts_32;
+
+	// Legacy fields (kept for compatibility)
 	int32_t dl_tti_prev_transit_time_diff;
 	int32_t ul_tti_prev_transit_time_diff;
 	int32_t ul_dci_prev_transit_time_diff;
@@ -190,5 +228,42 @@ uint32_t pnf_get_current_time_hr(void);
 struct timespec pnf_timespec_add(struct timespec lhs, struct timespec rhs);
 void pnf_p7_free(pnf_p7_t* pnf_p7, void* ptr);
 void* pnf_p7_malloc(pnf_p7_t* pnf_p7, size_t size);
+
+/*===========================================================================
+ * RFC 3550 Section 6.4.1 Interarrival Jitter Calculation
+ * 
+ * The jitter is calculated using the method defined in RFC 3550:
+ *   transit = arrival_time - transmit_timestamp
+ *   d = transit - prev_transit
+ *   jitter = jitter + (|d| - jitter) / 16
+ *
+ * For P7 Timing Info, we use:
+ *   - transmit_timestamp: P7 header's Transmit Timestamp (32-bit µs)
+ *   - arrival_time: PHY receive time (µs, from monotonic clock)
+ *===========================================================================*/
+
+typedef enum {
+    NFAPI_JITTER_DL_TTI = 0,
+    NFAPI_JITTER_UL_TTI,
+    NFAPI_JITTER_UL_DCI,
+    NFAPI_JITTER_TX_DATA,
+    NFAPI_JITTER_MAX
+} nfapi_jitter_msg_type_t;
+
+// Convert TIME_HR format to microseconds (within the 12-bit second cycle)
+uint64_t pnf_timehr_to_us(pnf_p7_t* pnf_p7, uint32_t time_hr);
+
+// Update jitter state using RFC 3550 algorithm
+void pnf_update_jitter(pnf_p7_t* pnf_p7, 
+                       nfapi_jitter_msg_type_t msg_type,
+                       uint32_t p7_tx_timestamp,
+                       uint32_t recv_time_hr);
+
+// Get jitter value for timing info (uint32_t in µs)
+uint32_t pnf_get_jitter(pnf_p7_t* pnf_p7, nfapi_jitter_msg_type_t msg_type);
+
+// Reset jitter state (e.g., on sync reset)
+void pnf_reset_jitter(pnf_p7_t* pnf_p7, nfapi_jitter_msg_type_t msg_type);
+
 #endif /* _PNF_P7_H_ */
 
