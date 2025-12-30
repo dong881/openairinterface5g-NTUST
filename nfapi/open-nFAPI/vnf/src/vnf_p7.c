@@ -1594,7 +1594,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
     int32_t offset = (int32_t)( ((int64_t)ind.t2 - (int64_t)ind.t1 - ((int64_t)t4 - (int64_t)ind.t3)) / 2 );
     int32_t owd = (int32_t)( ((int64_t)t4 - (int64_t)ind.t1 - ((int64_t)ind.t3 - (int64_t)ind.t2)) / 2 );
     
-	int32_t TARGET_PNF_MARGIN_US = 500*(2 << p7_info->mu); // 500us for mu0, 1000us for mu1, 2000us for mu2, 4000us for mu3
+	int32_t TARGET_PNF_MARGIN_US = 500*(1 << p7_info->mu); // 500us for mu0, 1000us for mu1, 2000us for mu2, 4000us for mu3
     int32_t slot_us = (int32_t)p7_info->slot_duration_us;
     
 	// CRITICAL: Negate the adjustment direction!
@@ -1605,6 +1605,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	int32_t offsetus = (offset  + TARGET_PNF_MARGIN_US) % slot_us;
 	
     // Check if sync has converged (offset within ±10) - once locked, permanently stop adjusting
+    pthread_mutex_lock(&p7_info->mutex);
     if (!p7_info->sync_locked) {
         if (offset + TARGET_PNF_MARGIN_US >= -10 && offset + TARGET_PNF_MARGIN_US <= 10) {
             // Offset converged within ±10, permanently lock sync and stop adjustments
@@ -1620,6 +1621,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
             p7_info->slot_adjustment = offsetslot;
         }
     }
+    pthread_mutex_unlock(&p7_info->mutex);
 
 	char print_info[128];
     snprintf(print_info, sizeof(print_info), "offset=%d, owd=%d, t(%8u,%8u,%8u,%8u) slot_adj:%d us_adj:%d", offset, owd, ind.t1, ind.t2, ind.t3, t4, p7_info->slot_adjustment, p7_info->us_adjustment);
@@ -1680,6 +1682,60 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
 	int32_t vnf_current_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn, p7_con->slot);
 	int32_t pnf_ind_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn, ind.last_slot);
+
+    // [New] Dynamic Timing Adjustment
+    // Calculate max delay (Late) and min earliness (Early)
+    int32_t max_delay = 0;
+    if (ind.dl_tti_latest_delay > max_delay) max_delay = ind.dl_tti_latest_delay;
+    if (ind.tx_data_request_latest_delay > max_delay) max_delay = ind.tx_data_request_latest_delay;
+    if (ind.ul_tti_latest_delay > max_delay) max_delay = ind.ul_tti_latest_delay;
+    if (ind.ul_dci_latest_delay > max_delay) max_delay = ind.ul_dci_latest_delay;
+
+    int32_t min_early = 0x7FFFFFFF;
+    bool has_early = false;
+    if (ind.dl_tti_earliest_arrival > 0 && ind.dl_tti_earliest_arrival < min_early) { min_early = ind.dl_tti_earliest_arrival; has_early = true; }
+    if (ind.tx_data_request_earliest_arrival > 0 && ind.tx_data_request_earliest_arrival < min_early) { min_early = ind.tx_data_request_earliest_arrival; has_early = true; }
+    if (ind.ul_tti_earliest_arrival > 0 && ind.ul_tti_earliest_arrival < min_early) { min_early = ind.ul_tti_earliest_arrival; has_early = true; }
+    if (ind.ul_dci_earliest_arrival > 0 && ind.ul_dci_earliest_arrival < min_early) { min_early = ind.ul_dci_earliest_arrival; has_early = true; }
+    if (!has_early) min_early = 0;
+
+    int32_t adjustment = 0;
+    const int32_t TARGET_EARLY_US = 250; 
+    const int32_t TOLERANCE_US = 50;
+
+    // Apply adjustment if locked or if we are late
+    if (p7_con->sync_locked || max_delay > 0) {
+         if (max_delay > 0) {
+             // Late: Need to wake up earlier (negative adjustment)
+             // If we are late, we need to be aggressive
+             adjustment = -(max_delay + 50);
+         } else if (has_early) {
+             if (min_early < (TARGET_EARLY_US - TOLERANCE_US)) {
+                 // Too close to deadline (danger zone), shift earlier
+                 // Proportional correction: adjust by half the difference
+                 adjustment = -((TARGET_EARLY_US - min_early) / 2);
+                 if (adjustment > -10) adjustment = -10; // Minimum step
+             } else if (min_early > (TARGET_EARLY_US + TOLERANCE_US)) {
+                 // Too early, shift later
+                 // User reported fixed +20 is not converging.
+                 // Use proportional adjustment to close the gap faster.
+                 int32_t diff = min_early - TARGET_EARLY_US;
+                 adjustment = (int32_t)(diff * 0.25); // Apply 25% of the error
+                 
+                 // Clamp max adjustment to avoid oscillation
+                 if (adjustment > 500) adjustment = 500;
+                 if (adjustment < 10) adjustment = 10;
+             }
+         }
+         
+         if (adjustment != 0) {
+             pthread_mutex_lock(&p7_con->mutex);
+             p7_con->us_adjustment += adjustment;
+             pthread_mutex_unlock(&p7_con->mutex);
+             NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING_INFO] Dynamic Adjustment: delay:%d early:%d adj:%d new_total:%d\n", max_delay, min_early, adjustment, p7_con->us_adjustment);
+         }
+    }
+
 	// Only print if any jitter/delay/arrival value is non-zero
 	if (
 		ind.dl_tti_jitter != 0 ||

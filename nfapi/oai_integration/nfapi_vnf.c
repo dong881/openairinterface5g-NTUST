@@ -1145,6 +1145,7 @@ void *vnf_timing_thread(void *arg) {
       int sfnslot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, p7_info->sfn, p7_info->slot);
       sfnslot_dec++;
       
+      pthread_mutex_lock(&p7_info->mutex);
       if (p7_info->slot_adjustment != 0) {
         sfnslot_dec += p7_info->slot_adjustment;
         if (sfnslot_dec < 0) {
@@ -1159,6 +1160,7 @@ void *vnf_timing_thread(void *arg) {
                     NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec));
         p7_info->slot_adjustment = 0;
       }
+      pthread_mutex_unlock(&p7_info->mutex);
       
       p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec) % 1024;
       p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
@@ -1173,12 +1175,14 @@ void *vnf_timing_thread(void *arg) {
       ind.header.phy_id = p7_info->phy_id;
       phy_nr_slot_indication(&ind);
 
+      pthread_mutex_lock(&p7_info->mutex);
       if (p7_info->us_adjustment != 0) {
         timespec_add_us(&p7_info->next_slot_time, p7_info->us_adjustment);
         NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC][VNF Timing] Applying us adjustment of %d us\n", 
                     p7_info->us_adjustment);
         p7_info->us_adjustment = 0;
       }
+      pthread_mutex_unlock(&p7_info->mutex);
       timespec_add_us(&p7_info->next_slot_time, p7_info->slot_duration_us);
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
     }

@@ -690,20 +690,32 @@ static bool check_nr_p7_late_at_reception(pnf_p7_t* pnf_p7, uint16_t msg_sfn, ui
     }
     return true;
 }
-static void check_nr_p7_early_at_execution(pnf_p7_t* pnf_p7, uint32_t recv_time_hr,
-                                           uint32_t timing_offset, const char* name)
+static bool check_nr_p7_early_at_execution(pnf_p7_t* pnf_p7, uint32_t recv_time_hr,
+                                           uint32_t timing_offset, const char* name, uint32_t* earliest_arrival)
 {
     int64_t margin = timehr_diff_us(pnf_p7->slot_start_time_hr, recv_time_hr) - timing_offset;
 	char *print_str;
 	asprintf(&print_str, "m:%ld %s", (long)margin, name);
 	log_mmap_entry(0, pnf_p7->sfn, pnf_p7->slot, print_str);
 	free(print_str);
+   
+    // Update earliest_arrival with the MINIMUM positive margin (closest to deadline)
+    // to safely guide the VNF adjustment without over-correcting.
+    if (margin > 0) {
+        if (*earliest_arrival == 0 || margin < *earliest_arrival) {
+            *earliest_arrival = (uint32_t)margin;
+        }
+    }
+
     if (margin > (int64_t)pnf_p7->timing_window) {
-		NFAPI_TRACE(NFAPI_TRACE_WARN, "%s too early by %ld us (window:%u)\n",
+		NFAPI_TRACE(NFAPI_TRACE_WARN, "%s too early by %ld us (window:%u) - DROPPING\n",
                     name, (long)(margin - pnf_p7->timing_window), pnf_p7->timing_window);
         if (pnf_p7->_public.timing_info_mode_aperiodic)
             pnf_p7->timing_info_aperiodic_send = 1;
+        
+        return false;
     }
+    return true;
 }
 
 int pnf_p7_send_message(pnf_p7_t* pnf_p7, uint8_t* msg, uint32_t len)
@@ -1006,9 +1018,13 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
     ret_dl_tti->dl_tti_request_body.nPDUs = 0;
     nfapi_nr_dl_tti_request_t* dl_tti_req = &tx_slot_buffer->dl_tti_req;
     if (dl_tti_req->SFN == sfn && dl_tti_req->Slot == slot) {
-	  check_nr_p7_early_at_execution(pnf_p7, tx_slot_buffer->dl_tti_recv_time_hr,
-									  pnf_p7->dl_tti_timing_offset, "dl_tti_request");
-      copy_dl_tti_request(dl_tti_req, ret_dl_tti);
+	  if (check_nr_p7_early_at_execution(pnf_p7, tx_slot_buffer->dl_tti_recv_time_hr,
+									  pnf_p7->dl_tti_timing_offset, "dl_tti_request", &pnf_p7->dl_tti_earliest_arrival)) {
+          copy_dl_tti_request(dl_tti_req, ret_dl_tti);
+      } else {
+          // Dropped - decrement ontime stat as it wasn't processed
+          if (pnf_p7->nr_stats.dl_tti.ontime > 0) pnf_p7->nr_stats.dl_tti.ontime--;
+      }
       tx_slot_buffer->dl_tti_req.SFN = -1;
       tx_slot_buffer->dl_tti_req.Slot = -1;
     }
@@ -1018,9 +1034,12 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
     ret_tx_data->Number_of_PDUs = 0;
     nfapi_nr_tx_data_request_t* txd = &tx_slot_buffer->tx_data_req;
     if (txd->SFN == sfn && txd->Slot == slot) {
-	  check_nr_p7_early_at_execution(pnf_p7, tx_slot_buffer->tx_data_recv_time_hr,
-									  pnf_p7->dl_tti_timing_offset, "dl_tti_request");
-      copy_tx_data_request(txd, ret_tx_data);
+	  if (check_nr_p7_early_at_execution(pnf_p7, tx_slot_buffer->tx_data_recv_time_hr,
+									  pnf_p7->tx_data_timing_offset, "tx_data_request", &pnf_p7->tx_data_earliest_arrival)) {
+          copy_tx_data_request(txd, ret_tx_data);
+      } else {
+          if (pnf_p7->nr_stats.tx_data.ontime > 0) pnf_p7->nr_stats.tx_data.ontime--;
+      }
       tx_slot_buffer->tx_data_req.SFN = -1;
       tx_slot_buffer->tx_data_req.Slot = -1;
     }
@@ -1029,9 +1048,12 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
     ret_ul_tti->Slot = slot;
     ret_ul_tti->n_pdus = 0;
     if (tx_slot_buffer->ul_tti_req.SFN == sfn && tx_slot_buffer->ul_tti_req.Slot == slot) {
-	  check_nr_p7_early_at_execution(pnf_p7, tx_slot_buffer->ul_tti_recv_time_hr,
-									  pnf_p7->dl_tti_timing_offset, "dl_tti_request");
-      copy_ul_tti_request(&tx_slot_buffer->ul_tti_req, ret_ul_tti);
+	  if (check_nr_p7_early_at_execution(pnf_p7, tx_slot_buffer->ul_tti_recv_time_hr,
+									  pnf_p7->ul_tti_timing_offset, "ul_tti_request", &pnf_p7->ul_tti_earliest_arrival)) {
+          copy_ul_tti_request(&tx_slot_buffer->ul_tti_req, ret_ul_tti);
+      } else {
+          if (pnf_p7->nr_stats.ul_tti.ontime > 0) pnf_p7->nr_stats.ul_tti.ontime--;
+      }
       tx_slot_buffer->ul_tti_req.SFN = -1;
       tx_slot_buffer->ul_tti_req.Slot = -1;
     }
@@ -1040,9 +1062,12 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
     ret_ul_dci->Slot = slot;
     ret_ul_dci->numPdus = 0;
     if (tx_slot_buffer->ul_dci_req.SFN == sfn && tx_slot_buffer->ul_dci_req.Slot == slot) {
-	  check_nr_p7_early_at_execution(pnf_p7, tx_slot_buffer->ul_dci_recv_time_hr,
-									  pnf_p7->dl_tti_timing_offset, "dl_tti_request");
-      copy_ul_dci_request(&tx_slot_buffer->ul_dci_req, ret_ul_dci);
+	  if (check_nr_p7_early_at_execution(pnf_p7, tx_slot_buffer->ul_dci_recv_time_hr,
+									  pnf_p7->ul_dci_timing_offset, "ul_dci_request", &pnf_p7->ul_dci_earliest_arrival)) {
+          copy_ul_dci_request(&tx_slot_buffer->ul_dci_req, ret_ul_dci);
+      } else {
+          if (pnf_p7->nr_stats.ul_dci.ontime > 0) pnf_p7->nr_stats.ul_dci.ontime--;
+      }
       tx_slot_buffer->ul_dci_req.SFN = -1;
       tx_slot_buffer->ul_dci_req.Slot = -1;
     }
