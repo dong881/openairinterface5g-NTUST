@@ -699,10 +699,10 @@ static bool check_nr_p7_early_at_execution(pnf_p7_t* pnf_p7, uint32_t recv_time_
 	log_mmap_entry(0, pnf_p7->sfn, pnf_p7->slot, print_str);
 	free(print_str);
    
-    // Update earliest_arrival with the MINIMUM positive margin (closest to deadline)
-    // to safely guide the VNF adjustment without over-correcting.
+    // Update earliest_arrival with the MAXIMUM positive margin (earliest arrival in time)
+    // We want to track the packet that arrived *most* early to handle timing outliers.
     if (margin > 0) {
-        if (*earliest_arrival == 0 || margin < *earliest_arrival) {
+        if (margin > *earliest_arrival) {
             *earliest_arrival = (uint32_t)margin;
         }
     }
