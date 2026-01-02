@@ -1687,11 +1687,11 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		ind.ul_tti_jitter != 0 ||
 		ind.ul_dci_jitter != 0 ||
 		ind.dl_tti_latest_delay != 0 ||
-		ind.tx_data_request_latest_delay != 0 ||
+		ind.tx_data_latest_delay != 0 ||
 		ind.ul_tti_latest_delay != 0 ||
 		ind.ul_dci_latest_delay != 0 ||
 		ind.dl_tti_earliest_arrival != 0 ||
-		ind.tx_data_request_earliest_arrival != 0 ||
+		ind.tx_data_earliest_arrival != 0 ||
 		ind.ul_tti_earliest_arrival != 0 ||
 		ind.ul_dci_earliest_arrival != 0
 	) {
@@ -1727,11 +1727,11 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 			ind.ul_tti_jitter,
 			ind.ul_dci_jitter,
 			ind.dl_tti_latest_delay,
-			ind.tx_data_request_latest_delay,
+			ind.tx_data_latest_delay,
 			ind.ul_tti_latest_delay,
 			ind.ul_dci_latest_delay,
 			ind.dl_tti_earliest_arrival,
-			ind.tx_data_request_earliest_arrival,
+			ind.tx_data_earliest_arrival,
 			ind.ul_tti_earliest_arrival,
 			ind.ul_dci_earliest_arrival
 		);
