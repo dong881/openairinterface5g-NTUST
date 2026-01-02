@@ -176,14 +176,14 @@ struct pnf_p7_t {
 	int32_t ul_dci_prev_transit_time_diff;
 	int32_t tx_data_prev_transit_time_diff;
 
-	uint32_t dl_tti_latest_delay;
-	uint32_t dl_tti_earliest_arrival;
-	uint32_t ul_tti_latest_delay;
-	uint32_t ul_tti_earliest_arrival;
-	uint32_t ul_dci_latest_delay;
-	uint32_t ul_dci_earliest_arrival;
-	uint32_t tx_data_latest_delay;
-	uint32_t tx_data_earliest_arrival;
+	int32_t dl_tti_latest_delay;
+	int32_t dl_tti_earliest_arrival;
+	int32_t ul_tti_latest_delay;
+	int32_t ul_tti_earliest_arrival;
+	int32_t ul_dci_latest_delay;
+	int32_t ul_dci_earliest_arrival;
+	int32_t tx_data_latest_delay;
+	int32_t tx_data_earliest_arrival;
 	// Configuration
 	uint32_t dl_tti_timing_offset;
 	uint32_t ul_tti_timing_offset;

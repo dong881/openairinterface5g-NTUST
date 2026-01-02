@@ -1162,12 +1162,12 @@ typedef struct {
   uint32_t ul_dci_jitter;
 
   int32_t dl_tti_latest_delay;
-  int32_t tx_data_request_latest_delay;
+  int32_t tx_data_latest_delay;
   int32_t ul_tti_latest_delay;
   int32_t ul_dci_latest_delay;
 
   int32_t dl_tti_earliest_arrival;
-  int32_t tx_data_request_earliest_arrival;
+  int32_t tx_data_earliest_arrival;
   int32_t ul_tti_earliest_arrival;
   int32_t ul_dci_earliest_arrival;
   nfapi_vendor_extension_tlv_t vendor_extension;

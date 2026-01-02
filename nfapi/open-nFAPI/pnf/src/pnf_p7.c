@@ -888,12 +888,12 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 	timing_info.ul_dci_jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_UL_DCI);
 
 	timing_info.dl_tti_latest_delay = pnf_p7->dl_tti_latest_delay;
-	timing_info.tx_data_request_latest_delay = pnf_p7->tx_data_latest_delay;
+	timing_info.tx_data_latest_delay = pnf_p7->tx_data_latest_delay;
 	timing_info.ul_tti_latest_delay = pnf_p7->ul_tti_latest_delay;
 	timing_info.ul_dci_latest_delay = pnf_p7->ul_dci_latest_delay;
 
 	timing_info.dl_tti_earliest_arrival = pnf_p7->dl_tti_earliest_arrival;
-	timing_info.tx_data_request_earliest_arrival = pnf_p7->tx_data_earliest_arrival;
+	timing_info.tx_data_earliest_arrival = pnf_p7->tx_data_earliest_arrival;
 	timing_info.ul_tti_earliest_arrival = pnf_p7->ul_tti_earliest_arrival;
 	timing_info.ul_dci_earliest_arrival = pnf_p7->ul_dci_earliest_arrival;
 	NFAPI_TRACE(NFAPI_TRACE_DEBUG, 
