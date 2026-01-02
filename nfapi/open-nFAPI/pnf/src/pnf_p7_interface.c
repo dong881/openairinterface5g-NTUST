@@ -40,6 +40,18 @@ nfapi_pnf_p7_config_t* nfapi_pnf_p7_config_create()
 	// By default enable aperiodic timing info send flag (for VNF tick sync)
 	_this->timing_info_aperiodic_send = 1;
 	_this->_public.checksum_enabled = 1;
+
+	// Initialize latest_delay and earliest_arrival for timing info
+	_this->dl_tti_latest_delay = -2147483648;
+	_this->ul_tti_latest_delay = -2147483648;
+	_this->ul_dci_latest_delay = -2147483648;
+	_this->tx_data_latest_delay = -2147483648;
+
+	_this->dl_tti_earliest_arrival = 2147483647;
+	_this->ul_tti_earliest_arrival = 2147483647;
+	_this->ul_dci_earliest_arrival = 2147483647;
+	_this->tx_data_earliest_arrival = 2147483647;
+
 	
 	_this->_public.malloc = &malloc;
 	_this->_public.free = &free;	

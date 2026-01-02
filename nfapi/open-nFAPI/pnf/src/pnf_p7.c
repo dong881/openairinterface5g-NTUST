@@ -688,7 +688,7 @@ static inline int32_t calc_slot_diff(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_
  */
 static bool check_nr_p7_late_at_reception(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_t msg_slot, 
                                           const char* name, uint32_t recv_time_hr, 
-                                          uint32_t timing_offset, uint32_t* latest_delay)
+                                          uint32_t timing_offset, int32_t* latest_delay, int32_t* earliest_arrival)
 {
     int32_t diff_slots = calc_slot_diff(pnf_p7, msg_sfn, msg_slot);
     int64_t slot_len_us = 10000 / NFAPI_SLOTNUM(pnf_p7->mu);
@@ -696,14 +696,21 @@ static bool check_nr_p7_late_at_reception(pnf_p7_t* pnf_p7, uint16_t msg_sfn, ui
                    - timehr_diff_us(recv_time_hr, pnf_p7->slot_start_time_hr) 
                    - timing_offset;
     
+    // Calculate offset from latest acceptable time
+    // Positive value: Later than acceptable (Late)
+    // Negative value: Earlier than acceptable (Early)
+    int32_t offset = (int32_t)(-margin);
+
+    if (offset > *latest_delay) *latest_delay = offset;
+    if (offset < *earliest_arrival) *earliest_arrival = offset;
+
     if (margin < 0) {
         char *print_str;
         asprintf(&print_str, "m:%ld, %s", (long)margin, name);
         log_mmap_entry(0, msg_sfn, msg_slot, print_str);
         free(print_str);
 		uint32_t lateness = (uint32_t)(-margin);
-        NFAPI_TRACE(NFAPI_TRACE_WARN, "%s [%d.%d] TOO LATE by %u us\n", name, msg_sfn, msg_slot, lateness);
-        if (lateness > *latest_delay) *latest_delay = lateness;
+        NFAPI_TRACE(NFAPI_TRACE_WARN, "%s [%d.%d] TOO LATE by %u us (offset %d)\n", name, msg_sfn, msg_slot, lateness, offset);
         if (pnf_p7->_public.timing_info_mode_aperiodic)
             pnf_p7->timing_info_aperiodic_send = 1;
         return false;
@@ -925,15 +932,18 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 
 	// Reset latest_delay and earliest_arrival for next timing info period
 	// Note: jitter state is NOT reset - it's a running average per RFC 3550
-	pnf_p7->dl_tti_latest_delay = 0;
-	pnf_p7->ul_tti_latest_delay = 0;
-	pnf_p7->ul_dci_latest_delay = 0;
-	pnf_p7->tx_data_latest_delay = 0;
 
-	pnf_p7->dl_tti_earliest_arrival = 0;
-	pnf_p7->ul_tti_earliest_arrival = 0;
-	pnf_p7->ul_dci_earliest_arrival = 0;
-	pnf_p7->tx_data_earliest_arrival = 0;
+	// Reset latest_delay and earliest_arrival for next timing info period
+	// Initialize to min/max integer values to ensure first update is captured correctly
+	pnf_p7->dl_tti_latest_delay = -2147483648; // INT32_MIN
+	pnf_p7->ul_tti_latest_delay = -2147483648;
+	pnf_p7->ul_dci_latest_delay = -2147483648;
+	pnf_p7->tx_data_latest_delay = -2147483648;
+
+	pnf_p7->dl_tti_earliest_arrival = 2147483647; // INT32_MAX
+	pnf_p7->ul_tti_earliest_arrival = 2147483647;
+	pnf_p7->ul_dci_earliest_arrival = 2147483647;
+	pnf_p7->tx_data_earliest_arrival = 2147483647;
 }
 
 void send_dummy_subframe(pnf_p7_t* pnf_p7, uint16_t sfn_sf)
@@ -1572,7 +1582,7 @@ void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
         && is_nr_p7_request_in_buffer_size(frame, slot, "dl_tti_request", pnf_p7)
         && check_nr_p7_late_at_reception(pnf_p7, frame, slot, "dl_tti_request",
                                          recv_time_hr, pnf_p7->dl_tti_timing_offset,
-                                         &pnf_p7->dl_tti_latest_delay)) {
+                                         &pnf_p7->dl_tti_latest_delay, &pnf_p7->dl_tti_earliest_arrival)) {
       // Packet arrived on time - store in buffer
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
       uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
@@ -1714,7 +1724,7 @@ void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
         && is_nr_p7_request_in_buffer_size(frame, slot, "ul_tti_request", pnf_p7)
         && check_nr_p7_late_at_reception(pnf_p7, frame, slot, "ul_tti_request",
                                          recv_time_hr, pnf_p7->ul_tti_timing_offset,
-                                         &pnf_p7->ul_tti_latest_delay)) {
+                                         &pnf_p7->ul_tti_latest_delay, &pnf_p7->ul_tti_earliest_arrival)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
       uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
       pnf_p7->slot_buffer[buffer_index].sfn = frame;
@@ -1838,7 +1848,7 @@ void pnf_handle_ul_dci_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
         && is_nr_p7_request_in_buffer_size(frame, slot, "ul_dci_request", pnf_p7)
         && check_nr_p7_late_at_reception(pnf_p7, frame, slot, "ul_dci_request",
                                          recv_time_hr, pnf_p7->ul_dci_timing_offset,
-                                         &pnf_p7->ul_dci_latest_delay)) {
+                                         &pnf_p7->ul_dci_latest_delay, &pnf_p7->ul_dci_earliest_arrival)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
       uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
       pnf_p7->slot_buffer[buffer_index].sfn = frame;
@@ -1965,7 +1975,7 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
         && is_nr_p7_request_in_buffer_size(frame, slot, "tx_data_request", pnf_p7)
         && check_nr_p7_late_at_reception(pnf_p7, frame, slot, "tx_data_request",
                                          recv_time_hr, pnf_p7->tx_data_timing_offset,
-                                         &pnf_p7->tx_data_latest_delay)) {
+                                         &pnf_p7->tx_data_latest_delay, &pnf_p7->tx_data_earliest_arrival)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
       uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
       pnf_p7->slot_buffer[buffer_index].sfn = frame;
