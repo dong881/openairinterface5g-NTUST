@@ -1765,9 +1765,65 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
                          current_margin, optimal_margin, margin_diff, adjustment);
          }
          
-         if (adjustment != 0) {
+         
+         // TDD-Aware Adjustment Logic
+         // Use 40-slot cycle (covering 10ms@15kHz, 20ms@30kHz, etc)
+         
+         // Calculate absolute slot index for proper modulo (resets every 1024 frames)
+         // But for local 40-slot pattern, we just need continuous counter.
+         // SFN (0-1023) * slots_per_frame + slot
+         int slots_per_frame = 10 * (1 << p7_con->mu);
+         int abs_slot_idx = ind.last_sfn * slots_per_frame + ind.last_slot;
+         int slot_idx = abs_slot_idx % 40;
+         
+         if (max_delay > 0 || has_early) {
              pthread_mutex_lock(&p7_con->mutex);
-             p7_con->us_adjustment += adjustment;
+
+             int32_t current_offset = p7_con->slot_offsets[slot_idx];
+             int32_t new_adjustment = 0;
+
+             if (max_delay > 0) {
+                 // [URGENT LATE]
+                 // We are late by max_delay. We MUST wake up earlier.
+                 // Strategy: Aggressive correction. Recover the delay + add substantial safety margin.
+                 // Double the observed delay impact to catch up with drift, plus fixed 300us buffer.
+                 new_adjustment = -(max_delay * 2 + 300);
+                 
+                 // If we are already applying a negative offset, we need to go EVEN MORE negative.
+                 NFAPI_TRACE(NFAPI_TRACE_WARN, "[TIMING_URGENT] Slot %d is LATE by %d! Applying aggressive adj %d\n", slot_idx, max_delay, new_adjustment);
+             } 
+             else if (has_early) {
+                 // [Early / Freshness optimisation]
+                 // max_early is the margin we had.
+                 // User goal: "Avoid late is premise", "Maintain freshness".
+                 int32_t safe_margin = 400; // Target 400us headroom
+                 int32_t min_margin = 200;  // Danger zone
+                 
+                 if (max_early < min_margin) {
+                     // Too close to deadline! Shift earlier to restore safety margin.
+                     // e.g. Early by 50us -> want 400us -> missing 350us -> shift -350
+                     new_adjustment = -(safe_margin - max_early);
+                 } else if (max_early > (safe_margin + 200)) {
+                     // Too early (freshness bad). Slowly relax.
+                     // Only relax if we have > 600us margin.
+                     // Shift later by small amount to avoid oscillating back into lateness.
+                     new_adjustment = 20; // Slow decay
+                 }
+             }
+
+             if (new_adjustment != 0) {
+                 p7_con->slot_offsets[slot_idx] += new_adjustment;
+                 
+                 // Clamp per-slot offset to very large bounds (+/- 100ms) to allow full convergence
+                 if (p7_con->slot_offsets[slot_idx] > 100000) p7_con->slot_offsets[slot_idx] = 100000;
+                 if (p7_con->slot_offsets[slot_idx] < -100000) p7_con->slot_offsets[slot_idx] = -100000;
+                 
+                 NFAPI_TRACE(NFAPI_TRACE_INFO, "[TIMING_ADJ][idx:%d(sfn:%d/sl:%d)] m:%d(late:%d early:%d) adj:%d total_offset:%d\n", 
+                             slot_idx, ind.last_sfn, ind.last_slot, 
+                             (max_delay > 0 ? -max_delay : max_early),
+                             max_delay, max_early, new_adjustment, p7_con->slot_offsets[slot_idx]);
+             }
+             
              pthread_mutex_unlock(&p7_con->mutex);
          }
      }

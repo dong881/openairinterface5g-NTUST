@@ -208,6 +208,58 @@ int nfapi_vnf_p7_start(nfapi_vnf_p7_config_t* config)
 				// still time before the end of the subframe wait
 				pselect_timeout = timespec_sub(sf_start, pselect_start);
 
+				// [Dynamic Timing Adjustment] Apply slot_offsets using 40-slot cycle
+				nfapi_vnf_p7_connection_info_t* phy_adjust = vnf_p7->p7_connections;
+				if(phy_adjust) 
+				{
+					 uint16_t next_sfn_sf = increment_sfn_sf(phy_adjust->sfn_sf);
+					 int next_sfn = NFAPI_SFNSF2SFN(next_sfn_sf);
+					 int next_sf = NFAPI_SFNSF2SF(next_sfn_sf);
+					 int mu = phy_adjust->mu; 
+					 int slots_per_sf = 1 << mu;
+					 int slots_per_frame = 10 * slots_per_sf;
+					 
+					 // Identify the absolute slot index for the START of the subframe
+					 int start_abs_slot = next_sfn * slots_per_frame + next_sf * slots_per_sf;
+					 
+					 // Find the most aggressive (earliest/negative) offset required by any slot in this subframe
+					 int32_t chosen_offset_us = 0;
+					 int32_t min_offset = 0;
+					 
+					 for(int i=0; i<slots_per_sf; i++) {
+						 int idx = (start_abs_slot + i) % 40;
+						 int32_t val = phy_adjust->slot_offsets[idx];
+						 if (val < min_offset) min_offset = val;
+					 }
+					 
+					 // Use the minimum (most negative) offset to ensure we wake up early enough for the strictest slot
+					 if (min_offset < 0) {
+						 chosen_offset_us = min_offset;
+					 } else {
+						 // If no late slots, maybe use the first slot's offset (or average?)
+						 // Let's simplify: utilize the offset of the first slot if positive.
+						 chosen_offset_us = phy_adjust->slot_offsets[start_abs_slot % 40];
+					 }
+					 
+					 if (chosen_offset_us != 0) {
+						 long offset_ns = chosen_offset_us * 1000;
+						 pselect_timeout.tv_nsec += offset_ns;
+						 
+						 // Normalization
+						 while (pselect_timeout.tv_nsec < 0) {
+							 pselect_timeout.tv_nsec += 1000000000;
+							 pselect_timeout.tv_sec -= 1;
+						 }
+						 while (pselect_timeout.tv_nsec >= 1000000000) {
+							 pselect_timeout.tv_nsec -= 1000000000;
+							 pselect_timeout.tv_sec += 1;
+						 }
+						 if (pselect_timeout.tv_sec < 0) {
+							  pselect_timeout.tv_sec = 0;
+							  pselect_timeout.tv_nsec = 0;
+						 }
+					 }
+				}
 			}
 
 //original_pselect_timeout = pselect_timeout;

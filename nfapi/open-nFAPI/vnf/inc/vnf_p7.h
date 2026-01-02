@@ -83,6 +83,7 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t adjustment;
 	int32_t slot_adjustment;
 	int32_t us_adjustment;
+  int32_t slot_offsets[40]; // Per-slot timing adjustment for TDD patterns
 	int32_t insync_minor_adjustment;
 	int32_t insync_minor_adjustment_duration;
 	uint8_t sync_locked;  // Flag: once offset converges within ±10, permanently stop adjusting
