@@ -2009,9 +2009,9 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   vnf->p7_vnfs[0].ul_tti_timing_offset = 0;
   vnf->p7_vnfs[0].ul_dci_timing_offset = 0;
   vnf->p7_vnfs[0].tx_data_timing_offset = 0;
-  vnf->p7_vnfs[0].periodic_timing_enabled = 0;
+  vnf->p7_vnfs[0].periodic_timing_enabled = 1;
   vnf->p7_vnfs[0].aperiodic_timing_enabled = 1;
-  vnf->p7_vnfs[0].periodic_timing_period = 0;
+  vnf->p7_vnfs[0].periodic_timing_period = 30;
   vnf->p7_vnfs[0].config = nfapi_vnf_p7_config_create();
 #ifndef ENABLE_AERIAL
   NFAPI_TRACE(NFAPI_TRACE_INFO,

@@ -1704,41 +1704,71 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
     int32_t adjustment = 0;
     
     // Apply adjustment if locked or if we have timing issues
+    // TARGET_PNF_MARGIN_US should be around 500us (mu=0) or 250us (mu=1)
+    // We want the PNF to receive packets slightly ahead of time (margin).
+    // If earliest_arrival (margin) is TOO LARGE, we are TOO EARLY -> Shift LATER (positive)
+    // If earliest_arrival is TOO SMALL (or we are LATE), we are TOO LATE -> Shift EARLIER (negative)
+    
+    // We target a specific margin. Let's say target margin is 50% of the window for robustness, or just fixed 500us.
+    // Actually, user wants "fixed advance amount". Let's assume the defined timing window (or a fraction of it) is the target.
+    // If we simply react to "Late" and "Early", we might oscillate.
+    
+    // Strategy:
+    // 1. If LATE (max_delay > 0): Immediate correction. We are missing deadlines.
+    //    Adjustment = -(max_delay + safety_margin)
+    // 2. If EARLY (has_early):
+    //    We are arriving with margin = max_early.
+    //    If margin is excessive (e.g. > 1000us), we can safely shift later.
+    //    But we must ensure we don't shift so much we become late.
+    
+    // The user requirement: "Ensure PNF receives packets with fixed advance amount".
+    // "Dynamic adjustment only for VNF trigger timing".
+    
+    int32_t target_margin = 200; // Aim for 1ms advance? Or 500us?
+    // Let's look at what "max_early" actually means. It is the "earliest arrival" time relative to the deadline?
+    // In typical NFAPI, "earliest_arrival" is how much BEFORE the window start it arrived? Or inside the window?
+    // Actually, usually:
+    // margin = (deadline - arrival_time).
+    // If arrival_time is 500us before deadline, margin = 500.
+    
+    // Let's use the provided logic framework but tune it.
+    
     if (p7_con->sync_locked || max_delay > 0 || has_early) {
          if (max_delay > 0) {
-             // LATE: Messages arrived too late (after deadline)
-             // Need to wake up EARLIER (negative adjustment)
-             adjustment = -(max_delay + 50);
+             // LATE: We failed to meet the deadline by max_delay.
+             // We MUST shift earlier.
+             // adjustment = -(max_delay + 150us safety) to ensure we clear the zone.
+             adjustment = -(max_delay + 150);
              
-             // Clamp adjustment to prevent massive jumps and oscillation
-             if (adjustment < -500) adjustment = -500;
+             // Clamp
+             if (adjustment < -1000) adjustment = -1000;
              
-             NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING_ADJ] Late by %dus, shifting earlier by %d\n", max_delay, adjustment);
+             NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING_ADJ] LATE! delay:%d, shifting earlier by %d\n", max_delay, adjustment);
          } else if (has_early) {
-             // EARLY: Messages arrived too early (beyond timing_window, got dropped by PNF)
-             // max_early is the margin value that exceeded timing_window
-             // Need to wake up LATER (positive adjustment) to reduce earliness
+             // EARLY: We are early. "max_early" is likely the margin.
+             // We want to maintain a "fixed advance".
              
-             // Use proportional adjustment to converge smoothly
-             if (max_early > 0) {
-                 // Too early beyond the window
-                 adjustment = (int32_t)(max_early * 0.3); // 30% of excess
-                 if (adjustment < 10) adjustment = 10;   // Minimum step
-                 if (adjustment > 500) adjustment = 500; // Cap to avoid oscillation
-             } else {
-                 // Within or just at the window edge, small adjustment
-                 adjustment = 20; // Small positive step
-             }
-             NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING_ADJ] Early (margin:%dus), shifting later by %d\n", 
-                         max_early, adjustment);
+             int32_t current_margin = max_early;
+             int32_t optimal_margin = target_margin; // Use the configured target (e.g. 200)
+             int32_t margin_diff = current_margin - optimal_margin;
+             
+             // If diff is positive (e.g. 800 - 400 = 400), we act too early. Shift later (positive).
+             // If diff is negative (e.g. 200 - 400 = -200), we act too late. Shift earlier (negative).
+             
+             // Apply proportional gain slightly higher for 200us target
+             adjustment = (int32_t)(margin_diff * 0.2); 
+             
+             // Deadband to prevent jitter
+             if (abs(margin_diff) < 50) adjustment = 0;
+             
+             NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING_ADJ] Margin:%d (Target:%d), Diff:%d, Adj:%d\n", 
+                         current_margin, optimal_margin, margin_diff, adjustment);
          }
          
          if (adjustment != 0) {
              pthread_mutex_lock(&p7_con->mutex);
              p7_con->us_adjustment += adjustment;
              pthread_mutex_unlock(&p7_con->mutex);
-             NFAPI_TRACE(NFAPI_TRACE_INFO, "[TIMING_ADJ] delay:%d early:%d adj:%d total:%d\n", 
-                         max_delay, max_early, adjustment, p7_con->us_adjustment);
          }
      }
 
