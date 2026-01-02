@@ -1687,7 +1687,7 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
     // Calculate max delay (Late) and min earliness (Early)
     int32_t max_delay = 0;
     if (ind.dl_tti_latest_delay > max_delay) max_delay = ind.dl_tti_latest_delay;
-    if (ind.tx_data_request_latest_delay > max_delay) max_delay = ind.tx_data_request_latest_delay;
+    if (ind.tx_data_latest_delay > max_delay) max_delay = ind.tx_data_latest_delay;
     if (ind.ul_tti_latest_delay > max_delay) max_delay = ind.ul_tti_latest_delay;
     if (ind.ul_dci_latest_delay > max_delay) max_delay = ind.ul_dci_latest_delay;
 
@@ -1695,7 +1695,7 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
     bool has_early = false;
     // Track the MAXIMUM early value (largest margin = earliest packet)
     if (ind.dl_tti_earliest_arrival > max_early) { max_early = ind.dl_tti_earliest_arrival; has_early = true; }
-    if (ind.tx_data_request_earliest_arrival > max_early) { max_early = ind.tx_data_request_earliest_arrival; has_early = true; }
+    if (ind.tx_data_earliest_arrival > max_early) { max_early = ind.tx_data_earliest_arrival; has_early = true; }
     if (ind.ul_tti_earliest_arrival > max_early) { max_early = ind.ul_tti_earliest_arrival; has_early = true; }
     if (ind.ul_dci_earliest_arrival > max_early) { max_early = ind.ul_dci_earliest_arrival; has_early = true; }
 
@@ -1749,11 +1749,11 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		ind.ul_tti_jitter != 0 ||
 		ind.ul_dci_jitter != 0 ||
 		ind.dl_tti_latest_delay != 0 ||
-		ind.tx_data_request_latest_delay != 0 ||
+		ind.tx_data_latest_delay != 0 ||
 		ind.ul_tti_latest_delay != 0 ||
 		ind.ul_dci_latest_delay != 0 ||
 		ind.dl_tti_earliest_arrival != 0 ||
-		ind.tx_data_request_earliest_arrival != 0 ||
+		ind.tx_data_earliest_arrival != 0 ||
 		ind.ul_tti_earliest_arrival != 0 ||
 		ind.ul_dci_earliest_arrival != 0
 	) {
@@ -1766,11 +1766,11 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 			ind.ul_tti_jitter,
 			ind.ul_dci_jitter,
 			ind.dl_tti_latest_delay,
-			ind.tx_data_request_latest_delay,
+			ind.tx_data_latest_delay,
 			ind.ul_tti_latest_delay,
 			ind.ul_dci_latest_delay,
 			ind.dl_tti_earliest_arrival,
-			ind.tx_data_request_earliest_arrival,
+			ind.tx_data_earliest_arrival,
 			ind.ul_tti_earliest_arrival,
 			ind.ul_dci_earliest_arrival
 		);
@@ -1789,11 +1789,11 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 			ind.ul_tti_jitter,
 			ind.ul_dci_jitter,
 			ind.dl_tti_latest_delay,
-			ind.tx_data_request_latest_delay,
+			ind.tx_data_latest_delay,
 			ind.ul_tti_latest_delay,
 			ind.ul_dci_latest_delay,
 			ind.dl_tti_earliest_arrival,
-			ind.tx_data_request_earliest_arrival,
+			ind.tx_data_earliest_arrival,
 			ind.ul_tti_earliest_arrival,
 			ind.ul_dci_earliest_arrival
 		);
