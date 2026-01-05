@@ -27,6 +27,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <stdio.h>
+#include <limits.h>
 
 #include "pnf_p7.h"
 #include "nr_fapi_p7_utils.h" // for 5G/NR message utils
@@ -897,15 +898,17 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 	timing_info.ul_tti_jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_UL_TTI);
 	timing_info.ul_dci_jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_UL_DCI);
 
-	timing_info.dl_tti_latest_delay = pnf_p7->dl_tti_latest_delay;
-	timing_info.tx_data_latest_delay = pnf_p7->tx_data_latest_delay;
-	timing_info.ul_tti_latest_delay = pnf_p7->ul_tti_latest_delay;
-	timing_info.ul_dci_latest_delay = pnf_p7->ul_dci_latest_delay;
+	// If latest_delay is still INT32_MIN, no packets of that type were received; report 0
+	// If earliest_arrival is still INT32_MAX, no packets of that type were received; report 0
+	timing_info.dl_tti_latest_delay = (pnf_p7->dl_tti_latest_delay == INT32_MIN) ? 0 : pnf_p7->dl_tti_latest_delay;
+	timing_info.tx_data_latest_delay = (pnf_p7->tx_data_latest_delay == INT32_MIN) ? 0 : pnf_p7->tx_data_latest_delay;
+	timing_info.ul_tti_latest_delay = (pnf_p7->ul_tti_latest_delay == INT32_MIN) ? 0 : pnf_p7->ul_tti_latest_delay;
+	timing_info.ul_dci_latest_delay = (pnf_p7->ul_dci_latest_delay == INT32_MIN) ? 0 : pnf_p7->ul_dci_latest_delay;
 
-	timing_info.dl_tti_earliest_arrival = pnf_p7->dl_tti_earliest_arrival;
-	timing_info.tx_data_earliest_arrival = pnf_p7->tx_data_earliest_arrival;
-	timing_info.ul_tti_earliest_arrival = pnf_p7->ul_tti_earliest_arrival;
-	timing_info.ul_dci_earliest_arrival = pnf_p7->ul_dci_earliest_arrival;
+	timing_info.dl_tti_earliest_arrival = (pnf_p7->dl_tti_earliest_arrival == INT32_MAX) ? 0 : pnf_p7->dl_tti_earliest_arrival;
+	timing_info.tx_data_earliest_arrival = (pnf_p7->tx_data_earliest_arrival == INT32_MAX) ? 0 : pnf_p7->tx_data_earliest_arrival;
+	timing_info.ul_tti_earliest_arrival = (pnf_p7->ul_tti_earliest_arrival == INT32_MAX) ? 0 : pnf_p7->ul_tti_earliest_arrival;
+	timing_info.ul_dci_earliest_arrival = (pnf_p7->ul_dci_earliest_arrival == INT32_MAX) ? 0 : pnf_p7->ul_dci_earliest_arrival;
 	NFAPI_TRACE(NFAPI_TRACE_DEBUG, 
 		"[TIMING_INFO] sfn/slot:%d.%d jitter(us) DL_TTI:%u UL_TTI:%u UL_DCI:%u TX_DATA:%u\n",
 		pnf_p7->sfn, pnf_p7->slot,
@@ -918,15 +921,17 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 
 	// Reset latest_delay and earliest_arrival for next timing info period
 	// Note: jitter state is NOT reset - it's a running average per RFC 3550
-	pnf_p7->dl_tti_latest_delay = 0;
-	pnf_p7->ul_tti_latest_delay = 0;
-	pnf_p7->ul_dci_latest_delay = 0;
-	pnf_p7->tx_data_latest_delay = 0;
+	// Per SCF 225 Table 4-3: latest_delay can be negative (early), so use INT32_MIN as sentinel
+	// earliest_arrival uses INT32_MAX as sentinel
+	pnf_p7->dl_tti_latest_delay = INT32_MIN;
+	pnf_p7->ul_tti_latest_delay = INT32_MIN;
+	pnf_p7->ul_dci_latest_delay = INT32_MIN;
+	pnf_p7->tx_data_latest_delay = INT32_MIN;
 
-	pnf_p7->dl_tti_earliest_arrival = 0;
-	pnf_p7->ul_tti_earliest_arrival = 0;
-	pnf_p7->ul_dci_earliest_arrival = 0;
-	pnf_p7->tx_data_earliest_arrival = 0;
+	pnf_p7->dl_tti_earliest_arrival = INT32_MAX;
+	pnf_p7->ul_tti_earliest_arrival = INT32_MAX;
+	pnf_p7->ul_dci_earliest_arrival = INT32_MAX;
+	pnf_p7->tx_data_earliest_arrival = INT32_MAX;
 }
 
 void send_dummy_subframe(pnf_p7_t* pnf_p7, uint16_t sfn_sf)
