@@ -713,7 +713,7 @@ static bool check_nr_p7_timing(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_t msg_
 			}
 
 			if (pnf_p7->_public.timing_info_mode_aperiodic) {
-					pnf_nr_pack_and_send_timing_info(pnf_p7);
+					pnf_p7->timing_info_aperiodic_send = 1;
 			}
 			return false;
 	}
