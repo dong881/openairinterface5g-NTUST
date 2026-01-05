@@ -120,6 +120,8 @@ struct pnf_p7_t {
 
 	uint8_t timing_info_period_counter;
 	uint8_t timing_info_aperiodic_send; // 0:false 1:true
+	uint16_t timing_info_trigger_sfn;
+	uint16_t timing_info_trigger_slot;
 
 	uint32_t timing_info_ms_counter; // number of ms since last timing info
 

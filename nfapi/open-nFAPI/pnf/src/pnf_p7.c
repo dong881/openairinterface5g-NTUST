@@ -714,6 +714,8 @@ static bool check_nr_p7_timing(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_t msg_
 
 			if (pnf_p7->_public.timing_info_mode_aperiodic) {
 					pnf_p7->timing_info_aperiodic_send = 1;
+					pnf_p7->timing_info_trigger_sfn = msg_sfn;
+					pnf_p7->timing_info_trigger_slot = msg_slot;
 			}
 			return false;
 	}
@@ -880,8 +882,13 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 	timing_info.header.message_id = NFAPI_TIMING_INFO;
 	timing_info.header.phy_id = pnf_p7->_public.phy_id;
 
-	timing_info.last_sfn = pnf_p7->sfn;
-	timing_info.last_slot = pnf_p7->slot;
+	if (pnf_p7->timing_info_aperiodic_send == 1) {
+		timing_info.last_sfn = pnf_p7->timing_info_trigger_sfn;
+		timing_info.last_slot = pnf_p7->timing_info_trigger_slot;
+	} else {
+		timing_info.last_sfn = pnf_p7->sfn;
+		timing_info.last_slot = pnf_p7->slot;
+	}
 	timing_info.time_since_last_timing_info = pnf_p7->timing_info_ms_counter;
 
 	// Use RFC 3550 calculated jitter values (in microseconds)
