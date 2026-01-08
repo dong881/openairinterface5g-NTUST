@@ -124,6 +124,7 @@ struct pnf_p7_t {
 	uint16_t timing_info_trigger_slot;
 
 	uint32_t timing_info_ms_counter; // number of ms since last timing info
+	uint32_t timing_info_last_send_time_hr; // TIME_HR when last timing info was sent
 
 	uint32_t dl_config_jitter;
 	uint32_t ul_config_jitter;
