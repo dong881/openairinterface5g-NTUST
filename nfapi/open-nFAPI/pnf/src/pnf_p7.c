@@ -890,8 +890,11 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 		timing_info.last_sfn = pnf_p7->sfn;
 		timing_info.last_slot = pnf_p7->slot;
 	}
-	// Convert from microseconds to milliseconds for reporting
-	timing_info.time_since_last_timing_info = pnf_p7->timing_info_ms_counter / 1000;
+	// Calculate actual elapsed time since last timing info using timestamps
+	uint32_t now_time_hr = pnf_get_current_time_hr();
+	int64_t elapsed_us = timehr_diff_us(now_time_hr, pnf_p7->timing_info_last_send_time_hr);
+	if (elapsed_us < 0) elapsed_us = 0; // Handle first call or wrap-around edge case
+	timing_info.time_since_last_timing_info = (uint32_t)(elapsed_us / 1000); // Convert to ms
 
 	// Use RFC 3550 calculated jitter values (in microseconds)
 	timing_info.dl_tti_jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_DL_TTI);
@@ -918,7 +921,8 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 	AssertFatal(pnf_p7->_public.send_p7_msg, "The function pointer to pack and send P7 messages must be set");
 	pnf_p7->_public.send_p7_msg(pnf_p7, &(timing_info.header), sizeof(timing_info));
 
-	pnf_p7->timing_info_ms_counter = 0;
+	// Update last send time for next elapsed time calculation
+	pnf_p7->timing_info_last_send_time_hr = now_time_hr;
 
 	pnf_p7->timing_info_aperiodic_send = 0;
 	// Reset latest_delay and earliest_arrival for next timing info period
@@ -1068,14 +1072,8 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
       tx_slot_buffer->ul_dci_req.Slot = -1;
     }
 
-    // Calculate slot duration in ms: 1ms for mu=0, 0.5ms for mu=1, 0.25ms for mu=2, etc.
-    // Using fixed-point: slot_duration_us = 1000000 / (1000 * slots_per_subframe) = 1000 / slots_per_subframe
-    uint32_t slots_per_subframe = 1 << pnf_p7->mu; // 1, 2, 4, 8 for mu=0,1,2,3
-    uint32_t slot_duration_us = 1000 / slots_per_subframe; // 1000, 500, 250, 125 us
-    
-    // Always accumulate time (in us for precision, will convert to ms when sending)
-    pnf_p7->timing_info_ms_counter += slot_duration_us;
-    
+    // Note: timing_info_ms_counter is no longer used - elapsed time is calculated from timestamps
+
     // send the periodic timing info if configured
     if (pnf_p7->_public.timing_info_mode_periodic && (pnf_p7->timing_info_period_counter++) == pnf_p7->_public.timing_info_period) {
       pnf_nr_pack_and_send_timing_info(pnf_p7);
@@ -1514,12 +1512,16 @@ void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
     pnf_update_jitter(pnf_p7, NFAPI_JITTER_DL_TTI, header.transmit_timestamp, recv_time_hr);
     // Combined check: slot type, buffer size, and timing (not late)
     // If any check fails, packet is dropped (not processed)
-    if (check_nr_nfapi_p7_slot_type(frame, slot, "DL_TTI.request", NR_DOWNLINK_SLOT)
-        && is_nr_p7_request_in_buffer_size(frame, slot, "dl_tti_request", pnf_p7)
-        && check_nr_p7_timing(pnf_p7, frame, slot, "dl_tti_request",
-                              recv_time_hr, pnf_p7->dl_tti_timing_offset,
-                              &pnf_p7->dl_tti_latest_delay,
-                              &pnf_p7->dl_tti_earliest_arrival)) {
+    // Run checks independently to prevent short-circuiting
+    // We MUST run check_nr_p7_timing to update delay/early stats and trigger aperiodic info
+    bool type_ok = check_nr_nfapi_p7_slot_type(frame, slot, "DL_TTI.request", NR_DOWNLINK_SLOT);
+    bool buffer_ok = is_nr_p7_request_in_buffer_size(frame, slot, "dl_tti_request", pnf_p7);
+    bool timing_ok = check_nr_p7_timing(pnf_p7, frame, slot, "dl_tti_request",
+                                        recv_time_hr, pnf_p7->dl_tti_timing_offset,
+                                        &pnf_p7->dl_tti_latest_delay,
+                                        &pnf_p7->dl_tti_earliest_arrival);
+
+    if (type_ok && buffer_ok && timing_ok) {
       // Packet arrived on time - store in buffer
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
       uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
@@ -1656,12 +1658,15 @@ void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
     }
     pnf_update_jitter(pnf_p7, NFAPI_JITTER_UL_TTI, header.transmit_timestamp, recv_time_hr);
 
-    if (check_nr_nfapi_p7_slot_type(frame, slot, "UL_TTI.request", NR_UPLINK_SLOT)
-        && is_nr_p7_request_in_buffer_size(frame, slot, "ul_tti_request", pnf_p7)
-        && check_nr_p7_timing(pnf_p7, frame, slot, "ul_tti_request",
-                              recv_time_hr, pnf_p7->ul_tti_timing_offset,
-                              &pnf_p7->ul_tti_latest_delay,
-                              &pnf_p7->ul_tti_earliest_arrival)) {
+    // Run checks independently to prevent short-circuiting
+    bool type_ok = check_nr_nfapi_p7_slot_type(frame, slot, "UL_TTI.request", NR_UPLINK_SLOT);
+    bool buffer_ok = is_nr_p7_request_in_buffer_size(frame, slot, "ul_tti_request", pnf_p7);
+    bool timing_ok = check_nr_p7_timing(pnf_p7, frame, slot, "ul_tti_request",
+                                        recv_time_hr, pnf_p7->ul_tti_timing_offset,
+                                        &pnf_p7->ul_tti_latest_delay,
+                                        &pnf_p7->ul_tti_earliest_arrival);
+
+    if (type_ok && buffer_ok && timing_ok) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
       uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
       pnf_p7->slot_buffer[buffer_index].sfn = frame;
@@ -1779,12 +1784,15 @@ void pnf_handle_ul_dci_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       return;
     }
     pnf_update_jitter(pnf_p7, NFAPI_JITTER_UL_DCI, header.transmit_timestamp, recv_time_hr);
-    if (check_nr_nfapi_p7_slot_type(frame, slot, "UL_DCI.request", NR_DOWNLINK_SLOT)
-        && is_nr_p7_request_in_buffer_size(frame, slot, "ul_dci_request", pnf_p7)
-        && check_nr_p7_timing(pnf_p7, frame, slot, "ul_dci_request",
-                              recv_time_hr, pnf_p7->ul_dci_timing_offset,
-                              &pnf_p7->ul_dci_latest_delay,
-                              &pnf_p7->ul_dci_earliest_arrival)) {
+    // Run checks independently to prevent short-circuiting
+    bool type_ok = check_nr_nfapi_p7_slot_type(frame, slot, "UL_DCI.request", NR_DOWNLINK_SLOT);
+    bool buffer_ok = is_nr_p7_request_in_buffer_size(frame, slot, "ul_dci_request", pnf_p7);
+    bool timing_ok = check_nr_p7_timing(pnf_p7, frame, slot, "ul_dci_request",
+                                        recv_time_hr, pnf_p7->ul_dci_timing_offset,
+                                        &pnf_p7->ul_dci_latest_delay,
+                                        &pnf_p7->ul_dci_earliest_arrival);
+
+    if (type_ok && buffer_ok && timing_ok) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
       uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
       pnf_p7->slot_buffer[buffer_index].sfn = frame;
@@ -1906,12 +1914,15 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
       return;
     }
     pnf_update_jitter(pnf_p7, NFAPI_JITTER_TX_DATA, header.transmit_timestamp, recv_time_hr);
-    if (check_nr_nfapi_p7_slot_type(frame, slot, "TX_DATA.REQUEST", NR_DOWNLINK_SLOT)
-        && is_nr_p7_request_in_buffer_size(frame, slot, "tx_data_request", pnf_p7)
-        && check_nr_p7_timing(pnf_p7, frame, slot, "tx_data_request",
-                              recv_time_hr, pnf_p7->tx_data_timing_offset,
-                              &pnf_p7->tx_data_latest_delay,
-                              &pnf_p7->tx_data_earliest_arrival)) {
+    // Run checks independently to prevent short-circuiting
+    bool type_ok = check_nr_nfapi_p7_slot_type(frame, slot, "TX_DATA.REQUEST", NR_DOWNLINK_SLOT);
+    bool buffer_ok = is_nr_p7_request_in_buffer_size(frame, slot, "tx_data_request", pnf_p7);
+    bool timing_ok = check_nr_p7_timing(pnf_p7, frame, slot, "tx_data_request",
+                                        recv_time_hr, pnf_p7->tx_data_timing_offset,
+                                        &pnf_p7->tx_data_latest_delay,
+                                        &pnf_p7->tx_data_earliest_arrival);
+
+    if (type_ok && buffer_ok && timing_ok) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
       uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
       pnf_p7->slot_buffer[buffer_index].sfn = frame;
