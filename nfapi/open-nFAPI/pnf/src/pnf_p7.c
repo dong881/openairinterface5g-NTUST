@@ -890,7 +890,8 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 		timing_info.last_sfn = pnf_p7->sfn;
 		timing_info.last_slot = pnf_p7->slot;
 	}
-	timing_info.time_since_last_timing_info = pnf_p7->timing_info_ms_counter;
+	// Convert from microseconds to milliseconds for reporting
+	timing_info.time_since_last_timing_info = pnf_p7->timing_info_ms_counter / 1000;
 
 	// Use RFC 3550 calculated jitter values (in microseconds)
 	timing_info.dl_tti_jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_DL_TTI);
@@ -1067,15 +1068,21 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
       tx_slot_buffer->ul_dci_req.Slot = -1;
     }
 
+    // Calculate slot duration in ms: 1ms for mu=0, 0.5ms for mu=1, 0.25ms for mu=2, etc.
+    // Using fixed-point: slot_duration_us = 1000000 / (1000 * slots_per_subframe) = 1000 / slots_per_subframe
+    uint32_t slots_per_subframe = 1 << pnf_p7->mu; // 1, 2, 4, 8 for mu=0,1,2,3
+    uint32_t slot_duration_us = 1000 / slots_per_subframe; // 1000, 500, 250, 125 us
+    
+    // Always accumulate time (in us for precision, will convert to ms when sending)
+    pnf_p7->timing_info_ms_counter += slot_duration_us;
+    
     // send the periodic timing info if configured
     if (pnf_p7->_public.timing_info_mode_periodic && (pnf_p7->timing_info_period_counter++) == pnf_p7->_public.timing_info_period) {
       pnf_nr_pack_and_send_timing_info(pnf_p7);
-
       pnf_p7->timing_info_period_counter = 0;
-		} else if (pnf_p7->_public.timing_info_mode_aperiodic && pnf_p7->timing_info_aperiodic_send) {
-			pnf_nr_pack_and_send_timing_info(pnf_p7);
-    } else {
-      pnf_p7->timing_info_ms_counter++;
+    } else if (pnf_p7->_public.timing_info_mode_aperiodic && pnf_p7->timing_info_aperiodic_send) {
+      pnf_nr_pack_and_send_timing_info(pnf_p7);
+      // Note: pnf_nr_pack_and_send_timing_info already resets aperiodic_send and delay/arrival values
     }
   }
 
