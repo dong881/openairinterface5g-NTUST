@@ -919,6 +919,7 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 
 	pnf_p7->timing_info_ms_counter = 0;
 
+	pnf_p7->timing_info_aperiodic_send = 0;
 	// Reset latest_delay and earliest_arrival for next timing info period
 	// Note: jitter state is NOT reset - it's a running average per RFC 3550
 	// Per SCF 225 Table 4-3: latest_delay can be negative (early), so use INT32_MIN as sentinel
@@ -1073,8 +1074,6 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
       pnf_p7->timing_info_period_counter = 0;
 		} else if (pnf_p7->_public.timing_info_mode_aperiodic && pnf_p7->timing_info_aperiodic_send) {
 			pnf_nr_pack_and_send_timing_info(pnf_p7);
-
-			pnf_p7->timing_info_aperiodic_send = 0;
     } else {
       pnf_p7->timing_info_ms_counter++;
     }
