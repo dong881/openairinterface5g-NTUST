@@ -299,6 +299,126 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
     return pass2_correction;
 }
 
+void vnf_p7_convergence_optimization(const void* void_ind, int64_t pass2_correction)
+{
+    const nfapi_nr_timing_info_t* ind = (const nfapi_nr_timing_info_t*)void_ind;
+    
+    // 0. Scope & Skip Logic
+    // Re-calculate covered slots (same logic as Pass 1)
+    uint32_t calc_slots = ind->time_since_last_timing_info * 2;
+    if (ind->time_since_last_timing_info == 0) calc_slots = 1;
+    if (calc_slots > SLOT_ARRAY_SIZE) calc_slots = SLOT_ARRAY_SIZE;
+    
+    // Skip Condition: Single point and stable max/min
+    if (calc_slots == 1 &&
+        vnf_dl_stats.max_late == vnf_dl_stats.min_early &&
+        vnf_ul_stats.max_late == vnf_ul_stats.min_early) {
+        return; 
+    }
+    
+    uint32_t current_slot_idx = ind->last_slot;
+
+    // --- PHASE 1: Deviation Calculation ---
+    int64_t total_dev_dl = 0;
+    int count_dl = 0;
+    int64_t total_dev_ul = 0;
+    int count_ul = 0;
+
+    for (uint32_t i = 0; i < calc_slots; ++i) {
+        int idx = (current_slot_idx - i + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
+        int pattern_idx = idx % 5;
+        char slot_type = (pattern_idx <= 2) ? 'D' : 'U';
+        
+        int64_t deviation = llabs((int64_t)dynamic_slot_sleep_us[idx] - 500);
+        
+        if (slot_type == 'D') {
+            total_dev_dl += deviation;
+            count_dl++;
+        } else {
+            total_dev_ul += deviation;
+            count_ul++;
+        }
+    }
+    
+    // Safety check for divide-by-zero
+    if (total_dev_dl == 0) total_dev_dl = 1;
+    if (total_dev_ul == 0) total_dev_ul = 1;
+    
+    // --- PHASE 2: Adjustment ---
+    for (uint32_t i = 0; i < calc_slots; ++i) {
+        int k = (current_slot_idx - i + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
+        
+        // Cooldown Rule: Skip current slot if Pass 2 modified it
+        if (k == current_slot_idx && pass2_correction != 0) {
+            continue; 
+        }
+
+        int pattern_idx = k % 5;
+        char slot_type = (pattern_idx <= 2) ? 'D' : 'U';
+        int64_t current_sleep = (int64_t)dynamic_slot_sleep_us[k];
+        int64_t new_sleep = current_sleep;
+        
+        if (slot_type == 'D') {
+            // --- DL LOGIC ---
+            if (vnf_dl_stats.jitter < JITTER_THRESHOLD_US || count_dl <= 1) {
+                // Branch_DL_Batch
+                int64_t raw_gap = (int64_t)vnf_dl_stats.min_early - (-TARGET_MARGIN_US);
+                int64_t gap = (llabs(raw_gap) <= MARGIN_TOLERANCE_US) ? 0 : raw_gap;
+                int64_t adjustment = gap / 10;
+                new_sleep = current_sleep - adjustment;
+            } else {
+                // Branch_DL_Weighted
+                int64_t deviation_k = llabs(current_sleep - 500);
+                int64_t weight = (deviation_k * 100) / total_dev_dl;
+                
+                int64_t raw_force = (vnf_dl_stats.max_late > 0) ? 
+                                    (int64_t)vnf_dl_stats.max_late : 
+                                    (int64_t)vnf_dl_stats.min_early - (-TARGET_MARGIN_US);
+                
+                int64_t force = (llabs(raw_force) <= MARGIN_TOLERANCE_US) ? 0 : raw_force;
+                int64_t adjustment = (force * weight * 5) / 1000; // *5/10/100 -> *5/1000
+                
+                // Slew limit
+                if (adjustment > MAX_PASS3_ADJUST_US) adjustment = MAX_PASS3_ADJUST_US;
+                if (adjustment < -MAX_PASS3_ADJUST_US) adjustment = -MAX_PASS3_ADJUST_US;
+                
+                new_sleep = current_sleep - adjustment;
+            }
+        } else {
+            // --- UL LOGIC (Same structure) ---
+           if (vnf_ul_stats.jitter < JITTER_THRESHOLD_US || count_ul <= 1) {
+                // Branch_UL_Batch
+                int64_t raw_gap = (int64_t)vnf_ul_stats.min_early - (-TARGET_MARGIN_US);
+                int64_t gap = (llabs(raw_gap) <= MARGIN_TOLERANCE_US) ? 0 : raw_gap;
+                int64_t adjustment = gap / 10;
+                new_sleep = current_sleep - adjustment; 
+            } else {
+                // Branch_UL_Weighted
+                int64_t deviation_k = llabs(current_sleep - 500);
+                int64_t weight = (deviation_k * 100) / total_dev_ul;
+                
+                int64_t raw_force = (vnf_ul_stats.max_late > 0) ? 
+                                    (int64_t)vnf_ul_stats.max_late : 
+                                    (int64_t)vnf_ul_stats.min_early - (-TARGET_MARGIN_US);
+                
+                int64_t force = (llabs(raw_force) <= MARGIN_TOLERANCE_US) ? 0 : raw_force;
+                int64_t adjustment = (force * weight * 5) / 1000;
+                
+                if (adjustment > MAX_PASS3_ADJUST_US) adjustment = MAX_PASS3_ADJUST_US;
+                if (adjustment < -MAX_PASS3_ADJUST_US) adjustment = -MAX_PASS3_ADJUST_US;
+                
+                new_sleep = current_sleep - adjustment;
+            }
+        }
+        
+        // Clamp
+        if (new_sleep < MIN_SLEEP_US) new_sleep = MIN_SLEEP_US;
+        if (new_sleep > MAX_SLEEP_US) new_sleep = MAX_SLEEP_US;
+        
+        dynamic_slot_sleep_us[k] = (uint32_t)new_sleep;
+    }
+}
+
 void* vnf_p7_malloc(vnf_p7_t* vnf_p7, size_t size)
 {
 	if(vnf_p7->_public.malloc)
