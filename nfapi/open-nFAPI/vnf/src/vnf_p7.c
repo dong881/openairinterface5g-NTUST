@@ -305,7 +305,9 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
     return pass2_correction;
 }
 
-void vnf_p7_convergence_optimization(const void* void_ind, int64_t pass2_correction)
+// Pass 3: Convergence Optimization / Fine-tuning
+// Adjusts sleep to maintain optimal fleet margin and reduce jitter
+void vnf_p7_convergence_optimization(const void* void_ind, int64_t pass2_correction, uint32_t nominal_slot_duration_us)
 {
     const nfapi_nr_timing_info_t* ind = (const nfapi_nr_timing_info_t*)void_ind;
     
@@ -366,44 +368,85 @@ void vnf_p7_convergence_optimization(const void* void_ind, int64_t pass2_correct
         
         if (slot_type == 'D') {
             // --- DL LOGIC ---
-            // CRITICAL FIX: Only adjust if we have late events, otherwise stay conservative
-            if (vnf_dl_stats.max_late > 0) {
-                // We have late packets - need to REDUCE sleep
+            // PRIORITY 1: Panic Brake for Runaway Early condition.
+            // If we are massively early (e.g. > 5ms), we MUST brake, regardless of any "Late" noise.
+            // "Late" indications when we are 1 second early are likely measurement artifacts or jitter.
+            if (vnf_dl_stats.min_early > 5000) {
+                new_sleep = MAX_SLEEP_US;
+            }
+            // PRIORITY 2: Late Correction
+            // Only correct for Late if we are not "Very Early" (e.g. > Target + 400us),
+            // OR if the Late amount is significant (> 50us) and demands attention despite being early.
+            else if (vnf_dl_stats.max_late > 0 && 
+                    (vnf_dl_stats.min_early < (TARGET_MARGIN_US + 400) || vnf_dl_stats.max_late > 50)) {
+                // LATE: Need to REDUCE sleep to wake up earlier
                 if (vnf_dl_stats.jitter < JITTER_THRESHOLD_US || count_dl <= 1) {
-                    // Batch: proportional reduction
                     int64_t adjustment = (int64_t)vnf_dl_stats.max_late / 10;
                     if (adjustment > MAX_PASS3_ADJUST_US) adjustment = MAX_PASS3_ADJUST_US;
-                    new_sleep = current_sleep - adjustment;  // DECREASE
+                    new_sleep = current_sleep - adjustment;
                 } else {
-                    // Weighted: distribute reduction by deviation
-                    int64_t deviation_k = llabs(current_sleep - 500);
+                    int64_t deviation_k = llabs(current_sleep - (int64_t)nominal_slot_duration_us);
                     int64_t weight = (deviation_k * 100) / total_dev_dl;
                     int64_t adjustment = ((int64_t)vnf_dl_stats.max_late * weight * 5) / 1000;
                     if (adjustment > MAX_PASS3_ADJUST_US) adjustment = MAX_PASS3_ADJUST_US;
-                    new_sleep = current_sleep - adjustment;  // DECREASE
+                    new_sleep = current_sleep - adjustment;
+                }
+            } 
+            // PRIORITY 3: Standard Early Decay
+            else if (vnf_dl_stats.min_early > (TARGET_MARGIN_US + MARGIN_TOLERANCE_US)) {
+                // TOO EARLY: Must INCREASE sleep
+                int64_t excess = vnf_dl_stats.min_early - TARGET_MARGIN_US;
+                
+                // Standard Decay
+                int64_t adjustment = excess / 10;
+                if (adjustment > MAX_PASS3_ADJUST_US) adjustment = MAX_PASS3_ADJUST_US;
+                if (adjustment < 5) adjustment = 5;
+                new_sleep = current_sleep + adjustment;
+                
+                // ANTI-RUNAWAY: If we are Early, we must NEVER sleep less than Nominal.
+                // Sleeping less than nominal accelerates time relative to PNF.
+                if (new_sleep < (int64_t)nominal_slot_duration_us) {
+                    new_sleep = (int64_t)nominal_slot_duration_us;
                 }
             }
-            // If max_late <= 0 (no late), do NOT adjust - stay at current sleep
         } else {
             // --- UL LOGIC ---
-            // CRITICAL FIX: Only adjust if we have late events, otherwise stay conservative
-            if (vnf_ul_stats.max_late > 0) {
-                // We have late packets - need to REDUCE sleep
+            // PRIORITY 1: Panic Brake
+            if (vnf_ul_stats.min_early > 5000) {
+                new_sleep = MAX_SLEEP_US;
+            }
+            // PRIORITY 2: Late Logic
+            else if (vnf_ul_stats.max_late > 0 && 
+                    (vnf_ul_stats.min_early < (TARGET_MARGIN_US + 400) || vnf_ul_stats.max_late > 50)) {
+                // LATE: Need to REDUCE sleep to wake up earlier
                 if (vnf_ul_stats.jitter < JITTER_THRESHOLD_US || count_ul <= 1) {
-                    // Batch: proportional reduction
                     int64_t adjustment = (int64_t)vnf_ul_stats.max_late / 10;
                     if (adjustment > MAX_PASS3_ADJUST_US) adjustment = MAX_PASS3_ADJUST_US;
-                    new_sleep = current_sleep - adjustment;  // DECREASE
+                    new_sleep = current_sleep - adjustment;
                 } else {
-                    // Weighted: distribute reduction by deviation
-                    int64_t deviation_k = llabs(current_sleep - 500);
+                    int64_t deviation_k = llabs(current_sleep - (int64_t)nominal_slot_duration_us);
                     int64_t weight = (deviation_k * 100) / total_dev_ul;
                     int64_t adjustment = ((int64_t)vnf_ul_stats.max_late * weight * 5) / 1000;
                     if (adjustment > MAX_PASS3_ADJUST_US) adjustment = MAX_PASS3_ADJUST_US;
-                    new_sleep = current_sleep - adjustment;  // DECREASE
+                    new_sleep = current_sleep - adjustment;
+                }
+            } 
+            // PRIORITY 3: Standard Early Decay
+            else if (vnf_ul_stats.min_early > (TARGET_MARGIN_US + MARGIN_TOLERANCE_US)) {
+                // TOO EARLY: Must INCREASE sleep
+                int64_t excess = vnf_ul_stats.min_early - TARGET_MARGIN_US;
+                
+                // Standard Decay
+                int64_t adjustment = excess / 10;
+                if (adjustment > MAX_PASS3_ADJUST_US) adjustment = MAX_PASS3_ADJUST_US;
+                
+                new_sleep = current_sleep + adjustment;
+                
+                // ANTI-RUNAWAY
+                if (new_sleep < (int64_t)nominal_slot_duration_us) {
+                        new_sleep = (int64_t)nominal_slot_duration_us;
                 }
             }
-            // If max_late <= 0 (no late), do NOT adjust - stay at current sleep
         }
         
         // Clamp
@@ -451,7 +494,7 @@ void handle_dynamic_timing_info(void *void_ind, uint32_t current_slot, uint32_t 
     int64_t pass2_correction = vnf_p7_critical_correction(current_slot, is_dl);
 
     // Step 4: Execute Pass 3 (Fine-tuning)
-    vnf_p7_convergence_optimization(ind, pass2_correction);
+    vnf_p7_convergence_optimization(ind, pass2_correction, nominal_slot_duration_us);
     
     // Step 5: RECOVERY MECHANISM - When mostly stable, recover toward baseline
     // Allow recovery if late is minor (< 50us) - don't wait for perfect 0

@@ -196,7 +196,7 @@ void vnf_p7_extract_timing_info(const void* void_ind);
 int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl);
 
 /* Pass 3: Convergence Optimization */
-void vnf_p7_convergence_optimization(const void* void_ind, int64_t pass2_correction);
+void vnf_p7_convergence_optimization(const void* void_ind, int64_t pass2_correction, uint32_t nominal_slot_duration_us);
 
 /* Main Dynamic Timing Handler */
 void handle_dynamic_timing_info(void *void_ind, uint32_t current_slot, uint32_t nominal_slot_duration_us, const char *slot_pattern);
