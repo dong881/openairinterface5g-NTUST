@@ -198,6 +198,9 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl);
 /* Pass 3: Convergence Optimization */
 void vnf_p7_convergence_optimization(const void* void_ind, int64_t pass2_correction);
 
+/* Main Dynamic Timing Handler */
+void handle_dynamic_timing_info(void *void_ind, uint32_t current_slot, const char *slot_pattern);
+
 void dump_slot_sleep_states(uint32_t current_slot);
 
 #endif // _VNF_P7_H_

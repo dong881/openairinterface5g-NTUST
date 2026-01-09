@@ -419,6 +419,37 @@ void vnf_p7_convergence_optimization(const void* void_ind, int64_t pass2_correct
     }
 }
 
+void handle_dynamic_timing_info(void *void_ind, uint32_t current_slot, const char *slot_pattern)
+{
+    nfapi_nr_timing_info_t *ind = (nfapi_nr_timing_info_t *)void_ind;
+    
+    // Error Handling
+    if (!ind || !slot_pattern) return;
+    if (current_slot >= SLOT_ARRAY_SIZE) return;
+    if (ind->time_since_last_timing_info > 10000) return; // Basic sanity check
+
+    // Step 1: Extract Data (Pass 1)
+    vnf_p7_extract_timing_info(ind);
+
+    // Step 2: Determine Current Context
+    int pattern_len = strlen(slot_pattern); // Likely 5 for "DDDSU"
+    if (pattern_len == 0) pattern_len = 5; 
+    
+    int pattern_idx = current_slot % pattern_len;
+    char slot_type = slot_pattern[pattern_idx];
+    int is_dl = (slot_type == 'D');
+    
+    // Step 3: Execute Pass 2 (Emergency Correction)
+    // Note: vnf_p7_critical_correction uses global stats vnf_dl_stats/vnf_ul_stats internal logic based on is_dl
+    int64_t pass2_correction = vnf_p7_critical_correction(current_slot, is_dl);
+
+    // Step 4: Execute Pass 3 (Fine-tuning)
+    vnf_p7_convergence_optimization(ind, pass2_correction);
+
+    // Step 5: Dump Telemetry
+    dump_slot_sleep_states(current_slot);
+}
+
 void* vnf_p7_malloc(vnf_p7_t* vnf_p7, size_t size)
 {
 	if(vnf_p7->_public.malloc)
@@ -2059,6 +2090,10 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		return;
 	}
 	nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
+
+	// Integration Step (Prompt 5)
+	handle_dynamic_timing_info(&ind, p7_con->slot, "DDDSU");
+
 	int32_t vnf_current_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn, p7_con->slot);
 	int32_t pnf_ind_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn, ind.last_slot);
 
