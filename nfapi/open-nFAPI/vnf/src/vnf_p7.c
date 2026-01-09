@@ -226,10 +226,14 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
     
     // Trigger Conditions
     int trigger_late = (max_late > 0);
-    // Use TARGET_MARGIN_US as temporary window definition 
-    #define TIMING_WINDOW_US 200 
     
-    int trigger_early = (min_early < -TIMING_WINDOW_US);
+    // CRITICAL FIX: Only increase sleep if we're TRULY safe:
+    // 1. No late packets at all (max_late <= 0, meaning arrival was on-time or early)
+    // 2. AND we have excessive early margin (min_early < -400us, double the target)
+    // 3. AND jitter is low (stable conditions)
+    #define TIMING_WINDOW_US 2200  // Increased threshold: only act on very early
+    uint32_t jitter = is_dl ? vnf_dl_stats.jitter : vnf_ul_stats.jitter;
+    int trigger_early = (min_early < -TIMING_WINDOW_US) && (max_late <= 0) && (jitter < JITTER_THRESHOLD_US);
 
     if (!trigger_late && !trigger_early) {
         return 0;
@@ -239,8 +243,8 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
 
     // --- CASE A: CRITICAL LATE (Insufficient Funds) ---
     if (trigger_late) {
-        // Step 1: Calculate Penalty (1.05x)
-        int64_t penalty = ((int64_t)max_late * 21) / 20;
+        // Step 1: Calculate Penalty (1.02x - less aggressive)
+        int64_t penalty = ((int64_t)max_late * 51) / 50;
         
         // Step 2: Check Available Funds
         int64_t available = current_sleep - MIN_SLEEP_US;
@@ -268,10 +272,12 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
         }
     }
     // --- CASE B: CRITICAL EARLY (Excess Funds) ---
+    // NOTE: This only triggers when truly safe (no late packets, low jitter)
     else if (trigger_early) {
-        // Step 1: Calculate Required Boost
+        // Step 1: Calculate Required Boost (more conservative)
         int64_t abs_min_early = llabs((int64_t)min_early);
-        int64_t boost = (abs_min_early - TIMING_WINDOW_US) + TARGET_MARGIN_US;
+        // Reduce boost by 50% to be conservative
+        int64_t boost = ((abs_min_early - TIMING_WINDOW_US) + TARGET_MARGIN_US) / 2;
         
         // Step 2: Calculate Ideal Sleep
         int64_t ideal_sleep = current_sleep + boost;
@@ -360,55 +366,44 @@ void vnf_p7_convergence_optimization(const void* void_ind, int64_t pass2_correct
         
         if (slot_type == 'D') {
             // --- DL LOGIC ---
-            if (vnf_dl_stats.jitter < JITTER_THRESHOLD_US || count_dl <= 1) {
-                // Branch_DL_Batch
-                int64_t raw_gap = (int64_t)vnf_dl_stats.min_early - (-TARGET_MARGIN_US);
-                int64_t gap = (llabs(raw_gap) <= MARGIN_TOLERANCE_US) ? 0 : raw_gap;
-                int64_t adjustment = gap / 10;
-                new_sleep = current_sleep - adjustment;
-            } else {
-                // Branch_DL_Weighted
-                int64_t deviation_k = llabs(current_sleep - 500);
-                int64_t weight = (deviation_k * 100) / total_dev_dl;
-                
-                int64_t raw_force = (vnf_dl_stats.max_late > 0) ? 
-                                    (int64_t)vnf_dl_stats.max_late : 
-                                    (int64_t)vnf_dl_stats.min_early - (-TARGET_MARGIN_US);
-                
-                int64_t force = (llabs(raw_force) <= MARGIN_TOLERANCE_US) ? 0 : raw_force;
-                int64_t adjustment = (force * weight * 5) / 1000; // *5/10/100 -> *5/1000
-                
-                // Slew limit
-                if (adjustment > MAX_PASS3_ADJUST_US) adjustment = MAX_PASS3_ADJUST_US;
-                if (adjustment < -MAX_PASS3_ADJUST_US) adjustment = -MAX_PASS3_ADJUST_US;
-                
-                new_sleep = current_sleep - adjustment;
+            // CRITICAL FIX: Only adjust if we have late events, otherwise stay conservative
+            if (vnf_dl_stats.max_late > 0) {
+                // We have late packets - need to REDUCE sleep
+                if (vnf_dl_stats.jitter < JITTER_THRESHOLD_US || count_dl <= 1) {
+                    // Batch: proportional reduction
+                    int64_t adjustment = (int64_t)vnf_dl_stats.max_late / 10;
+                    if (adjustment > MAX_PASS3_ADJUST_US) adjustment = MAX_PASS3_ADJUST_US;
+                    new_sleep = current_sleep - adjustment;  // DECREASE
+                } else {
+                    // Weighted: distribute reduction by deviation
+                    int64_t deviation_k = llabs(current_sleep - 500);
+                    int64_t weight = (deviation_k * 100) / total_dev_dl;
+                    int64_t adjustment = ((int64_t)vnf_dl_stats.max_late * weight * 5) / 1000;
+                    if (adjustment > MAX_PASS3_ADJUST_US) adjustment = MAX_PASS3_ADJUST_US;
+                    new_sleep = current_sleep - adjustment;  // DECREASE
+                }
             }
+            // If max_late <= 0 (no late), do NOT adjust - stay at current sleep
         } else {
-            // --- UL LOGIC (Same structure) ---
-           if (vnf_ul_stats.jitter < JITTER_THRESHOLD_US || count_ul <= 1) {
-                // Branch_UL_Batch
-                int64_t raw_gap = (int64_t)vnf_ul_stats.min_early - (-TARGET_MARGIN_US);
-                int64_t gap = (llabs(raw_gap) <= MARGIN_TOLERANCE_US) ? 0 : raw_gap;
-                int64_t adjustment = gap / 10;
-                new_sleep = current_sleep - adjustment; 
-            } else {
-                // Branch_UL_Weighted
-                int64_t deviation_k = llabs(current_sleep - 500);
-                int64_t weight = (deviation_k * 100) / total_dev_ul;
-                
-                int64_t raw_force = (vnf_ul_stats.max_late > 0) ? 
-                                    (int64_t)vnf_ul_stats.max_late : 
-                                    (int64_t)vnf_ul_stats.min_early - (-TARGET_MARGIN_US);
-                
-                int64_t force = (llabs(raw_force) <= MARGIN_TOLERANCE_US) ? 0 : raw_force;
-                int64_t adjustment = (force * weight * 5) / 1000;
-                
-                if (adjustment > MAX_PASS3_ADJUST_US) adjustment = MAX_PASS3_ADJUST_US;
-                if (adjustment < -MAX_PASS3_ADJUST_US) adjustment = -MAX_PASS3_ADJUST_US;
-                
-                new_sleep = current_sleep - adjustment;
+            // --- UL LOGIC ---
+            // CRITICAL FIX: Only adjust if we have late events, otherwise stay conservative
+            if (vnf_ul_stats.max_late > 0) {
+                // We have late packets - need to REDUCE sleep
+                if (vnf_ul_stats.jitter < JITTER_THRESHOLD_US || count_ul <= 1) {
+                    // Batch: proportional reduction
+                    int64_t adjustment = (int64_t)vnf_ul_stats.max_late / 10;
+                    if (adjustment > MAX_PASS3_ADJUST_US) adjustment = MAX_PASS3_ADJUST_US;
+                    new_sleep = current_sleep - adjustment;  // DECREASE
+                } else {
+                    // Weighted: distribute reduction by deviation
+                    int64_t deviation_k = llabs(current_sleep - 500);
+                    int64_t weight = (deviation_k * 100) / total_dev_ul;
+                    int64_t adjustment = ((int64_t)vnf_ul_stats.max_late * weight * 5) / 1000;
+                    if (adjustment > MAX_PASS3_ADJUST_US) adjustment = MAX_PASS3_ADJUST_US;
+                    new_sleep = current_sleep - adjustment;  // DECREASE
+                }
             }
+            // If max_late <= 0 (no late), do NOT adjust - stay at current sleep
         }
         
         // Clamp
@@ -419,9 +414,22 @@ void vnf_p7_convergence_optimization(const void* void_ind, int64_t pass2_correct
     }
 }
 
-void handle_dynamic_timing_info(void *void_ind, uint32_t current_slot, const char *slot_pattern)
+void handle_dynamic_timing_info(void *void_ind, uint32_t current_slot, uint32_t nominal_slot_duration_us, const char *slot_pattern)
 {
     nfapi_nr_timing_info_t *ind = (nfapi_nr_timing_info_t *)void_ind;
+    
+    // Lazy initialization - ensure array is initialized on first call
+    static int initialized = 0;
+    static uint32_t last_nominal = 0;
+    if (!initialized || (nominal_slot_duration_us != last_nominal && nominal_slot_duration_us > 0)) {
+        // Initialize with the provided nominal duration
+        for (int i = 0; i < SLOT_ARRAY_SIZE; i++) {
+            dynamic_slot_sleep_us[i] = (nominal_slot_duration_us > 0) ? nominal_slot_duration_us : 500;
+        }
+        initialized = 1;
+        last_nominal = nominal_slot_duration_us;
+        NFAPI_TRACE(NFAPI_TRACE_INFO, "[TIMING] Initialized dynamic_slot_sleep_us with nominal %u us\n", last_nominal);
+    }
     
     // Error Handling
     if (!ind || !slot_pattern) return;
@@ -440,13 +448,25 @@ void handle_dynamic_timing_info(void *void_ind, uint32_t current_slot, const cha
     int is_dl = (slot_type == 'D');
     
     // Step 3: Execute Pass 2 (Emergency Correction)
-    // Note: vnf_p7_critical_correction uses global stats vnf_dl_stats/vnf_ul_stats internal logic based on is_dl
     int64_t pass2_correction = vnf_p7_critical_correction(current_slot, is_dl);
 
     // Step 4: Execute Pass 3 (Fine-tuning)
     vnf_p7_convergence_optimization(ind, pass2_correction);
+    
+    // Step 5: RECOVERY MECHANISM - When mostly stable, recover toward baseline
+    // Allow recovery if late is minor (< 50us) - don't wait for perfect 0
+    int32_t max_late = is_dl ? vnf_dl_stats.max_late : vnf_ul_stats.max_late;
+    if (pass2_correction == 0 && max_late < 50) {
+        int64_t current_sleep = (int64_t)dynamic_slot_sleep_us[current_slot];
+        if (current_sleep < DEFAULT_SLOT_SLEEP_US) {
+            // Faster recovery: +20us per cycle toward baseline
+            int64_t new_sleep = current_sleep + 20;
+            if (new_sleep > DEFAULT_SLOT_SLEEP_US) new_sleep = DEFAULT_SLOT_SLEEP_US;
+            dynamic_slot_sleep_us[current_slot] = (uint32_t)new_sleep;
+        }
+    }
 
-    // Step 5: Dump Telemetry
+    // Step 6: Dump Telemetry
     dump_slot_sleep_states(current_slot);
 }
 
@@ -2092,7 +2112,7 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
 
 	// Integration Step (Prompt 5)
-	handle_dynamic_timing_info(&ind, p7_con->slot, "DDDSU");
+	handle_dynamic_timing_info(&ind, p7_con->slot, p7_con->slot_duration_us, "DDDSU");
 
 	int32_t vnf_current_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn, p7_con->slot);
 	int32_t pnf_ind_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn, ind.last_slot);

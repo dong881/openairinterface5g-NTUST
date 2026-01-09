@@ -1221,7 +1221,12 @@ void *vnf_timing_thread(void *arg) {
         p7_info->us_adjustment = 0;
       }
       pthread_mutex_unlock(&p7_info->mutex);
-      timespec_add_us(&p7_info->next_slot_time, p7_info->slot_duration_us);
+      
+      // Fine-grained Dynamic timing adjustment (Prompt 5)
+      uint32_t sleep_us = dynamic_slot_sleep_us[p7_info->slot % SLOT_ARRAY_SIZE];
+      if (sleep_us == 0) sleep_us = p7_info->slot_duration_us; // Fallback if not initialized
+      
+      timespec_add_us(&p7_info->next_slot_time, sleep_us);
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
     }
     return NULL;
