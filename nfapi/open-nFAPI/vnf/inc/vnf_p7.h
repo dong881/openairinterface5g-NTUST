@@ -177,6 +177,21 @@ void vnf_p7_release_pdu(vnf_p7_t* vnf_p7, void* pdu);
 /* Dynamic slot sleep timing control */
 extern uint32_t dynamic_slot_sleep_us[SLOT_ARRAY_SIZE];
 void init_dynamic_slot_sleep(void);
+/* Timing Statistics Structure */
+typedef struct {
+    int32_t max_late;       // Maximum late arrival (us)
+    int32_t min_early;      // Minimum early arrival (us) - most negative
+    uint32_t jitter;        // Max jitter (us)
+    uint32_t sample_count;  // Number of samples aggregated
+} vnf_timing_stats_t;
+
+/* Global statistics storage */
+extern vnf_timing_stats_t vnf_dl_stats;
+extern vnf_timing_stats_t vnf_ul_stats;
+
+/* Function Declaration */
+void vnf_p7_extract_timing_info(const void* void_ind);
+
 void dump_slot_sleep_states(uint32_t current_slot);
 
 #endif // _VNF_P7_H_

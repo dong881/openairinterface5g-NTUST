@@ -78,6 +78,102 @@ void dump_slot_sleep_states(uint32_t current_slot)
   log_mmap_entry(5, 0, 0, buffer);
 }
 
+/* Global Separated Timing Statistics */
+vnf_timing_stats_t vnf_dl_stats;
+vnf_timing_stats_t vnf_ul_stats;
+
+void vnf_p7_extract_timing_info(const void* void_ind)
+{
+    const nfapi_nr_timing_info_t* ind = (const nfapi_nr_timing_info_t*)void_ind;
+    
+    // Reset stats for this pass
+    memset(&vnf_dl_stats, 0, sizeof(vnf_dl_stats));
+    memset(&vnf_ul_stats, 0, sizeof(vnf_ul_stats));
+    
+    // 1. Scope Calculation
+    // Assuming mu=1 (0.5ms slots) -> slots = time(ms) * 2
+    uint32_t calc_slots = ind->time_since_last_timing_info * 2;
+    
+    // Edge case: 0ms -> 1 slot (current)
+    if (ind->time_since_last_timing_info == 0) {
+        calc_slots = 1;
+    }
+    
+    // Safety cap
+    if (calc_slots > SLOT_ARRAY_SIZE) {
+        calc_slots = SLOT_ARRAY_SIZE;
+    }
+    
+    // 2. Iterate Backwards through covered slots
+    uint32_t current_slot_idx = ind->last_slot;
+    
+    // Temporary tracking for max/min aggregation
+    int32_t dl_max_late = -999999, dl_min_early = 999999, dl_jitter = 0;
+    int32_t ul_max_late = -999999, ul_min_early = 999999, ul_jitter = 0;
+    int dl_found = 0, ul_found = 0;
+
+    for (uint32_t i = 0; i < calc_slots; ++i) {
+        // Handle circular wrapping (39->0)
+        // Correct logic: (current - i + SIZE) % SIZE
+        int slot_idx = (current_slot_idx - i + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
+        
+        // 3. Classify Slot Type (DDDSU Pattern)
+        // modulo 5 pattern: 0,1,2=D, 3=S(treat as U for stats), 4=U
+        int pattern_idx = slot_idx % 5;
+        char slot_type = 'X';
+        
+        if (pattern_idx <= 2) slot_type = 'D';
+        else slot_type = 'U'; // S (3) and U (4) -> U context
+        
+        // Mark context active for valid data extraction
+        if (slot_type == 'D') dl_found = 1;
+        else ul_found = 1;
+    }
+
+    // 4. Data Extraction 
+    // Optimization: We extract the "session" stats provided in the indication
+    // The indication aggregates stats since last report. We assign them to the identified contexts.
+    
+    if (dl_found) {
+        // Extract MAX late, MIN early, MAX jitter from DL types
+        // DLTTI
+        if (ind->dl_tti_jitter) dl_jitter = ind->dl_tti_jitter;
+        if (ind->dl_tti_latest_delay > dl_max_late) dl_max_late = ind->dl_tti_latest_delay;
+        if (ind->dl_tti_earliest_arrival < dl_min_early) dl_min_early = ind->dl_tti_earliest_arrival;
+        
+        // TXDATA 
+        if (ind->tx_data_request_jitter > dl_jitter) dl_jitter = ind->tx_data_request_jitter;
+        if (ind->tx_data_latest_delay > dl_max_late) dl_max_late = ind->tx_data_latest_delay;
+        if (ind->tx_data_earliest_arrival < dl_min_early && ind->tx_data_earliest_arrival != 0) 
+            dl_min_early = ind->tx_data_earliest_arrival;
+            
+        // Store
+        vnf_dl_stats.max_late = dl_max_late;
+        vnf_dl_stats.min_early = (dl_min_early == 999999) ? 0 : dl_min_early;
+        vnf_dl_stats.jitter = dl_jitter;
+        vnf_dl_stats.sample_count = 1; // Mark as valid
+    }
+    
+    if (ul_found) {
+        // ULTTI
+        if (ind->ul_tti_jitter) ul_jitter = ind->ul_tti_jitter;
+        if (ind->ul_tti_latest_delay > ul_max_late) ul_max_late = ind->ul_tti_latest_delay;
+        if (ind->ul_tti_earliest_arrival < ul_min_early) ul_min_early = ind->ul_tti_earliest_arrival;
+
+        // ULDCI
+        if (ind->ul_dci_jitter > ul_jitter) ul_jitter = ind->ul_dci_jitter;
+        if (ind->ul_dci_latest_delay > ul_max_late) ul_max_late = ind->ul_dci_latest_delay;
+        if (ind->ul_dci_earliest_arrival < ul_min_early && ind->ul_dci_earliest_arrival != 0) 
+             ul_min_early = ind->ul_dci_earliest_arrival;
+
+        // Store
+        vnf_ul_stats.max_late = ul_max_late;
+        vnf_ul_stats.min_early = (ul_min_early == 999999) ? 0 : ul_min_early;
+        vnf_ul_stats.jitter = ul_jitter;
+        vnf_ul_stats.sample_count = 1;
+    }
+}
+
 void* vnf_p7_malloc(vnf_p7_t* vnf_p7, size_t size)
 {
 	if(vnf_p7->_public.malloc)
