@@ -40,6 +40,44 @@
 
 #define SYNC_CYCLE_COUNT 2
 
+/* ============================================================================
+ * DYNAMIC SLOT SLEEP TIMING CONTROL
+ * ============================================================================ */
+
+/* External mmap logger function - level 5 for slot sleep telemetry */
+extern void log_mmap_entry(int log_id, int frame_tx, int slot_tx, const char *custom_message);
+
+/* Global dynamic slot sleep array - stores per-slot sleep durations in microseconds */
+uint32_t dynamic_slot_sleep_us[SLOT_ARRAY_SIZE];
+
+void init_dynamic_slot_sleep(void)
+{
+  for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
+    dynamic_slot_sleep_us[i] = DEFAULT_SLOT_SLEEP_US;
+  }
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[TIMING] Initialized dynamic_slot_sleep_us[%d] to %u us\n",
+              SLOT_ARRAY_SIZE, DEFAULT_SLOT_SLEEP_US);
+}
+
+void dump_slot_sleep_states(uint32_t current_slot)
+{
+  char buffer[512];
+  int offset = 0;
+
+  offset += snprintf(buffer + offset, sizeof(buffer) - offset, "m=%u|[", current_slot);
+
+  for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
+    if (i > 0) {
+      offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",");
+    }
+    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "%u", dynamic_slot_sleep_us[i]);
+  }
+
+  snprintf(buffer + offset, sizeof(buffer) - offset, "]");
+
+  log_mmap_entry(5, 0, 0, buffer);
+}
+
 void* vnf_p7_malloc(vnf_p7_t* vnf_p7, size_t size)
 {
 	if(vnf_p7->_public.malloc)
@@ -1682,8 +1720,6 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
 	int32_t vnf_current_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn, p7_con->slot);
 	int32_t pnf_ind_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn, ind.last_slot);
-
-    extern void log_mmap_entry(int log_id, int frame_tx, int slot_tx, const char *custom_message);
 
 	// Only print if any jitter/delay/arrival value is non-zero
 	if (

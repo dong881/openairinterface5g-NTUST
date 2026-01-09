@@ -24,6 +24,19 @@
 #define TIMEHR_USEC(_time_hr) ((uint32_t)(_time_hr) & 0xFFFFF)
 #define TIME2TIMEHR(_time) (((uint32_t)(_time.tv_sec) & 0xFFF) << 20 | ((uint32_t)(_time.tv_usec) & 0xFFFFF))
 
+/* ============================================================================
+ * DYNAMIC SLOT SLEEP TIMING CONTROL CONSTANTS
+ * ============================================================================ */
+#define TARGET_MARGIN_US        200   // Target safety margin: -200us
+#define JITTER_THRESHOLD_US     250   // High/Low jitter boundary
+#define MARGIN_TOLERANCE_US     20    // Deadband zone: +/- 20us
+#define MAX_PASS3_ADJUST_US     50    // Maximum Pass 3 adjustment per cycle
+#define MIN_SLEEP_US            50    // Minimum allowable sleep time
+#define MAX_SLEEP_US            2000  // Maximum allowable sleep time
+#define MAX_BORROW_DEPTH        4     // Maximum backward/forward borrow depth
+#define SLOT_ARRAY_SIZE         40    // TDD cycle slot count
+#define DEFAULT_SLOT_SLEEP_US   500   // Initial sleep value for all slots
+
 
 typedef struct {
 	uint8_t* buffer;
@@ -161,5 +174,9 @@ int vnf_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* hea
 void vnf_p7_release_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* header);
 void vnf_p7_release_pdu(vnf_p7_t* vnf_p7, void* pdu);
 
+/* Dynamic slot sleep timing control */
+extern uint32_t dynamic_slot_sleep_us[SLOT_ARRAY_SIZE];
+void init_dynamic_slot_sleep(void);
+void dump_slot_sleep_states(uint32_t current_slot);
 
 #endif // _VNF_P7_H_
