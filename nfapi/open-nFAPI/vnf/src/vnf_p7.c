@@ -1683,64 +1683,7 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	int32_t vnf_current_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn, p7_con->slot);
 	int32_t pnf_ind_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn, ind.last_slot);
 
-    // [New] Dynamic Timing Adjustment
-    // Calculate max delay (Late) and min earliness (Early)
-    int32_t max_delay = 0;
-    if (ind.dl_tti_latest_delay > max_delay) max_delay = ind.dl_tti_latest_delay;
-    if (ind.tx_data_latest_delay > max_delay) max_delay = ind.tx_data_latest_delay;
-    if (ind.ul_tti_latest_delay > max_delay) max_delay = ind.ul_tti_latest_delay;
-    if (ind.ul_dci_latest_delay > max_delay) max_delay = ind.ul_dci_latest_delay;
-
-    int32_t max_early = 0;
-    bool has_early = false;
-    // Track the MAXIMUM early value (largest margin = earliest packet)
-    if (ind.dl_tti_earliest_arrival > max_early) { max_early = ind.dl_tti_earliest_arrival; has_early = true; }
-    if (ind.tx_data_earliest_arrival > max_early) { max_early = ind.tx_data_earliest_arrival; has_early = true; }
-    if (ind.ul_tti_earliest_arrival > max_early) { max_early = ind.ul_tti_earliest_arrival; has_early = true; }
-    if (ind.ul_dci_earliest_arrival > max_early) { max_early = ind.ul_dci_earliest_arrival; has_early = true; }
-
     extern void log_mmap_entry(int log_id, int frame_tx, int slot_tx, const char *custom_message);
-
-    int32_t adjustment = 0;
-    
-    // Apply adjustment if locked or if we have timing issues
-    if (p7_con->sync_locked || max_delay > 0 || has_early) {
-         if (max_delay > 0) {
-             // LATE: Messages arrived too late (after deadline)
-             // Need to wake up EARLIER (negative adjustment)
-             adjustment = -(max_delay + 50);
-             
-             // Clamp adjustment to prevent massive jumps and oscillation
-             if (adjustment < -500) adjustment = -500;
-             
-             NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING_ADJ] Late by %dus, shifting earlier by %d\n", max_delay, adjustment);
-         } else if (has_early) {
-             // EARLY: Messages arrived too early (beyond timing_window, got dropped by PNF)
-             // max_early is the margin value that exceeded timing_window
-             // Need to wake up LATER (positive adjustment) to reduce earliness
-             
-             // Use proportional adjustment to converge smoothly
-             if (max_early > 0) {
-                 // Too early beyond the window
-                 adjustment = (int32_t)(max_early * 0.3); // 30% of excess
-                 if (adjustment < 10) adjustment = 10;   // Minimum step
-                 if (adjustment > 500) adjustment = 500; // Cap to avoid oscillation
-             } else {
-                 // Within or just at the window edge, small adjustment
-                 adjustment = 20; // Small positive step
-             }
-             NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING_ADJ] Early (margin:%dus), shifting later by %d\n", 
-                         max_early, adjustment);
-         }
-         
-         if (adjustment != 0) {
-             pthread_mutex_lock(&p7_con->mutex);
-             p7_con->us_adjustment += adjustment;
-             pthread_mutex_unlock(&p7_con->mutex);
-             NFAPI_TRACE(NFAPI_TRACE_INFO, "[TIMING_ADJ] delay:%d early:%d adj:%d total:%d\n", 
-                         max_delay, max_early, adjustment, p7_con->us_adjustment);
-         }
-     }
 
 	// Only print if any jitter/delay/arrival value is non-zero
 	if (
