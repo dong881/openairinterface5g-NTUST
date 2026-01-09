@@ -192,6 +192,9 @@ extern vnf_timing_stats_t vnf_ul_stats;
 /* Function Declaration */
 void vnf_p7_extract_timing_info(const void* void_ind);
 
+/* Pass 2: Critical Correction */
+int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl);
+
 void dump_slot_sleep_states(uint32_t current_slot);
 
 #endif // _VNF_P7_H_
