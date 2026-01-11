@@ -216,6 +216,28 @@ static void apply_forward_lending(uint32_t start_index, int64_t amount)
     }
 }
 
+static void apply_backward_lending(uint32_t start_index, int64_t amount)
+{
+    int64_t remaining = amount;
+    for (int depth = 0; depth < MAX_BORROW_DEPTH; ++depth) {
+        // Safe circular decrement: (start - depth + SIZE) % SIZE
+        int idx = (start_index - depth + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
+        int64_t current = (int64_t)dynamic_slot_sleep_us[idx];
+        int64_t capacity = MAX_SLEEP_US - current;
+
+        if (capacity <= 0) continue;
+
+        int64_t give = (capacity < remaining) ? capacity : remaining;
+        dynamic_slot_sleep_us[idx] = (uint32_t)(current + give);
+        remaining -= give;
+
+        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING] Lent %ld us to backward slot %d (Depth %d)\n", give, idx, depth);
+
+        if (remaining == 0) break;
+    }
+}
+
+
 int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
 {
     int64_t pass2_correction = 0;
@@ -266,8 +288,9 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
             int64_t borrow_request = (deficit * 9) / 10; // 0.9 damping
             
             if (borrow_request > 0) {
-                // Borrow from previous slots (circular)
-                apply_backward_borrow(current_slot, borrow_request);
+                // Borrow from previous slots (circular), skip current_slot
+                uint32_t prev_slot = (current_slot - 1 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
+                apply_backward_borrow(prev_slot, borrow_request);
             }
         }
     }
@@ -296,8 +319,9 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
             int64_t lend_offer = (surplus * 9) / 10; // 0.9 damping
             
             if (lend_offer > 0) {
-                // Lend to future slots (circular)
-                apply_forward_lending(current_slot + 1, lend_offer);
+                // Lend to future slots (circular), skip current_slot
+                uint32_t prev_slot = (current_slot - 1 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
+                apply_backward_lending(prev_slot, lend_offer);
             }
         }
     }
