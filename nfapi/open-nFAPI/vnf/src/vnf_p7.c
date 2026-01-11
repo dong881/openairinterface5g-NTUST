@@ -47,6 +47,15 @@
 /* External mmap logger function - level 5 for slot sleep telemetry */
 extern void log_mmap_entry(int log_id, int frame_tx, int slot_tx, const char *custom_message);
 
+/* Asymmetric Damped Control Constants */
+#define DEADBAND_THRESHOLD_US 40
+#define EARLY_DAMPING_FACTOR 16
+#define MAX_SLEW_RATE_EARLY 2
+#define MIN_RECOVERY_RATE 1
+#define TIMING_WINDOW_US 2200
+#define DRIFT_TOLERANCE 100
+
+
 /* Global dynamic slot sleep array - stores per-slot sleep durations in microseconds */
 uint32_t dynamic_slot_sleep_us[SLOT_ARRAY_SIZE];
 
@@ -241,22 +250,39 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
     int32_t min_early = is_dl ? vnf_dl_stats.min_early : vnf_ul_stats.min_early;
     
     // --- PART 1: GLOBAL BASELINE CONTROL (Integral) ---
-    
-    // Thresholds
-    #define DRIFT_TOLERANCE 100
-    #define TIMING_WINDOW_US 2200
+    // Using Asymmetric Damped Control (Fast Attack, Slow Decay)
 
-    // Integration Logic (Slow loop)
-    if (max_late > 0) {
-        // Late: Decrease Baseline (Speed Up)
-        global_baseline_us--;
-        if (max_late > 1000) global_baseline_us--; // Accelerator
-    } else if (min_early < -TIMING_WINDOW_US) {
-         // Too Early: Increase Baseline (Slow Down)
-         global_baseline_us++;
-         if (min_early < -TIMING_WINDOW_US*1.5) global_baseline_us++; // Brake
+    int32_t sample_count = is_dl ? vnf_dl_stats.sample_count : vnf_ul_stats.sample_count;
+
+    if (sample_count > 0) {
+        // Calculate Margin: -max_late (Positive=Early, Negative=Late)
+        int32_t current_margin_estimate = -max_late;
+        
+        // Error = Margin - Target
+        int32_t calculated_error = current_margin_estimate - TARGET_MARGIN_US;
+
+        // 1. Deadband Check
+        if (abs(calculated_error) < DEADBAND_THRESHOLD_US) {
+            // In Deadband: Hold State
+        } 
+        // 2. Asymmetric Control
+        else if (calculated_error < 0) {
+            // --- CASE 1: LATE (Load Increase / Low Margin) ---
+            // Fast Attack: Directly apply correction
+            global_baseline_us += calculated_error; 
+        } 
+        else {
+            // --- CASE 2: EARLY (Load Decrease / High Margin) ---
+            // Slow Decay: Damping + Slew Rate Limit
+            int32_t damped_correction = calculated_error / EARLY_DAMPING_FACTOR;
+            
+            if (damped_correction > MAX_SLEW_RATE_EARLY) damped_correction = MAX_SLEW_RATE_EARLY;
+            if (damped_correction < 1) damped_correction = 1; 
+            
+            global_baseline_us += damped_correction;
+        }
     } else {
-        // Healthy Zone: Gently tend towards nominal (500)
+        // No Traffic Fallback
         if (global_baseline_us > DEFAULT_SLOT_SLEEP_US) global_baseline_us--;
         else if (global_baseline_us < DEFAULT_SLOT_SLEEP_US) global_baseline_us++;
     }
@@ -404,14 +430,13 @@ void vnf_p7_convergence_optimization(const void* void_ind, int64_t pass2_correct
                 // TOO EARLY: Must INCREASE sleep
                 int64_t excess = vnf_dl_stats.min_early - TARGET_MARGIN_US;
                 
-                // Standard Decay
-                int64_t adjustment = excess / 10;
-                if (adjustment > MAX_PASS3_ADJUST_US) adjustment = MAX_PASS3_ADJUST_US;
-                if (adjustment < 5) adjustment = 5;
+                // Slow Decay (Asymmetric Control Philosophy)
+                int64_t adjustment = excess / EARLY_DAMPING_FACTOR; // /16
+                if (adjustment > 1) adjustment = 1; // Slew Rate Limit for Stability
+                
                 new_sleep = current_sleep + adjustment;
                 
                 // ANTI-RUNAWAY: If we are Early, we must NEVER sleep less than Nominal.
-                // Sleeping less than nominal accelerates time relative to PNF.
                 if (new_sleep < (int64_t)nominal_slot_duration_us) {
                     new_sleep = (int64_t)nominal_slot_duration_us;
                 }
@@ -443,9 +468,9 @@ void vnf_p7_convergence_optimization(const void* void_ind, int64_t pass2_correct
                 // TOO EARLY: Must INCREASE sleep
                 int64_t excess = vnf_ul_stats.min_early - TARGET_MARGIN_US;
                 
-                // Standard Decay
-                int64_t adjustment = excess / 10;
-                if (adjustment > MAX_PASS3_ADJUST_US) adjustment = MAX_PASS3_ADJUST_US;
+                // Slow Decay
+                int64_t adjustment = excess / EARLY_DAMPING_FACTOR; // /16
+                if (adjustment > 1) adjustment = 1; // Slew Rate Limit
                 
                 new_sleep = current_sleep + adjustment;
                 
@@ -490,20 +515,20 @@ void handle_dynamic_timing_info(void *void_ind, uint32_t current_slot, uint32_t 
     (void)pass2_correction; // Suppress unused var warning until Pass 3 is re-enabled
 
     // Step 4: Execute Pass 3 (Fine-tuning)
-    // vnf_p7_convergence_optimization(ind, pass2_correction, nominal_slot_duration_us);
+    vnf_p7_convergence_optimization(ind, pass2_correction, nominal_slot_duration_us);
     
     // Step 5: RECOVERY MECHANISM - When mostly stable, recover toward baseline
     // Allow recovery if late is minor (< 50us) - don't wait for perfect 0
-    // int32_t max_late = is_dl ? vnf_dl_stats.max_late : vnf_ul_stats.max_late;
-    // if (pass2_correction == 0 && max_late < 50) {
-    //     int64_t current_sleep = (int64_t)dynamic_slot_sleep_us[current_slot];
-    //     if (current_sleep < DEFAULT_SLOT_SLEEP_US) {
-    //         // Faster recovery: +20us per cycle toward baseline
-    //         int64_t new_sleep = current_sleep + 20;
-    //         if (new_sleep > DEFAULT_SLOT_SLEEP_US) new_sleep = DEFAULT_SLOT_SLEEP_US;
-    //         dynamic_slot_sleep_us[current_slot] = (uint32_t)new_sleep;
-    //     }
-    // }
+    int32_t max_late = is_dl ? vnf_dl_stats.max_late : vnf_ul_stats.max_late;
+    if (pass2_correction == 0 && max_late < 50) {
+        int64_t current_sleep = (int64_t)dynamic_slot_sleep_us[current_slot];
+        if (current_sleep < DEFAULT_SLOT_SLEEP_US) {
+            // Faster recovery: +1us per cycle toward baseline (Slow Decay)
+            int64_t new_sleep = current_sleep + 1;
+            if (new_sleep > DEFAULT_SLOT_SLEEP_US) new_sleep = DEFAULT_SLOT_SLEEP_US;
+            dynamic_slot_sleep_us[current_slot] = (uint32_t)new_sleep;
+        }
+    }
 
     // Step 6: Dump Telemetry
     dump_slot_sleep_states(current_slot);
