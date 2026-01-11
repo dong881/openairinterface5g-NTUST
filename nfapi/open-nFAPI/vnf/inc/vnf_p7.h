@@ -27,13 +27,13 @@
 /* ============================================================================
  * DYNAMIC SLOT SLEEP TIMING CONTROL CONSTANTS
  * ============================================================================ */
-#define TARGET_MARGIN_US        200   // Target safety margin: -200us
-#define JITTER_THRESHOLD_US     250   // High/Low jitter boundary
-#define MARGIN_TOLERANCE_US     50    // Deadband zone: +/- MARGIN_TOLERANCE_US us
-#define MAX_PASS3_ADJUST_US     50    // Maximum Pass 3 adjustment per cycle
+#define TARGET_MARGIN_US        300   // Target safety margin: -200us
+#define JITTER_THRESHOLD_US     200   // High/Low jitter boundary
+#define MARGIN_TOLERANCE_US     100    // Deadband zone: +/- MARGIN_TOLERANCE_US us
+#define MAX_PASS3_ADJUST_US     100    // Maximum Pass 3 adjustment per cycle
 #define MIN_SLEEP_US            50    // Minimum allowable sleep time
 #define MAX_SLEEP_US            950  // Maximum allowable sleep time
-#define MAX_BORROW_DEPTH        10     // Maximum backward/forward borrow depth
+#define MAX_BORROW_DEPTH        4     // Maximum backward/forward borrow depth
 #define SLOT_ARRAY_SIZE         40    // TDD cycle slot count
 #define DEFAULT_SLOT_SLEEP_US   500   // Initial sleep value for all slots
 

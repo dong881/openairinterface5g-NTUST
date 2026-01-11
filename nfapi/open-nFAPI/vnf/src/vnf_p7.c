@@ -244,7 +244,7 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
     // --- CASE A: CRITICAL LATE (Insufficient Funds) ---
     if (trigger_late) {
         // Step 1: Calculate Penalty (1.02x - less aggressive)
-        int64_t penalty = ((int64_t)max_late * 51) / 50;
+        int64_t penalty = ((int64_t)(max_late + TARGET_MARGIN_US) * 51) / 50;
         
         // Step 2: Check Available Funds
         int64_t available = current_sleep - MIN_SLEEP_US;
@@ -494,7 +494,7 @@ void handle_dynamic_timing_info(void *void_ind, uint32_t current_slot, uint32_t 
     int64_t pass2_correction = vnf_p7_critical_correction(current_slot, is_dl);
 
     // Step 4: Execute Pass 3 (Fine-tuning)
-    vnf_p7_convergence_optimization(ind, pass2_correction, nominal_slot_duration_us);
+    // vnf_p7_convergence_optimization(ind, pass2_correction, nominal_slot_duration_us);
     
     // Step 5: RECOVERY MECHANISM - When mostly stable, recover toward baseline
     // Allow recovery if late is minor (< 50us) - don't wait for perfect 0
