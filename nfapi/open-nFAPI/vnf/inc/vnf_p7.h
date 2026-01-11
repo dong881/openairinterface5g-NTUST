@@ -176,7 +176,7 @@ void vnf_p7_release_pdu(vnf_p7_t* vnf_p7, void* pdu);
 
 /* Dynamic slot sleep timing control */
 extern uint32_t dynamic_slot_sleep_us[SLOT_ARRAY_SIZE];
-void init_dynamic_slot_sleep(void);
+void init_dynamic_slot_sleep(uint32_t nominal_slot_duration_us);
 /* Timing Statistics Structure */
 typedef struct {
     int32_t max_late;       // Maximum late arrival (us)

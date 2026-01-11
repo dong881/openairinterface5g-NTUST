@@ -50,13 +50,13 @@ extern void log_mmap_entry(int log_id, int frame_tx, int slot_tx, const char *cu
 /* Global dynamic slot sleep array - stores per-slot sleep durations in microseconds */
 uint32_t dynamic_slot_sleep_us[SLOT_ARRAY_SIZE];
 
-void init_dynamic_slot_sleep(void)
+void init_dynamic_slot_sleep(uint32_t nominal_slot_duration_us)
 {
   for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
-    dynamic_slot_sleep_us[i] = DEFAULT_SLOT_SLEEP_US;
+    dynamic_slot_sleep_us[i] = (nominal_slot_duration_us > 0) ? nominal_slot_duration_us : DEFAULT_SLOT_SLEEP_US;
   }
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[TIMING] Initialized dynamic_slot_sleep_us[%d] to %u us\n",
-              SLOT_ARRAY_SIZE, DEFAULT_SLOT_SLEEP_US);
+              SLOT_ARRAY_SIZE, dynamic_slot_sleep_us[0]);
 }
 
 void dump_slot_sleep_states(uint32_t current_slot)
@@ -175,158 +175,113 @@ void vnf_p7_extract_timing_info(const void* void_ind)
 }
 
 
-static void apply_backward_borrow(uint32_t start_index, int64_t amount)
+// --------------------------------------------------------------------------
+// SYMMETRIC DIFFUSIVE BACKWARD CONTROL
+// --------------------------------------------------------------------------
+// Rationale:
+// Symmetrical Causality: Both Late and Early events are caused by previous slots.
+// Late  -> Reduce previous sleep (Penalty) to wake up earlier.
+// Early -> Increase previous sleep (Reward) to wake up later.
+// 
+// Weights: N-1 (50%), N-2 (30%), N-3 (20%)
+// This creates a smooth wave ("breathing") without distorting the table shape.
+
+static void apply_diffusive_backward_control(uint32_t current_slot, int64_t adjustment)
 {
-    int64_t remaining = amount;
-    for (int depth = 0; depth < MAX_BORROW_DEPTH; ++depth) {
-        // Safe circular decrement: (start - depth + SIZE) % SIZE
-        int idx = (start_index - depth + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
-        int64_t current = (int64_t)dynamic_slot_sleep_us[idx];
-        int64_t available = current - MIN_SLEEP_US;
-
-        if (available <= 0) continue;
-
-        int64_t take = (available < remaining) ? available : remaining;
-        dynamic_slot_sleep_us[idx] = (uint32_t)(current - take);
-        remaining -= take;
-
-        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING] Borrowed %ld us from slot %d (Depth %d)\n", take, idx, depth);
-
-        if (remaining == 0) break;
+    // adjustment > 0: REWARD (Increase sleep) - We were Early
+    // adjustment < 0: PENALTY (Reduce sleep)  - We were Late
+    
+    // 1. Previous Slot (N-1) - 50%
+    int64_t w1 = (adjustment * 5) / 10;
+    if (w1 != 0) {
+        uint32_t idx_1 = (current_slot - 1 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
+        int64_t val_1 = (int64_t)dynamic_slot_sleep_us[idx_1];
+        int64_t new_val_1 = val_1 + w1;
+        
+        // Clamp
+        if (new_val_1 < MIN_SLEEP_US) new_val_1 = MIN_SLEEP_US;
+        if (new_val_1 > MAX_SLEEP_US) new_val_1 = MAX_SLEEP_US;
+        
+        dynamic_slot_sleep_us[idx_1] = (uint32_t)new_val_1;
     }
+    
+    // 2. Pre-Previous Slot (N-2) - 30%
+    int64_t w2 = (adjustment * 3) / 10;
+    if (w2 != 0) {
+        uint32_t idx_2 = (current_slot - 2 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
+        int64_t val_2 = (int64_t)dynamic_slot_sleep_us[idx_2];
+        int64_t new_val_2 = val_2 + w2;
+        
+        // Clamp
+        if (new_val_2 < MIN_SLEEP_US) new_val_2 = MIN_SLEEP_US;
+        if (new_val_2 > MAX_SLEEP_US) new_val_2 = MAX_SLEEP_US;
+        
+        dynamic_slot_sleep_us[idx_2] = (uint32_t)new_val_2;
+    }
+    
+    // 3. Pre-Pre-Previous Slot (N-3) - 20%
+    int64_t w3 = (adjustment * 2) / 10;
+    if (w3 != 0) {
+        uint32_t idx_3 = (current_slot - 3 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
+        int64_t val_3 = (int64_t)dynamic_slot_sleep_us[idx_3];
+        int64_t new_val_3 = val_3 + w3;
+        
+        // Clamp
+        if (new_val_3 < MIN_SLEEP_US) new_val_3 = MIN_SLEEP_US;
+        if (new_val_3 > MAX_SLEEP_US) new_val_3 = MAX_SLEEP_US;
+        
+        dynamic_slot_sleep_us[idx_3] = (uint32_t)new_val_3;
+    }
+
+    NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING] Diffusive Backward: Adj=%ld (N-1:%+ld, N-2:%+ld, N-3:%+ld)\n", 
+        adjustment, w1, w2, w3);
 }
 
-static void apply_forward_lending(uint32_t start_index, int64_t amount)
-{
-    int64_t remaining = amount;
-    for (int depth = 0; depth < MAX_BORROW_DEPTH; ++depth) {
-        int idx = (start_index + depth) % SLOT_ARRAY_SIZE;
-        int64_t current = (int64_t)dynamic_slot_sleep_us[idx];
-        int64_t capacity = MAX_SLEEP_US - current;
-
-        if (capacity <= 0) continue;
-
-        int64_t give = (capacity < remaining) ? capacity : remaining;
-        dynamic_slot_sleep_us[idx] = (uint32_t)(current + give);
-        remaining -= give;
-
-        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING] Lent %ld us to slot %d (Depth %d)\n", give, idx, depth);
-
-        if (remaining == 0) break;
-    }
-}
-
-static void apply_backward_lending(uint32_t start_index, int64_t amount)
-{
-    int64_t remaining = amount;
-    for (int depth = 0; depth < MAX_BORROW_DEPTH; ++depth) {
-        // Safe circular decrement: (start - depth + SIZE) % SIZE
-        int idx = (start_index - depth + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
-        int64_t current = (int64_t)dynamic_slot_sleep_us[idx];
-        int64_t capacity = MAX_SLEEP_US - current;
-
-        if (capacity <= 0) continue;
-
-        int64_t give = (capacity < remaining) ? capacity : remaining;
-        dynamic_slot_sleep_us[idx] = (uint32_t)(current + give);
-        remaining -= give;
-
-        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING] Lent %ld us to backward slot %d (Depth %d)\n", give, idx, depth);
-
-        if (remaining == 0) break;
-    }
-}
 
 
 int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
 {
-    int64_t pass2_correction = 0;
-    
     // Select Context Stats
     int32_t max_late = is_dl ? vnf_dl_stats.max_late : vnf_ul_stats.max_late;
     int32_t min_early = is_dl ? vnf_dl_stats.min_early : vnf_ul_stats.min_early;
     
-    // Trigger Conditions
-    // CRITICAL FIX: Relaxed trigger conditions to prevent ratchet effect
-    // 1. trigger_early: Allow boost even if minor late noise exists (< 100us), 
-    //    provided we are significantly early.
-    // 2. trigger_late: Don't slash sleep if we are massively early (< -3000us) 
-    //    and the late event is minor noise (< 100us).
-    
-    #define TIMING_WINDOW_US 2200  // Increased threshold: only act on very early
-
+    // Thresholds
+    #define TIMING_WINDOW_US 2200 
     int trigger_early = (min_early < -TIMING_WINDOW_US);
     int trigger_late = (max_late > 0);
-	if (trigger_early && trigger_late) NFAPI_TRACE(NFAPI_TRACE_INFO, "\n\n\n[TIMING] Triggered both early and late!!!\n\n\n");
+    
+    // Noise Filter
     if (min_early < -3000 && max_late < 100) trigger_late = 0;
     if (!trigger_late && !trigger_early) return 0;
 
-    int64_t current_sleep = (int64_t)dynamic_slot_sleep_us[current_slot];
+    int64_t correction = 0;
 
-    // --- CASE A: CRITICAL LATE (Insufficient Funds) ---
+    // --- CASE A: LATE (Negative Adjustment) ---
     if (trigger_late) {
-        // Step 1: Calculate Penalty (1.02x - less aggressive)
-        int64_t penalty = ((int64_t)(max_late + TARGET_MARGIN_US) * 51) / 50;
+        // Debt Calculation: (Late + Target)
+        int64_t gross_debt = (int64_t)(max_late + TARGET_MARGIN_US);
+        // Gain: 80%
+        correction = -(gross_debt * 2) / 10;
         
-        // Step 2: Check Available Funds
-        int64_t available = current_sleep - MIN_SLEEP_US;
+        // Cap single-cycle correction to prevent shocks
+        // if (correction < -500) correction = -500;
         
-        if (available > penalty) {
-            // Scenario A1: Solvent
-            int64_t new_sleep = current_sleep - penalty;
-            // Ensure clamp (redundant due to 'available' check but safe)
-            if (new_sleep < MIN_SLEEP_US) new_sleep = MIN_SLEEP_US; 
-            
-            dynamic_slot_sleep_us[current_slot] = (uint32_t)new_sleep;
-            pass2_correction = -penalty; // Negative for reduction
-        } else {
-            // Scenario A2: Bankrupt
-            dynamic_slot_sleep_us[current_slot] = MIN_SLEEP_US;
-            pass2_correction = -available; // We only gave what we had
-            
-            int64_t deficit = penalty - available;
-            int64_t borrow_request = (deficit * 9) / 10; // 0.9 damping
-            
-            if (borrow_request > 0) {
-                // Borrow from previous slots (circular), skip current_slot
-                uint32_t prev_slot = (current_slot - 1 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
-                apply_backward_borrow(prev_slot, borrow_request);
-            }
-        }
+        apply_diffusive_backward_control(current_slot, correction);
     }
-    // --- CASE B: CRITICAL EARLY (Excess Funds) ---
-    // NOTE: This only triggers when truly safe (no late packets, low jitter)
+    // --- CASE B: EARLY (Positive Adjustment) ---
     else if (trigger_early) {
-        // Step 1: Calculate Required Boost (more conservative)
+        // Surplus Calculation
         int64_t abs_min_early = llabs((int64_t)min_early);
-        // Reduce boost by 50% to be conservative
-        int64_t boost = ((abs_min_early - TIMING_WINDOW_US) + TARGET_MARGIN_US) / 2;
+        int64_t margin = (abs_min_early - TIMING_WINDOW_US);
+        // Gain: 50% (Conservative)
+        correction = (margin * 2) / 10;
         
-        // Step 2: Calculate Ideal Sleep
-        int64_t ideal_sleep = current_sleep + boost;
+        // if (correction > 500) correction = 500;
         
-        // Step 3: Check Capacity
-        if (ideal_sleep <= MAX_SLEEP_US) {
-            // Scenario B1: Within Capacity
-            dynamic_slot_sleep_us[current_slot] = (uint32_t)ideal_sleep;
-            pass2_correction = boost;
-        } else {
-            // Scenario B2: Overflow
-            dynamic_slot_sleep_us[current_slot] = MAX_SLEEP_US;
-            pass2_correction = MAX_SLEEP_US - current_sleep;
-            
-            int64_t surplus = ideal_sleep - MAX_SLEEP_US;
-            int64_t lend_offer = (surplus * 9) / 10; // 0.9 damping
-            
-            if (lend_offer > 0) {
-                // Lend to future slots (circular), skip current_slot
-                uint32_t prev_slot = (current_slot - 1 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
-                apply_backward_lending(prev_slot, lend_offer);
-            }
-        }
+        apply_diffusive_backward_control(current_slot, correction);
     }
     
-    return pass2_correction;
+    return correction;
 }
 
 // Pass 3: Convergence Optimization / Fine-tuning
@@ -484,19 +439,7 @@ void vnf_p7_convergence_optimization(const void* void_ind, int64_t pass2_correct
 void handle_dynamic_timing_info(void *void_ind, uint32_t current_slot, uint32_t nominal_slot_duration_us, const char *slot_pattern)
 {
     nfapi_nr_timing_info_t *ind = (nfapi_nr_timing_info_t *)void_ind;
-    
-    // Lazy initialization - ensure array is initialized on first call
-    static int initialized = 0;
-    static uint32_t last_nominal = 0;
-    if (!initialized || (nominal_slot_duration_us != last_nominal && nominal_slot_duration_us > 0)) {
-        // Initialize with the provided nominal duration
-        for (int i = 0; i < SLOT_ARRAY_SIZE; i++) {
-            dynamic_slot_sleep_us[i] = (nominal_slot_duration_us > 0) ? nominal_slot_duration_us : 500;
-        }
-        initialized = 1;
-        last_nominal = nominal_slot_duration_us;
-        NFAPI_TRACE(NFAPI_TRACE_INFO, "[TIMING] Initialized dynamic_slot_sleep_us with nominal %u us\n", last_nominal);
-    }
+    // dynamic_slot_sleep_us is initialized externally in vnf_timing_thread
     
     // Error Handling
     if (!ind || !slot_pattern) return;
@@ -516,22 +459,23 @@ void handle_dynamic_timing_info(void *void_ind, uint32_t current_slot, uint32_t 
     
     // Step 3: Execute Pass 2 (Emergency Correction)
     int64_t pass2_correction = vnf_p7_critical_correction(current_slot, is_dl);
+    (void)pass2_correction; // Suppress unused var warning until Pass 3 is re-enabled
 
     // Step 4: Execute Pass 3 (Fine-tuning)
     // vnf_p7_convergence_optimization(ind, pass2_correction, nominal_slot_duration_us);
     
     // Step 5: RECOVERY MECHANISM - When mostly stable, recover toward baseline
     // Allow recovery if late is minor (< 50us) - don't wait for perfect 0
-    int32_t max_late = is_dl ? vnf_dl_stats.max_late : vnf_ul_stats.max_late;
-    if (pass2_correction == 0 && max_late < 50) {
-        int64_t current_sleep = (int64_t)dynamic_slot_sleep_us[current_slot];
-        if (current_sleep < DEFAULT_SLOT_SLEEP_US) {
-            // Faster recovery: +20us per cycle toward baseline
-            int64_t new_sleep = current_sleep + 20;
-            if (new_sleep > DEFAULT_SLOT_SLEEP_US) new_sleep = DEFAULT_SLOT_SLEEP_US;
-            dynamic_slot_sleep_us[current_slot] = (uint32_t)new_sleep;
-        }
-    }
+    // int32_t max_late = is_dl ? vnf_dl_stats.max_late : vnf_ul_stats.max_late;
+    // if (pass2_correction == 0 && max_late < 50) {
+    //     int64_t current_sleep = (int64_t)dynamic_slot_sleep_us[current_slot];
+    //     if (current_sleep < DEFAULT_SLOT_SLEEP_US) {
+    //         // Faster recovery: +20us per cycle toward baseline
+    //         int64_t new_sleep = current_sleep + 20;
+    //         if (new_sleep > DEFAULT_SLOT_SLEEP_US) new_sleep = DEFAULT_SLOT_SLEEP_US;
+    //         dynamic_slot_sleep_us[current_slot] = (uint32_t)new_sleep;
+    //     }
+    // }
 
     // Step 6: Dump Telemetry
     dump_slot_sleep_states(current_slot);
