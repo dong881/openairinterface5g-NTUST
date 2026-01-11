@@ -176,144 +176,105 @@ void vnf_p7_extract_timing_info(const void* void_ind)
 
 
 // --------------------------------------------------------------------------
-// SYMMETRIC DIFFUSIVE BACKWARD CONTROL
+// BASELINE + PROFILE CONTROL MODEL (Energy Conservation)
 // --------------------------------------------------------------------------
-// Rationale:
-// Symmetrical Causality: Both Late and Early events are caused by previous slots.
-// Late  -> Reduce previous sleep (Penalty) to wake up earlier.
-// Early -> Increase previous sleep (Reward) to wake up later.
-// 
-// Weights: N-1 (50%), N-2 (30%), N-3 (20%)
-// This creates a smooth wave ("breathing") without distorting the table shape.
+// Addresses "Infinite Early Drift" by ensuring Table Sum is conserved (or actively managed).
+// 1. Global Baseline (Integral): Adjusts average sleep to match PNF clock speed.
+// 2. Slot Profile (Proportional): Adjusts local shape for TDD jitter, maintaining Sum=0.
 
-// --------------------------------------------------------------------------
-// THREE-LAYER DEFENSE STRATEGY (PID-like)
-// --------------------------------------------------------------------------
-// Layer 1: Emergency Brake (Stop "Speeding" Early events instantly)
-// Layer 2: Adaptive Gain (Proportional Late correction with a floor)
-// Layer 3: Global DC Offset (Shift whole table if systematically early)
-
-static void apply_diffusive_backward_control(uint32_t current_slot, int64_t adjustment)
-{
-    // Weights: N-1 (50%), N-2 (30%), N-3 (20%)
-    
-    // 1. Previous Slot (N-1) - 50%
-    int64_t w1 = (adjustment * 5) / 10;
-    if (w1 != 0) {
-        uint32_t idx_1 = (current_slot - 1 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
-        int64_t val_1 = (int64_t)dynamic_slot_sleep_us[idx_1];
-        int64_t new_val_1 = val_1 + w1;
-        
-        // Clamp Absolute
-        if (new_val_1 < MIN_SLEEP_US) new_val_1 = MIN_SLEEP_US;
-        if (new_val_1 > MAX_SLEEP_US) new_val_1 = MAX_SLEEP_US;
-        
-        dynamic_slot_sleep_us[idx_1] = (uint32_t)new_val_1;
-    }
-    
-    // 2. Pre-Previous Slot (N-2) - 30%
-    int64_t w2 = (adjustment * 3) / 10;
-    if (w2 != 0) {
-        uint32_t idx_2 = (current_slot - 2 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
-        int64_t val_2 = (int64_t)dynamic_slot_sleep_us[idx_2];
-        int64_t new_val_2 = val_2 + w2;
-        
-        // Clamp Absolute
-        if (new_val_2 < MIN_SLEEP_US) new_val_2 = MIN_SLEEP_US;
-        if (new_val_2 > MAX_SLEEP_US) new_val_2 = MAX_SLEEP_US;
-        
-        dynamic_slot_sleep_us[idx_2] = (uint32_t)new_val_2;
-    }
-    
-    // 3. Pre-Pre-Previous Slot (N-3) - 20%
-    int64_t w3 = (adjustment * 2) / 10;
-    if (w3 != 0) {
-        uint32_t idx_3 = (current_slot - 3 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
-        int64_t val_3 = (int64_t)dynamic_slot_sleep_us[idx_3];
-        int64_t new_val_3 = val_3 + w3;
-        
-        // Clamp Absolute
-        if (new_val_3 < MIN_SLEEP_US) new_val_3 = MIN_SLEEP_US;
-        if (new_val_3 > MAX_SLEEP_US) new_val_3 = MAX_SLEEP_US;
-        
-        dynamic_slot_sleep_us[idx_3] = (uint32_t)new_val_3;
-    }
-
-    NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING] Diffusive: Adj=%ld (N-1:%+ld, N-2:%+ld, N-3:%+ld)\n", 
-        adjustment, w1, w2, w3);
-}
-
-
+// Global Baseline and Profile Variables
+static int32_t global_baseline_us = DEFAULT_SLOT_SLEEP_US;
+static int32_t slot_profile_us[SLOT_ARRAY_SIZE] = {0}; // Normalized deviations, sum should be ~0
 
 int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
 {
+    int64_t correction_applied = 0;
+    
     // Select Context Stats
     int32_t max_late = is_dl ? vnf_dl_stats.max_late : vnf_ul_stats.max_late;
     int32_t min_early = is_dl ? vnf_dl_stats.min_early : vnf_ul_stats.min_early;
     
+    // --- PART 1: GLOBAL BASELINE CONTROL (Integral) ---
+    // Controls the "Total Energy" of the system.
+    // Early -> Running Too Fast -> Need to Slow Down (Increase Baseline)
+    // Late  -> Running Too Slow -> Need to Speed Up (Decrease Baseline)
+    
     // Thresholds
-    #define TIMING_WINDOW_US 2200 
-    int trigger_early = (min_early < -TIMING_WINDOW_US);
-    int trigger_late = (max_late > 0);
+    #define DRIFT_TOLERANCE 100
     
-    // Noise Filter
-    if (min_early < -3000 && max_late < 100) trigger_late = 0;
-    if (!trigger_late && !trigger_early) return 0;
+    // Integration Logic (Slow loop)
+    if (max_late > 0) {
+        // Late: Decrease Baseline (Speed Up)
+        global_baseline_us--;
+        if (max_late > 1000) global_baseline_us--; // Accelerator
+    } else if (min_early > (TARGET_MARGIN_US + DRIFT_TOLERANCE)) {
+         // Too Early: Increase Baseline (Slow Down)
+         global_baseline_us++;
+         if (min_early > 3000) global_baseline_us++; // Brake
+    } else {
+        // Healthy Zone: Gently tend towards nominal (500)
+        // This prevents the baseline from sticking at 400 or 600 if traffic stops.
+        if (global_baseline_us > DEFAULT_SLOT_SLEEP_US) global_baseline_us--;
+        else if (global_baseline_us < DEFAULT_SLOT_SLEEP_US) global_baseline_us++;
+    }
+    
+    // Clamp Baseline safety
+    if (global_baseline_us < 200) global_baseline_us = 200;
+    if (global_baseline_us > 800) global_baseline_us = 800;
 
-    int64_t correction = 0;
-
-    // LAYER 1: EMERGENCY BRAKE (Severely Early/Speeding)
-    // If we are way too early (>3000us), we must stop immediately.
-    if (min_early > 3000) {
-         // Action: Force MAX_SLEEP on current and next slot to "catch" the timeline.
-         dynamic_slot_sleep_us[current_slot] = MAX_SLEEP_US;
-         uint32_t next_slot = (current_slot + 1) % SLOT_ARRAY_SIZE;
-         dynamic_slot_sleep_us[next_slot] = MAX_SLEEP_US;
+    // --- PART 2: SLOT PROFILE CONTROL (Proportional / Shape) ---
+    // Controls the "Road Surface" (Jitter).
+    // Constraint: Any change here MUST be zero-sum or normalized.
+    // We achieve this by "borrowing" from the neighbor immediately.
+    
+    int64_t shape_correction = 0;
+    if (max_late > 50) {
+        // Current slot is Late -> Needs to sleep LESS.
+        // Penalty = -Error/2
+        shape_correction = -(max_late / 2);
+    } else if (min_early > 2000) {
+        // Current slot is Very Early -> Needs to sleep MORE. 
+        // Note: We only verify "Very Early" for shape, minor early is handled by Baseline.
+        shape_correction = (min_early - 2000) / 10;
+    }
+    
+    // Apply Shape Correction with Zero-Sum constraint
+    // If we decrease current slot, we increase next slot (defer sleep).
+    // If we increase current slot, we decrease next slot (pre-sleep).
+    if (shape_correction != 0) {
+         // Clamp Correction
+         if (shape_correction > 100) shape_correction = 100;
+         if (shape_correction < -100) shape_correction = -100;
          
-         NFAPI_TRACE(NFAPI_TRACE_INFO, "[TIMING] EMERGENCY BRAKE: Speeding! (MinEarly=%d) -> Max Forced\n", min_early);
-         return MAX_SLEEP_US;
-    }
-
-    // LAYER 2: ADAPTIVE GAIN (P-Control for Late)
-    if (trigger_late) {
-        // Debt: How late are we?
-        // Adaptive Correction: Error / 4
-        int64_t penalty = (int64_t)max_late / 4; 
-        if (penalty < 1) penalty = 1;
-        
-        // Defensive Floor: Compute potential new value for N-1 to check safety
-        uint32_t idx_1 = (current_slot - 1 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
-        int64_t current_val_1 = (int64_t)dynamic_slot_sleep_us[idx_1];
-        
-        // Ensure we don't drop below 200us (Basal Metabolism)
-        if ((current_val_1 - (penalty/2)) < 200) {
-             penalty = (current_val_1 - 200) * 2; // Adjust penalty to respect floor
-             if (penalty < 0) penalty = 0;
-        }
-
-        correction = -penalty;
-        apply_diffusive_backward_control(current_slot, correction);
-    }
-    // LAYER 3: GLOBAL DC OFFSET (Systematic Early)
-    else if (max_late <= 0 && min_early > TARGET_MARGIN_US) {
-         // If we are generally Early (and not late), lift the whole table
-         // Instead of iterating all 40 slots (expensive), we lift the 
-         // diffusive window aggressively (+50us).
-         // User requested "Whole Table", but iterating 40 slots in high-speed path is risky.
-         // We will apply a strong lift to the Backward Window (N-1, N-2, N-3, N-4, N-5)
-         // to mimic a DC offset.
-         int64_t lift = 50; 
-         // Force lift on 5 slots
-         for(int k=1; k<=5; ++k) {
-             uint32_t idx_k = (current_slot - k + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
-             int64_t v = (int64_t)dynamic_slot_sleep_us[idx_k] + lift;
-             if (v > MAX_SLEEP_US) v = MAX_SLEEP_US;
-             dynamic_slot_sleep_us[idx_k] = (uint32_t)v;
-         }
-         NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING] Global DC Lift: +50us to 5 slots\n");
+         // Apply to Profile
+         uint32_t idx_curr = current_slot % SLOT_ARRAY_SIZE;
+         uint32_t idx_next = (current_slot + 1) % SLOT_ARRAY_SIZE;
+         
+         slot_profile_us[idx_curr] += (int32_t)shape_correction;
+         slot_profile_us[idx_next] -= (int32_t)shape_correction;
     }
     
-    return correction;
+    // Profile Decay (Spring back to 0) allows profile to evolve
+    // Every cycle, shrink profile by 1 unit towards 0
+    uint32_t idx_curr = current_slot % SLOT_ARRAY_SIZE;
+    if (slot_profile_us[idx_curr] > 0) slot_profile_us[idx_curr]--;
+    if (slot_profile_us[idx_curr] < 0) slot_profile_us[idx_curr]++;
+
+    // --- PART 3: RECONSTRUCT TABLE ---
+    // Final Sleep = Baseline + Profile
+    // We update current and near neighbors to ensure responsiveness
+    for (int k=0; k<5; ++k) {
+        uint32_t idx = (current_slot + k) % SLOT_ARRAY_SIZE;
+        int32_t val = global_baseline_us + slot_profile_us[idx];
+        
+        // Final Safety Clamp
+        if (val < MIN_SLEEP_US) val = MIN_SLEEP_US;
+        if (val > MAX_SLEEP_US) val = MAX_SLEEP_US;
+        
+        dynamic_slot_sleep_us[idx] = (uint32_t)val;
+    }
+
+    return correction_applied;
 }
 
 // Pass 3: Convergence Optimization / Fine-tuning

@@ -34,7 +34,7 @@
 #define MIN_SLEEP_US            50    // Minimum allowable sleep time
 #define MAX_SLEEP_US            950  // Maximum allowable sleep time
 #define MAX_BORROW_DEPTH        4     // Maximum backward/forward borrow depth
-#define SLOT_ARRAY_SIZE         40    // TDD cycle slot count
+#define SLOT_ARRAY_SIZE         20    // TDD cycle slot count (Reduced to 20 for faster convergence)
 #define DEFAULT_SLOT_SLEEP_US   500   // Initial sleep value for all slots
 
 
