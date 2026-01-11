@@ -247,19 +247,19 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
     int32_t min_early = is_dl ? vnf_dl_stats.min_early : vnf_ul_stats.min_early;
     
     // Trigger Conditions
-    int trigger_late = (max_late > 0);
+    // CRITICAL FIX: Relaxed trigger conditions to prevent ratchet effect
+    // 1. trigger_early: Allow boost even if minor late noise exists (< 100us), 
+    //    provided we are significantly early.
+    // 2. trigger_late: Don't slash sleep if we are massively early (< -3000us) 
+    //    and the late event is minor noise (< 100us).
     
-    // CRITICAL FIX: Only increase sleep if we're TRULY safe:
-    // 1. No late packets at all (max_late <= 0, meaning arrival was on-time or early)
-    // 2. AND we have excessive early margin (min_early < -400us, double the target)
-    // 3. AND jitter is low (stable conditions)
     #define TIMING_WINDOW_US 2200  // Increased threshold: only act on very early
-    uint32_t jitter = is_dl ? vnf_dl_stats.jitter : vnf_ul_stats.jitter;
-    int trigger_early = (min_early < -TIMING_WINDOW_US) && (max_late <= 0) && (jitter < JITTER_THRESHOLD_US);
 
-    if (!trigger_late && !trigger_early) {
-        return 0;
-    }
+    int trigger_early = (min_early < -TIMING_WINDOW_US);
+    int trigger_late = (max_late > 0);
+	if (trigger_early && trigger_late) NFAPI_TRACE(NFAPI_TRACE_INFO, "\n\n\n[TIMING] Triggered both early and late!!!\n\n\n");
+    if (min_early < -3000 && max_late < 100) trigger_late = 0;
+    if (!trigger_late && !trigger_early) return 0;
 
     int64_t current_sleep = (int64_t)dynamic_slot_sleep_us[current_slot];
 
