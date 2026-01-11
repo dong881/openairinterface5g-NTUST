@@ -201,16 +201,17 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
     
     // Thresholds
     #define DRIFT_TOLERANCE 100
-    
+    #define TIMING_WINDOW_US 2200
+
     // Integration Logic (Slow loop)
     if (max_late > 0) {
         // Late: Decrease Baseline (Speed Up)
         global_baseline_us--;
         if (max_late > 1000) global_baseline_us--; // Accelerator
-    } else if (min_early > (TARGET_MARGIN_US + DRIFT_TOLERANCE)) {
+    } else if (min_early < -TIMING_WINDOW_US) {
          // Too Early: Increase Baseline (Slow Down)
          global_baseline_us++;
-         if (min_early > 3000) global_baseline_us++; // Brake
+         if (min_early > -TIMING_WINDOW_US*1.5) global_baseline_us++; // Brake
     } else {
         // Healthy Zone: Gently tend towards nominal (500)
         // This prevents the baseline from sticking at 400 or 600 if traffic stops.
@@ -231,27 +232,27 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
     if (max_late > 50) {
         // Current slot is Late -> Needs to sleep LESS.
         // Penalty = -Error/2
-        shape_correction = -(max_late / 2);
-    } else if (min_early > 2000) {
+        shape_correction = -((max_late + TARGET_MARGIN_US) / 2);
+    } else if (min_early < -TIMING_WINDOW_US) {
         // Current slot is Very Early -> Needs to sleep MORE. 
         // Note: We only verify "Very Early" for shape, minor early is handled by Baseline.
-        shape_correction = (min_early - 2000) / 10;
+        shape_correction = (-min_early - TARGET_MARGIN_US) / 10;
     }
     
     // Apply Shape Correction with Zero-Sum constraint
-    // If we decrease current slot, we increase next slot (defer sleep).
-    // If we increase current slot, we decrease next slot (pre-sleep).
+    // If we decrease current slot, we increase previous slot.
+    // If we increase current slot, we decrease previous slot.
     if (shape_correction != 0) {
-         // Clamp Correction
-         if (shape_correction > 100) shape_correction = 100;
-         if (shape_correction < -100) shape_correction = -100;
-         
-         // Apply to Profile
-         uint32_t idx_curr = current_slot % SLOT_ARRAY_SIZE;
-         uint32_t idx_next = (current_slot + 1) % SLOT_ARRAY_SIZE;
-         
-         slot_profile_us[idx_curr] += (int32_t)shape_correction;
-         slot_profile_us[idx_next] -= (int32_t)shape_correction;
+      // Clamp Correction
+      if (shape_correction > 200) shape_correction = 200;
+      if (shape_correction < -200) shape_correction = -200;
+
+      // Apply to Profile
+      uint32_t idx_curr = current_slot % SLOT_ARRAY_SIZE;
+      uint32_t idx_prev = (current_slot + SLOT_ARRAY_SIZE - 1) % SLOT_ARRAY_SIZE;
+
+      slot_profile_us[idx_curr] += (int32_t)shape_correction;
+      slot_profile_us[idx_prev] -= (int32_t)shape_correction;
     }
     
     // Profile Decay (Spring back to 0) allows profile to evolve
@@ -262,16 +263,18 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
 
     // --- PART 3: RECONSTRUCT TABLE ---
     // Final Sleep = Baseline + Profile
-    // We update current and near neighbors to ensure responsiveness
-    for (int k=0; k<5; ++k) {
-        uint32_t idx = (current_slot + k) % SLOT_ARRAY_SIZE;
-        int32_t val = global_baseline_us + slot_profile_us[idx];
-        
-        // Final Safety Clamp
-        if (val < MIN_SLEEP_US) val = MIN_SLEEP_US;
-        if (val > MAX_SLEEP_US) val = MAX_SLEEP_US;
-        
-        dynamic_slot_sleep_us[idx] = (uint32_t)val;
+    // We update current and previous slots as they were the ones modified in Part 2
+    uint32_t idx_prev = (current_slot + SLOT_ARRAY_SIZE - 1) % SLOT_ARRAY_SIZE;
+    uint32_t update_indices[] = {idx_curr, idx_prev};
+
+    for (int i = 0; i < 2; i++) {
+      uint32_t idx = update_indices[i];
+      int32_t val = global_baseline_us + slot_profile_us[idx];
+
+      if (val < MIN_SLEEP_US) val = MIN_SLEEP_US;
+      if (val > MAX_SLEEP_US) val = MAX_SLEEP_US;
+
+      dynamic_slot_sleep_us[idx] = (uint32_t)val;
     }
 
     return correction_applied;
