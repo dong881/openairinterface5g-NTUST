@@ -189,23 +189,32 @@ static int32_t global_baseline_us = DEFAULT_SLOT_SLEEP_US;
 static int32_t slot_profile_us[SLOT_ARRAY_SIZE] = {0}; // Normalized deviations
 
 // Profile Diffusion Helper
-// Applies shape correction to Previous Slots (N-1, N-2, N-3)
+// Applies shape correction to Current and Previous Slots (N, N-1, N-2, N-3)
 static void apply_profile_diffusion(uint32_t current_slot, int64_t adjustment)
 {
-    // Weights: N-1 (50%), N-2 (30%), N-3 (20%)
+    // Weights: N(40%), N-1 (30%), N-2 (20%), N-3 (10%)
     
-    // 1. Previous Slot (N-1) - 50%
-    int64_t w1 = (adjustment * 5) / 10;
+    // 0. Current Slot (N) - 40%
+    int64_t w0 = (adjustment * 4) / 10;
+    if (w0 != 0) {
+        uint32_t idx_0 = current_slot % SLOT_ARRAY_SIZE;
+        slot_profile_us[idx_0] += (int32_t)w0;
+        // Clamp Profile to sane limits (e.g. +/- 500) to prevent overflow
+        if (slot_profile_us[idx_0] > 500) slot_profile_us[idx_0] = 500;
+        if (slot_profile_us[idx_0] < -500) slot_profile_us[idx_0] = -500;
+    }
+
+    // 1. Previous Slot (N-1) - 30%
+    int64_t w1 = (adjustment * 3) / 10;
     if (w1 != 0) {
         uint32_t idx_1 = (current_slot - 1 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
         slot_profile_us[idx_1] += (int32_t)w1;
-        // Clamp Profile to sane limits (e.g. +/- 500) to prevent overflow
         if (slot_profile_us[idx_1] > 500) slot_profile_us[idx_1] = 500;
         if (slot_profile_us[idx_1] < -500) slot_profile_us[idx_1] = -500;
     }
     
-    // 2. Pre-Previous Slot (N-2) - 30%
-    int64_t w2 = (adjustment * 3) / 10;
+    // 2. Pre-Previous Slot (N-2) - 20%
+    int64_t w2 = (adjustment * 2) / 10;
     if (w2 != 0) {
         uint32_t idx_2 = (current_slot - 2 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
         slot_profile_us[idx_2] += (int32_t)w2;
@@ -213,8 +222,8 @@ static void apply_profile_diffusion(uint32_t current_slot, int64_t adjustment)
         if (slot_profile_us[idx_2] < -500) slot_profile_us[idx_2] = -500;
     }
     
-    // 3. Pre-Pre-Previous Slot (N-3) - 20%
-    int64_t w3 = (adjustment * 2) / 10;
+    // 3. Pre-Pre-Previous Slot (N-3) - 10%
+    int64_t w3 = (adjustment * 1) / 10;
     if (w3 != 0) {
         uint32_t idx_3 = (current_slot - 3 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
         slot_profile_us[idx_3] += (int32_t)w3;
