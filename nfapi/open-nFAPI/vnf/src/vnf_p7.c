@@ -180,11 +180,48 @@ void vnf_p7_extract_timing_info(const void* void_ind)
 // --------------------------------------------------------------------------
 // Addresses "Infinite Early Drift" by ensuring Table Sum is conserved (or actively managed).
 // 1. Global Baseline (Integral): Adjusts average sleep to match PNF clock speed.
-// 2. Slot Profile (Proportional): Adjusts local shape for TDD jitter, maintaining Sum=0.
+// 2. Slot Profile (Proportional): Adjusts local shape for TDD jitter.
+//    - Uses Diffusive Logic (N-1, N-2, N-3) to smooth shape changes.
+//    - No Zero-Sum constraint (Baseline Integrator absorbs DC offset).
 
 // Global Baseline and Profile Variables
 static int32_t global_baseline_us = DEFAULT_SLOT_SLEEP_US;
-static int32_t slot_profile_us[SLOT_ARRAY_SIZE] = {0}; // Normalized deviations, sum should be ~0
+static int32_t slot_profile_us[SLOT_ARRAY_SIZE] = {0}; // Normalized deviations
+
+// Profile Diffusion Helper
+// Applies shape correction to Previous Slots (N-1, N-2, N-3)
+static void apply_profile_diffusion(uint32_t current_slot, int64_t adjustment)
+{
+    // Weights: N-1 (50%), N-2 (30%), N-3 (20%)
+    
+    // 1. Previous Slot (N-1) - 50%
+    int64_t w1 = (adjustment * 5) / 10;
+    if (w1 != 0) {
+        uint32_t idx_1 = (current_slot - 1 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
+        slot_profile_us[idx_1] += (int32_t)w1;
+        // Clamp Profile to sane limits (e.g. +/- 500) to prevent overflow
+        if (slot_profile_us[idx_1] > 500) slot_profile_us[idx_1] = 500;
+        if (slot_profile_us[idx_1] < -500) slot_profile_us[idx_1] = -500;
+    }
+    
+    // 2. Pre-Previous Slot (N-2) - 30%
+    int64_t w2 = (adjustment * 3) / 10;
+    if (w2 != 0) {
+        uint32_t idx_2 = (current_slot - 2 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
+        slot_profile_us[idx_2] += (int32_t)w2;
+        if (slot_profile_us[idx_2] > 500) slot_profile_us[idx_2] = 500;
+        if (slot_profile_us[idx_2] < -500) slot_profile_us[idx_2] = -500;
+    }
+    
+    // 3. Pre-Pre-Previous Slot (N-3) - 20%
+    int64_t w3 = (adjustment * 2) / 10;
+    if (w3 != 0) {
+        uint32_t idx_3 = (current_slot - 3 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
+        slot_profile_us[idx_3] += (int32_t)w3;
+        if (slot_profile_us[idx_3] > 500) slot_profile_us[idx_3] = 500;
+        if (slot_profile_us[idx_3] < -500) slot_profile_us[idx_3] = -500;
+    }
+}
 
 int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
 {
@@ -195,9 +232,6 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
     int32_t min_early = is_dl ? vnf_dl_stats.min_early : vnf_ul_stats.min_early;
     
     // --- PART 1: GLOBAL BASELINE CONTROL (Integral) ---
-    // Controls the "Total Energy" of the system.
-    // Early -> Running Too Fast -> Need to Slow Down (Increase Baseline)
-    // Late  -> Running Too Slow -> Need to Speed Up (Decrease Baseline)
     
     // Thresholds
     #define DRIFT_TOLERANCE 100
@@ -211,10 +245,9 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
     } else if (min_early < -TIMING_WINDOW_US) {
          // Too Early: Increase Baseline (Slow Down)
          global_baseline_us++;
-         if (min_early > -TIMING_WINDOW_US*1.5) global_baseline_us++; // Brake
+         if (min_early < -TIMING_WINDOW_US*1.5) global_baseline_us++; // Brake
     } else {
         // Healthy Zone: Gently tend towards nominal (500)
-        // This prevents the baseline from sticking at 400 or 600 if traffic stops.
         if (global_baseline_us > DEFAULT_SLOT_SLEEP_US) global_baseline_us--;
         else if (global_baseline_us < DEFAULT_SLOT_SLEEP_US) global_baseline_us++;
     }
@@ -225,8 +258,7 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
 
     // --- PART 2: SLOT PROFILE CONTROL (Proportional / Shape) ---
     // Controls the "Road Surface" (Jitter).
-    // Constraint: Any change here MUST be zero-sum or normalized.
-    // We achieve this by "borrowing" from the neighbor immediately.
+    // Uses Diffusion (N-1, N-2, N-3) to smooth out the bumps.
     
     int64_t shape_correction = 0;
     if (max_late > 50) {
@@ -235,46 +267,37 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
         shape_correction = -((max_late + TARGET_MARGIN_US) / 2);
     } else if (min_early < -TIMING_WINDOW_US) {
         // Current slot is Very Early -> Needs to sleep MORE. 
-        // Note: We only verify "Very Early" for shape, minor early is handled by Baseline.
         shape_correction = (-min_early - TARGET_MARGIN_US) / 10;
     }
     
-    // Apply Shape Correction with Zero-Sum constraint
-    // If we decrease current slot, we increase previous slot.
-    // If we increase current slot, we decrease previous slot.
+    // Apply Profile Diffusion
     if (shape_correction != 0) {
-      // Clamp Correction
-      if (shape_correction > 200) shape_correction = 200;
-      if (shape_correction < -200) shape_correction = -200;
-
-      // Apply to Profile
-      uint32_t idx_curr = current_slot % SLOT_ARRAY_SIZE;
-      uint32_t idx_prev = (current_slot + SLOT_ARRAY_SIZE - 1) % SLOT_ARRAY_SIZE;
-
-      slot_profile_us[idx_curr] += (int32_t)shape_correction;
-      slot_profile_us[idx_prev] -= (int32_t)shape_correction;
+         // Clamp Correction Rate (Damping)
+         if (shape_correction > 20) shape_correction = 20;
+         if (shape_correction < -20) shape_correction = -20;
+         
+         apply_profile_diffusion(current_slot, shape_correction);
     }
     
-    // Profile Decay (Spring back to 0) allows profile to evolve
-    // Every cycle, shrink profile by 1 unit towards 0
+    // Profile Decay (Spring back to 0) - allows profile to evolve and prevents divergence
     uint32_t idx_curr = current_slot % SLOT_ARRAY_SIZE;
     if (slot_profile_us[idx_curr] > 0) slot_profile_us[idx_curr]--;
     if (slot_profile_us[idx_curr] < 0) slot_profile_us[idx_curr]++;
 
     // --- PART 3: RECONSTRUCT TABLE ---
     // Final Sleep = Baseline + Profile
-    // We update current and previous slots as they were the ones modified in Part 2
-    uint32_t idx_prev = (current_slot + SLOT_ARRAY_SIZE - 1) % SLOT_ARRAY_SIZE;
-    uint32_t update_indices[] = {idx_curr, idx_prev};
-
-    for (int i = 0; i < 2; i++) {
-      uint32_t idx = update_indices[i];
-      int32_t val = global_baseline_us + slot_profile_us[idx];
-
-      if (val < MIN_SLEEP_US) val = MIN_SLEEP_US;
-      if (val > MAX_SLEEP_US) val = MAX_SLEEP_US;
-
-      dynamic_slot_sleep_us[idx] = (uint32_t)val;
+    // We update the diffusion window (N-1, N-2, N-3) plus current
+    // to ensure the changes are reflected immediately.
+    
+    for (int k=0; k<=3; ++k) {
+        uint32_t idx = (current_slot - k + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
+        int32_t val = global_baseline_us + slot_profile_us[idx];
+        
+        // Final Safety Clamp (Absolute Limits)
+        if (val < MIN_SLEEP_US) val = MIN_SLEEP_US;
+        if (val > MAX_SLEEP_US) val = MAX_SLEEP_US;
+        
+        dynamic_slot_sleep_us[idx] = (uint32_t)val;
     }
 
     return correction_applied;
