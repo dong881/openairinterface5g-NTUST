@@ -186,25 +186,20 @@ void vnf_p7_extract_timing_info(const void* void_ind)
 // Weights: N-1 (50%), N-2 (30%), N-3 (20%)
 // This creates a smooth wave ("breathing") without distorting the table shape.
 
-#define MAX_SLEEP_CHANGE_PER_CYCLE 20
+// --------------------------------------------------------------------------
+// THREE-LAYER DEFENSE STRATEGY (PID-like)
+// --------------------------------------------------------------------------
+// Layer 1: Emergency Brake (Stop "Speeding" Early events instantly)
+// Layer 2: Adaptive Gain (Proportional Late correction with a floor)
+// Layer 3: Global DC Offset (Shift whole table if systematically early)
 
 static void apply_diffusive_backward_control(uint32_t current_slot, int64_t adjustment)
 {
-    // adjustment > 0: REWARD (Increase sleep)
-    // adjustment < 0: PENALTY (Reduce sleep)
+    // Weights: N-1 (50%), N-2 (30%), N-3 (20%)
     
-    // SLEW RATE LIMITER:
-    // Even if 'adjustment' is huge (e.g. -1375), we limit the actual change 
-    // per slot to MAX_SLEEP_CHANGE_PER_CYCLE (+/- 20us).
-    // This allows the system to "Soft Land" over multiple cycles.
-
     // 1. Previous Slot (N-1) - 50%
     int64_t w1 = (adjustment * 5) / 10;
     if (w1 != 0) {
-        // Clamp Change
-        if (w1 > MAX_SLEEP_CHANGE_PER_CYCLE) w1 = MAX_SLEEP_CHANGE_PER_CYCLE;
-        if (w1 < -MAX_SLEEP_CHANGE_PER_CYCLE) w1 = -MAX_SLEEP_CHANGE_PER_CYCLE;
-
         uint32_t idx_1 = (current_slot - 1 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
         int64_t val_1 = (int64_t)dynamic_slot_sleep_us[idx_1];
         int64_t new_val_1 = val_1 + w1;
@@ -219,10 +214,6 @@ static void apply_diffusive_backward_control(uint32_t current_slot, int64_t adju
     // 2. Pre-Previous Slot (N-2) - 30%
     int64_t w2 = (adjustment * 3) / 10;
     if (w2 != 0) {
-        // Clamp Change
-        if (w2 > MAX_SLEEP_CHANGE_PER_CYCLE) w2 = MAX_SLEEP_CHANGE_PER_CYCLE;
-        if (w2 < -MAX_SLEEP_CHANGE_PER_CYCLE) w2 = -MAX_SLEEP_CHANGE_PER_CYCLE;
-
         uint32_t idx_2 = (current_slot - 2 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
         int64_t val_2 = (int64_t)dynamic_slot_sleep_us[idx_2];
         int64_t new_val_2 = val_2 + w2;
@@ -237,10 +228,6 @@ static void apply_diffusive_backward_control(uint32_t current_slot, int64_t adju
     // 3. Pre-Pre-Previous Slot (N-3) - 20%
     int64_t w3 = (adjustment * 2) / 10;
     if (w3 != 0) {
-        // Clamp Change
-        if (w3 > MAX_SLEEP_CHANGE_PER_CYCLE) w3 = MAX_SLEEP_CHANGE_PER_CYCLE;
-        if (w3 < -MAX_SLEEP_CHANGE_PER_CYCLE) w3 = -MAX_SLEEP_CHANGE_PER_CYCLE;
-
         uint32_t idx_3 = (current_slot - 3 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
         int64_t val_3 = (int64_t)dynamic_slot_sleep_us[idx_3];
         int64_t new_val_3 = val_3 + w3;
@@ -252,7 +239,7 @@ static void apply_diffusive_backward_control(uint32_t current_slot, int64_t adju
         dynamic_slot_sleep_us[idx_3] = (uint32_t)new_val_3;
     }
 
-    NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING] Soft Landing: Adj=%ld (N-1:%+ld, N-2:%+ld, N-3:%+ld)\n", 
+    NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING] Diffusive: Adj=%ld (N-1:%+ld, N-2:%+ld, N-3:%+ld)\n", 
         adjustment, w1, w2, w3);
 }
 
@@ -275,25 +262,55 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
 
     int64_t correction = 0;
 
-    // --- CASE A: LATE (Negative Adjustment) ---
+    // LAYER 1: EMERGENCY BRAKE (Severely Early/Speeding)
+    // If we are way too early (>3000us), we must stop immediately.
+    if (min_early > 3000) {
+         // Action: Force MAX_SLEEP on current and next slot to "catch" the timeline.
+         dynamic_slot_sleep_us[current_slot] = MAX_SLEEP_US;
+         uint32_t next_slot = (current_slot + 1) % SLOT_ARRAY_SIZE;
+         dynamic_slot_sleep_us[next_slot] = MAX_SLEEP_US;
+         
+         NFAPI_TRACE(NFAPI_TRACE_INFO, "[TIMING] EMERGENCY BRAKE: Speeding! (MinEarly=%d) -> Max Forced\n", min_early);
+         return MAX_SLEEP_US;
+    }
+
+    // LAYER 2: ADAPTIVE GAIN (P-Control for Late)
     if (trigger_late) {
-        // Debt Calculation: (Late + Target)
-        int64_t gross_debt = (int64_t)(max_late + TARGET_MARGIN_US);
-        // Gain: 100% (Let the Limiter handle the dampening)
-        correction = -gross_debt;
+        // Debt: How late are we?
+        // Adaptive Correction: Error / 4
+        int64_t penalty = (int64_t)max_late / 4; 
+        if (penalty < 1) penalty = 1;
         
+        // Defensive Floor: Compute potential new value for N-1 to check safety
+        uint32_t idx_1 = (current_slot - 1 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
+        int64_t current_val_1 = (int64_t)dynamic_slot_sleep_us[idx_1];
+        
+        // Ensure we don't drop below 200us (Basal Metabolism)
+        if ((current_val_1 - (penalty/2)) < 200) {
+             penalty = (current_val_1 - 200) * 2; // Adjust penalty to respect floor
+             if (penalty < 0) penalty = 0;
+        }
+
+        correction = -penalty;
         apply_diffusive_backward_control(current_slot, correction);
     }
-    // --- CASE B: EARLY (Positive Adjustment) ---
-    else if (trigger_early) {
-        // Surplus Calculation
-        int64_t abs_min_early = llabs((int64_t)min_early);
-        int64_t margin = (abs_min_early - TIMING_WINDOW_US);
-        // Gain: 50%
-        correction = (margin * 5) / 10;
-        
-        // No cap needed here, apply_diffusive_backward_control will clamp it to +20 per slot
-        apply_diffusive_backward_control(current_slot, correction);
+    // LAYER 3: GLOBAL DC OFFSET (Systematic Early)
+    else if (max_late <= 0 && min_early > TARGET_MARGIN_US) {
+         // If we are generally Early (and not late), lift the whole table
+         // Instead of iterating all 40 slots (expensive), we lift the 
+         // diffusive window aggressively (+50us).
+         // User requested "Whole Table", but iterating 40 slots in high-speed path is risky.
+         // We will apply a strong lift to the Backward Window (N-1, N-2, N-3, N-4, N-5)
+         // to mimic a DC offset.
+         int64_t lift = 50; 
+         // Force lift on 5 slots
+         for(int k=1; k<=5; ++k) {
+             uint32_t idx_k = (current_slot - k + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
+             int64_t v = (int64_t)dynamic_slot_sleep_us[idx_k] + lift;
+             if (v > MAX_SLEEP_US) v = MAX_SLEEP_US;
+             dynamic_slot_sleep_us[idx_k] = (uint32_t)v;
+         }
+         NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING] Global DC Lift: +50us to 5 slots\n");
     }
     
     return correction;
