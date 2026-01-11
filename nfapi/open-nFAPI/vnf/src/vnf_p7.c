@@ -186,19 +186,30 @@ void vnf_p7_extract_timing_info(const void* void_ind)
 // Weights: N-1 (50%), N-2 (30%), N-3 (20%)
 // This creates a smooth wave ("breathing") without distorting the table shape.
 
+#define MAX_SLEEP_CHANGE_PER_CYCLE 20
+
 static void apply_diffusive_backward_control(uint32_t current_slot, int64_t adjustment)
 {
-    // adjustment > 0: REWARD (Increase sleep) - We were Early
-    // adjustment < 0: PENALTY (Reduce sleep)  - We were Late
+    // adjustment > 0: REWARD (Increase sleep)
+    // adjustment < 0: PENALTY (Reduce sleep)
     
+    // SLEW RATE LIMITER:
+    // Even if 'adjustment' is huge (e.g. -1375), we limit the actual change 
+    // per slot to MAX_SLEEP_CHANGE_PER_CYCLE (+/- 20us).
+    // This allows the system to "Soft Land" over multiple cycles.
+
     // 1. Previous Slot (N-1) - 50%
     int64_t w1 = (adjustment * 5) / 10;
     if (w1 != 0) {
+        // Clamp Change
+        if (w1 > MAX_SLEEP_CHANGE_PER_CYCLE) w1 = MAX_SLEEP_CHANGE_PER_CYCLE;
+        if (w1 < -MAX_SLEEP_CHANGE_PER_CYCLE) w1 = -MAX_SLEEP_CHANGE_PER_CYCLE;
+
         uint32_t idx_1 = (current_slot - 1 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
         int64_t val_1 = (int64_t)dynamic_slot_sleep_us[idx_1];
         int64_t new_val_1 = val_1 + w1;
         
-        // Clamp
+        // Clamp Absolute
         if (new_val_1 < MIN_SLEEP_US) new_val_1 = MIN_SLEEP_US;
         if (new_val_1 > MAX_SLEEP_US) new_val_1 = MAX_SLEEP_US;
         
@@ -208,11 +219,15 @@ static void apply_diffusive_backward_control(uint32_t current_slot, int64_t adju
     // 2. Pre-Previous Slot (N-2) - 30%
     int64_t w2 = (adjustment * 3) / 10;
     if (w2 != 0) {
+        // Clamp Change
+        if (w2 > MAX_SLEEP_CHANGE_PER_CYCLE) w2 = MAX_SLEEP_CHANGE_PER_CYCLE;
+        if (w2 < -MAX_SLEEP_CHANGE_PER_CYCLE) w2 = -MAX_SLEEP_CHANGE_PER_CYCLE;
+
         uint32_t idx_2 = (current_slot - 2 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
         int64_t val_2 = (int64_t)dynamic_slot_sleep_us[idx_2];
         int64_t new_val_2 = val_2 + w2;
         
-        // Clamp
+        // Clamp Absolute
         if (new_val_2 < MIN_SLEEP_US) new_val_2 = MIN_SLEEP_US;
         if (new_val_2 > MAX_SLEEP_US) new_val_2 = MAX_SLEEP_US;
         
@@ -222,18 +237,22 @@ static void apply_diffusive_backward_control(uint32_t current_slot, int64_t adju
     // 3. Pre-Pre-Previous Slot (N-3) - 20%
     int64_t w3 = (adjustment * 2) / 10;
     if (w3 != 0) {
+        // Clamp Change
+        if (w3 > MAX_SLEEP_CHANGE_PER_CYCLE) w3 = MAX_SLEEP_CHANGE_PER_CYCLE;
+        if (w3 < -MAX_SLEEP_CHANGE_PER_CYCLE) w3 = -MAX_SLEEP_CHANGE_PER_CYCLE;
+
         uint32_t idx_3 = (current_slot - 3 + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
         int64_t val_3 = (int64_t)dynamic_slot_sleep_us[idx_3];
         int64_t new_val_3 = val_3 + w3;
         
-        // Clamp
+        // Clamp Absolute
         if (new_val_3 < MIN_SLEEP_US) new_val_3 = MIN_SLEEP_US;
         if (new_val_3 > MAX_SLEEP_US) new_val_3 = MAX_SLEEP_US;
         
         dynamic_slot_sleep_us[idx_3] = (uint32_t)new_val_3;
     }
 
-    NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING] Diffusive Backward: Adj=%ld (N-1:%+ld, N-2:%+ld, N-3:%+ld)\n", 
+    NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[TIMING] Soft Landing: Adj=%ld (N-1:%+ld, N-2:%+ld, N-3:%+ld)\n", 
         adjustment, w1, w2, w3);
 }
 
@@ -260,11 +279,8 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
     if (trigger_late) {
         // Debt Calculation: (Late + Target)
         int64_t gross_debt = (int64_t)(max_late + TARGET_MARGIN_US);
-        // Gain: 80%
-        correction = -(gross_debt * 2) / 10;
-        
-        // Cap single-cycle correction to prevent shocks
-        // if (correction < -500) correction = -500;
+        // Gain: 100% (Let the Limiter handle the dampening)
+        correction = -gross_debt;
         
         apply_diffusive_backward_control(current_slot, correction);
     }
@@ -273,11 +289,10 @@ int64_t vnf_p7_critical_correction(uint32_t current_slot, int is_dl)
         // Surplus Calculation
         int64_t abs_min_early = llabs((int64_t)min_early);
         int64_t margin = (abs_min_early - TIMING_WINDOW_US);
-        // Gain: 50% (Conservative)
-        correction = (margin * 2) / 10;
+        // Gain: 50%
+        correction = (margin * 5) / 10;
         
-        // if (correction > 500) correction = 500;
-        
+        // No cap needed here, apply_diffusive_backward_control will clamp it to +20 per slot
         apply_diffusive_backward_control(current_slot, correction);
     }
     
