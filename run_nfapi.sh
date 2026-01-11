@@ -5,9 +5,9 @@
 # Usage: ./run_nfapi.sh <MODE> [AUTO_STOP]
 #===============================================================================
 # local: ~/oai_mp_f_ming/openairinterface5g
-# local-orig: ~/oai_mp_f_ming_2025w44/openairinterface5g
+# local-orig: ~/oai_mp_f_ming_develop_latest/openairinterface5g
 # split: hpe:~/openairinterface5g
-# split-orig: hpe:~/openairinterface5g-2025w44
+# split-orig: hpe:~/openairinterface5g-develop-latest
 #-------------------------------------------------------------------------------
 
 # Colors for output
@@ -28,13 +28,13 @@ show_help() {
     echo ""
     echo "MODES:"
     echo "  local         - Run VNF + PNF locally (oai_mp_f_ming path)"
-    echo "  local-orig    - Run VNF + PNF locally (oai_mp_f_ming_2025w44 - original path)"
+    echo "  local-orig    - Run VNF + PNF locally (oai_mp_f_ming_develop_latest - original path)"
     echo "  split         - Run VNF on HPE + PNF locally (oai_mp_f_ming path)"
-    echo "  split-orig    - Run VNF on HPE + PNF locally (oai_mp_f_ming_2025w44 - original path)"
+    echo "  split-orig    - Run VNF on HPE + PNF locally (oai_mp_f_ming_develop_latest - original path)"
     echo "  vnf           - Run VNF only locally (oai_mp_f_ming path)"
-    echo "  vnf-orig      - Run VNF only locally (oai_mp_f_ming_2025w44 - original path)"
+    echo "  vnf-orig      - Run VNF only locally (oai_mp_f_ming_develop_latest - original path)"
     echo "  pnf           - Run PNF only locally (oai_mp_f_ming path)"
-    echo "  pnf-orig      - Run PNF only locally (oai_mp_f_ming_2025w44 - original path)"
+    echo "  pnf-orig      - Run PNF only locally (oai_mp_f_ming_develop_latest - original path)"
     echo "  help          - Show this help message"
     echo ""
     echo "OPTIONS:"
@@ -42,9 +42,9 @@ show_help() {
     echo "                  1: Auto-stop after 120 seconds"
     echo ""
     echo "LOG FILES:"
-    echo "  PNF Log:       \$HOME/gNB-logs/nfapi-PNF-pegatron-localcn-2025.w44-f-ming-develop.log"
-    echo "  PNF Split Log: \$HOME/gNB-logs/nfapi-PNF-Split-pegatron-localcn-2025.w44-f-ming-develop.log"
-    echo "  VNF Log:       \$HOME/gNB-logs/nfapi-VNF-pegatron-localcn-2025.w44-ming-develop.log"
+    echo "  PNF Log:       \$HOME/gNB-logs/nfapi-PNF-pegatron-localcn-2025.w52-f-ming-develop.log"
+    echo "  PNF Split Log: \$HOME/gNB-logs/nfapi-PNF-Split-pegatron-localcn-2025.w52-f-ming-develop.log"
+    echo "  VNF Log:       \$HOME/gNB-logs/nfapi-VNF-pegatron-localcn-2025.w52-ming-develop.log"
     echo "==============================================================================="
     exit 0
 }
@@ -59,9 +59,9 @@ fi
 
 # Path configurations
 PATH_MING="oai_mp_f_ming/openairinterface5g"
-PATH_ORIG="oai_mp_f_ming_2025w44/openairinterface5g"
+PATH_ORIG="oai_mp_f_ming_develop_latest/openairinterface5g"
 PATH_HPE="openairinterface5g"
-PATH_HPE_ORIG="openairinterface5g-2025w44"
+PATH_HPE_ORIG="openairinterface5g-develop-latest"
 
 # Configuration file paths (relative to build directory)
 CONF_VNF="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-vnf.sa.band78.273prb.nfapi-bmw.conf"
@@ -77,7 +77,7 @@ LOG_DIR=~/gNB-logs
 mkdir -p "$LOG_DIR"
 
 # Fixed date tag for log filename
-DATE_TAG="2025.w44"
+DATE_TAG="develop-latest"
 
 #-------------------------------------------------------------------------------
 # Function: Compile the project

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configuration parameters
-TARGET_IP="192.168.9.9"
+TARGET_IP="192.168.109.9"
 USER="padmin"
 PASS="Pega@2025"
 NMAP_CMD="nmap -p 1-65535 -sS $TARGET_IP"

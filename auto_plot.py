@@ -126,8 +126,8 @@ def run_workflow(tag_prefix, proto, bw, script_path):
     full_suffix = f"{tag_prefix}-iperf-{proto}-{bw}"
     print(f"\n{Colors.GREEN}🚀 開始任務: {bw} ({proto}) | Suffix: {full_suffix}{Colors.RESET}")
 
-    vnf_file = f"vnf-pegatron-localcn-2025w44-{full_suffix}.log"
-    pnf_file = f"pnf-pegatron-localcn-2025w44-{full_suffix}.log"
+    vnf_file = f"vnf-pegatron-localcn-develop-latest-{full_suffix}.log"
+    pnf_file = f"pnf-pegatron-localcn-develop-latest-{full_suffix}.log"
     measure_file = f"m-{full_suffix}.txt"
 
     local_vnf_path = os.path.join(RAW_DATA_DIR, vnf_file)
