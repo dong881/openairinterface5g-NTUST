@@ -510,6 +510,10 @@ typedef struct NR_UE_harq {
   uint8_t round;
   uint16_t feedback_frame;
   uint16_t feedback_slot;
+  // HARQ timing tracking: timestamp of initial transmission (nanoseconds since epoch)
+  int64_t tx_start_time_ns;
+  int initial_tx_frame;
+  int initial_tx_slot;
 
   /* Transport block to be sent using this HARQ process */
   byte_array_t transportBlock;

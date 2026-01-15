@@ -897,7 +897,35 @@ int phy_cqi_indication(struct nfapi_vnf_p7_config *config, nfapi_cqi_indication_
 
 //NR phy indication
 
+// ============================================================================
+// VNF Timing Instrumentation - Global Variables
+// For tracking time spent in each stage of the NR NFAPI scheduling path
+// ============================================================================
+extern void log_mmap_entry(const char *log_name, int frame_tx, int slot_tx, const char *msg);
 
+// Global timing variables for NR NFAPI mode timing analysis
+// These track timestamps (in microseconds) at various checkpoints
+struct vnf_timing_stats {
+    struct timespec trigger_sched_start;     // Start of trigger_scheduler
+    struct timespec scheduler_end;           // End of gNB_dlsch_ulsch_scheduler
+    struct timespec dl_tti_pack_start;       // Start of DL_TTI packing
+    struct timespec dl_tti_pack_end;         // End of DL_TTI packing
+    struct timespec ul_tti_pack_start;       // Start of UL_TTI packing
+    struct timespec ul_tti_pack_end;         // End of UL_TTI packing
+    struct timespec tx_data_pack_start;      // Start of TX_DATA packing
+    struct timespec tx_data_pack_end;        // End of TX_DATA packing
+    struct timespec ul_dci_pack_start;       // Start of UL_DCI packing
+    struct timespec ul_dci_pack_end;         // End of UL_DCI packing
+    struct timespec trigger_sched_end;       // End of trigger_scheduler (all messages sent)
+    uint16_t current_sfn;
+    uint8_t current_slot;
+    bool valid;  // Indicates if current slot has valid timing data
+} vnf_timing = {0};
+// Helper function to calculate elapsed time in microseconds
+static inline long calc_elapsed_us(struct timespec *start, struct timespec *end) {
+  return (end->tv_sec - start->tv_sec) * 1000000L + 
+  (end->tv_nsec - start->tv_nsec) / 1000L;
+}
 int oai_nfapi_dl_tti_req(nfapi_nr_dl_tti_request_t *dl_config_req);
 int oai_nfapi_ul_tti_req(nfapi_nr_ul_tti_request_t *ul_tti_req);
 int oai_nfapi_tx_data_req(nfapi_nr_tx_data_request_t* tx_data_req);
@@ -906,13 +934,20 @@ int oai_nfapi_ul_dci_req(nfapi_nr_ul_dci_request_t* ul_dci_req);
 int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
 {
   LOG_D(MAC, "VNF SFN/Slot %d.%d \n", ind->sfn, ind->slot);
-
+  char print_info[128];
+  clock_gettime(CLOCK_MONOTONIC, &vnf_timing.trigger_sched_start);
   // this variable is very big (multiple MB), so we put it into static storage
   // to not overflow the stack while still having it in local (function) scope
   // also, phy_nr_slot_indication() is only executed by one thread, serially
   static NR_Sched_Rsp_t sched_response;
   NR_IF_Module_t *ifi = RC.nrmac[0]->if_inst;
   ifi->NR_slot_indication(ind, &sched_response);
+  clock_gettime(CLOCK_MONOTONIC, &vnf_timing.scheduler_end);
+  long sched_time_us = calc_elapsed_us(&vnf_timing.trigger_sched_start, &vnf_timing.scheduler_end);
+  if (sched_time_us > 0) {
+    snprintf(print_info, sizeof(print_info), "[SCHED]%ld", sched_time_us);
+    log_mmap_entry("nfapi_path.txt", ind->sfn, ind->slot, print_info);
+  }
 
 #ifdef ENABLE_AERIAL
     bool send_slt_resp = false;
@@ -936,17 +971,49 @@ int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
       oai_fapi_send_end_request(0, ind->sfn, ind->slot);
     }
 #else
-  if (sched_response.DL_req.dl_tti_request_body.nPDUs > 0)
+  if (sched_response.DL_req.dl_tti_request_body.nPDUs > 0){
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.dl_tti_pack_start);
     oai_nfapi_dl_tti_req(&sched_response.DL_req);
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.dl_tti_pack_end);
+    long dl_tti_time_us = calc_elapsed_us(&vnf_timing.dl_tti_pack_start, &vnf_timing.dl_tti_pack_end);
+    if (dl_tti_time_us > 0) {
+      snprintf(print_info, sizeof(print_info), "[DL_TTI]%ld", dl_tti_time_us);
+      log_mmap_entry("nfapi_path.txt", ind->sfn, ind->slot, print_info);
+    }
+  }
 
-  if (sched_response.UL_tti_req.n_pdus > 0)
+  if (sched_response.UL_tti_req.n_pdus > 0){
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.ul_tti_pack_start);
     oai_nfapi_ul_tti_req(&sched_response.UL_tti_req);
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.ul_tti_pack_end);
+    long ul_tti_time_us = calc_elapsed_us(&vnf_timing.ul_tti_pack_start, &vnf_timing.ul_tti_pack_end);
+    if (ul_tti_time_us > 0) {
+      snprintf(print_info, sizeof(print_info), "[UL_TTI]%ld", ul_tti_time_us);
+      log_mmap_entry("nfapi_path.txt", ind->sfn, ind->slot, print_info);
+    }
+  }
 
-  if (sched_response.TX_req.Number_of_PDUs > 0)
+  if (sched_response.TX_req.Number_of_PDUs > 0) {
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.tx_data_pack_start);
     oai_nfapi_tx_data_req(&sched_response.TX_req);
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.tx_data_pack_end);
+    long tx_data_time_us = calc_elapsed_us(&vnf_timing.tx_data_pack_start, &vnf_timing.tx_data_pack_end);
+    if (tx_data_time_us > 0) {
+      snprintf(print_info, sizeof(print_info), "[TX_DATA]%ld", tx_data_time_us);
+      log_mmap_entry("nfapi_path.txt", ind->sfn, ind->slot, print_info);
+    }
+  }
 
-  if (sched_response.UL_dci_req.numPdus > 0)
+  if (sched_response.UL_dci_req.numPdus > 0) {
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.ul_dci_pack_start);
     oai_nfapi_ul_dci_req(&sched_response.UL_dci_req);
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.ul_dci_pack_end);
+    long ul_dci_time_us = calc_elapsed_us(&vnf_timing.ul_dci_pack_start, &vnf_timing.ul_dci_pack_end);
+    if (ul_dci_time_us > 0) {
+      snprintf(print_info, sizeof(print_info), "[UL_DCI]%ld", ul_dci_time_us);
+      log_mmap_entry("nfapi_path.txt", ind->sfn, ind->slot, print_info);
+    }
+  }
 #endif
 
   /* the below works because the function behind the callback collects
@@ -955,6 +1022,13 @@ int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
    * into the scheduler separately for each message instead of one big one. */
   NR_UL_IND_t ul_ind = {.frame = ind->sfn, .slot = ind->slot, };
   ifi->NR_UL_indication(&ul_ind);
+  // ===== TIMING CHECKPOINT: End of phy_nr_slot_indication (total path) =====
+  clock_gettime(CLOCK_MONOTONIC, &vnf_timing.trigger_sched_end);
+  long total_time_us = calc_elapsed_us(&vnf_timing.trigger_sched_start, &vnf_timing.trigger_sched_end);
+  if (total_time_us > 0) {
+    snprintf(print_info, sizeof(print_info), "[TOTAL]%ld", total_time_us);
+    log_mmap_entry("nfapi_path.txt", ind->sfn, ind->slot, print_info);
+  }
 
   return 1;
 }
