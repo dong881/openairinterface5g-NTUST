@@ -42,6 +42,7 @@
 /*Softmodem params*/
 #include "executables/softmodem-common.h"
 #include "../../../nfapi/oai_integration/vendor_ext.h"
+extern void log_mmap_entry(const char *log_name, int frame_tx, int slot_tx, const char *msg);
 
 ////////////////////////////////////////////////////////
 /////* DLSCH MAC PDU generation (6.1.2 TS 38.321) */////
@@ -935,6 +936,9 @@ static void pf_dl(gNB_MAC_INST *mac,
     for (int rb = bwp_start; rb < sched_pdsch.rbSize; rb++)
       rballoc_mask[rb + sched_pdsch.rbStart] |= slbitmap;
 
+    char print_info[64];
+    snprintf(print_info, sizeof(print_info), "[%04x] DLPRB:%d", iterator->UE->rnti, sched_pdsch.rbSize);
+    log_mmap_entry("vnf-prb.txt", frame , slot , print_info);
     remainUEs[beam.idx]--;
     iterator++;
   }
@@ -1088,7 +1092,18 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pdsch, NR_UE
   NR_UE_harq_t *harq = &sched_ctrl->harq_processes[current_harq_pid];
   NR_sched_pucch_t *pucch = NULL;
   DevAssert(!harq->is_waiting);
-  if (sched_pdsch->pucch_allocation >= 0) {
+
+  // Record initial transmission time for HARQ timing tracking
+  if (harq->round == 0) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    harq->tx_start_time_ns = (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+    harq->initial_tx_frame = frame;
+    harq->initial_tx_slot = slot;
+  }
+  if (sched_pdsch->pucch_allocation < 0) {
+    finish_nr_dl_harq(sched_ctrl, current_harq_pid);
+  } else {
     pucch = &sched_ctrl->sched_pucch[sched_pdsch->pucch_allocation];
     add_tail_nr_list(&sched_ctrl->feedback_dl_harq, current_harq_pid);
     harq->feedback_frame = pucch->frame;

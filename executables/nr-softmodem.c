@@ -827,6 +827,9 @@ void cleanup_mmap_logger(void)
   }
 }
 int main( int argc, char **argv ) {
+  init_mmap_logger("vnf-prb.txt");
+  init_mmap_logger("nfapi_path.txt");
+  init_mmap_logger("harq_timing.txt");
   int ru_id, CC_id = 0;
   start_background_system();
 
