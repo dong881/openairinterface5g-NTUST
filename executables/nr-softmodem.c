@@ -512,6 +512,323 @@ static void initialize_agent(ngran_node_t node_type, e2_agent_args_t oai_args)
 
 void init_eNB_afterRU(void);
 configmodule_interface_t *uniqCfg = NULL;
+// char *print_str;
+// asprintf(&print_str, "");
+// log_mmap_entry("", sfn, slot, print_str);
+// free(print_str);
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <time.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <pthread.h>
+#include <signal.h>
+#include <dirent.h>
+
+// Log file parameters
+// Set to 50MB per split file
+#define SPLIT_LOG_SIZE (50 * 1024 * 1024)
+#define MAX_LOG_FILES 16
+#define MAX_SPLIT_INDEX 999
+#define LOG_OUTPUT_DIR "logs"
+#define LOG_HASH_SIZE 32
+
+typedef struct {
+  char base_filename[64];
+  char current_filepath[128];
+  char *log_ptr;
+  size_t log_offset;
+  size_t current_log_size;
+  int log_fd;
+  int is_active;
+  int current_split_index;
+  pthread_spinlock_t lock;
+} mmap_log_file_t;
+
+static mmap_log_file_t log_files[MAX_LOG_FILES] = {0};
+static int num_log_files = 0;
+static int log_dir_created = 0;
+static int log_hash_table[LOG_HASH_SIZE];
+static int log_hash_initialized = 0;
+
+// Cleanup function prototype
+void cleanup_mmap_logger(void);
+
+// Simple hash function for filename lookup
+static inline unsigned int hash_filename(const char *name)
+{
+  unsigned int h = 5381;
+  while (*name)
+    h = ((h << 5) + h) + (unsigned char)*name++;
+  return h % LOG_HASH_SIZE;
+}
+
+// Fast log ID lookup with thread-local cache
+static inline int find_log_id(const char *log_name)
+{
+  static __thread const char *cached_name = NULL;
+  static __thread int cached_id = -1;
+
+  // Fast path: pointer comparison for repeated calls
+  if (cached_name == log_name)
+    return cached_id;
+
+  // Hash lookup
+  unsigned int h = hash_filename(log_name);
+  int id = log_hash_table[h];
+
+  if (id >= 0 && id < num_log_files &&
+      strcmp(log_files[id].base_filename, log_name) == 0) {
+    cached_name = log_name;
+    cached_id = id;
+    return id;
+  }
+
+  // Linear search fallback for hash collisions
+  for (int i = 0; i < num_log_files; i++) {
+    if (strcmp(log_files[i].base_filename, log_name) == 0) {
+      cached_name = log_name;
+      cached_id = i;
+      return i;
+    }
+  }
+  return -1;
+}
+
+// Helper function to create log directory
+static int create_log_directory(void)
+{
+  struct stat st = {0};
+  if (stat(LOG_OUTPUT_DIR, &st) == -1) {
+    if (mkdir(LOG_OUTPUT_DIR, 0755) == -1) {
+      fprintf(stderr, "Failed to create log directory: %s\n", LOG_OUTPUT_DIR);
+      return -1;
+    }
+  }
+  return 0;
+}
+
+// Helper function to clear log directory
+static void clear_log_directory(void)
+{
+  DIR *dir = opendir(LOG_OUTPUT_DIR);
+  if (dir) {
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+      // Skip current and parent directories
+      if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+        continue;
+        
+      char buf[512];
+      snprintf(buf, sizeof(buf), "%s/%s", LOG_OUTPUT_DIR, ent->d_name);
+      unlink(buf);
+    }
+    closedir(dir);
+  }
+}
+
+// Helper function to find the next available split index
+static int find_next_split_index(const char *base_filename)
+{
+  char filepath[128];
+  struct stat st;
+  int index = 0;
+  // Find the first non-existing file index
+  while (index <= MAX_SPLIT_INDEX) {
+    snprintf(filepath, sizeof(filepath), "%s/%s.%03d", LOG_OUTPUT_DIR, base_filename, index);
+    if (stat(filepath, &st) == -1) {
+      break; // File doesn't exist, use this index
+    }
+    index++;
+  }
+  return index;
+}
+
+// Helper function to generate split filename
+static void generate_split_filename(char *dest, size_t dest_size,
+                                    const char *base_filename, int split_index)
+{
+  snprintf(dest, dest_size, "%s/%s.%03d", LOG_OUTPUT_DIR, base_filename, split_index);
+}
+
+// Helper function to finalize current split file - always truncate to actual size
+static void finalize_current_split(mmap_log_file_t *log)
+{
+  if (log->log_ptr != NULL && log->log_ptr != MAP_FAILED) {
+    if (log->log_offset > 0)
+      msync(log->log_ptr, log->log_offset, MS_SYNC);
+    munmap(log->log_ptr, log->current_log_size);
+    log->log_ptr = NULL;
+  }
+
+  if (log->log_fd != -1) {
+    // Always truncate to actual written size (removes pre-allocated space)
+    ftruncate(log->log_fd, log->log_offset);
+    close(log->log_fd);
+    log->log_fd = -1;
+  }
+}
+
+// Helper function to open a new split file
+static int open_new_split(mmap_log_file_t *log)
+{
+  generate_split_filename(log->current_filepath, sizeof(log->current_filepath),
+                          log->base_filename, log->current_split_index);
+
+  log->log_fd = open(log->current_filepath, O_RDWR | O_CREAT | O_TRUNC, 0644);
+  if (log->log_fd == -1) {
+    fprintf(stderr, "Failed to open %s\n", log->current_filepath);
+    return -1;
+  }
+
+  log->current_log_size = SPLIT_LOG_SIZE;
+  if (ftruncate(log->log_fd, log->current_log_size) == -1) {
+    fprintf(stderr, "ftruncate failed for %s\n", log->current_filepath);
+    close(log->log_fd);
+    log->log_fd = -1;
+    return -1;
+  }
+
+  log->log_ptr = mmap(NULL, log->current_log_size, PROT_READ | PROT_WRITE,
+                      MAP_SHARED, log->log_fd, 0);
+  if (log->log_ptr == MAP_FAILED) {
+    fprintf(stderr, "mmap failed for %s\n", log->current_filepath);
+    close(log->log_fd);
+    log->log_fd = -1;
+    log->log_ptr = NULL;
+    return -1;
+  }
+
+  log->log_offset = 0;
+  return 0;
+}
+
+// Helper function to rotate to next split file
+static int rotate_log_file(mmap_log_file_t *log)
+{
+  finalize_current_split(log);
+
+  log->current_split_index++;
+  if (log->current_split_index > MAX_SPLIT_INDEX) {
+    fprintf(stderr, "Maximum split files reached for %s\n", log->base_filename);
+    log->is_active = 0;
+    return -1;
+  }
+
+  return open_new_split(log);
+}
+
+void init_mmap_logger(const char *filename)
+{
+  if (num_log_files >= MAX_LOG_FILES) {
+    fprintf(stderr, "Maximum number of log files reached\n");
+    return;
+  }
+
+  // Initialize hash table on first call
+  if (!log_hash_initialized) {
+    for (int i = 0; i < LOG_HASH_SIZE; i++)
+      log_hash_table[i] = -1;
+    log_hash_initialized = 1;
+  }
+
+  // Create log directory on first initialization
+  if (!log_dir_created) {
+    if (create_log_directory() == -1) {
+      return;
+    }
+    clear_log_directory();
+    log_dir_created = 1;
+  }
+
+  // Register atexit cleanup (only once)
+  // Note: Don't set our own signal handler - OAI's set_softmodem_sighandler()
+  // will override it. OAI's signal_handler calls exit() which invokes atexit handlers.
+  static int cleanup_registered = 0;
+  if (!cleanup_registered) {
+    atexit(cleanup_mmap_logger);
+    cleanup_registered = 1;
+  }
+
+  int log_id = num_log_files;
+  mmap_log_file_t *log = &log_files[log_id];
+
+  if (pthread_spin_init(&log->lock, PTHREAD_PROCESS_PRIVATE) != 0) {
+    fprintf(stderr, "Spinlock init failed\n");
+    return;
+  }
+
+  strncpy(log->base_filename, filename, sizeof(log->base_filename) - 1);
+  log->base_filename[sizeof(log->base_filename) - 1] = '\0';
+
+  // Find the next available split index to avoid overwriting existing files
+  log->current_split_index = find_next_split_index(filename);
+  log->log_offset = 0;
+  log->is_active = 1;
+
+  if (open_new_split(log) == -1) {
+    pthread_spin_destroy(&log->lock);
+    return;
+  }
+
+  // Register in hash table
+  unsigned int h = hash_filename(filename);
+  log_hash_table[h] = log_id;
+
+  num_log_files++;
+}
+
+void log_mmap_entry(const char *log_name, int frame_tx, int slot_tx, const char *msg)
+{
+  int log_id = find_log_id(log_name);
+  if (log_id < 0 || !log_files[log_id].is_active)
+    return;
+
+  mmap_log_file_t *log = &log_files[log_id];
+
+  pthread_spin_lock(&log->lock);
+
+  int msg_len = msg ? strlen(msg) : 0;
+  int estimated_len = 80 + msg_len;
+
+  // Check if rotation is needed
+  if ((log->current_log_size - log->log_offset) < (size_t)estimated_len) {
+    if (rotate_log_file(log) == -1) {
+      pthread_spin_unlock(&log->lock);
+      return;
+    }
+  }
+
+  // Fast timestamp using pre-formatted buffer
+  struct timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+
+  int written = sprintf(log->log_ptr + log->log_offset,
+                        "[%ld.%09ld] %d.%d %s\n",
+                        ts.tv_sec, ts.tv_nsec, frame_tx, slot_tx, msg ? msg : "");
+
+  if (written > 0)
+    log->log_offset += written;
+
+  pthread_spin_unlock(&log->lock);
+}
+
+// Cleanup function: sync, unmap, truncate
+void cleanup_mmap_logger(void)
+{
+  for (int i = 0; i < num_log_files; i++) {
+    mmap_log_file_t *log = &log_files[i];
+
+    if (log->is_active) {
+      log->is_active = 0;
+      finalize_current_split(log);
+      pthread_spin_destroy(&log->lock);
+    }
+  }
+}
 int main( int argc, char **argv ) {
   int ru_id, CC_id = 0;
   start_background_system();
@@ -733,7 +1050,7 @@ int main( int argc, char **argv ) {
   pthread_mutex_destroy(&sync_mutex);
   pthread_cond_destroy(&nfapi_sync_cond);
   pthread_mutex_destroy(&nfapi_sync_mutex);
-
+  cleanup_mmap_logger();
   time_manager_finish();
 
   free(pckg);
