@@ -397,18 +397,57 @@ int get_pucch_resourceid(NR_PUCCH_Config_t *pucch_Config, int O_uci, int pucch_r
   AssertFatal(resource_id != NULL, "Couldn't find any matching PUCCH resource in the PUCCH resource sets");
   return *resource_id;
 }
+// External declaration for mmap logging
+extern void log_mmap_entry(const char *log_name, int frame_tx, int slot_tx, const char *msg);
 
 static void handle_dl_harq(gNB_MAC_INST *mac, NR_UE_info_t * UE, int8_t harq_pid, bool success, int harq_round_max)
 {
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   NR_UE_harq_t *harq = &sched_ctrl->harq_processes[harq_pid];
+  // Save feedback frame/slot BEFORE resetting (bug fix)
+  int saved_fb_frame = harq->feedback_frame;
+  int saved_fb_slot = harq->feedback_slot;
   harq->feedback_slot = -1;
   harq->is_waiting = false;
+
+  // Log HARQ timing on success
+  if (success && harq->tx_start_time_ns > 0) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    int64_t current_time_ns = (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+    int64_t elapsed_us = (current_time_ns - harq->tx_start_time_ns) / 1000;
+
+    char *log_msg;
+    asprintf(&log_msg, "HARQ_SUCCESS rnti=%04x pid=%d round=%d elapsed_us=%ld tx_frame=%d tx_slot=%d fb_frame=%d fb_slot=%d",
+             UE->rnti, harq_pid, harq->round, (long)elapsed_us,
+             harq->initial_tx_frame, harq->initial_tx_slot,
+             saved_fb_frame, saved_fb_slot);
+    // log_id=5 is harq_timing.txt
+    log_mmap_entry("harq_timing.txt", saved_fb_frame, saved_fb_slot, log_msg);
+    free(log_msg);
+    harq->tx_start_time_ns = 0;  // Reset for next transmission
+  }
   if (success) {
     if (harq->sched_pdsch.action)
       harq->sched_pdsch.action(mac, UE);
     finish_nr_dl_harq(sched_ctrl, harq_pid);
   } else if (harq->round >= harq_round_max - 1) {
+    // Log HARQ failure timing
+    if (harq->tx_start_time_ns > 0) {
+      struct timespec ts;
+      clock_gettime(CLOCK_REALTIME, &ts);
+      int64_t current_time_ns = (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+      int64_t elapsed_us = (current_time_ns - harq->tx_start_time_ns) / 1000;
+
+      char *log_msg;
+      asprintf(&log_msg, "HARQ_FAILURE rnti=%04x pid=%d round=%d elapsed_us=%ld tx_frame=%d tx_slot=%d fb_frame=%d fb_slot=%d",
+               UE->rnti, harq_pid, harq->round, (long)elapsed_us,
+               harq->initial_tx_frame, harq->initial_tx_slot,
+               saved_fb_frame, saved_fb_slot);
+      log_mmap_entry("harq_timing.txt", saved_fb_frame, saved_fb_slot, log_msg);
+      free(log_msg);
+      harq->tx_start_time_ns = 0;
+    }
     abort_nr_dl_harq(UE, harq_pid);
     LOG_D(NR_MAC, "retransmission error for UE %04x (total %"PRIu64")\n", UE->rnti, UE->mac_stats.dl.errors);
   } else {

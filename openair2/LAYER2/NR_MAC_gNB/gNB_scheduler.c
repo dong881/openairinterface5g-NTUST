@@ -51,6 +51,7 @@
 
 #include <errno.h>
 #include <string.h>
+#include <time.h>
 
 uint8_t nr_get_rv(int rel_round)
 {
@@ -146,6 +147,10 @@ static void copy_ul_tti_req(nfapi_nr_ul_tti_request_t *to, nfapi_nr_ul_tti_reque
 
 void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, frame_t frame, slot_t slot, NR_Sched_Rsp_t *sched_info)
 {
+  // ===== VNF Timing Instrumentation =====
+  struct timespec ts_start, ts_end;
+  extern void log_mmap_entry(const char *log_name, int frame_tx, int slot_tx, const char *msg);
+  char timing_info[128];
   protocol_ctxt_t ctxt = {0};
   PROTOCOL_CTXT_SET_BY_MODULE_ID(&ctxt, module_idP, ENB_FLAG_YES, NOT_A_RNTI, frame, slot,module_idP);
 
@@ -182,7 +187,10 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, frame_t frame, slot_t slo
   if (gNB->print_ue_stats && (wait_prach_completed || get_softmodem_params()->phy_test) && (slot == 0) && (frame & 127) == 0) {
     char stats_output[32656] = {0};
     dump_mac_stats(gNB, stats_output, sizeof(stats_output), true);
-    LOG_I(NR_MAC, "Frame.Slot %d.%d\n%s\n", frame, slot, stats_output);
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    uint64_t timestamp_ms = (uint64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+    LOG_I(NR_MAC, "[%lu.%03lu] Frame.Slot %d.%d\n%s\n", (unsigned long)ts.tv_sec, timestamp_ms % 1000, frame, slot, stats_output);
 
     // TODO: this should be replaced with a size() operation on connected_ue_list
     int num_ue = 0;
@@ -238,22 +246,58 @@ void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, frame_t frame, slot_t slo
   // This schedule RA procedure if not in phy_test mode
   // Otherwise consider 5G already connected
   if (get_softmodem_params()->phy_test == 0) {
+    clock_gettime(CLOCK_MONOTONIC, &ts_start);
     nr_schedule_RA(module_idP, frame, slot, &sched_info->UL_dci_req, &sched_info->DL_req, &sched_info->TX_req);
+    clock_gettime(CLOCK_MONOTONIC, &ts_end);
+    long t_us = (ts_end.tv_sec - ts_start.tv_sec) * 1000000L + (ts_end.tv_nsec - ts_start.tv_nsec) / 1000L;
+    if (t_us > 0) {
+      snprintf(timing_info, sizeof(timing_info), "[RA]%ld", t_us);
+      log_mmap_entry("nfapi_path.txt", frame, slot, timing_info);
+    }
   }
 
   // This schedules the DCI for Uplink and subsequently PUSCH
+  clock_gettime(CLOCK_MONOTONIC, &ts_start);
   start_meas(&gNB->schedule_ulsch);
   nr_schedule_ulsch(module_idP, frame, slot, &sched_info->UL_dci_req);
   stop_meas(&gNB->schedule_ulsch);
-
+  
   // This schedules the DCI for Downlink and PDSCH
+  clock_gettime(CLOCK_MONOTONIC, &ts_end);
+  {
+    long t_us = (ts_end.tv_sec - ts_start.tv_sec) * 1000000L + (ts_end.tv_nsec - ts_start.tv_nsec) / 1000L;
+    if (t_us > 0) {
+      snprintf(timing_info, sizeof(timing_info), "[UL]%ld", t_us);
+      log_mmap_entry("nfapi_path.txt", frame, slot, timing_info);
+    }
+  }
+  // This schedules the DCI for Downlink and PDSCH
+  clock_gettime(CLOCK_MONOTONIC, &ts_start);
   start_meas(&gNB->schedule_dlsch);
   nr_schedule_ue_spec(module_idP, frame, slot, &sched_info->DL_req, &sched_info->TX_req);
   stop_meas(&gNB->schedule_dlsch);
+  clock_gettime(CLOCK_MONOTONIC, &ts_end);
+  {
+    long t_us = (ts_end.tv_sec - ts_start.tv_sec) * 1000000L + (ts_end.tv_nsec - ts_start.tv_nsec) / 1000L;
+    if (t_us > 0) {
+      snprintf(timing_info, sizeof(timing_info), "[DL]%ld", t_us);
+      log_mmap_entry("nfapi_path.txt", frame, slot, timing_info);
+    }
+  }
 
   nr_sr_reporting(gNB, frame, slot);
 
+  // This schedules the PUCCH Scheduling
+  clock_gettime(CLOCK_MONOTONIC, &ts_start);
   nr_schedule_pucch(gNB, frame, slot);
+  clock_gettime(CLOCK_MONOTONIC, &ts_end);
+  {
+    long t_us = (ts_end.tv_sec - ts_start.tv_sec) * 1000000L + (ts_end.tv_nsec - ts_start.tv_nsec) / 1000L;
+    if (t_us > 0) {
+      snprintf(timing_info, sizeof(timing_info), "[PUCCH]%ld", t_us);
+      log_mmap_entry("nfapi_path.txt", frame, slot, timing_info);
+    }
+  }
 
   /* TODO: we copy from gNB->UL_tti_req_ahead[0][current_index], ie. CC_id == 0,
    * is more than 1 CC supported?
