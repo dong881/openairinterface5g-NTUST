@@ -35,6 +35,7 @@
 #include "utils.h"
 #include <openair2/UTIL/OPT/opt.h>
 #include "LAYER2/nr_rlc/nr_rlc_oai_api.h"
+extern void log_mmap_entry(const char *log_name, int frame_tx, int slot_tx, const char *msg);
 
 //#define SRS_IND_DEBUG
 #define MAX_NUM_DATA_IND 1024
@@ -978,6 +979,9 @@ static void _nr_rx_sdu(const module_id_t gnb_mod_idP,
       int txpower_calc = UE_scheduling_control->ul_harq_processes[harq_pid].sched_pusch.phr_txpower_calc;
       UE->mac_stats.deltaMCS = txpower_calc;
       UE->mac_stats.NPRB = UE_scheduling_control->ul_harq_processes[harq_pid].sched_pusch.rbSize;
+      char print_info[64];
+      snprintf(print_info, sizeof(print_info), "[%04x] ULPRB:%d", UE->rnti, UE->mac_stats.NPRB);
+      log_mmap_entry("vnf-prb.txt", frameP , slotP , print_info);
       if (ul_cqi != 0xff)
         UE_scheduling_control->tpc0 = nr_get_tpc(target_snrx10, ul_cqi, 30, txpower_calc);
       if (UE_scheduling_control->ph < 0 && UE_scheduling_control->tpc0 > 1)

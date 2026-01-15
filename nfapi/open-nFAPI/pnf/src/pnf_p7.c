@@ -35,6 +35,8 @@
 
 extern int sf_ahead;
 
+extern void log_mmap_entry(const char *log_name, int frame_tx, int slot_tx, const char *msg);
+
 static void add_slot(int mu, uint16_t *frameP, uint16_t *slotP, int offset)
 {
 	uint16_t num_slots = NFAPI_SLOTNUM(mu);
@@ -696,7 +698,7 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
   pnf_p7->slot = slot;
 
   uint32_t tx_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, sfn, slot);
-  uint8_t buffer_index_tx = tx_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
+  uint16_t buffer_index_tx = tx_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
 
   // If the subframe_buffer has been configured
   if (pnf_p7->_public.slot_buffer_size != 0) // for now value is same as sf_buffer_size
@@ -730,7 +732,18 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
     ret_dl_tti->dl_tti_request_body.nPDUs = 0;
     nfapi_nr_dl_tti_request_t* dl_tti_req = &tx_slot_buffer->dl_tti_req;
     if (dl_tti_req->SFN == sfn && dl_tti_req->Slot == slot) {
+      if (tx_slot_buffer->dl_tti_req_ts.tv_sec != 0 || tx_slot_buffer->dl_tti_req_ts.tv_nsec != 0) {
+        struct timespec t_curr;
+        clock_gettime(CLOCK_MONOTONIC, &t_curr);
+        long margin = (t_curr.tv_sec - tx_slot_buffer->dl_tti_req_ts.tv_sec) * 1000000 + (t_curr.tv_nsec - tx_slot_buffer->dl_tti_req_ts.tv_nsec) / 1000;
+        char print_str[64];
+        snprintf(print_str, sizeof(print_str), "m:%ld, dl_tti_request", margin);
+        log_mmap_entry("margin.txt", sfn, slot, print_str);
+        tx_slot_buffer->dl_tti_req_ts.tv_sec = 0;
+        tx_slot_buffer->dl_tti_req_ts.tv_nsec = 0;
+      }
       copy_dl_tti_request(dl_tti_req, ret_dl_tti);
+      memset(&tx_slot_buffer->dl_tti_req, 0, sizeof(nfapi_nr_dl_tti_request_t));
       tx_slot_buffer->dl_tti_req.SFN = -1;
       tx_slot_buffer->dl_tti_req.Slot = -1;
     }
@@ -740,7 +753,18 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
     ret_tx_data->Number_of_PDUs = 0;
     nfapi_nr_tx_data_request_t* txd = &tx_slot_buffer->tx_data_req;
     if (txd->SFN == sfn && txd->Slot == slot) {
+      if (tx_slot_buffer->tx_data_req_ts.tv_sec != 0 || tx_slot_buffer->tx_data_req_ts.tv_nsec != 0) {
+        struct timespec t_curr;
+        clock_gettime(CLOCK_MONOTONIC, &t_curr);
+        long margin = (t_curr.tv_sec - tx_slot_buffer->tx_data_req_ts.tv_sec) * 1000000 + (t_curr.tv_nsec - tx_slot_buffer->tx_data_req_ts.tv_nsec) / 1000;
+        char print_str[64];
+        snprintf(print_str, sizeof(print_str), "m:%ld, tx_data_request", margin);
+        log_mmap_entry("margin.txt", sfn, slot, print_str);
+        tx_slot_buffer->tx_data_req_ts.tv_sec = 0;
+        tx_slot_buffer->tx_data_req_ts.tv_nsec = 0;
+      }
       copy_tx_data_request(txd, ret_tx_data);
+      memset(&tx_slot_buffer->tx_data_req, 0, sizeof(nfapi_nr_tx_data_request_t));
       tx_slot_buffer->tx_data_req.SFN = -1;
       tx_slot_buffer->tx_data_req.Slot = -1;
     }
@@ -749,7 +773,18 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
     ret_ul_tti->Slot = slot;
     ret_ul_tti->n_pdus = 0;
     if (tx_slot_buffer->ul_tti_req.SFN == sfn && tx_slot_buffer->ul_tti_req.Slot == slot) {
+      if (tx_slot_buffer->ul_tti_req_ts.tv_sec != 0 || tx_slot_buffer->ul_tti_req_ts.tv_nsec != 0) {
+        struct timespec t_curr;
+        clock_gettime(CLOCK_MONOTONIC, &t_curr);
+        long margin = (t_curr.tv_sec - tx_slot_buffer->ul_tti_req_ts.tv_sec) * 1000000 + (t_curr.tv_nsec - tx_slot_buffer->ul_tti_req_ts.tv_nsec) / 1000;
+        char print_str[64];
+        snprintf(print_str, sizeof(print_str), "m:%ld, ul_tti_request", margin);
+        log_mmap_entry("margin.txt", sfn, slot, print_str);
+        tx_slot_buffer->ul_tti_req_ts.tv_sec = 0;
+        tx_slot_buffer->ul_tti_req_ts.tv_nsec = 0;
+      }
       copy_ul_tti_request(&tx_slot_buffer->ul_tti_req, ret_ul_tti);
+      memset(&tx_slot_buffer->ul_tti_req, 0, sizeof(nfapi_nr_ul_tti_request_t));
       tx_slot_buffer->ul_tti_req.SFN = -1;
       tx_slot_buffer->ul_tti_req.Slot = -1;
     }
@@ -758,7 +793,18 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
     ret_ul_dci->Slot = slot;
     ret_ul_dci->numPdus = 0;
     if (tx_slot_buffer->ul_dci_req.SFN == sfn && tx_slot_buffer->ul_dci_req.Slot == slot) {
+      if (tx_slot_buffer->ul_dci_req_ts.tv_sec != 0 || tx_slot_buffer->ul_dci_req_ts.tv_nsec != 0) {
+        struct timespec t_curr;
+        clock_gettime(CLOCK_MONOTONIC, &t_curr);
+        long margin = (t_curr.tv_sec - tx_slot_buffer->ul_dci_req_ts.tv_sec) * 1000000 + (t_curr.tv_nsec - tx_slot_buffer->ul_dci_req_ts.tv_nsec) / 1000;
+        char print_str[64];
+        snprintf(print_str, sizeof(print_str), "m:%ld, ul_dci_request", margin);
+        log_mmap_entry("margin.txt", sfn, slot, print_str);
+        tx_slot_buffer->ul_dci_req_ts.tv_sec = 0;
+        tx_slot_buffer->ul_dci_req_ts.tv_nsec = 0;
+      }
       copy_ul_dci_request(&tx_slot_buffer->ul_dci_req, ret_ul_dci);
+      memset(&tx_slot_buffer->ul_dci_req, 0, sizeof(nfapi_nr_ul_dci_request_t));
       tx_slot_buffer->ul_dci_req.SFN = -1;
       tx_slot_buffer->ul_dci_req.Slot = -1;
     }
@@ -1194,10 +1240,31 @@ void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
     if (check_nr_nfapi_p7_slot_type(frame, slot, "DL_TTI.request", NR_DOWNLINK_SLOT)
         && is_nr_p7_request_in_window(frame, slot, "dl_tti_request", pnf_p7)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
-      uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
+      uint32_t curr_sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, pnf_p7->sfn, pnf_p7->slot);
+      int diff = curr_sfn_slot_dec - sfn_slot_dec;
+      if (diff > NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu) / 2) {
+        diff -= NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
+      } else if (diff < -(int)(NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu) / 2)) {
+        diff += NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
+      }
+
+      uint16_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
+
+      if (diff > 0) {
+        long margin = -(diff * (1000 / (1 << pnf_p7->mu)));
+        char print_str[64];
+        snprintf(print_str, sizeof(print_str), "m:%ld, dl_tti_request", margin);
+        log_mmap_entry("margin.txt", frame, slot, print_str);
+		pnf_p7->slot_buffer[buffer_index].dl_tti_req_ts.tv_sec = 0;
+		pnf_p7->slot_buffer[buffer_index].dl_tti_req_ts.tv_nsec = 0;
+      } else {
+        clock_gettime(CLOCK_MONOTONIC, &pnf_p7->slot_buffer[buffer_index].dl_tti_req_ts);
+      }
+
       pnf_p7->slot_buffer[buffer_index].sfn = frame;
       pnf_p7->slot_buffer[buffer_index].slot = slot;
       nfapi_nr_dl_tti_request_t *req = &pnf_p7->slot_buffer[buffer_index].dl_tti_req;
+      memset(req, 0, sizeof(nfapi_nr_dl_tti_request_t));
       pnf_p7->nr_stats.dl_tti.ontime++;
 
       NFAPI_TRACE(NFAPI_TRACE_DEBUG,
@@ -1327,10 +1394,31 @@ void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
     if (check_nr_nfapi_p7_slot_type(frame, slot, "UL_TTI.request", NR_UPLINK_SLOT)
         && is_nr_p7_request_in_window(frame, slot, "ul_tti_request", pnf_p7)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
-      uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
+      uint32_t curr_sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, pnf_p7->sfn, pnf_p7->slot);
+      int diff = curr_sfn_slot_dec - sfn_slot_dec;
+      if (diff > NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu) / 2) {
+        diff -= NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
+      } else if (diff < -(int)(NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu) / 2)) {
+        diff += NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
+      }
+
+      uint16_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
+
+      if (diff > 0) {
+        long margin = -(diff * (1000 / (1 << pnf_p7->mu)));
+        char print_str[64];
+        snprintf(print_str, sizeof(print_str), "m:%ld, ul_tti_request", margin);
+        log_mmap_entry("margin.txt", frame, slot, print_str);
+		pnf_p7->slot_buffer[buffer_index].ul_tti_req_ts.tv_sec = 0;
+		pnf_p7->slot_buffer[buffer_index].ul_tti_req_ts.tv_nsec = 0;
+      } else {
+        clock_gettime(CLOCK_MONOTONIC, &pnf_p7->slot_buffer[buffer_index].ul_tti_req_ts);
+      }
+
       pnf_p7->slot_buffer[buffer_index].sfn = frame;
       pnf_p7->slot_buffer[buffer_index].slot = slot;
       nfapi_nr_ul_tti_request_t* req = &pnf_p7->slot_buffer[buffer_index].ul_tti_req;
+      memset(req, 0, sizeof(nfapi_nr_ul_tti_request_t));
       pnf_p7->nr_stats.ul_tti.ontime++;
 
       NFAPI_TRACE(NFAPI_TRACE_DEBUG,
@@ -1446,10 +1534,31 @@ void pnf_handle_ul_dci_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
     if (check_nr_nfapi_p7_slot_type(frame, slot, "UL_DCI.request", NR_DOWNLINK_SLOT)
         && is_nr_p7_request_in_window(frame, slot, "ul_dci_request", pnf_p7)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
-      uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
+      uint32_t curr_sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, pnf_p7->sfn, pnf_p7->slot);
+      int diff = curr_sfn_slot_dec - sfn_slot_dec;
+      if (diff > NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu) / 2) {
+        diff -= NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
+      } else if (diff < -(int)(NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu) / 2)) {
+        diff += NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
+      }
+
+      uint16_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
+
+      if (diff > 0) {
+        long margin = -(diff * (1000 / (1 << pnf_p7->mu)));
+        char print_str[64];
+        snprintf(print_str, sizeof(print_str), "m:%ld, ul_dci_request", margin);
+        log_mmap_entry("margin.txt", frame, slot, print_str);
+		pnf_p7->slot_buffer[buffer_index].ul_dci_req_ts.tv_sec = 0;
+		pnf_p7->slot_buffer[buffer_index].ul_dci_req_ts.tv_nsec = 0;
+      } else {
+        clock_gettime(CLOCK_MONOTONIC, &pnf_p7->slot_buffer[buffer_index].ul_dci_req_ts);
+      }
+
       pnf_p7->slot_buffer[buffer_index].sfn = frame;
       pnf_p7->slot_buffer[buffer_index].slot = slot;
       nfapi_nr_ul_dci_request_t *req = &pnf_p7->slot_buffer[buffer_index].ul_dci_req;
+      memset(req, 0, sizeof(nfapi_nr_ul_dci_request_t));
       pnf_p7->nr_stats.ul_dci.ontime++;
 
       NFAPI_TRACE(NFAPI_TRACE_DEBUG,
@@ -1559,10 +1668,31 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
     if (check_nr_nfapi_p7_slot_type(frame, slot, "TX_DATA.REQUEST", NR_DOWNLINK_SLOT)
         && is_nr_p7_request_in_window(frame, slot, "tx_request", pnf_p7)) {
       uint32_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, frame, slot);
-      uint8_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu); // TODO where is buffer length?
+      uint32_t curr_sfn_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, pnf_p7->sfn, pnf_p7->slot);
+      int diff = curr_sfn_slot_dec - sfn_slot_dec;
+      if (diff > NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu) / 2) {
+        diff -= NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
+      } else if (diff < -(int)(NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu) / 2)) {
+        diff += NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
+      }
+
+      uint16_t buffer_index = sfn_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu); // TODO where is buffer length?
+
+      if (diff > 0) {
+        long margin = -(diff * (1000 / (1 << pnf_p7->mu)));
+        char print_str[64];
+        snprintf(print_str, sizeof(print_str), "m:%ld, tx_data_request", margin);
+        log_mmap_entry("margin.txt", frame, slot, print_str);
+		pnf_p7->slot_buffer[buffer_index].tx_data_req_ts.tv_sec = 0	;
+		pnf_p7->slot_buffer[buffer_index].tx_data_req_ts.tv_nsec = 0;
+      } else {
+        clock_gettime(CLOCK_MONOTONIC, &pnf_p7->slot_buffer[buffer_index].tx_data_req_ts);
+      }
+
       pnf_p7->slot_buffer[buffer_index].sfn = frame;
       pnf_p7->slot_buffer[buffer_index].slot = slot;
       nfapi_nr_tx_data_request_t *req = &pnf_p7->slot_buffer[buffer_index].tx_data_req;
+      memset(req, 0, sizeof(nfapi_nr_tx_data_request_t));
       pnf_p7->nr_stats.tx_data.ontime++;
 
       NFAPI_TRACE(NFAPI_TRACE_DEBUG,

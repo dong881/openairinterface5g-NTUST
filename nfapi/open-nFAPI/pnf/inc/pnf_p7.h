@@ -96,7 +96,8 @@ typedef struct pnf_p7_s {
 	pthread_mutex_t pack_mutex; // should we allow the client to specifiy
 
 	nfapi_pnf_p7_subframe_buffer_t subframe_buffer[30/*NFAPI_MAX_TIMING_WINDOW_SIZE*/];
-    nfapi_pnf_p7_slot_buffer_t slot_buffer[30/*NFAPI_MAX_TIMING_WINDOW_SIZE*/];
+	// nfapi_pnf_p7_slot_buffer_t slot_buffer[NFAPI_P7_SLOT_BUFFER_SIZE];
+	nfapi_pnf_p7_slot_buffer_t* slot_buffer;
 	uint32_t sequence_number;
 	uint16_t max_num_segments;
 

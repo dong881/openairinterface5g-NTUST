@@ -1742,6 +1742,14 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nf
   DevAssert(scs->tl.tag == NFAPI_NR_CONFIG_SCS_COMMON_TAG);
   pnf_p7_t* pnf_p7 = (pnf_p7_t*)(p7_config);
   pnf_p7->mu = scs->value;
+  // user requested automatic sizing based on mu
+  // Allocate slot buffer
+  uint16_t num_slots = NFAPI_SLOTNUM(pnf_p7->mu);
+  printf("[PNF] Allocating slot_buffer for mu %d (%d slots)\n", pnf_p7->mu, num_slots);
+  if (pnf_p7->slot_buffer)
+    free(pnf_p7->slot_buffer);
+  
+  pnf_p7->slot_buffer = (nfapi_pnf_p7_slot_buffer_t*) calloc(num_slots, sizeof(nfapi_pnf_p7_slot_buffer_t));
 
   // Need to wait for main thread to create RU structures
   while (config_sync_var < 0) {

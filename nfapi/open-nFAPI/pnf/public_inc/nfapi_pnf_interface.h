@@ -637,6 +637,11 @@ typedef struct
 	nfapi_nr_ul_dci_request_t  ul_dci_req;
 	nfapi_nr_tx_data_request_t tx_data_req;
 
+	struct timespec dl_tti_req_ts;
+	struct timespec ul_tti_req_ts;
+	struct timespec ul_dci_req_ts;
+	struct timespec tx_data_req_ts;
+
 	//TODO: check these two later
 	//nfapi_lbt_dl_config_request_t* lbt_dl_config_req;
 	//nfapi_ue_release_request_t* ue_release_req;

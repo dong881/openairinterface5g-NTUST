@@ -27,6 +27,7 @@ nfapi_pnf_p7_config_t* nfapi_pnf_p7_config_create()
   if (_this == NULL || rc != 0)
     return 0;
 
+  memset(_this, 0, sizeof(pnf_p7_t));
 
 	// set the default parameters
 	_this->_public.segment_size = 65000; // UDP max packet size is 65535

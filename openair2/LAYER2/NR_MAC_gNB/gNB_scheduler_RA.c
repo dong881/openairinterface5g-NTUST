@@ -1957,12 +1957,16 @@ static void nr_generate_Msg4_MsgB(module_id_t module_idP,
     }
 
     ra->ra_state = nrRA_WAIT_Msg4_MsgB_ACK;
+    int k1_val = (pucch->frame * n_slots_frame + pucch->ul_slot) - (frameP * n_slots_frame + slotP);
     LOG_I(NR_MAC,
-          "UE %04x Generate %s: feedback at %4d.%2d, payload %d bytes, next state nrRA_WAIT_Msg4_MsgB_ACK\n",
+          "UE %04x Generate %s: sent at %4d.%2d, feedback at %4d.%2d, K1 = %d, payload %d bytes, next state nrRA_WAIT_Msg4_MsgB_ACK\n",
           UE->rnti,
           ra_type_str,
+          frameP,
+          slotP,
           pucch->frame,
           pucch->ul_slot,
+          k1_val,
           harq->tb_size);
   }
 }
