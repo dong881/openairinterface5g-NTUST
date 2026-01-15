@@ -19,9 +19,27 @@
 #define _VNF_P7_H_
 
 #include "nfapi_vnf_interface.h"
+#include <stdatomic.h>
 #define TIMEHR_SEC(_time_hr) ((uint32_t)(_time_hr) >> 20)
 #define TIMEHR_USEC(_time_hr) ((uint32_t)(_time_hr) & 0xFFFFF)
 #define TIME2TIMEHR(_time) (((uint32_t)(_time.tv_sec) & 0xFFF) << 20 | ((uint32_t)(_time.tv_usec) & 0xFFFFF))
+/* ============================================================================
+ * DYNAMIC SLOT SLEEP TIMING CONTROL CONSTANTS
+ * ============================================================================ */
+/* Dynamic Target Margin (adaptive to avoid late packets) */
+#define TARGET_MARGIN_INITIAL   300   // Initial target safety margin
+#define TARGET_MARGIN_MAX       800   // Maximum target margin
+#define TARGET_MARGIN_STEP      50    // Step size when late detected
+#define TARGET_MARGIN_DECAY     1     // Decay step when healthy
+extern int32_t target_margin_us;      // Dynamic TARGET_MARGIN variable
+#define MARGIN_TOLERANCE_US     50    // Deadband zone: +/- MARGIN_TOLERANCE_US us
+#define JITTER_THRESHOLD_US     200   // High/Low jitter boundary
+#define MAX_PASS3_ADJUST_US     450    // Maximum Pass 3 adjustment per cycle
+#define MIN_SLEEP_US            50    // Minimum allowable sleep time
+#define MAX_SLEEP_US            950  // Maximum allowable sleep time
+#define MAX_BORROW_DEPTH        4     // Maximum backward/forward borrow depth
+#define SLOT_ARRAY_SIZE         20    // TDD cycle slot count (Reduced to 20 for faster convergence)
+#define DEFAULT_SLOT_SLEEP_US   500   // Initial sleep value for all slots
 
 
 typedef struct {
@@ -80,19 +98,31 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t slot_offset_filtered;
 	uint16_t zero_count;
 	int32_t adjustment;
+	int32_t slot_adjustment;
+	int32_t us_adjustment;
 	int32_t insync_minor_adjustment;
 	int32_t insync_minor_adjustment_duration;
+	uint8_t sync_locked;  // Flag: once offset converges within ±10, permanently stop adjusting
+	/* Periodic sync control */
+	uint32_t sync_slot_counter;                // Counter for periodic sync
+	uint32_t sync_period_slots;                // Period between syncs (configurable)
 
 	uint32_t previous_t1;
 	uint32_t previous_t2;
 	int32_t previous_sf_offset_filtered;
 	int32_t previous_slot_offset_filtered;
+	uint8_t initial_timinginfo_received;
 	int sfn_sf;
 	int sfn;
 	int slot;
   int mu; // some 5G slot calculations need the numerology to know the number
           // of slots
 
+	struct timespec next_slot_time;
+	uint32_t slot_duration_us;
+	uint8_t running;
+	pthread_t thread;
+	pthread_mutex_t mutex;
 	int socket;
 	struct sockaddr_in local_addr;
 	struct sockaddr_in remote_addr;
@@ -105,6 +135,8 @@ typedef struct nfapi_vnf_p7_connection_info {
 
 	struct nfapi_vnf_p7_connection_info* next;
 
+    /* Timing Control Parameters */
+    int32_t sleep_baseline_us;
 } nfapi_vnf_p7_connection_info_t;
 
 struct vnf_p7_t{
@@ -148,5 +180,34 @@ int vnf_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* hea
 void vnf_p7_release_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* header);
 void vnf_p7_release_pdu(vnf_p7_t* vnf_p7, void* pdu);
 
+extern int32_t slot_profile_us[SLOT_ARRAY_SIZE];
+/* Timing Statistics Structure */
+typedef struct {
+    int32_t max_late;       // Maximum late arrival (us)
+    int32_t min_late;       // Minimum late arrival (us)
+    int32_t min_early;      // Minimum early arrival (us) - most negative
+    int32_t max_early;      // Maximum early arrival (us)
+    uint32_t jitter;        // Max jitter (us)
+    uint32_t sample_count;  // Number of samples aggregated
+} vnf_timing_stats_t;
+
+/* Global statistics storage */
+extern vnf_timing_stats_t vnf_dl_stats;
+extern vnf_timing_stats_t vnf_ul_stats;
+
+/* Function Declaration */
+void vnf_p7_extract_timing_info(const void* void_ind);
+
+/* Pass 2: Critical Correction */
+void vnf_p7_critical_correction(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot);
+
+/* Pass 3: Convergence Optimization */
+void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot);
+
+/* Main Dynamic Timing Handler */
+void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *void_ind, uint32_t nominal_slot_duration_us);
+
+void dump_slot_sleep_states(nfapi_vnf_p7_connection_info_t* p7_info, const void* void_ind);
+void dump_slot_profile_us(const void* void_ind);
 
 #endif // _VNF_P7_H_
