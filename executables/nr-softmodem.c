@@ -830,6 +830,9 @@ int main( int argc, char **argv ) {
   init_mmap_logger("vnf-prb.txt");
   init_mmap_logger("nfapi_path.txt");
   init_mmap_logger("harq_timing.txt");
+  init_mmap_logger("NR_TIMING_INFO.txt");
+  init_mmap_logger("ul_node_sync.txt");
+  init_mmap_logger("margin.txt");
   int ru_id, CC_id = 0;
   start_background_system();
 
