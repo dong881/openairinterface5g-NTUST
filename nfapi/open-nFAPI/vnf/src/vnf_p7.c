@@ -217,7 +217,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
   // Algorithm parameters (verified in Python simulation v8)
   const int32_t PROFILE_LIMIT = 150;
   const int32_t DECAY_RATE = 5;             // FASTER decay to prevent post-iperf drift
-  const int32_t CORRECTION_GAIN_PCT = 30;   // AGGRESSIVE response during iperf
+  const int32_t CORRECTION_GAIN_PCT = 40;   // EXTRA AGGRESSIVE response (40%)
   
   // TARGET_MARGIN response (aggressive)
   const int32_t TARGET_FAST_STEP = 50;
@@ -229,24 +229,38 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
   const int32_t SATURATION_THRESHOLD = (PROFILE_LIMIT * 80) / 100;  // 80% of limit
   
   // ==== STEP 1: Calculate margin from stats ====
-  int32_t worst_late = vnf_dl_stats.max_late;
-  if (vnf_ul_stats.max_late > worst_late) {
-    worst_late = vnf_ul_stats.max_late;
-  }
+  // ==== STEP 1: Calculate Unified Worst Margin ====
+  // Convert all stats to Signed Margin (Positive=Early/Good, Negative=Late/Bad)
+  // and find the algebraic MINIMUM (Worst Case).
+  int32_t worst_margin = INT32_MAX;
+
+  // Helper macro to update worst_margin
+  #define UPDATE_WORST(val_late, val_early) do { \
+    if (val_late != INT32_MIN && val_late != 0) { \
+      int32_t m = -(val_late); \
+      if (m < worst_margin) worst_margin = m; \
+    } \
+    if (val_early != INT32_MAX && val_early != 0) { \
+      int32_t m = (val_early); \
+      if (m < worst_margin) worst_margin = m; \
+    } \
+  } while(0)
+
+  // Check DL Stats
+  UPDATE_WORST(vnf_dl_stats.max_late, vnf_dl_stats.min_early);
+  UPDATE_WORST(vnf_dl_stats.min_late, vnf_dl_stats.max_early);
   
-  int32_t most_early = vnf_dl_stats.min_early;
-  if (vnf_ul_stats.min_early < most_early) {
-    most_early = vnf_ul_stats.min_early;
-  }
+  // Check UL Stats
+  UPDATE_WORST(vnf_ul_stats.max_late, vnf_ul_stats.min_early);
+  UPDATE_WORST(vnf_ul_stats.min_late, vnf_ul_stats.max_early);
   
   int32_t margin;
-  if (worst_late > 0) {
-    margin = -worst_late;  // Late = negative margin
-  } else if (most_early != 0) {
-    margin = -most_early;  // Early = positive margin
+  if (worst_margin != INT32_MAX) {
+    margin = worst_margin;
   } else {
     goto do_decay;
   }
+  #undef UPDATE_WORST
   
   // ==== STEP 2: Proportional correction (15% of error) ====
   // KEY FIX: If margin < target (error < 0), we need to REDUCE sleep (negative correction)
