@@ -241,7 +241,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
       if (m < worst_margin) worst_margin = m; \
     } \
     if (val_early != INT32_MAX && val_early != 0) { \
-      int32_t m = (val_early); \
+      int32_t m = -(val_early); \
       if (m < worst_margin) worst_margin = m; \
     } \
   } while(0)
