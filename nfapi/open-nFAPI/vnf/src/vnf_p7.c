@@ -215,12 +215,19 @@ static uint32_t stable_cycle_count = 0;  // Counter for consecutive stable cycle
 
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot)
 {
-  // Algorithm parameters (verified in Python simulation)
-  const int32_t PROFILE_LIMIT = 200;       // Reduced from 400 - prevent extreme deviations
-  const int32_t DECAY_RATE = 2;            // Decay 2µs per cycle toward 0
-  const int32_t CORRECTION_GAIN_PCT = 10;  // 10% proportional gain
+  // Algorithm parameters (verified in Python simulation v8)
+  const int32_t PROFILE_LIMIT = 150;
+  const int32_t DECAY_RATE = 5;             // FASTER decay to prevent post-iperf drift
+  const int32_t CORRECTION_GAIN_PCT = 30;   // AGGRESSIVE response during iperf
   
-  (void)p7_info;
+  // TARGET_MARGIN response (aggressive)
+  const int32_t TARGET_FAST_STEP = 50;
+  const int32_t TARGET_LATE_STEP = 100;     // IMMEDIATE when late detected
+  const int32_t TARGET_SLOW_STEP = 20;
+  const int32_t TARGET_DECAY_RATE = 3;      // Faster decay when healthy
+  
+  // Baseline saturation trigger
+  const int32_t SATURATION_THRESHOLD = (PROFILE_LIMIT * 80) / 100;  // 80% of limit
   
   // ==== STEP 1: Calculate margin from stats ====
   int32_t worst_late = vnf_dl_stats.max_late;
@@ -239,33 +246,34 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
   } else if (most_early != 0) {
     margin = -most_early;  // Early = positive margin
   } else {
-    // No valid data - still do decay
     goto do_decay;
   }
   
-  // ==== STEP 2: Proportional correction (10% of error) ====
+  // ==== STEP 2: Proportional correction (15% of error) ====
+  // KEY FIX: If margin < target (error < 0), we need to REDUCE sleep (negative correction)
+  //          to send packets EARLIER, which INCREASES margin.
+  //          DO NOT negate error - let it flow naturally!
   {
     int32_t error = margin - target_margin_us;
-    int32_t correction = -(error * CORRECTION_GAIN_PCT / 100);
+    int32_t correction = (error * CORRECTION_GAIN_PCT) / 100;  // REMOVED negation!
     
-    // Limit single correction magnitude
-    if (correction < -30) correction = -30;
-    if (correction > 30) correction = 30;
+    // Limit single correction to ±40µs
+    if (correction < -40) correction = -40;
+    if (correction > 40) correction = 40;
     
     slot_profile_us[current_slot] += correction;
   }
   
-  // ==== STEP 3: Dynamic TARGET_MARGIN with FASTER response (verified in simulation v3) ====
-  // When margin approaches 0, we need to push the "rectangle" up quickly
-  if (margin < 50) {
-    // CRITICAL: Very close to late - fast increase
-    target_margin_us += 20;
+  // ==== STEP 3: Dynamic TARGET_MARGIN with FAST decay when healthy ====
+  if (margin < 0) {
+    target_margin_us += TARGET_LATE_STEP;
+  } else if (margin < 50) {
+    target_margin_us += TARGET_FAST_STEP;
   } else if (margin < 100) {
-    // URGENT: Approaching danger zone
-    target_margin_us += 5;
-  } else if (margin > target_margin_us + 200 && target_margin_us > TARGET_MARGIN_INITIAL) {
-    // Plenty of headroom - slowly decrease target
-    target_margin_us -= 1;
+    target_margin_us += TARGET_SLOW_STEP;
+  } else if (margin > target_margin_us + 100 && target_margin_us > TARGET_MARGIN_INITIAL) {
+    // FAST decay when margin is well above target - prevents post-iperf drift
+    target_margin_us -= TARGET_DECAY_RATE;
   }
   
   // Clamp target margin
@@ -274,14 +282,13 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
 
 do_decay:
   // ==== STEP 4: ALWAYS decay all profiles toward 0 ====
-  // This is the key to stable convergence - profiles return to normal
   for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
     if (slot_profile_us[i] > DECAY_RATE) {
       slot_profile_us[i] -= DECAY_RATE;
     } else if (slot_profile_us[i] < -DECAY_RATE) {
       slot_profile_us[i] += DECAY_RATE;
     } else {
-      slot_profile_us[i] = 0;  // Snap to 0 if within decay range
+      slot_profile_us[i] = 0;
     }
   }
   
@@ -291,6 +298,35 @@ do_decay:
       slot_profile_us[i] = PROFILE_LIMIT;
     if (slot_profile_us[i] < -PROFILE_LIMIT)
       slot_profile_us[i] = -PROFILE_LIMIT;
+  }
+  
+  // ==== STEP 6: Two-tier control - baseline adjustment when profile saturates ====
+  {
+    int32_t avg_profile = 0;
+    for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
+      avg_profile += slot_profile_us[i];
+    }
+    avg_profile /= SLOT_ARRAY_SIZE;
+    
+    // Check if average profile is near saturation
+    if (avg_profile < -SATURATION_THRESHOLD) {
+      // Profile trying to reduce sleep - help by reducing baseline
+      p7_info->sleep_baseline_us -= 3;  // FASTER baseline adjustment
+      // Decay profiles faster when baseline takes over (80% = *4/5)
+      for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
+        slot_profile_us[i] = (slot_profile_us[i] * 4) / 5;
+      }
+    } else if (avg_profile > SATURATION_THRESHOLD) {
+      // Profile trying to increase sleep - help by increasing baseline
+      p7_info->sleep_baseline_us += 3;
+      for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
+        slot_profile_us[i] = (slot_profile_us[i] * 4) / 5;
+      }
+    }
+    
+    // Clamp baseline to safe range [300, 700]
+    if (p7_info->sleep_baseline_us < 300) p7_info->sleep_baseline_us = 300;
+    if (p7_info->sleep_baseline_us > 700) p7_info->sleep_baseline_us = 700;
   }
 }
 
