@@ -210,8 +210,7 @@ void vnf_p7_critical_correction(nfapi_vnf_p7_connection_info_t* p7_info, uint32_
 // Real sleep = sleep_baseline_us + slot_profile_us[slot]
 // Lower sleep → earlier packet → higher margin → fewer late packets
 
-static uint32_t stable_cycle_count = 0;  // Counter for consecutive stable cycles
-#define STABLE_THRESHOLD 200             // Need 200 stable cycles before decay
+
 
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot)
 {
