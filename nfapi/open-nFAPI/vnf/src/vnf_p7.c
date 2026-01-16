@@ -169,9 +169,16 @@ void vnf_p7_critical_correction(nfapi_vnf_p7_connection_info_t* p7_info, uint32_
 			diff = min_early - critical_early_threshold;  // Will be negative
 	}
 	
-	if (diff != 0) {
-		// Asymmetric adjustment: Fast Attack for Late, Smooth step for Early
-		int32_t delta = -(5 * (diff / DEFAULT_SLOT_SLEEP_US) + (diff > 0 ? 3 : -5));
+  if (diff != 0) {
+    // Cooperative control: use conservative gain for stable convergence
+    int32_t delta;
+    if (diff > 0) {
+      // Late: proportional correction (~10%) + small fixed offset
+      delta = -(diff / 10 + 5);
+    } else {
+      // Early: slower correction (~5%) 
+      delta = -(diff / 20);
+    }
 		
 		// --- HARD SAFETY CLAMP ---
 		// Ensure that modifying baseline doesn't push the current slot's total sleep out of [50, 950] range.
@@ -208,12 +215,14 @@ static uint32_t stable_cycle_count = 0;  // Counter for consecutive stable cycle
 
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot)
 {
-  // Algorithm parameters
-  const int32_t PROFILE_LIMIT = 400;     // Maximum slot profile adjustment ±400us
+  // Algorithm parameters (verified in Python simulation)
+  const int32_t PROFILE_LIMIT = 200;       // Reduced from 400 - prevent extreme deviations
+  const int32_t DECAY_RATE = 2;            // Decay 2µs per cycle toward 0
+  const int32_t CORRECTION_GAIN_PCT = 10;  // 10% proportional gain
   
   (void)p7_info;
   
-  // ==== STEP 1: Find worst case from both DL and UL ====
+  // ==== STEP 1: Calculate margin from stats ====
   int32_t worst_late = vnf_dl_stats.max_late;
   if (vnf_ul_stats.max_late > worst_late) {
     worst_late = vnf_ul_stats.max_late;
@@ -224,84 +233,59 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
     most_early = vnf_ul_stats.min_early;
   }
   
-  // ==== STEP 2: Calculate worst_margin ====
-  // worst_margin = the smallest margin we observed
-  // positive margin = early (good), negative margin = late (bad)
-  int32_t worst_margin;
-  
+  int32_t margin;
   if (worst_late > 0) {
-    // Late detected: margin is negative
-    worst_margin = -worst_late;
+    margin = -worst_late;  // Late = negative margin
   } else if (most_early != 0) {
-    // Only early arrivals
-    worst_margin = -most_early;
+    margin = -most_early;  // Early = positive margin
   } else {
-    // No valid data
-    return;
+    // No valid data - still do decay
+    goto do_decay;
   }
   
-  // ==== STEP 3: Check if margin is below target ====
-  // If worst_margin < target_margin_us, we need to speed up (reduce sleep)
-  int32_t error = worst_margin - target_margin_us;
-  
-  if (error < -30) {  // Margin is significantly below target
-    // DEFICIT DETECTED - Need to send packets EARLIER
-    stable_cycle_count = 0;
+  // ==== STEP 2: Proportional correction (10% of error) ====
+  {
+    int32_t error = margin - target_margin_us;
+    int32_t correction = -(error * CORRECTION_GAIN_PCT / 100);
     
-    // Calculate adjustment: reduce sleep to shift margin UP
-    // adjustment = -deficit (negative adjustment = less sleep = earlier send = higher margin)
-    int32_t adjustment = error;  // error is negative here, so adjustment is negative
+    // Limit single correction magnitude
+    if (correction < -30) correction = -30;
+    if (correction > 30) correction = 30;
     
-    // Apply ONE-SHOT correction: immediately compensate for the deficit + safety buffer
-    int32_t correction = adjustment - 30;  // Extra 30us safety
-    
-    // Apply correction to ALL slots uniformly (global shift)
-    // Late events typically indicate systematic timing drift, not per-slot issues
-    for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
-      slot_profile_us[i] += correction;
-    }
-    
-    // Also update target_margin_us if needed (to track the new operating point)
-    int32_t new_target = target_margin_us - error + 50;  // Increase target to cover this
-    if (new_target > TARGET_MARGIN_MAX) {
-      new_target = TARGET_MARGIN_MAX;
-    }
-    if (new_target > target_margin_us) {
-      NFAPI_TRACE(NFAPI_TRACE_INFO, 
-                  "[MARGIN] Deficit! margin=%d, target=%d, error=%d, correction=%d, new_target=%d\n",
-                  worst_margin, target_margin_us, error, correction, new_target);
-      target_margin_us = new_target;
-    }
-  } else if (error > 100) {
-    // Margin is significantly ABOVE target - we have excessive headroom
-    stable_cycle_count++;
-    
-    // Faster relaxation when significantly over target
-    if (error > 300) {
-      // Fast pull-back: increase all profiles by 2µs immediately
-      for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
-        slot_profile_us[i] += 2;  // Increase sleep = send later = reduce margin
-      }
-      stable_cycle_count = 0;
-    } else if (stable_cycle_count >= STABLE_THRESHOLD) {
-      // Slow relaxation: increase sleep by 1us every STABLE_THRESHOLD cycles
-      for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
-        slot_profile_us[i] += 1;
-      }
-      stable_cycle_count = 0;
-      
-      // Also slowly decay target_margin back to initial
-      if (target_margin_us > TARGET_MARGIN_INITIAL) {
-        target_margin_us -= TARGET_MARGIN_DECAY;
-        NFAPI_TRACE(NFAPI_TRACE_INFO, "[MARGIN] Stable decay: target_margin now %d\n", target_margin_us);
-      }
-    }
-  } else {
-    // In the acceptable range, just maintain stable count
-    stable_cycle_count++;
+    slot_profile_us[current_slot] += correction;
   }
   
-  // ==== STEP 4: Clamp slot profile to safe limits ====
+  // ==== STEP 3: Dynamic TARGET_MARGIN with FASTER response (verified in simulation v3) ====
+  // When margin approaches 0, we need to push the "rectangle" up quickly
+  if (margin < 50) {
+    // CRITICAL: Very close to late - fast increase
+    target_margin_us += 20;
+  } else if (margin < 100) {
+    // URGENT: Approaching danger zone
+    target_margin_us += 5;
+  } else if (margin > target_margin_us + 200 && target_margin_us > TARGET_MARGIN_INITIAL) {
+    // Plenty of headroom - slowly decrease target
+    target_margin_us -= 1;
+  }
+  
+  // Clamp target margin
+  if (target_margin_us > TARGET_MARGIN_MAX) target_margin_us = TARGET_MARGIN_MAX;
+  if (target_margin_us < TARGET_MARGIN_INITIAL) target_margin_us = TARGET_MARGIN_INITIAL;
+
+do_decay:
+  // ==== STEP 4: ALWAYS decay all profiles toward 0 ====
+  // This is the key to stable convergence - profiles return to normal
+  for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
+    if (slot_profile_us[i] > DECAY_RATE) {
+      slot_profile_us[i] -= DECAY_RATE;
+    } else if (slot_profile_us[i] < -DECAY_RATE) {
+      slot_profile_us[i] += DECAY_RATE;
+    } else {
+      slot_profile_us[i] = 0;  // Snap to 0 if within decay range
+    }
+  }
+  
+  // ==== STEP 5: Clamp profiles ====
   for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
     if (slot_profile_us[i] > PROFILE_LIMIT)
       slot_profile_us[i] = PROFILE_LIMIT;
@@ -371,8 +355,9 @@ void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *v
     // Calculate current_slot from timing info
     uint32_t current_slot = NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot) % SLOT_ARRAY_SIZE;
     
-    // Step 2: Execute Pass 2 (Emergency Correction)
-    vnf_p7_critical_correction(p7_info, current_slot);
+    // Step 2: Critical correction DISABLED (baseline stays fixed at 500µs)
+    // Verified in Python simulation: dual-controller caused oscillation
+    // vnf_p7_critical_correction(p7_info, current_slot);
 
     // Step 3: Execute Pass 3 (Fine-tuning)
     vnf_p7_convergence_optimization(p7_info, current_slot);

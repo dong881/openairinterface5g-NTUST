@@ -1150,8 +1150,14 @@ void *vnf_timing_thread(void *arg) {
       pthread_mutex_unlock(&p7_info->mutex);
       
       // Fine-grained Dynamic timing adjustment (Prompt 5)
-      uint32_t sleep_us = p7_info->sleep_baseline_us + slot_profile_us[p7_info->slot % SLOT_ARRAY_SIZE];
-      if (sleep_us == 0) sleep_us = p7_info->slot_duration_us; // Fallback if not initialized
+      // Calculate raw sleep with signed arithmetic to handle negative profiles safely
+      int32_t raw_sleep = (int32_t)p7_info->sleep_baseline_us + slot_profile_us[p7_info->slot % SLOT_ARRAY_SIZE];
+      
+      // Hard clamp to valid range [MIN_SLEEP_US, MAX_SLEEP_US] to prevent VNF from stopping
+      if (raw_sleep < MIN_SLEEP_US) raw_sleep = MIN_SLEEP_US;  // 50µs minimum
+      if (raw_sleep > MAX_SLEEP_US) raw_sleep = MAX_SLEEP_US;  // 950µs maximum
+      
+      uint32_t sleep_us = (uint32_t)raw_sleep;
       
       timespec_add_us(&p7_info->next_slot_time, sleep_us);
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);

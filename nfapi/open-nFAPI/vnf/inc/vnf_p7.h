@@ -27,8 +27,8 @@
  * DYNAMIC SLOT SLEEP TIMING CONTROL CONSTANTS
  * ============================================================================ */
 /* Dynamic Target Margin (adaptive to avoid late packets) */
-#define TARGET_MARGIN_INITIAL   500   // Initial target safety margin (increased for load tolerance)
-#define TARGET_MARGIN_MAX       800   // Maximum target margin
+#define TARGET_MARGIN_INITIAL   300   // Initial target (lowered per simulation)
+#define TARGET_MARGIN_MAX       800   // Maximum target (increased for iperf headroom)
 #define TARGET_MARGIN_STEP      50    // Step size when late detected
 #define TARGET_MARGIN_DECAY     1     // Decay step when healthy
 extern int32_t target_margin_us;      // Dynamic TARGET_MARGIN variable
