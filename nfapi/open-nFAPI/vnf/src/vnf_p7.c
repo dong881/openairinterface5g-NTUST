@@ -255,8 +255,11 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
     // Apply ONE-SHOT correction: immediately compensate for the deficit + safety buffer
     int32_t correction = adjustment - 30;  // Extra 30us safety
     
-    // Apply to current slot's profile (reduce sleep)
-    slot_profile_us[current_slot] += correction;
+    // Apply correction to ALL slots uniformly (global shift)
+    // Late events typically indicate systematic timing drift, not per-slot issues
+    for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
+      slot_profile_us[i] += correction;
+    }
     
     // Also update target_margin_us if needed (to track the new operating point)
     int32_t new_target = target_margin_us - error + 50;  // Increase target to cover this
@@ -271,12 +274,20 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
     }
   } else if (error > 100) {
     // Margin is significantly ABOVE target - we have excessive headroom
-    // Can slowly increase sleep (make adjustment positive) to use this headroom
     stable_cycle_count++;
     
-    if (stable_cycle_count >= STABLE_THRESHOLD) {
-      // Very slow relaxation: increase sleep by 1us every STABLE_THRESHOLD cycles
-      slot_profile_us[current_slot] += 1;
+    // Faster relaxation when significantly over target
+    if (error > 300) {
+      // Fast pull-back: increase all profiles by 2µs immediately
+      for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
+        slot_profile_us[i] += 2;  // Increase sleep = send later = reduce margin
+      }
+      stable_cycle_count = 0;
+    } else if (stable_cycle_count >= STABLE_THRESHOLD) {
+      // Slow relaxation: increase sleep by 1us every STABLE_THRESHOLD cycles
+      for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
+        slot_profile_us[i] += 1;
+      }
       stable_cycle_count = 0;
       
       // Also slowly decay target_margin back to initial
@@ -361,7 +372,7 @@ void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *v
     uint32_t current_slot = NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot) % SLOT_ARRAY_SIZE;
     
     // Step 2: Execute Pass 2 (Emergency Correction)
-    // vnf_p7_critical_correction(p7_info, current_slot);
+    vnf_p7_critical_correction(p7_info, current_slot);
 
     // Step 3: Execute Pass 3 (Fine-tuning)
     vnf_p7_convergence_optimization(p7_info, current_slot);
