@@ -240,16 +240,13 @@ void vnf_p7_critical_correction(nfapi_vnf_p7_connection_info_t* p7_info, uint32_
 
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot)
 {
-  // Algorithm parameters (verified in Python simulation v8)
+  // Algorithm parameters (verified in Python simulation v20 - Optimal)
   const int32_t PROFILE_LIMIT = 150;
-  const int32_t DECAY_RATE = 5;             // FASTER decay to prevent post-iperf drift
-  const int32_t CORRECTION_GAIN_PCT = 40;   // EXTRA AGGRESSIVE response (40%)
+  const int32_t DECAY_RATE = 1;             // SLOW decay
   
-  // TARGET_MARGIN response (aggressive)
-  const int32_t TARGET_FAST_STEP = 50;
-  const int32_t TARGET_LATE_STEP = 100;     // IMMEDIATE when late detected
-  const int32_t TARGET_SLOW_STEP = 20;
-  const int32_t TARGET_DECAY_RATE = 3;      // Faster decay when healthy
+  // ZONE CONTROL CONSTANTS
+  const int32_t DANGER_ZONE = 150;          // Below this = urgent correction
+  const int32_t SAFE_ZONE = 300;            // Above this = relax
   
   // Baseline saturation trigger
   // Baseline saturation trigger now defined locally in STEP 6
@@ -285,69 +282,63 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
               vnf_dl_stats.max_late, vnf_dl_stats.min_early, 
               vnf_ul_stats.max_late, vnf_ul_stats.min_early);
   
-  int32_t margin;
-  int32_t emergency_mode = 0;  // Flag for emergency mode (margin < 0)
-  int32_t recovery_mode = 0;   // Flag for recovery mode (margin > target)
+  int32_t margin = 0;  // Initialize to avoid warning
   if (worst_margin != INT32_MAX) {
     margin = worst_margin;
-    emergency_mode = (margin < 0);  // Set flag if late
-    recovery_mode = (margin > target_margin_us);  // Set flag if too early (overshoot)
   } else {
     goto do_decay;
   }
   #undef UPDATE_WORST
   
-  // ==== STEP 2: Proportional correction (15% of error) ====
-  // KEY FIX: If margin < target (error < 0), we need to REDUCE sleep (negative correction)
-  //          to send packets EARLIER, which INCREASES margin.
-  //          DO NOT negate error - let it flow naturally!
+  // ==== STEP 2: OPTIMAL ALGORITHM v20 - Zone Based Control ====
+  // Goal: Keep margin > 0 (No Late) and < Timing Window (No Too Early)
+  
   {
-    int32_t error = margin - target_margin_us;
-    int32_t correction = (error * CORRECTION_GAIN_PCT) / 100;  // REMOVED negation!
-    
-    // Limit single correction to ±100µs (INCREASED from ±40 for faster response)
-    if (correction < -100) correction = -100;
-    if (correction > 100) correction = 100;
-    
-    slot_profile_us[current_slot] += correction;
-    
-    // DEBUG: Log controller decisions when margin is negative
     if (margin < 0) {
-      NFAPI_TRACE(NFAPI_TRACE_INFO, "[TIMING] margin=%d target=%d error=%d corr=%d profile[%d]=%d baseline=%d\n",
-                  margin, target_margin_us, error, correction, current_slot, 
-                  slot_profile_us[current_slot], p7_info->sleep_baseline_us);
+      // EMERGENCY: Late packet!
+      // 1. Strong profile correction
+      slot_profile_us[current_slot] -= 100;
+      
+      // 2. GLOBAL BASELINE DROP (Help all slots immediately)
+      // Check for underflow protection
+      if (p7_info->sleep_baseline_us > 260) 
+        p7_info->sleep_baseline_us -= 10;
+      else 
+        p7_info->sleep_baseline_us = 250;
+        
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "[EMERGENCY] Late! margin=%d profile[%d] -= 100, baseline -= 10\n",
+                  margin, current_slot);
+    } 
+    else if (margin < DANGER_ZONE) {
+      // DANGER: Close to late - correct proportionally
+      int32_t deficit = DANGER_ZONE - margin;
+      int32_t correction = (deficit * 80) / 100; // 80% gain
+      if (correction > 80) correction = 80;
+      
+      slot_profile_us[current_slot] -= correction;
+    } 
+    else if (margin > SAFE_ZONE) {
+      // SAFE: Relax slightly
+      int32_t excess = margin - SAFE_ZONE;
+      int32_t correction = (excess * 50) / 100;  // 50% gain
+      if (correction > 50) correction = 50;
+      
+      slot_profile_us[current_slot] += correction;
     }
   }
   
-  // ==== STEP 3: Dynamic TARGET_MARGIN with FAST decay when healthy ====
-  if (margin < 0) {
-    target_margin_us += TARGET_LATE_STEP;
-  } else if (margin < 50) {
-    target_margin_us += TARGET_FAST_STEP;
-  } else if (margin < 100) {
-    target_margin_us += TARGET_SLOW_STEP;
-  } else if (margin > target_margin_us + 100 && target_margin_us > TARGET_MARGIN_INITIAL) {
-    // FAST decay when margin is well above target - prevents post-iperf drift
-    target_margin_us -= TARGET_DECAY_RATE;
-  }
-  
-  // Clamp target margin
-  if (target_margin_us > TARGET_MARGIN_MAX) target_margin_us = TARGET_MARGIN_MAX;
-  if (target_margin_us < TARGET_MARGIN_INITIAL) target_margin_us = TARGET_MARGIN_INITIAL;
+  // (Target Margin update removed - using FIXED Zones)
+  (void)target_margin_us; // Silence unused warning
 
 do_decay:
-  // ==== STEP 4: Decay profiles (SKIP in emergency mode!) ====
-  // KEY FIX: When late, don't decay - let corrections accumulate!
-  if (!emergency_mode) {
-    for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
-      if (slot_profile_us[i] > DECAY_RATE) {
-        slot_profile_us[i] -= DECAY_RATE;
-      } else if (slot_profile_us[i] < -DECAY_RATE) {
-        slot_profile_us[i] += DECAY_RATE;
-      } else {
-        slot_profile_us[i] = 0;
-      }
-    }
+  // ==== STEP 4: Decay ====
+  // Always apply weak decay to prevent runaway
+  if (slot_profile_us[current_slot] > DECAY_RATE) {
+    slot_profile_us[current_slot] -= DECAY_RATE;
+  } else if (slot_profile_us[current_slot] < -DECAY_RATE) {
+    slot_profile_us[current_slot] += DECAY_RATE;
+  } else {
+    slot_profile_us[current_slot] = 0;
   }
   
   // ==== STEP 5: Clamp profiles ====
@@ -358,7 +349,7 @@ do_decay:
       slot_profile_us[i] = -PROFILE_LIMIT;
   }
   
-  // ==== STEP 6: Two-tier control - baseline adjustment when profile saturates ====
+  // ==== STEP 6: Baseline adjustment on profile SATURATION ====
   {
     int32_t avg_profile = 0;
     for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
@@ -366,50 +357,35 @@ do_decay:
     }
     avg_profile /= SLOT_ARRAY_SIZE;
     
-    // Reduced threshold from 80% to 50% to trigger baseline changes sooner
-    const int32_t BASELINE_TRIGGER = (PROFILE_LIMIT * 50) / 100;  // 50% of limit = 75
+    // 50% threshold
+    const int32_t SATURATION_THRESHOLD = (PROFILE_LIMIT * 50) / 100; // 75
     
-    // THREE-MODE CONTROL:
-    // EMERGENCY: margin < 0 -> decrease baseline to send earlier
-    // RECOVERY: margin > target -> increase baseline to bring margin back down
-    // NORMAL: profile saturation triggers baseline changes
-    if (emergency_mode) {
-      p7_info->sleep_baseline_us -= 5;  // Direct adjustment when late!
-      NFAPI_TRACE(NFAPI_TRACE_INFO, "[EMERGENCY] Reducing baseline to %d (margin=%d)\n", 
-                  p7_info->sleep_baseline_us, margin);
-    } else if (recovery_mode) {
-      // TOO EARLY: Increase baseline to send later and bring margin down
-      p7_info->sleep_baseline_us += 5;
-      // Also reset profiles toward 0 faster
+    if (avg_profile < -SATURATION_THRESHOLD) {
+      // Shift baseline DOWN
+       if (p7_info->sleep_baseline_us > 260) 
+        p7_info->sleep_baseline_us -= 3;
+      else 
+        p7_info->sleep_baseline_us = 250;
+        
       for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
-        slot_profile_us[i] = (slot_profile_us[i] * 4) / 5;
+         slot_profile_us[i] = (slot_profile_us[i] * 4) / 5;
       }
-      NFAPI_TRACE(NFAPI_TRACE_INFO, "[RECOVERY] Increasing baseline to %d (margin=%d target=%d)\n", 
-                  p7_info->sleep_baseline_us, margin, target_margin_us);
-    } else if (avg_profile < -BASELINE_TRIGGER) {
-      // Profile trying to reduce sleep - help by reducing baseline
-      p7_info->sleep_baseline_us -= 10;
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "[BASELINE-] avg=%d base=%d\n", avg_profile, p7_info->sleep_baseline_us);
+    } else if (avg_profile > SATURATION_THRESHOLD) {
+      // Shift baseline UP
+      p7_info->sleep_baseline_us += 3;
       for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
-        slot_profile_us[i] = (slot_profile_us[i] * 4) / 5;
+         slot_profile_us[i] = (slot_profile_us[i] * 4) / 5;
       }
-      NFAPI_TRACE(NFAPI_TRACE_INFO, "[BASELINE] Reducing baseline to %d (avg_profile=%d)\n", 
-                  p7_info->sleep_baseline_us, avg_profile);
-    } else if (avg_profile > BASELINE_TRIGGER) {
-      // Profile trying to increase sleep - help by increasing baseline
-      p7_info->sleep_baseline_us += 10;
-      for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
-        slot_profile_us[i] = (slot_profile_us[i] * 4) / 5;
-      }
-      NFAPI_TRACE(NFAPI_TRACE_INFO, "[BASELINE] Increasing baseline to %d (avg_profile=%d)\n", 
-                  p7_info->sleep_baseline_us, avg_profile);
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "[BASELINE+] avg=%d base=%d\n", avg_profile, p7_info->sleep_baseline_us);
     }
     
-    // Clamp baseline to safe range [300, 700]
-    if (p7_info->sleep_baseline_us < 300) p7_info->sleep_baseline_us = 300;
+    // Clamp [250, 700]
+    if (p7_info->sleep_baseline_us < 250) p7_info->sleep_baseline_us = 250;
     if (p7_info->sleep_baseline_us > 700) p7_info->sleep_baseline_us = 700;
   }
   
-  // Reset stats after using them (prevents stale data on next cycle)
+  // Reset stats after using them
   vnf_reset_timing_stats();
 }
 
