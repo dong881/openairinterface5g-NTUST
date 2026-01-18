@@ -113,12 +113,38 @@ vnf_timing_stats_t vnf_ul_stats;
 
 #define STORE_TIMING_STATS(_stats, _max_late, _min_late, _min_early, _max_early, _jitter) \
   do { \
-    (_stats).max_late = ((_max_late) == INT32_MIN) ? 0 : (_max_late); \
-    (_stats).min_late = ((_min_late) == INT32_MAX) ? 0 : (_min_late); \
-    (_stats).min_early = ((_min_early) == INT32_MAX) ? 0 : (_min_early); \
-    (_stats).max_early = ((_max_early) == INT32_MIN) ? 0 : (_max_early); \
-    (_stats).jitter = (_jitter); \
+    /* ACCUMULATE MODE: Keep worst case across multiple timing_info messages */ \
+    /* This prevents race condition where dl_tti triggers timing_info before tx_data arrives */ \
+    if ((_max_late) != INT32_MIN && (_max_late) > (_stats).max_late) { \
+      (_stats).max_late = (_max_late); \
+    } \
+    if ((_min_late) != INT32_MAX && ((_stats).min_late == 0 || (_min_late) < (_stats).min_late)) { \
+      (_stats).min_late = (_min_late); \
+    } \
+    if ((_min_early) != INT32_MAX && ((_stats).min_early == 0 || (_min_early) < (_stats).min_early)) { \
+      (_stats).min_early = (_min_early); \
+    } \
+    if ((_max_early) != INT32_MIN && (_max_early) > (_stats).max_early) { \
+      (_stats).max_early = (_max_early); \
+    } \
+    if ((_jitter) > (_stats).jitter) { \
+      (_stats).jitter = (_jitter); \
+    } \
   } while (0)
+
+/* Reset timing stats after controller uses them */
+static inline void vnf_reset_timing_stats(void) {
+  vnf_dl_stats.max_late = 0;
+  vnf_dl_stats.min_late = 0;
+  vnf_dl_stats.min_early = 0;
+  vnf_dl_stats.max_early = 0;
+  vnf_dl_stats.jitter = 0;
+  vnf_ul_stats.max_late = 0;
+  vnf_ul_stats.min_late = 0;
+  vnf_ul_stats.min_early = 0;
+  vnf_ul_stats.max_early = 0;
+  vnf_ul_stats.jitter = 0;
+}
 
 void vnf_p7_extract_timing_info(const void* void_ind)
 {
@@ -226,7 +252,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
   const int32_t TARGET_DECAY_RATE = 3;      // Faster decay when healthy
   
   // Baseline saturation trigger
-  const int32_t SATURATION_THRESHOLD = (PROFILE_LIMIT * 80) / 100;  // 80% of limit
+  // Baseline saturation trigger now defined locally in STEP 6
   
   // ==== STEP 1: Calculate margin from stats ====
   // ==== STEP 1: Calculate Unified Worst Margin ====
@@ -254,9 +280,16 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
   UPDATE_WORST(vnf_ul_stats.max_late, vnf_ul_stats.min_early);
   UPDATE_WORST(vnf_ul_stats.min_late, vnf_ul_stats.max_early);
   
+  // DEBUG: Log raw stats for analysis
+  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[STATS] DL max_late=%d min_early=%d | UL max_late=%d min_early=%d\n",
+              vnf_dl_stats.max_late, vnf_dl_stats.min_early, 
+              vnf_ul_stats.max_late, vnf_ul_stats.min_early);
+  
   int32_t margin;
+  int32_t emergency_mode = 0;  // Flag for emergency mode (margin < 0)
   if (worst_margin != INT32_MAX) {
     margin = worst_margin;
+    emergency_mode = (margin < 0);  // Set flag if late
   } else {
     goto do_decay;
   }
@@ -270,11 +303,18 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
     int32_t error = margin - target_margin_us;
     int32_t correction = (error * CORRECTION_GAIN_PCT) / 100;  // REMOVED negation!
     
-    // Limit single correction to ±40µs
-    if (correction < -40) correction = -40;
-    if (correction > 40) correction = 40;
+    // Limit single correction to ±100µs (INCREASED from ±40 for faster response)
+    if (correction < -100) correction = -100;
+    if (correction > 100) correction = 100;
     
     slot_profile_us[current_slot] += correction;
+    
+    // DEBUG: Log controller decisions when margin is negative
+    if (margin < 0) {
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "[TIMING] margin=%d target=%d error=%d corr=%d profile[%d]=%d baseline=%d\n",
+                  margin, target_margin_us, error, correction, current_slot, 
+                  slot_profile_us[current_slot], p7_info->sleep_baseline_us);
+    }
   }
   
   // ==== STEP 3: Dynamic TARGET_MARGIN with FAST decay when healthy ====
@@ -294,14 +334,17 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
   if (target_margin_us < TARGET_MARGIN_INITIAL) target_margin_us = TARGET_MARGIN_INITIAL;
 
 do_decay:
-  // ==== STEP 4: ALWAYS decay all profiles toward 0 ====
-  for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
-    if (slot_profile_us[i] > DECAY_RATE) {
-      slot_profile_us[i] -= DECAY_RATE;
-    } else if (slot_profile_us[i] < -DECAY_RATE) {
-      slot_profile_us[i] += DECAY_RATE;
-    } else {
-      slot_profile_us[i] = 0;
+  // ==== STEP 4: Decay profiles (SKIP in emergency mode!) ====
+  // KEY FIX: When late, don't decay - let corrections accumulate!
+  if (!emergency_mode) {
+    for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
+      if (slot_profile_us[i] > DECAY_RATE) {
+        slot_profile_us[i] -= DECAY_RATE;
+      } else if (slot_profile_us[i] < -DECAY_RATE) {
+        slot_profile_us[i] += DECAY_RATE;
+      } else {
+        slot_profile_us[i] = 0;
+      }
     }
   }
   
@@ -321,26 +364,39 @@ do_decay:
     }
     avg_profile /= SLOT_ARRAY_SIZE;
     
-    // Check if average profile is near saturation
-    if (avg_profile < -SATURATION_THRESHOLD) {
+    // Reduced threshold from 80% to 50% to trigger baseline changes sooner
+    const int32_t BASELINE_TRIGGER = (PROFILE_LIMIT * 50) / 100;  // 50% of limit = 75
+    
+    // EMERGENCY MODE: Directly reduce baseline when late (bypass profile saturation)
+    if (emergency_mode) {
+      p7_info->sleep_baseline_us -= 5;  // Direct adjustment when late!
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "[EMERGENCY] Reducing baseline to %d (margin=%d)\n", 
+                  p7_info->sleep_baseline_us, margin);
+    } else if (avg_profile < -BASELINE_TRIGGER) {
       // Profile trying to reduce sleep - help by reducing baseline
-      p7_info->sleep_baseline_us -= 3;  // FASTER baseline adjustment
-      // Decay profiles faster when baseline takes over (80% = *4/5)
+      p7_info->sleep_baseline_us -= 10;
       for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
         slot_profile_us[i] = (slot_profile_us[i] * 4) / 5;
       }
-    } else if (avg_profile > SATURATION_THRESHOLD) {
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "[BASELINE] Reducing baseline to %d (avg_profile=%d)\n", 
+                  p7_info->sleep_baseline_us, avg_profile);
+    } else if (avg_profile > BASELINE_TRIGGER) {
       // Profile trying to increase sleep - help by increasing baseline
-      p7_info->sleep_baseline_us += 3;
+      p7_info->sleep_baseline_us += 10;
       for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
         slot_profile_us[i] = (slot_profile_us[i] * 4) / 5;
       }
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "[BASELINE] Increasing baseline to %d (avg_profile=%d)\n", 
+                  p7_info->sleep_baseline_us, avg_profile);
     }
     
     // Clamp baseline to safe range [300, 700]
     if (p7_info->sleep_baseline_us < 300) p7_info->sleep_baseline_us = 300;
     if (p7_info->sleep_baseline_us > 700) p7_info->sleep_baseline_us = 700;
   }
+  
+  // Reset stats after using them (prevents stale data on next cycle)
+  vnf_reset_timing_stats();
 }
 
 // void vnf_p7_convergence_optimization(const void* void_ind, uint32_t current_slot, int is_dl)
