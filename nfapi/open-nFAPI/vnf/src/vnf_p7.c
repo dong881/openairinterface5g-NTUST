@@ -240,24 +240,15 @@ void vnf_p7_critical_correction(nfapi_vnf_p7_connection_info_t* p7_info, uint32_
 
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot)
 {
-  // Algorithm parameters (verified in Python simulation v20 - Optimal)
-  const int32_t PROFILE_LIMIT = 150;
-  const int32_t DECAY_RATE = 1;             // SLOW decay
+  // Algorithm: Damped Proportional Controller v22
+  // Goal: Keep margin stable around TARGET_MARGIN with symmetric correction
+  const int32_t TARGET_MARGIN = 400;   // Target margin in µs
+  const int32_t PROFILE_LIMIT = 150;   // Max profile deviation
+  const int32_t DECAY_RATE = 1;        // Pull profiles back toward 0
   
-  // ZONE CONTROL CONSTANTS
-  const int32_t DANGER_ZONE = 150;          // Below this = urgent correction
-  const int32_t SAFE_ZONE = 300;            // Above this = relax
-  
-  // Baseline saturation trigger
-  // Baseline saturation trigger now defined locally in STEP 6
-  
-  // ==== STEP 1: Calculate margin from stats ====
   // ==== STEP 1: Calculate Unified Worst Margin ====
-  // Convert all stats to Signed Margin (Positive=Early/Good, Negative=Late/Bad)
-  // and find the algebraic MINIMUM (Worst Case).
   int32_t worst_margin = INT32_MAX;
 
-  // Helper macro to update worst_margin
   #define UPDATE_WORST(val_late, val_early) do { \
     if (val_late != INT32_MIN && val_late != 0) { \
       int32_t m = -(val_late); \
@@ -269,70 +260,49 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
     } \
   } while(0)
 
-  // Check DL Stats
   UPDATE_WORST(vnf_dl_stats.max_late, vnf_dl_stats.min_early);
   UPDATE_WORST(vnf_dl_stats.min_late, vnf_dl_stats.max_early);
-  
-  // Check UL Stats
   UPDATE_WORST(vnf_ul_stats.max_late, vnf_ul_stats.min_early);
   UPDATE_WORST(vnf_ul_stats.min_late, vnf_ul_stats.max_early);
+  #undef UPDATE_WORST
   
-  // DEBUG: Log raw stats for analysis
-  NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[STATS] DL max_late=%d min_early=%d | UL max_late=%d min_early=%d\n",
-              vnf_dl_stats.max_late, vnf_dl_stats.min_early, 
-              vnf_ul_stats.max_late, vnf_ul_stats.min_early);
-  
-  int32_t margin = 0;  // Initialize to avoid warning
+  int32_t margin = 0;
   if (worst_margin != INT32_MAX) {
     margin = worst_margin;
   } else {
     goto do_decay;
   }
-  #undef UPDATE_WORST
   
-  // ==== STEP 2: OPTIMAL ALGORITHM v20 - Zone Based Control ====
-  // Goal: Keep margin > 0 (No Late) and < Timing Window (No Too Early)
-  
+  // ==== STEP 2: DAMPED PROPORTIONAL CONTROL ====
+  // Error = Target - Actual
+  // Positive error → margin too low → need to send earlier → reduce profile
+  // Negative error → margin too high → need to send later → increase profile
   {
+    int32_t error = TARGET_MARGIN - margin;
+    
+    // Emergency correction for late packets
     if (margin < 0) {
-      // EMERGENCY: Late packet!
-      // 1. Strong profile correction
+      // Late! Apply strong correction
       slot_profile_us[current_slot] -= 100;
-      
-      // 2. GLOBAL BASELINE DROP (Help all slots immediately)
-      // Check for underflow protection
-      if (p7_info->sleep_baseline_us > 260) 
-        p7_info->sleep_baseline_us -= 10;
-      else 
-        p7_info->sleep_baseline_us = 250;
-        
-      NFAPI_TRACE(NFAPI_TRACE_INFO, "[EMERGENCY] Late! margin=%d profile[%d] -= 100, baseline -= 10\n",
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "[EMERGENCY] Late! margin=%d profile[%d] -= 100\n",
                   margin, current_slot);
-    } 
-    else if (margin < DANGER_ZONE) {
-      // DANGER: Close to late - correct proportionally
-      int32_t deficit = DANGER_ZONE - margin;
-      int32_t correction = (deficit * 80) / 100; // 80% gain
-      if (correction > 80) correction = 80;
+    }
+    else {
+      // Proportional control with 5% gain, max ±20µs per slot
+      int32_t correction = error / 20;
+      if (correction > 20) correction = 20;
+      if (correction < -20) correction = -20;
       
+      // Apply correction: reduce profile to increase margin, increase to decrease margin
       slot_profile_us[current_slot] -= correction;
-    } 
-    else if (margin > SAFE_ZONE) {
-      // SAFE: Relax slightly
-      int32_t excess = margin - SAFE_ZONE;
-      int32_t correction = (excess * 50) / 100;  // 50% gain
-      if (correction > 50) correction = 50;
-      
-      slot_profile_us[current_slot] += correction;
     }
   }
   
-  // (Target Margin update removed - using FIXED Zones)
   (void)target_margin_us; // Silence unused warning
+  (void)p7_info;          // Baseline is NOT modified - stays fixed at initial value
 
 do_decay:
-  // ==== STEP 4: Decay ====
-  // Always apply weak decay to prevent runaway
+  // ==== STEP 3: Decay toward zero ====
   if (slot_profile_us[current_slot] > DECAY_RATE) {
     slot_profile_us[current_slot] -= DECAY_RATE;
   } else if (slot_profile_us[current_slot] < -DECAY_RATE) {
@@ -341,7 +311,7 @@ do_decay:
     slot_profile_us[current_slot] = 0;
   }
   
-  // ==== STEP 5: Clamp profiles ====
+  // ==== STEP 4: Clamp profiles ====
   for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
     if (slot_profile_us[i] > PROFILE_LIMIT)
       slot_profile_us[i] = PROFILE_LIMIT;
@@ -349,43 +319,10 @@ do_decay:
       slot_profile_us[i] = -PROFILE_LIMIT;
   }
   
-  // ==== STEP 6: Baseline adjustment on profile SATURATION ====
-  {
-    int32_t avg_profile = 0;
-    for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
-      avg_profile += slot_profile_us[i];
-    }
-    avg_profile /= SLOT_ARRAY_SIZE;
-    
-    // 50% threshold
-    const int32_t SATURATION_THRESHOLD = (PROFILE_LIMIT * 50) / 100; // 75
-    
-    if (avg_profile < -SATURATION_THRESHOLD) {
-      // Shift baseline DOWN
-       if (p7_info->sleep_baseline_us > 260) 
-        p7_info->sleep_baseline_us -= 3;
-      else 
-        p7_info->sleep_baseline_us = 250;
-        
-      for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
-         slot_profile_us[i] = (slot_profile_us[i] * 4) / 5;
-      }
-      NFAPI_TRACE(NFAPI_TRACE_INFO, "[BASELINE-] avg=%d base=%d\n", avg_profile, p7_info->sleep_baseline_us);
-    } else if (avg_profile > SATURATION_THRESHOLD) {
-      // Shift baseline UP
-      p7_info->sleep_baseline_us += 3;
-      for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
-         slot_profile_us[i] = (slot_profile_us[i] * 4) / 5;
-      }
-      NFAPI_TRACE(NFAPI_TRACE_INFO, "[BASELINE+] avg=%d base=%d\n", avg_profile, p7_info->sleep_baseline_us);
-    }
-    
-    // Clamp [250, 700]
-    if (p7_info->sleep_baseline_us < 250) p7_info->sleep_baseline_us = 250;
-    if (p7_info->sleep_baseline_us > 700) p7_info->sleep_baseline_us = 700;
-  }
+  // NOTE: Baseline saturation adjustment REMOVED
+  // This was causing positive feedback loop leading to margin divergence
+  // Baseline should stay at its initial value (500µs)
   
-  // Reset stats after using them
   vnf_reset_timing_stats();
 }
 
