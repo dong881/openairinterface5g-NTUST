@@ -287,9 +287,11 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
   
   int32_t margin;
   int32_t emergency_mode = 0;  // Flag for emergency mode (margin < 0)
+  int32_t recovery_mode = 0;   // Flag for recovery mode (margin > target)
   if (worst_margin != INT32_MAX) {
     margin = worst_margin;
     emergency_mode = (margin < 0);  // Set flag if late
+    recovery_mode = (margin > target_margin_us);  // Set flag if too early (overshoot)
   } else {
     goto do_decay;
   }
@@ -367,11 +369,23 @@ do_decay:
     // Reduced threshold from 80% to 50% to trigger baseline changes sooner
     const int32_t BASELINE_TRIGGER = (PROFILE_LIMIT * 50) / 100;  // 50% of limit = 75
     
-    // EMERGENCY MODE: Directly reduce baseline when late (bypass profile saturation)
+    // THREE-MODE CONTROL:
+    // EMERGENCY: margin < 0 -> decrease baseline to send earlier
+    // RECOVERY: margin > target -> increase baseline to bring margin back down
+    // NORMAL: profile saturation triggers baseline changes
     if (emergency_mode) {
       p7_info->sleep_baseline_us -= 5;  // Direct adjustment when late!
       NFAPI_TRACE(NFAPI_TRACE_INFO, "[EMERGENCY] Reducing baseline to %d (margin=%d)\n", 
                   p7_info->sleep_baseline_us, margin);
+    } else if (recovery_mode) {
+      // TOO EARLY: Increase baseline to send later and bring margin down
+      p7_info->sleep_baseline_us += 5;
+      // Also reset profiles toward 0 faster
+      for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
+        slot_profile_us[i] = (slot_profile_us[i] * 4) / 5;
+      }
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "[RECOVERY] Increasing baseline to %d (margin=%d target=%d)\n", 
+                  p7_info->sleep_baseline_us, margin, target_margin_us);
     } else if (avg_profile < -BASELINE_TRIGGER) {
       // Profile trying to reduce sleep - help by reducing baseline
       p7_info->sleep_baseline_us -= 10;
