@@ -25,6 +25,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <limits.h>
 #include <assert.h>
 #ifdef ENABLE_AERIAL
 #include "nfapi/oai_integration/aerial/fapi_nvIPC.h"
@@ -103,23 +104,24 @@ vnf_timing_stats_t vnf_all_stats;
 // Helper Macros for explicit update logic
 #define UPDATE_MAX(curr, new_val) do { \
     if ((new_val) != 0) { \
-        if ((curr) == 0 || (new_val) > (curr)) (curr) = (new_val); \
+        if ((curr) == INT32_MIN || (curr) == 0 || (new_val) > (curr)) (curr) = (new_val); \
     } \
 } while(0)
 
 #define UPDATE_MIN(curr, new_val) do { \
     if ((new_val) != 0) { \
-        if ((curr) == 0 || (new_val) < (curr)) (curr) = (new_val); \
+        if ((curr) == INT32_MAX || (curr) == 0 || (new_val) < (curr)) (curr) = (new_val); \
     } \
 } while(0)
 
 static void vnf_p7_update_global_stats(vnf_timing_stats_t* stats, int32_t max_late, int32_t min_late, 
                                        int32_t max_early, int32_t min_early, uint32_t jitter) {
     /* ACCUMULATE MODE: Keep worst case across multiple timing_info messages */
-    if (max_late != INT32_MIN && max_late > stats->max_late) stats->max_late = max_late;
-    if (min_late != INT32_MAX && min_late < stats->min_late) stats->min_late = min_late;
-    if (max_early != INT32_MIN && max_early > stats->max_early) stats->max_early = max_early;
-    if (min_early != INT32_MAX && min_early < stats->min_early) stats->min_early = min_early;
+    // Treat 0 as uninitialized/invalid to allow negative values to overwrite it (fixing 0-init persistence)
+    if (max_late != INT32_MIN && (stats->max_late == INT32_MIN || stats->max_late == 0 || max_late > stats->max_late)) stats->max_late = max_late;
+    if (min_late != INT32_MAX && (stats->min_late == INT32_MAX || stats->min_late == 0 || min_late < stats->min_late)) stats->min_late = min_late;
+    if (max_early != INT32_MIN && (stats->max_early == INT32_MIN || stats->max_early == 0 || max_early > stats->max_early)) stats->max_early = max_early;
+    if (min_early != INT32_MAX && (stats->min_early == INT32_MAX || stats->min_early == 0 || min_early < stats->min_early)) stats->min_early = min_early;
     if (jitter > stats->jitter) stats->jitter = jitter;
 }
 
@@ -147,17 +149,21 @@ void vnf_p7_extract_timing_info(const void* void_ind)
 	const nfapi_nr_timing_info_t* ind = (const nfapi_nr_timing_info_t*)void_ind;
 
 	// --- DL Stats ---
-	int32_t dl_max_late = ind->dl_tti_latest_delay;
-	UPDATE_MAX(dl_max_late, ind->tx_data_latest_delay);
+	int32_t dl_max_late = INT32_MIN;
+	UPDATE_MAX(dl_max_late, ind->dl_tti_latest_delay);
+    UPDATE_MAX(dl_max_late, ind->tx_data_latest_delay);
 
-	int32_t dl_min_late = ind->dl_tti_latest_delay;
-	UPDATE_MIN(dl_min_late, ind->tx_data_latest_delay);
+	int32_t dl_min_late = INT32_MAX;
+	UPDATE_MIN(dl_min_late, ind->dl_tti_latest_delay);
+    UPDATE_MIN(dl_min_late, ind->tx_data_latest_delay);
 	
-	int32_t dl_max_early = ind->dl_tti_earliest_arrival;
-	UPDATE_MAX(dl_max_early, ind->tx_data_earliest_arrival);
+	int32_t dl_max_early = INT32_MIN;
+	UPDATE_MAX(dl_max_early, ind->dl_tti_earliest_arrival);
+    UPDATE_MAX(dl_max_early, ind->tx_data_earliest_arrival);
 
-	int32_t dl_min_early = ind->dl_tti_earliest_arrival;
-	UPDATE_MIN(dl_min_early, ind->tx_data_earliest_arrival);
+    int32_t dl_min_early = INT32_MAX;
+	UPDATE_MIN(dl_min_early, ind->dl_tti_earliest_arrival);
+    UPDATE_MIN(dl_min_early, ind->tx_data_earliest_arrival);
 
 	uint32_t dl_jitter = ind->dl_tti_jitter;
 	if (ind->tx_data_request_jitter > dl_jitter) dl_jitter = ind->tx_data_request_jitter;
@@ -165,17 +171,21 @@ void vnf_p7_extract_timing_info(const void* void_ind)
 	vnf_p7_update_global_stats(&vnf_dl_stats, dl_max_late, dl_min_late, dl_max_early, dl_min_early, dl_jitter);
 
 	// --- UL Stats ---
-	int32_t ul_max_late = ind->ul_tti_latest_delay;
-	UPDATE_MAX(ul_max_late, ind->ul_dci_latest_delay);
+	int32_t ul_max_late = INT32_MIN;
+	UPDATE_MAX(ul_max_late, ind->ul_tti_latest_delay);
+    UPDATE_MAX(ul_max_late, ind->ul_dci_latest_delay);
 
-	int32_t ul_min_late = ind->ul_tti_latest_delay;
-	UPDATE_MIN(ul_min_late, ind->ul_dci_latest_delay);
+    int32_t ul_min_late = INT32_MAX;
+	UPDATE_MIN(ul_min_late, ind->ul_tti_latest_delay);
+    UPDATE_MIN(ul_min_late, ind->ul_dci_latest_delay);
 
-	int32_t ul_max_early = ind->ul_tti_earliest_arrival;
-	UPDATE_MAX(ul_max_early, ind->ul_dci_earliest_arrival);
+	int32_t ul_max_early = INT32_MIN;
+	UPDATE_MAX(ul_max_early, ind->ul_tti_earliest_arrival);
+    UPDATE_MAX(ul_max_early, ind->ul_dci_earliest_arrival);
 
-	int32_t ul_min_early = ind->ul_tti_earliest_arrival;
-	UPDATE_MIN(ul_min_early, ind->ul_dci_earliest_arrival);
+    int32_t ul_min_early = INT32_MAX;
+	UPDATE_MIN(ul_min_early, ind->ul_tti_earliest_arrival);
+    UPDATE_MIN(ul_min_early, ind->ul_dci_earliest_arrival);
 
 	uint32_t ul_jitter = ind->ul_tti_jitter;
 	if (ind->ul_dci_jitter > ul_jitter) ul_jitter = ind->ul_dci_jitter;
@@ -275,9 +285,8 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
 	int32_t all_diff = all_late - all_early;
 	int up_step = 5;
 	int down_step = 5;
-	if(all_late == 0 && all_early == 0){
-		return;
-	}
+	if(all_late == INT32_MIN && all_early == INT32_MAX) return;
+	if(all_late == 0 && all_early == 0) return;
 	if (all_late > 0) {
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE LATE (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
     if (slot_profile_us[current_slot] > 0) slot_profile_us[current_slot] = 0;
@@ -296,13 +305,13 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE 0 (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
 		slot_profile_us[current_slot] = 0;
 		p7_info->sleep_baseline_us = p7_info->slot_duration_us;
-	} else if (all_late < 0){
+	} else if (all_late < 0 && all_late > -target_margin_us + MARGIN_TOLERANCE_US){
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE 1 (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
 		if (slot_profile_us[current_slot] > 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] -= up_step;
 		p7_info->sleep_baseline_us = p7_info->slot_duration_us;
 		if((TARGET_MARGIN_INITIAL + all_diff) > target_margin_us) target_margin_us = TARGET_MARGIN_INITIAL + all_diff;
-	} else if (all_early > -TARGET_TIMING_WINDOW){
+	} else if (all_early > -TARGET_TIMING_WINDOW && all_early < -target_margin_us - MARGIN_TOLERANCE_US){
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE 2 (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
 		if (slot_profile_us[current_slot] < 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] += down_step;
