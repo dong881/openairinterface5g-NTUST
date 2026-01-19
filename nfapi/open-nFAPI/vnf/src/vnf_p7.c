@@ -98,73 +98,111 @@ void dump_slot_sleep_states(nfapi_vnf_p7_connection_info_t* p7_info, const void*
 /* Global Separated Timing Statistics */
 vnf_timing_stats_t vnf_dl_stats;
 vnf_timing_stats_t vnf_ul_stats;
+vnf_timing_stats_t vnf_all_stats;
 
-#define UPDATE_TIMING_STATS(_jitter, _max_late, _min_late, _min_early, _max_early, _ind_jitter, _ind_late, _ind_early) \
-  do { \
-    if ((_ind_jitter) > (_jitter)) (_jitter) = (_ind_jitter); \
-    if ((_ind_late) != 0) { \
-      if ((_ind_late) > (_max_late)) (_max_late) = (_ind_late); \
-      if ((_ind_late) < (_min_late)) (_min_late) = (_ind_late); \
-    } \
-    if ((_ind_early) != 0) { \
-      if ((_ind_early) < (_min_early)) (_min_early) = (_ind_early); \
-      if ((_ind_early) > (_max_early)) (_max_early) = (_ind_early); \
-    } \
-  } while (0)
+/* Helper to filter noise (0) but allow fallback if all are 0 */
+static void vnf_p7_compute_stats(int32_t v1, int32_t v2, int32_t v3, int32_t v4, 
+                                 int32_t* max_out, int32_t* min_out) {
+    int32_t vals[4] = {v1, v2, v3, v4};
+    int32_t valid_max = INT32_MIN;
+    int32_t valid_min = INT32_MAX;
+    int count = 0;
 
-#define STORE_TIMING_STATS(_stats, _max_late, _min_late, _min_early, _max_early, _jitter) \
-  do { \
-    /* ACCUMULATE MODE: Keep worst case across multiple timing_info messages */ \
-    /* This prevents race condition where dl_tti triggers timing_info before tx_data arrives */ \
-    if ((_max_late) != INT32_MIN && (_max_late) > (_stats).max_late) { \
-      (_stats).max_late = (_max_late); \
-    } \
-    if ((_min_late) != INT32_MAX && ((_stats).min_late == 0 || (_min_late) < (_stats).min_late)) { \
-      (_stats).min_late = (_min_late); \
-    } \
-    if ((_min_early) != INT32_MAX && ((_stats).min_early == 0 || (_min_early) < (_stats).min_early)) { \
-      (_stats).min_early = (_min_early); \
-    } \
-    if ((_max_early) != INT32_MIN && (_max_early) > (_stats).max_early) { \
-      (_stats).max_early = (_max_early); \
-    } \
-    if ((_jitter) > (_stats).jitter) { \
-      (_stats).jitter = (_jitter); \
-    } \
-  } while (0)
+    for (int i = 0; i < 4; ++i) {
+        if (vals[i] != 0) {
+            if (vals[i] > valid_max) valid_max = vals[i];
+            if (vals[i] < valid_min) valid_min = vals[i];
+            count++;
+        }
+    }
+
+    if (count == 0) {
+        // Fallback: If all are 0, we assume the value is effectively 0
+        *max_out = 0;
+        *min_out = 0;
+    } else {
+        *max_out = valid_max;
+        *min_out = valid_min;
+    }
+}
+
+static void vnf_p7_update_global_stats(vnf_timing_stats_t* stats, int32_t max_late, int32_t min_late, 
+                                       int32_t max_early, int32_t min_early, uint32_t jitter) {
+    /* ACCUMULATE MODE: Keep worst case across multiple timing_info messages */
+    if (max_late != INT32_MIN && max_late > stats->max_late) stats->max_late = max_late;
+    if (min_late != INT32_MAX && min_late < stats->min_late) stats->min_late = min_late;
+    if (max_early != INT32_MIN && max_early > stats->max_early) stats->max_early = max_early;
+    if (min_early != INT32_MAX && min_early < stats->min_early) stats->min_early = min_early;
+    if (jitter > stats->jitter) stats->jitter = jitter;
+}
 
 /* Reset timing stats after controller uses them */
 static inline void vnf_reset_timing_stats(void) {
-  vnf_dl_stats.max_late = 0;
-  vnf_dl_stats.min_late = 0;
-  vnf_dl_stats.min_early = 0;
-  vnf_dl_stats.max_early = 0;
+  vnf_dl_stats.max_late = INT32_MIN;
+  vnf_dl_stats.min_late = INT32_MAX;
+  vnf_dl_stats.min_early = INT32_MAX;
+  vnf_dl_stats.max_early = INT32_MIN;
   vnf_dl_stats.jitter = 0;
-  vnf_ul_stats.max_late = 0;
-  vnf_ul_stats.min_late = 0;
-  vnf_ul_stats.min_early = 0;
-  vnf_ul_stats.max_early = 0;
+  vnf_ul_stats.max_late = INT32_MIN;
+  vnf_ul_stats.min_late = INT32_MAX;
+  vnf_ul_stats.min_early = INT32_MAX;
+  vnf_ul_stats.max_early = INT32_MIN;
   vnf_ul_stats.jitter = 0;
+  vnf_all_stats.max_late = INT32_MIN;
+  vnf_all_stats.min_late = INT32_MAX;
+  vnf_all_stats.min_early = INT32_MAX;
+  vnf_all_stats.max_early = INT32_MIN;
+  vnf_all_stats.jitter = 0;
 }
 
 void vnf_p7_extract_timing_info(const void* void_ind)
 {
 	const nfapi_nr_timing_info_t* ind = (const nfapi_nr_timing_info_t*)void_ind;
 
-	int32_t dl_max_late = INT32_MIN, dl_min_late = INT32_MAX, dl_min_early = INT32_MAX, dl_max_early = INT32_MIN, dl_jitter = 0;
-	int32_t ul_max_late = INT32_MIN, ul_min_late = INT32_MAX, ul_min_early = INT32_MAX, ul_max_early = INT32_MIN, ul_jitter = 0;
+	// --- DL Stats ---
+	int32_t dl_max_late, dl_min_late;
+	vnf_p7_compute_stats(ind->dl_tti_latest_delay, ind->tx_data_latest_delay, 0, 0, &dl_max_late, &dl_min_late);
 	
-	UPDATE_TIMING_STATS(dl_jitter, dl_max_late, dl_min_late, dl_min_early, dl_max_early, 
-											ind->dl_tti_jitter, ind->dl_tti_latest_delay, ind->dl_tti_earliest_arrival);
-	UPDATE_TIMING_STATS(dl_jitter, dl_max_late, dl_min_late, dl_min_early, dl_max_early, 
-											ind->tx_data_request_jitter, ind->tx_data_latest_delay, ind->tx_data_earliest_arrival);
-	STORE_TIMING_STATS(vnf_dl_stats, dl_max_late, dl_min_late, dl_min_early, dl_max_early, dl_jitter);
+	int32_t dl_max_early, dl_min_early;
+	vnf_p7_compute_stats(ind->dl_tti_earliest_arrival, ind->tx_data_earliest_arrival, 0, 0, &dl_max_early, &dl_min_early);
 
-	UPDATE_TIMING_STATS(ul_jitter, ul_max_late, ul_min_late, ul_min_early, ul_max_early, 
-											ind->ul_tti_jitter, ind->ul_tti_latest_delay, ind->ul_tti_earliest_arrival);
-	UPDATE_TIMING_STATS(ul_jitter, ul_max_late, ul_min_late, ul_min_early, ul_max_early, 
-											ind->ul_dci_jitter, ind->ul_dci_latest_delay, ind->ul_dci_earliest_arrival);
-	STORE_TIMING_STATS(vnf_ul_stats, ul_max_late, ul_min_late, ul_min_early, ul_max_early, ul_jitter);
+	uint32_t dl_jitter = ind->dl_tti_jitter;
+	if (ind->tx_data_request_jitter > dl_jitter) dl_jitter = ind->tx_data_request_jitter;
+
+	vnf_p7_update_global_stats(&vnf_dl_stats, dl_max_late, dl_min_late, dl_max_early, dl_min_early, dl_jitter);
+
+	// --- UL Stats ---
+	int32_t ul_max_late, ul_min_late;
+	vnf_p7_compute_stats(ind->ul_tti_latest_delay, ind->ul_dci_latest_delay, 0, 0, &ul_max_late, &ul_min_late);
+
+	int32_t ul_max_early, ul_min_early;
+	vnf_p7_compute_stats(ind->ul_tti_earliest_arrival, ind->ul_dci_earliest_arrival, 0, 0, &ul_max_early, &ul_min_early);
+
+	uint32_t ul_jitter = ind->ul_tti_jitter;
+	if (ind->ul_dci_jitter > ul_jitter) ul_jitter = ind->ul_dci_jitter;
+
+	vnf_p7_update_global_stats(&vnf_ul_stats, ul_max_late, ul_min_late, ul_max_early, ul_min_early, ul_jitter);
+
+    // --- ALL Stats (Combined Sorting) ---
+    int32_t all_max_late, all_min_late;
+    vnf_p7_compute_stats(ind->dl_tti_latest_delay, ind->tx_data_latest_delay, 
+                         ind->ul_tti_latest_delay, ind->ul_dci_latest_delay, 
+                         &all_max_late, &all_min_late);
+    
+    int32_t all_max_early, all_min_early;
+    vnf_p7_compute_stats(ind->dl_tti_earliest_arrival, ind->tx_data_earliest_arrival, 
+                         ind->ul_tti_earliest_arrival, ind->ul_dci_earliest_arrival, 
+                         &all_max_early, &all_min_early);
+    
+    uint32_t all_jitter = dl_jitter > ul_jitter ? dl_jitter : ul_jitter;
+
+    vnf_p7_update_global_stats(&vnf_all_stats, all_max_late, all_min_late, all_max_early, all_min_early, all_jitter);
+
+	NFAPI_TRACE(NFAPI_TRACE_INFO, "ind delay(%d,%d,%d,%d), early(%d,%d,%d,%d)\n",
+											ind->dl_tti_latest_delay, ind->tx_data_latest_delay, ind->ul_tti_latest_delay, ind->ul_dci_latest_delay,
+											ind->dl_tti_earliest_arrival, ind->tx_data_earliest_arrival, ind->ul_tti_earliest_arrival, ind->ul_dci_earliest_arrival);
+	NFAPI_TRACE(NFAPI_TRACE_INFO, "ALL: max_late=%d, min_early=%d, jitter=%d\n", 
+					vnf_all_stats.max_late, vnf_all_stats.min_early, vnf_all_stats.jitter);
 }
 
 void vnf_p7_critical_correction(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot)
@@ -230,25 +268,43 @@ void vnf_p7_critical_correction(nfapi_vnf_p7_connection_info_t* p7_info, uint32_
 
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot)
 {
-	int32_t mix_late = (vnf_dl_stats.max_late > vnf_ul_stats.max_late) ? vnf_dl_stats.max_late : vnf_ul_stats.max_late;
-	int32_t mix_early = (vnf_dl_stats.min_early < vnf_ul_stats.min_early) ? vnf_dl_stats.min_early : vnf_ul_stats.min_early;
-  int up_step = 5;
+	int32_t all_late = vnf_all_stats.max_late;
+	int32_t all_early = vnf_all_stats.min_early;
+	int32_t all_diff = all_late - all_early;
+	int up_step = 5;
 	int down_step = 5;
-	if (mix_late > 0) {
+	if (all_late > 0) {
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE LATE (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
     if (slot_profile_us[current_slot] > 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] -= up_step;
-		if (target_margin_us < TARGET_MARGIN_MAX) target_margin_us += up_step;
+		if (target_margin_us < TARGET_TIMING_WINDOW) target_margin_us++;
 		if (p7_info->sleep_baseline_us > p7_info->slot_duration_us) p7_info->sleep_baseline_us = p7_info->slot_duration_us;
-		else p7_info->sleep_baseline_us = p7_info->slot_duration_us--;
-  } else if (mix_early < -TARGET_TIMING_WINDOW){
+		else p7_info->sleep_baseline_us--;
+  } else if (all_early < -TARGET_TIMING_WINDOW){
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
 		if (slot_profile_us[current_slot] < 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] += down_step;
-		if (target_margin_us > TARGET_MARGIN_INITIAL) target_margin_us -= down_step;
+		if (target_margin_us > TARGET_MARGIN_INITIAL) target_margin_us--;
 		if (p7_info->sleep_baseline_us < p7_info->slot_duration_us) p7_info->sleep_baseline_us = p7_info->slot_duration_us;
-		else p7_info->sleep_baseline_us = p7_info->slot_duration_us++;
-	} else if (mix_late < -target_margin_us + MARGIN_TOLERANCE_US || mix_early > -target_margin_us - MARGIN_TOLERANCE_US) {
+		else p7_info->sleep_baseline_us++;
+	} else if (all_late < -target_margin_us + MARGIN_TOLERANCE_US && all_early > -target_margin_us - MARGIN_TOLERANCE_US) {
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE 0 (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
 		slot_profile_us[current_slot] = 0;
 		p7_info->sleep_baseline_us = p7_info->slot_duration_us;
+	} else if (all_late < 0){
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE 1 (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
+		if (slot_profile_us[current_slot] > 0) slot_profile_us[current_slot] = 0;
+		else slot_profile_us[current_slot] -= up_step;
+		p7_info->sleep_baseline_us = p7_info->slot_duration_us;
+		if((TARGET_MARGIN_INITIAL + all_diff) > target_margin_us) target_margin_us = TARGET_MARGIN_INITIAL + all_diff;
+	} else if (all_early > -TARGET_TIMING_WINDOW){
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE 2 (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
+		if (slot_profile_us[current_slot] < 0) slot_profile_us[current_slot] = 0;
+		else slot_profile_us[current_slot] += down_step;
+		p7_info->sleep_baseline_us = p7_info->slot_duration_us;
+		if((TARGET_MARGIN_INITIAL + all_diff) < target_margin_us) target_margin_us--;
+	} else {
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "NO CASE ! (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
 	}
   // ==== STEP 4: Clamp current slot profile ====
   if (slot_profile_us[current_slot] > PROFILE_LIMIT)
