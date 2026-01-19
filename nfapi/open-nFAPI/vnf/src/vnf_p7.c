@@ -210,11 +210,11 @@ void vnf_p7_extract_timing_info(const void* void_ind)
 
 	vnf_p7_update_global_stats(&vnf_all_stats, all_max_late, all_min_late, all_max_early, all_min_early, all_jitter);
 
-	NFAPI_TRACE(NFAPI_TRACE_INFO, "ind delay(%d,%d,%d,%d), early(%d,%d,%d,%d)\n",
-											ind->dl_tti_latest_delay, ind->tx_data_latest_delay, ind->ul_tti_latest_delay, ind->ul_dci_latest_delay,
-											ind->dl_tti_earliest_arrival, ind->tx_data_earliest_arrival, ind->ul_tti_earliest_arrival, ind->ul_dci_earliest_arrival);
-	NFAPI_TRACE(NFAPI_TRACE_INFO, "ALL: max_late=%d, min_early=%d, jitter=%d\n", 
-					vnf_all_stats.max_late, vnf_all_stats.min_early, vnf_all_stats.jitter);
+	// NFAPI_TRACE(NFAPI_TRACE_INFO, "ind delay(%d,%d,%d,%d), early(%d,%d,%d,%d)\n",
+	// 										ind->dl_tti_latest_delay, ind->tx_data_latest_delay, ind->ul_tti_latest_delay, ind->ul_dci_latest_delay,
+	// 										ind->dl_tti_earliest_arrival, ind->tx_data_earliest_arrival, ind->ul_tti_earliest_arrival, ind->ul_dci_earliest_arrival);
+	// NFAPI_TRACE(NFAPI_TRACE_INFO, "ALL: max_late=%d, min_early=%d, jitter=%d\n", 
+	// 				vnf_all_stats.max_late, vnf_all_stats.min_early, vnf_all_stats.jitter);
 }
 
 void vnf_p7_critical_correction(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot)
@@ -301,24 +301,24 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
 		if (target_margin_us > TARGET_MARGIN_INITIAL + down_step) target_margin_us-=down_step;
 		if (p7_info->sleep_baseline_us < p7_info->slot_duration_us) p7_info->sleep_baseline_us = p7_info->slot_duration_us;
 		else p7_info->sleep_baseline_us++;
-	} else if (all_late < -target_margin_us + MARGIN_TOLERANCE_US && all_early > -target_margin_us - MARGIN_TOLERANCE_US) {
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE 0 (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
+	} else if (all_late <= -target_margin_us + MARGIN_TOLERANCE_US && all_early >= -target_margin_us - MARGIN_TOLERANCE_US) {
+		// NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE very good (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
 		slot_profile_us[current_slot] = 0;
 		p7_info->sleep_baseline_us = p7_info->slot_duration_us;
 	} else if (all_late < 0 && all_late > -target_margin_us + MARGIN_TOLERANCE_US){
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE 1 (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little late (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
 		if (slot_profile_us[current_slot] > 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] -= up_step;
 		p7_info->sleep_baseline_us = p7_info->slot_duration_us;
 		if((TARGET_MARGIN_INITIAL + all_diff) > target_margin_us) target_margin_us = TARGET_MARGIN_INITIAL + all_diff;
 	} else if (all_early > -TARGET_TIMING_WINDOW && all_early < -target_margin_us - MARGIN_TOLERANCE_US){
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE 2 (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little early (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
 		if (slot_profile_us[current_slot] < 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] += down_step;
 		p7_info->sleep_baseline_us = p7_info->slot_duration_us;
 		if((TARGET_MARGIN_INITIAL + all_diff) < target_margin_us) target_margin_us--;
 	} else {
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "NO CASE ! (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "NO CASE ! WHY??? (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
 	}
   // ==== STEP 4: Clamp current slot profile ====
   if (slot_profile_us[current_slot] > PROFILE_LIMIT)
