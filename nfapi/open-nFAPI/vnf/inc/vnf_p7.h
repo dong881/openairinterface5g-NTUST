@@ -27,14 +27,12 @@
  * DYNAMIC SLOT SLEEP TIMING CONTROL CONSTANTS
  * ============================================================================ */
 /* Dynamic Target Margin (adaptive to avoid late packets) */
-#define TARGET_MARGIN_INITIAL   600   // Maximum safety buffer (user request: catch all late)
+#define TARGET_MARGIN_INITIAL   150   // Maximum safety buffer (user request: catch all late)
 #define TARGET_MARGIN_MAX       800   // Maximum target (increased for iperf headroom)
-#define TARGET_MARGIN_STEP      50    // Step size when late detected
-#define TARGET_MARGIN_DECAY     1     // Decay step when healthy
-extern int32_t target_margin_us;      // Dynamic TARGET_MARGIN variable
+#define TARGET_TIMING_WINDOW    2200  // Minimum target (to avoid constant adjustment)
 #define MARGIN_TOLERANCE_US     50    // Deadband zone: +/- MARGIN_TOLERANCE_US us
 #define JITTER_THRESHOLD_US     200   // High/Low jitter boundary
-#define MAX_PASS3_ADJUST_US     450    // Maximum Pass 3 adjustment per cycle
+#define PROFILE_LIMIT     450    // Maximum Pass 3 adjustment per cycle
 #define MIN_SLEEP_US            50    // Minimum allowable sleep time
 #define MAX_SLEEP_US            950  // Maximum allowable sleep time
 #define MAX_BORROW_DEPTH        4     // Maximum backward/forward borrow depth

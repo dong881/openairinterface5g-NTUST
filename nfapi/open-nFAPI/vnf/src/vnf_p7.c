@@ -228,110 +228,35 @@ void vnf_p7_critical_correction(nfapi_vnf_p7_connection_info_t* p7_info, uint32_
 	return;
 }
 
-// Pass 3: Convergence Optimization
-// Algorithm: Direct Sleep Adjustment Based on Margin Deficit
-// Key insight: To INCREASE margin (push rectangle UP), we must DECREASE sleep time
-//              (send packets EARLIER). To decrease margin, increase sleep time.
-// 
-// The control variable is slot_profile_us (and indirectly target_margin_us for tracking)
-// Real sleep = sleep_baseline_us + slot_profile_us[slot]
-// Lower sleep → earlier packet → higher margin → fewer late packets
-
-
-
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot)
 {
-  // ============================================================================
-  // Simple Convergence Algorithm v23
-  // ============================================================================
-  // Timing info interpretation:
-  //   - late values: positive = late (bad), zero = on-time
-  //   - early values: negative = early (good), more negative = more margin
-  //
-  // Core logic:
-  //   - If late (max_late > 0): reduce slot_profile_us to send packets earlier
-  //   - If too early: let decay bring profile back toward 0
-  //   - Target: keep worst-case margin around TARGET_MARGIN_US
-  // ============================================================================
-
-  const int32_t TARGET_MARGIN = 400;   // Target margin in µs (how early we want to be)
-  const int32_t PROFILE_LIMIT = 150;   // Max profile deviation
-  const int32_t DECAY_RATE = 1;        // Slow decay toward 0 when stable
-
-  // ==== STEP 1: Find worst-case timing from DL and UL ====
-  // max_late: the worst (highest) late value across all message types
-  int32_t max_late = 0;
-  if (vnf_dl_stats.max_late > max_late) max_late = vnf_dl_stats.max_late;
-  if (vnf_ul_stats.max_late > max_late) max_late = vnf_ul_stats.max_late;
-
-  // min_early: the least early (closest to zero) value - this is our worst-case margin
-  // Note: early values are negative, so we want the one closest to zero (least margin)
-  int32_t min_early = INT32_MIN; // Initialize to very negative (lots of margin)
-  if (vnf_dl_stats.min_early != 0 && vnf_dl_stats.min_early > min_early)
-    min_early = vnf_dl_stats.min_early;
-  if (vnf_ul_stats.min_early != 0 && vnf_ul_stats.min_early > min_early)
-    min_early = vnf_ul_stats.min_early;
-
-  // ==== STEP 2: Correction based on timing ====
-  bool did_correct = false;
-
-  if (max_late > 0) {
-    // We're LATE - this is critical, reduce sleep time immediately
-    // Correction proportional to how late we are
-    int32_t correction = max_late / 10;  // 10% of late amount
-    if (correction < 5) correction = 5;  // Minimum step
-    if (correction > 50) correction = 50; // Maximum step per update
-    
-    slot_profile_us[current_slot] -= correction;
-    did_correct = true;
-    
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "[LATE] max_late=%d, profile[%d] -= %d\n",
-                max_late, current_slot, correction);
-  }
-  else if (min_early != INT32_MIN) {
-    // We have valid early data - check if we're on target
-    // min_early is negative; -min_early is our actual margin
-    int32_t actual_margin = -min_early;
-    int32_t error = actual_margin - TARGET_MARGIN;
-    
-    // If margin is too high (error > 0), we can slow down (increase profile)
-    // If margin is too low (error < 0), we need to speed up (decrease profile)
-    if (error < -50) {
-      // Margin significantly below target - speed up
-      int32_t correction = (-error) / 20;  // 5% gain
-      if (correction > 20) correction = 20;
-      slot_profile_us[current_slot] -= correction;
-      did_correct = true;
-    }
-    else if (error > 100) {
-      // Margin significantly above target - can slow down a bit
-      int32_t correction = error / 40;  // 2.5% gain (slower recovery)
-      if (correction > 10) correction = 10;
-      slot_profile_us[current_slot] += correction;
-      did_correct = true;
-    }
-  }
-
-  // ==== STEP 3: Decay toward zero (only when no correction applied) ====
-  if (!did_correct) {
-    if (slot_profile_us[current_slot] > DECAY_RATE) {
-      slot_profile_us[current_slot] -= DECAY_RATE;
-    } else if (slot_profile_us[current_slot] < -DECAY_RATE) {
-      slot_profile_us[current_slot] += DECAY_RATE;
-    } else {
-      slot_profile_us[current_slot] = 0;
-    }
-  }
-
+	int32_t mix_late = (vnf_dl_stats.max_late > vnf_ul_stats.max_late) ? vnf_dl_stats.max_late : vnf_ul_stats.max_late;
+	int32_t mix_early = (vnf_dl_stats.min_early < vnf_ul_stats.min_early) ? vnf_dl_stats.min_early : vnf_ul_stats.min_early;
+  int up_step = 5;
+	int down_step = 5;
+	if (mix_late > 0) {
+    if (slot_profile_us[current_slot] > 0) slot_profile_us[current_slot] = 0;
+		else slot_profile_us[current_slot] -= up_step;
+		if (target_margin_us < TARGET_MARGIN_MAX) target_margin_us += up_step;
+		if (p7_info->sleep_baseline_us > p7_info->slot_duration_us) p7_info->sleep_baseline_us = p7_info->slot_duration_us;
+		else p7_info->sleep_baseline_us = p7_info->slot_duration_us--;
+  } else if (mix_early < -TARGET_TIMING_WINDOW){
+		if (slot_profile_us[current_slot] < 0) slot_profile_us[current_slot] = 0;
+		else slot_profile_us[current_slot] += down_step;
+		if (target_margin_us > TARGET_MARGIN_INITIAL) target_margin_us -= down_step;
+		if (p7_info->sleep_baseline_us < p7_info->slot_duration_us) p7_info->sleep_baseline_us = p7_info->slot_duration_us;
+		else p7_info->sleep_baseline_us = p7_info->slot_duration_us++;
+	} else if (mix_late < -target_margin_us + MARGIN_TOLERANCE_US || mix_early > -target_margin_us - MARGIN_TOLERANCE_US) {
+		slot_profile_us[current_slot] = 0;
+		p7_info->sleep_baseline_us = p7_info->slot_duration_us;
+	}
   // ==== STEP 4: Clamp current slot profile ====
   if (slot_profile_us[current_slot] > PROFILE_LIMIT)
     slot_profile_us[current_slot] = PROFILE_LIMIT;
   if (slot_profile_us[current_slot] < -PROFILE_LIMIT)
     slot_profile_us[current_slot] = -PROFILE_LIMIT;
-
-  (void)p7_info;          // Baseline is NOT modified - stays fixed at initial value
-  (void)target_margin_us; // Using local TARGET_MARGIN instead
-
+	if (p7_info->sleep_baseline_us + slot_profile_us[current_slot] > MAX_SLEEP_US) p7_info->sleep_baseline_us = MAX_SLEEP_US - slot_profile_us[current_slot];
+	else if (p7_info->sleep_baseline_us + slot_profile_us[current_slot] < MIN_SLEEP_US) p7_info->sleep_baseline_us = MIN_SLEEP_US - slot_profile_us[current_slot];
   vnf_reset_timing_stats();
 }
 
