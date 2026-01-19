@@ -283,22 +283,22 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
 	int32_t all_late = vnf_all_stats.max_late;
 	int32_t all_early = vnf_all_stats.min_early;
 	int32_t all_diff = all_late - all_early;
-	int up_step = 5;
+	int up_step = 10;
 	int down_step = 5;
 	if(all_late == INT32_MIN && all_early == INT32_MAX) return;
 	if(all_late == 0 && all_early == 0) return;
 	if (all_late > 0) {
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE LATE (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
     if (slot_profile_us[current_slot] > 0) slot_profile_us[current_slot] = 0;
-		else slot_profile_us[current_slot] -= up_step;
-		if (target_margin_us < TARGET_TIMING_WINDOW - up_step) target_margin_us+=up_step;
+		else slot_profile_us[current_slot] -= all_late;
+		if((TARGET_MARGIN_INITIAL + all_diff) > target_margin_us) target_margin_us = TARGET_MARGIN_INITIAL + all_diff;
 		if (p7_info->sleep_baseline_us > p7_info->slot_duration_us) p7_info->sleep_baseline_us = p7_info->slot_duration_us;
-		else p7_info->sleep_baseline_us--;
+		else p7_info->sleep_baseline_us-=10;
   } else if (all_early < -TARGET_TIMING_WINDOW){
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
 		if (slot_profile_us[current_slot] < 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] += down_step;
-		if (target_margin_us > TARGET_MARGIN_INITIAL + down_step) target_margin_us-=down_step;
+		if((TARGET_MARGIN_INITIAL + all_diff) < target_margin_us) target_margin_us = TARGET_MARGIN_INITIAL + all_diff;
 		if (p7_info->sleep_baseline_us < p7_info->slot_duration_us) p7_info->sleep_baseline_us = p7_info->slot_duration_us;
 		else p7_info->sleep_baseline_us++;
 	} else if (all_late <= -target_margin_us + MARGIN_TOLERANCE_US && all_early >= -target_margin_us - MARGIN_TOLERANCE_US) {
@@ -316,7 +316,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
 		if (slot_profile_us[current_slot] < 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] += down_step;
 		p7_info->sleep_baseline_us = p7_info->slot_duration_us;
-		if((TARGET_MARGIN_INITIAL + all_diff) < target_margin_us) target_margin_us--;
+		if((TARGET_MARGIN_INITIAL + all_diff) < target_margin_us) target_margin_us = TARGET_MARGIN_INITIAL + all_diff;
 	} else {
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "NO CASE ! WHY??? (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
 	}
@@ -1954,7 +1954,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	// Negative offset means VNF clock is AHEAD of PNF (VNF needs to slow down / add delay)
 	int32_t offset = (int32_t)( ((int64_t)ind.t2 - (int64_t)ind.t1 - ((int64_t)t4 - (int64_t)ind.t3)) / 2 );
 	int32_t owd = (int32_t)( ((int64_t)t4 - (int64_t)ind.t1 - ((int64_t)ind.t3 - (int64_t)ind.t2)) / 2 );
-	int32_t TARGET_PNF_MARGIN_US = 150*(1 << p7_info->mu); // 500us for mu0, 1000us for mu1, 2000us for mu2, 4000us for mu3
+	int32_t TARGET_PNF_MARGIN_US = 250*(1 << p7_info->mu); // 500us for mu0, 1000us for mu1, 2000us for mu2, 4000us for mu3
 	int32_t slot_us = (int32_t)p7_info->slot_duration_us;
 	int32_t offsetslot = (offset + TARGET_PNF_MARGIN_US) / slot_us;
 	int32_t offsetus = (offset  + TARGET_PNF_MARGIN_US) % slot_us;
