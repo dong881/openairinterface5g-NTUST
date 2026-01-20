@@ -223,40 +223,36 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
 	int32_t all_late = vnf_stats->max_late;
 	int32_t all_early = vnf_stats->min_early;
 	int32_t all_diff = all_late - all_early;
-	int up_step = 1;
-	int down_step = 1;
+	int up_step = 5;
+	int down_step = 5;
 	if(all_late == INT32_MIN && all_early == INT32_MAX) return;
 	if(all_late == 0 && all_early == 0) return;
 	if (all_late > 0) {
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE LATE [%d] (%d, %d, %d) %d\n", current_slot, all_early, all_late, all_diff, target_margin_us);
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE LATE [%d]:%d (%d, %d, %d) T:%d diff: %d\n", current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, all_diff);
     if (slot_profile_us[current_slot] > 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] -= all_late;
-		if((TARGET_MARGIN_INITIAL + all_diff) > target_margin_us) target_margin_us = TARGET_MARGIN_INITIAL + all_diff;
+		if(all_diff > target_margin_us) target_margin_us = all_diff + 50;
 		if (p7_info->sleep_baseline_us > p7_info->slot_duration_us) p7_info->sleep_baseline_us = p7_info->slot_duration_us;
 		else p7_info->sleep_baseline_us -= up_step;
   } else if (all_early < -TARGET_TIMING_WINDOW){
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY [%d] (%d, %d, %d) %d\n", current_slot, all_early, all_late, all_diff, target_margin_us);
 		if (slot_profile_us[current_slot] < 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] += (-TARGET_TIMING_WINDOW - all_early);
-		// if((TARGET_MARGIN_INITIAL + all_diff) < target_margin_us) target_margin_us = TARGET_MARGIN_INITIAL + all_diff;
 		if (p7_info->sleep_baseline_us < p7_info->slot_duration_us) p7_info->sleep_baseline_us = p7_info->slot_duration_us;
 		else p7_info->sleep_baseline_us += down_step;
 	} else if (all_late <= -target_margin_us + MARGIN_TOLERANCE_US && all_early >= -target_margin_us - MARGIN_TOLERANCE_US) {
 		// NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE very good (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
 		// slot_profile_us[current_slot] = 0;
-		p7_info->sleep_baseline_us= p7_info->slot_duration_us;
+		p7_info->sleep_baseline_us = p7_info->slot_duration_us;
 	} else if (all_late < 0 && all_late > -target_margin_us + MARGIN_TOLERANCE_US){
-		// NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little late [%d] (%d, %d, %d) %d\n", current_slot, all_early, all_late, all_diff, target_margin_us);
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little late [%d]:%d (%d, %d, %d) T:%d diff: %d\n", current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, all_diff);
 		if (slot_profile_us[current_slot] > 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] -= up_step;
-		p7_info->sleep_baseline_us += (p7_info->sleep_baseline_us < p7_info->slot_duration_us) - (p7_info->sleep_baseline_us > p7_info->slot_duration_us);
-		if((TARGET_MARGIN_INITIAL + all_diff) > target_margin_us) target_margin_us = TARGET_MARGIN_INITIAL + all_diff;
+		if(all_diff > target_margin_us) target_margin_us = all_diff + 50;
 	} else if (all_early > -TARGET_TIMING_WINDOW && all_early < -target_margin_us - MARGIN_TOLERANCE_US){
-		// NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little early [%d] (%d, %d, %d) %d\n", current_slot, all_early, all_late, all_diff, target_margin_us);
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little early [%d]:%d (%d, %d, %d) T:%d\n", current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us);
 		if (slot_profile_us[current_slot] < 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] += down_step;
-		p7_info->sleep_baseline_us += (p7_info->sleep_baseline_us < p7_info->slot_duration_us) - (p7_info->sleep_baseline_us > p7_info->slot_duration_us);
-		// if((TARGET_MARGIN_INITIAL + all_diff) < target_margin_us) target_margin_us = TARGET_MARGIN_INITIAL + all_diff;
 	} else {
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "NO CASE ! WHY??? [%d] (%d, %d, %d) %d\n", current_slot, all_early, all_late, all_diff, target_margin_us);
 	}

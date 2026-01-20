@@ -1104,6 +1104,7 @@ void *vnf_timing_thread(void *arg) {
     // REMOVED init_dynamic_slot_sleep(p7_info->slot_duration_us);
     clock_gettime(CLOCK_MONOTONIC, &p7_info->next_slot_time);
     vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
+    #define MAX_SLOTNUM NFAPI_SLOTNUM(p7_info->mu)
 
     while (p7_info->running) {
       vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
@@ -1115,8 +1116,7 @@ void *vnf_timing_thread(void *arg) {
         sfnslot_dec += p7_info->slot_adjustment;
         if (sfnslot_dec < 0) {
           // Handle negative sfnslot_dec (wrap-around), support multiple rounds
-          int slots_per_frame = NFAPI_SLOTNUM(p7_info->mu);
-          int total_slots = slots_per_frame * 1024;
+          int total_slots = MAX_SLOTNUM * 1024;
           sfnslot_dec = (sfnslot_dec % total_slots + total_slots) % total_slots;
         }
         NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC][VNF Timing] Applying slot adjustment of %d slots -> (new sfn:slot %d:%d)\n", 
@@ -1149,8 +1149,10 @@ void *vnf_timing_thread(void *arg) {
       // }
       // Fine-grained Dynamic timing adjustment
       // Calculate raw sleep with signed arithmetic to handle negative profiles safely
-      int32_t raw_sleep = p7_info->us_adjustment + (int32_t)p7_info->sleep_baseline_us + slot_profile_us[p7_info->slot % SLOT_ARRAY_SIZE];
+      int32_t raw_sleep = p7_info->us_adjustment + (int32_t)p7_info->sleep_baseline_us + 
+      slot_profile_us[NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec +1 + MAX_SLOTNUM) % MAX_SLOTNUM) % SLOT_ARRAY_SIZE];
       p7_info->us_adjustment = 0;
+      // if (p7_info->slot == 0) NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC][VNF Timing] Raw sleep: %d us\n", raw_sleep);
       // Hard clamp to valid range [MIN_SLEEP_US, MAX_SLEEP_US] to prevent VNF from stopping
       if (raw_sleep < MIN_SLEEP_US) raw_sleep = MIN_SLEEP_US;  // 50µs minimum
       if (raw_sleep > MAX_SLEEP_US) raw_sleep = MAX_SLEEP_US;  // 950µs maximum
