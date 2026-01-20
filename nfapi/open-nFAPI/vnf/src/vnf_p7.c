@@ -151,19 +151,19 @@ void vnf_p7_extract_timing_info(const void* void_ind)
 	// --- DL Stats ---
 	int32_t dl_max_late = INT32_MIN;
 	UPDATE_MAX(dl_max_late, ind->dl_tti_latest_delay);
-    UPDATE_MAX(dl_max_late, ind->tx_data_latest_delay);
+	UPDATE_MAX(dl_max_late, ind->tx_data_latest_delay);
 
 	int32_t dl_min_late = INT32_MAX;
 	UPDATE_MIN(dl_min_late, ind->dl_tti_latest_delay);
-    UPDATE_MIN(dl_min_late, ind->tx_data_latest_delay);
+	UPDATE_MIN(dl_min_late, ind->tx_data_latest_delay);
 	
 	int32_t dl_max_early = INT32_MIN;
 	UPDATE_MAX(dl_max_early, ind->dl_tti_earliest_arrival);
-    UPDATE_MAX(dl_max_early, ind->tx_data_earliest_arrival);
+	UPDATE_MAX(dl_max_early, ind->tx_data_earliest_arrival);
 
-    int32_t dl_min_early = INT32_MAX;
+	int32_t dl_min_early = INT32_MAX;
 	UPDATE_MIN(dl_min_early, ind->dl_tti_earliest_arrival);
-    UPDATE_MIN(dl_min_early, ind->tx_data_earliest_arrival);
+	UPDATE_MIN(dl_min_early, ind->tx_data_earliest_arrival);
 
 	uint32_t dl_jitter = ind->dl_tti_jitter;
 	if (ind->tx_data_request_jitter > dl_jitter) dl_jitter = ind->tx_data_request_jitter;
@@ -173,19 +173,19 @@ void vnf_p7_extract_timing_info(const void* void_ind)
 	// --- UL Stats ---
 	int32_t ul_max_late = INT32_MIN;
 	UPDATE_MAX(ul_max_late, ind->ul_tti_latest_delay);
-    UPDATE_MAX(ul_max_late, ind->ul_dci_latest_delay);
+	UPDATE_MAX(ul_max_late, ind->ul_dci_latest_delay);
 
-    int32_t ul_min_late = INT32_MAX;
+	int32_t ul_min_late = INT32_MAX;
 	UPDATE_MIN(ul_min_late, ind->ul_tti_latest_delay);
-    UPDATE_MIN(ul_min_late, ind->ul_dci_latest_delay);
+	UPDATE_MIN(ul_min_late, ind->ul_dci_latest_delay);
 
 	int32_t ul_max_early = INT32_MIN;
 	UPDATE_MAX(ul_max_early, ind->ul_tti_earliest_arrival);
-    UPDATE_MAX(ul_max_early, ind->ul_dci_earliest_arrival);
+	UPDATE_MAX(ul_max_early, ind->ul_dci_earliest_arrival);
 
-    int32_t ul_min_early = INT32_MAX;
+	int32_t ul_min_early = INT32_MAX;
 	UPDATE_MIN(ul_min_early, ind->ul_tti_earliest_arrival);
-    UPDATE_MIN(ul_min_early, ind->ul_dci_earliest_arrival);
+	UPDATE_MIN(ul_min_early, ind->ul_dci_earliest_arrival);
 
 	uint32_t ul_jitter = ind->ul_tti_jitter;
 	if (ind->ul_dci_jitter > ul_jitter) ul_jitter = ind->ul_dci_jitter;
@@ -210,11 +210,12 @@ void vnf_p7_extract_timing_info(const void* void_ind)
 
 	vnf_p7_update_global_stats(&vnf_all_stats, all_max_late, all_min_late, all_max_early, all_min_early, all_jitter);
 
-	// NFAPI_TRACE(NFAPI_TRACE_INFO, "ind delay(%d,%d,%d,%d), early(%d,%d,%d,%d)\n",
-	// 										ind->dl_tti_latest_delay, ind->tx_data_latest_delay, ind->ul_tti_latest_delay, ind->ul_dci_latest_delay,
-	// 										ind->dl_tti_earliest_arrival, ind->tx_data_earliest_arrival, ind->ul_tti_earliest_arrival, ind->ul_dci_earliest_arrival);
-	// NFAPI_TRACE(NFAPI_TRACE_INFO, "ALL: max_late=%d, min_early=%d, jitter=%d\n", 
-	// 				vnf_all_stats.max_late, vnf_all_stats.min_early, vnf_all_stats.jitter);
+	NFAPI_TRACE(NFAPI_TRACE_INFO, "ind [%d.%d] delay(%d,%d,%d,%d), early(%d,%d,%d,%d)\n",
+											ind->last_sfn, ind->last_slot,
+											ind->dl_tti_latest_delay, ind->tx_data_latest_delay, ind->ul_tti_latest_delay, ind->ul_dci_latest_delay,
+											ind->dl_tti_earliest_arrival, ind->tx_data_earliest_arrival, ind->ul_tti_earliest_arrival, ind->ul_dci_earliest_arrival);
+	NFAPI_TRACE(NFAPI_TRACE_INFO, "ALL: max_late=%d, min_early=%d, jitter=%d\n", 
+					vnf_all_stats.max_late, vnf_all_stats.min_early, vnf_all_stats.jitter);
 }
 
 void vnf_p7_critical_correction(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot)
@@ -293,29 +294,29 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
 		else slot_profile_us[current_slot] -= all_late;
 		if((TARGET_MARGIN_INITIAL + all_diff) > target_margin_us) target_margin_us = TARGET_MARGIN_INITIAL + all_diff;
 		if (p7_info->sleep_baseline_us > p7_info->slot_duration_us) p7_info->sleep_baseline_us = p7_info->slot_duration_us;
-		else p7_info->sleep_baseline_us-=10;
+		else p7_info->sleep_baseline_us -= up_step;
   } else if (all_early < -TARGET_TIMING_WINDOW){
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY [%d] (%d, %d, %d) %d\n", current_slot, all_early, all_late, all_diff, target_margin_us);
 		if (slot_profile_us[current_slot] < 0) slot_profile_us[current_slot] = 0;
-		else slot_profile_us[current_slot] += down_step;
+		else slot_profile_us[current_slot] += (-TARGET_TIMING_WINDOW - all_early);
 		// if((TARGET_MARGIN_INITIAL + all_diff) < target_margin_us) target_margin_us = TARGET_MARGIN_INITIAL + all_diff;
 		if (p7_info->sleep_baseline_us < p7_info->slot_duration_us) p7_info->sleep_baseline_us = p7_info->slot_duration_us;
-		else p7_info->sleep_baseline_us++;
+		else p7_info->sleep_baseline_us += down_step;
 	} else if (all_late <= -target_margin_us + MARGIN_TOLERANCE_US && all_early >= -target_margin_us - MARGIN_TOLERANCE_US) {
 		// NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE very good (%d, %d, %d) %d\n", all_early, all_late, all_diff, target_margin_us);
 		// slot_profile_us[current_slot] = 0;
-		p7_info->sleep_baseline_us = p7_info->slot_duration_us;
+		p7_info->sleep_baseline_us += p7_info->slot_duration_us;
 	} else if (all_late < 0 && all_late > -target_margin_us + MARGIN_TOLERANCE_US){
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little late [%d] (%d, %d, %d) %d\n", current_slot, all_early, all_late, all_diff, target_margin_us);
 		if (slot_profile_us[current_slot] > 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] -= up_step;
-		p7_info->sleep_baseline_us = p7_info->slot_duration_us;
+		p7_info->sleep_baseline_us += (p7_info->sleep_baseline_us < p7_info->slot_duration_us) - (p7_info->sleep_baseline_us > p7_info->slot_duration_us);
 		if((TARGET_MARGIN_INITIAL + all_diff) > target_margin_us) target_margin_us = TARGET_MARGIN_INITIAL + all_diff;
 	} else if (all_early > -TARGET_TIMING_WINDOW && all_early < -target_margin_us - MARGIN_TOLERANCE_US){
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little early [%d] (%d, %d, %d) %d\n", current_slot, all_early, all_late, all_diff, target_margin_us);
 		if (slot_profile_us[current_slot] < 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] += down_step;
-		p7_info->sleep_baseline_us = p7_info->slot_duration_us;
+		p7_info->sleep_baseline_us += (p7_info->sleep_baseline_us < p7_info->slot_duration_us) - (p7_info->sleep_baseline_us > p7_info->slot_duration_us);
 		// if((TARGET_MARGIN_INITIAL + all_diff) < target_margin_us) target_margin_us = TARGET_MARGIN_INITIAL + all_diff;
 	} else {
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "NO CASE ! WHY??? [%d] (%d, %d, %d) %d\n", current_slot, all_early, all_late, all_diff, target_margin_us);
@@ -1954,7 +1955,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	// Negative offset means VNF clock is AHEAD of PNF (VNF needs to slow down / add delay)
 	int32_t offset = (int32_t)( ((int64_t)ind.t2 - (int64_t)ind.t1 - ((int64_t)t4 - (int64_t)ind.t3)) / 2 );
 	int32_t owd = (int32_t)( ((int64_t)t4 - (int64_t)ind.t1 - ((int64_t)ind.t3 - (int64_t)ind.t2)) / 2 );
-	int32_t TARGET_PNF_MARGIN_US = 250*(1 << p7_info->mu); // 500us for mu0, 1000us for mu1, 2000us for mu2, 4000us for mu3
+	int32_t TARGET_PNF_MARGIN_US = 2000;//250*(1 << p7_info->mu); // 500us for mu0, 1000us for mu1, 2000us for mu2, 4000us for mu3
 	int32_t slot_us = (int32_t)p7_info->slot_duration_us;
 	int32_t offsetslot = (offset + TARGET_PNF_MARGIN_US) / slot_us;
 	int32_t offsetus = (offset  + TARGET_PNF_MARGIN_US) % slot_us;
@@ -2037,7 +2038,7 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
 
 	// Integration Step (Prompt 5)
-	handle_dynamic_timing_info(p7_con, &ind, p7_con->slot_duration_us);
+	// handle_dynamic_timing_info(p7_con, &ind, p7_con->slot_duration_us);
 
 	int32_t vnf_current_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn, p7_con->slot);
 	int32_t pnf_ind_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn, ind.last_slot);
@@ -2076,7 +2077,7 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		);
 		log_mmap_entry("NR_TIMING_INFO.txt", p7_con->sfn , p7_con->slot , print_info);
 
-		NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+		NFAPI_TRACE(NFAPI_TRACE_INFO,
 			"NR_TIMING_INFO: PNF:%u.%u VNF:%u.%u delta_slots=%d time_since_last=%u jitter(dl:%u,tx:%u,ul:%u,dci:%u) latest_delay(dl:%d,tx:%d,ul:%d,dci:%d) earliest_arr(dl:%d,tx:%d,ul:%d,dci:%d)\n",
 			ind.last_sfn,
 			ind.last_slot,
