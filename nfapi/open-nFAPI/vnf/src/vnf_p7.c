@@ -280,10 +280,10 @@ void vnf_p7_extract_timing_info(const void* void_ind)
 // }
 // TODO: 考慮到不同SLOT的封包在同一個SLOT回報 TIMING INFO (因為N slot late and N+1 slot early)
 
-void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot)
+void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot, vnf_timing_stats_t* vnf_stats)
 {
-	int32_t all_late = vnf_all_stats.max_late;
-	int32_t all_early = vnf_all_stats.min_early;
+	int32_t all_late = vnf_stats->max_late;
+	int32_t all_early = vnf_stats->min_early;
 	int32_t all_diff = all_late - all_early;
 	int up_step = 10;
 	int down_step = 5;
@@ -323,13 +323,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "NO CASE ! WHY??? [%d] (%d, %d, %d) %d\n", current_slot, all_early, all_late, all_diff, target_margin_us);
 	}
   // ==== STEP 4: Clamp current slot profile ====
-  if (slot_profile_us[current_slot] > PROFILE_LIMIT)
-    slot_profile_us[current_slot] = PROFILE_LIMIT;
-  if (slot_profile_us[current_slot] < -PROFILE_LIMIT)
-    slot_profile_us[current_slot] = -PROFILE_LIMIT;
-	if (p7_info->sleep_baseline_us + slot_profile_us[current_slot] > MAX_SLEEP_US) p7_info->sleep_baseline_us = MAX_SLEEP_US - slot_profile_us[current_slot];
-	else if (p7_info->sleep_baseline_us + slot_profile_us[current_slot] < MIN_SLEEP_US) p7_info->sleep_baseline_us = MIN_SLEEP_US - slot_profile_us[current_slot];
-  vnf_reset_timing_stats();
+	vnf_reset_timing_stats();
 }
 
 // void vnf_p7_convergence_optimization(const void* void_ind, uint32_t current_slot, int is_dl)
@@ -389,12 +383,23 @@ void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *v
     if (ind->time_since_last_timing_info > 10000) return; // Basic sanity check
 
     // Step 1: Extract Data (Pass 1)
+    // Step 1: Extract Data (Pass 1)
     vnf_p7_extract_timing_info(ind);
-		uint32_t packet_slot = (NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot) - 
-			((vnf_all_stats.max_late) / (1000 >> (p7_info->mu))) + (vnf_all_stats.max_late < 0) + NFAPI_MAX_SFNSLOTDEC(p7_info->mu)) % SLOT_ARRAY_SIZE;
 
-    // Step 2: Execute Pass 2 (Fine-tuning)
-    vnf_p7_convergence_optimization(p7_info, packet_slot);
+		// Step 2: Execute Pass 2 (Fine-tuning)
+		// Check DL Stats
+		if(vnf_dl_stats.max_late != INT32_MIN || vnf_dl_stats.min_early != INT32_MAX){
+			uint32_t packet_slot_dl = (NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot) - 
+				((vnf_dl_stats.max_late) / (1000 >> (p7_info->mu))) + (vnf_dl_stats.max_late < 0) + NFAPI_MAX_SFNSLOTDEC(p7_info->mu)) % SLOT_ARRAY_SIZE;
+			vnf_p7_convergence_optimization(p7_info, packet_slot_dl, &vnf_dl_stats);
+		}
+
+		// Check UL Stats
+		if(vnf_ul_stats.max_late != INT32_MIN || vnf_ul_stats.min_early != INT32_MAX){
+			uint32_t packet_slot_ul = (NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot) - 
+				((vnf_ul_stats.max_late) / (1000 >> (p7_info->mu))) + (vnf_ul_stats.max_late < 0) + NFAPI_MAX_SFNSLOTDEC(p7_info->mu)) % SLOT_ARRAY_SIZE;
+			vnf_p7_convergence_optimization(p7_info, packet_slot_ul, &vnf_ul_stats);
+		}
 
     // Step 3: Dump Telemetry
     dump_slot_sleep_states(p7_info, ind);

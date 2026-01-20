@@ -200,7 +200,7 @@ void vnf_p7_extract_timing_info(const void* void_ind);
 void vnf_p7_critical_correction(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot);
 
 /* Pass 3: Convergence Optimization */
-void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot);
+void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot, vnf_timing_stats_t* vnf_stats);
 
 /* Main Dynamic Timing Handler */
 void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *void_ind);
