@@ -876,13 +876,11 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 	timing_info.header.message_id = NFAPI_TIMING_INFO;
 	timing_info.header.phy_id = pnf_p7->_public.phy_id;
 
-	if (pnf_p7->timing_info_aperiodic_send == 1) {
-		timing_info.last_sfn = pnf_p7->timing_info_trigger_sfn;
-		timing_info.last_slot = pnf_p7->timing_info_trigger_slot;
-	} else {
-		timing_info.last_sfn = pnf_p7->sfn;
-		timing_info.last_slot = pnf_p7->slot;
-	}
+	uint32_t last_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, pnf_p7->sfn, pnf_p7->slot);
+	uint32_t max_slots = NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
+	last_slot_dec = (last_slot_dec + max_slots - 1) % max_slots;
+	timing_info.last_sfn = NFAPI_SFNSLOTDEC2SFN(pnf_p7->mu, last_slot_dec);
+	timing_info.last_slot = NFAPI_SFNSLOTDEC2SLOT(pnf_p7->mu, last_slot_dec);
 	// Calculate actual elapsed time since last timing info using timestamps
 	uint32_t now_time_hr = pnf_get_current_time_hr();
 	int64_t elapsed_us = timehr_diff_us(now_time_hr, pnf_p7->timing_info_last_send_time_hr);
