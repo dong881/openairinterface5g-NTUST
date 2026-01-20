@@ -218,67 +218,6 @@ void vnf_p7_extract_timing_info(const void* void_ind)
 	// 				vnf_all_stats.max_late, vnf_all_stats.min_early, vnf_all_stats.jitter);
 }
 
-// void vnf_p7_critical_correction(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot)
-// {
-// 	// if(p7_info->sleep_baseline_us != 500) NFAPI_TRACE(NFAPI_TRACE_INFO, "!! sleep_baseline_us != 500 (%d)\n", p7_info->sleep_baseline_us);
-	
-// 	// Select WORST CASE from both DL and UL stats
-// 	// This ensures we detect late/early from ANY direction, not just the one matching is_dl
-// 	int32_t max_late = (vnf_dl_stats.max_late > vnf_ul_stats.max_late) 
-// 											? vnf_dl_stats.max_late : vnf_ul_stats.max_late;
-// 	int32_t min_early = (vnf_dl_stats.min_early < vnf_ul_stats.min_early) 
-// 											? vnf_dl_stats.min_early : vnf_ul_stats.min_early;
-	
-// // --- PART 1: GLOBAL BASELINE CONTROL (Integral) ---
-// 	// React to deviation from target margin, not just extreme thresholds
-// 	// Late: max_late > 0 means packets arriving after deadline
-// 	// Early: min_early more negative than -TARGET_MARGIN means we're ahead
-// 	int32_t diff = 0;
-// 	// Add a small buffer to 'Too Early' detection to allow Slot Profile to handle fine-tuning
-// 	// without triggering global baseline shifts.
-// 	const int32_t critical_early_threshold = -target_margin_us - 150; 
-
-// 	if (max_late > 0) {
-// 			// Late case: need to speed up (reduce sleep)
-// 			diff = max_late;
-// 	} else if (min_early < critical_early_threshold) {
-// 			// Too early: need to slow down (increase sleep)
-// 			// Only react if we are SIGNIFICANTLY early, beyond what the profile can absorb
-// 			diff = min_early - critical_early_threshold;  // Will be negative
-// 	}
-	
-//   if (diff != 0) {
-//     // Cooperative control: use conservative gain for stable convergence
-//     int32_t delta;
-//     if (diff > 0) {
-//       // Late: proportional correction (~10%) + small fixed offset
-//       delta = -(diff / 10 + 5);
-//     } else {
-//       // Early: slower correction (~5%) 
-//       delta = -(diff / 20);
-//     }
-		
-// 		// --- HARD SAFETY CLAMP ---
-// 		// Ensure that modifying baseline doesn't push the current slot's total sleep out of [50, 950] range.
-// 		// We verify against the CURRENT slot because that's where we are right now.
-// 		int32_t current_total_sleep = p7_info->sleep_baseline_us + slot_profile_us[current_slot];
-		
-// 		// Calculate allowable swing
-// 		int32_t max_increase = 950 - current_total_sleep;
-// 		int32_t max_decrease = 50 - current_total_sleep; // Negative value
-		
-// 		// Clamp delta
-// 		if (delta > max_increase) delta = max_increase;
-// 		if (delta < max_decrease) delta = max_decrease;
-
-// 		p7_info->sleep_baseline_us += delta;
-// 		// Safety is ensured at final sleep time calculation
-// 	} 
-// 	// REMOVED: "Spring to 500us" logic. 
-// 	// We trust the baseline to stay where it needs to be unless a critical deviation occurs.
-// 	return;
-// }
-
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot, vnf_timing_stats_t* vnf_stats)
 {
 	int32_t all_late = vnf_stats->max_late;
@@ -322,52 +261,6 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "NO CASE ! WHY??? [%d] (%d, %d, %d) %d\n", current_slot, all_early, all_late, all_diff, target_margin_us);
 	}
 }
-
-// void vnf_p7_convergence_optimization(const void* void_ind, uint32_t current_slot, int is_dl)
-// {
-// 	const nfapi_nr_timing_info_t* ind = (const nfapi_nr_timing_info_t*)void_ind;
-	
-// 	/* Calculate number of slots to process */
-// 	uint32_t calc_slots = ind->time_since_last_timing_info * 2;
-// 	if (calc_slots > SLOT_ARRAY_SIZE) calc_slots = SLOT_ARRAY_SIZE;
-// 	// Formula-based unique non-zero counting for DL/UL (a,b,c,d = min_late, max_late, min_early, max_early)
-// 	int32_t da = vnf_dl_stats.min_late, db = vnf_dl_stats.max_late, dc = vnf_dl_stats.min_early, dd = vnf_dl_stats.max_early;
-// 	int dl_rem = (da != 0) + (db != 0 && db != da) + (dc != 0 && dc != da && dc != db) + (dd != 0 && dd != da && dd != db && dd != dc);
-// 	int32_t ua = vnf_ul_stats.min_late, ub = vnf_ul_stats.max_late, uc = vnf_ul_stats.min_early, ud = vnf_ul_stats.max_early;
-// 	int ul_rem = (ua != 0) + (ub != 0 && ub != ua) + (uc != 0 && uc != ua && uc != ub) + (ud != 0 && ud != ua && ud != ub && ud != uc);
-// 	if (dl_rem < 4 && ul_rem < 4) calc_slots = dl_rem + ul_rem;
-
-// 	// --- ERROR CALCULATION & LEARNING ---
-// 	for (uint32_t i = 0; i < calc_slots; ++i) {
-// 		int k = (current_slot - i + SLOT_ARRAY_SIZE) % SLOT_ARRAY_SIZE;
-// 		vnf_timing_stats_t *stats = is_dl ? &vnf_dl_stats : &vnf_ul_stats;
-
-// 		int32_t error = 0;
-// 		const int32_t upper_limit = -TARGET_MARGIN_US + MARGIN_TOLERANCE_US;
-// 		const int32_t lower_limit = -TARGET_MARGIN_US - MARGIN_TOLERANCE_US;
-// 		if (stats->min_early < lower_limit && stats->min_early > -TIMING_WINDOW_US) {
-// 			error = lower_limit - stats->min_early;
-// 		} else if (stats->max_late > upper_limit && stats->max_late < MARGIN_TOLERANCE_US) {
-// 			error = upper_limit - stats->max_late;
-// 		}
-		
-// 		if (error != 0) {
-// 			// --- LEARNING STEP ---
-// 			// Profile[k] += Error * Gain
-// 			// Gain: Small steps to average out jitter (e.g., 0.05 or 1/20)            
-// 			int32_t step = error / 20; // 5% gain
-// 			// Clamp step size to avoid reacting to massive spikes instantly
-// 			if (step > 10) step = 10;
-// 			if (step < -10) step = -10;
-// 			slot_profile_us[k] += step;
-// 			// --- DECAY STEP ---
-// 			slot_profile_us[k] = slot_profile_us[k] - (slot_profile_us[k] / 500); 
-// 			// Hard Safety Clamp
-// 			if (slot_profile_us[k] > 450) slot_profile_us[k] = 450;
-// 			if (slot_profile_us[k] < -450) slot_profile_us[k] = -450;
-// 		}
-// 	}
-// }
 
 // Main Dynamic Timing Handler
 void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *void_ind)
