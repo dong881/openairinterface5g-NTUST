@@ -1111,7 +1111,7 @@ void *vnf_timing_thread(void *arg) {
       sfnslot_dec++;
       
       pthread_mutex_lock(&p7_info->mutex);
-      if (p7_info->slot_adjustment != 0) {
+      if (!p7_info->sync_locked && p7_info->slot_adjustment != 0) {
         sfnslot_dec += p7_info->slot_adjustment;
         if (sfnslot_dec < 0) {
           // Handle negative sfnslot_dec (wrap-around), support multiple rounds
@@ -1130,7 +1130,7 @@ void *vnf_timing_thread(void *arg) {
       p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec) % 1024;
       p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
       
-      if (!p7_info->sync_locked && p7_info->sync_slot_counter++ >= p7_info->sync_period_slots) {
+      if (p7_info->sync_slot_counter++ >= p7_info->sync_period_slots) {
         p7_info->sync_slot_counter = 0;
         vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
       }

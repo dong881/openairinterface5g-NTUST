@@ -1856,10 +1856,10 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	
 	// Check if sync has converged (offset within ±10) - once locked, permanently stop adjusting
 	pthread_mutex_lock(&p7_info->mutex);
-	if (!p7_info->sync_locked) {
+	// if (!p7_info->sync_locked) {
 		if (offset + target_margin_us >= -MARGIN_TOLERANCE_US && offset + target_margin_us <= MARGIN_TOLERANCE_US) {
 			// Offset converged within ±10, permanently lock sync and stop adjustments
-			// p7_info->sync_locked = 1;
+			p7_info->sync_locked = 1;
 			p7_info->us_adjustment = 0;
 			p7_info->slot_adjustment = 0;
 			// NFAPI_TRACE(NFAPI_TRACE_INFO, 
@@ -1870,7 +1870,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 			p7_info->us_adjustment = -offsetus;
 			p7_info->slot_adjustment = offsetslot;
 		}
-	}
+	// }
 	pthread_mutex_unlock(&p7_info->mutex);
 
 	char print_info[128];
