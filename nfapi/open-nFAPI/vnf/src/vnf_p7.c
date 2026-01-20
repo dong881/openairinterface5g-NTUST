@@ -284,8 +284,8 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
 	int32_t all_late = vnf_stats->max_late;
 	int32_t all_early = vnf_stats->min_early;
 	int32_t all_diff = all_late - all_early;
-	int up_step = 10;
-	int down_step = 5;
+	int up_step = 1;
+	int down_step = 1;
 	if(all_late == INT32_MIN && all_early == INT32_MAX) return;
 	if(all_late == 0 && all_early == 0) return;
 	if (all_late > 0) {

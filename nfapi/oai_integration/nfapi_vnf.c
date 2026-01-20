@@ -1046,7 +1046,7 @@ void timespec_add_us(struct timespec *t, long us) {
     }
 }
 static volatile int nr_start_resp_received = 0;
-#define P7_SYNC_PERIOD_SLOTS_DEFAULT 2  // Send vnf_nr_sync every N slots
+#define P7_SYNC_PERIOD_SLOTS_DEFAULT 5  // Send vnf_nr_sync every N slots
 int vnf_nr_build_send_dl_node_sync(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info);
 
 static inline void p7_sync_init(nfapi_vnf_p7_connection_info_t *p7_info)
@@ -1141,23 +1141,22 @@ void *vnf_timing_thread(void *arg) {
       phy_nr_slot_indication(&ind);
 
       pthread_mutex_lock(&p7_info->mutex);
-      if (p7_info->us_adjustment != 0) {
-        timespec_add_us(&p7_info->next_slot_time, p7_info->us_adjustment);
-        NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC][VNF Timing] Applying us adjustment of %d us\n", 
-                    p7_info->us_adjustment);
-        p7_info->us_adjustment = 0;
-      }
-      pthread_mutex_unlock(&p7_info->mutex);
-      
-      // Fine-grained Dynamic timing adjustment (Prompt 5)
+      // if (p7_info->us_adjustment != 0) {
+      //   timespec_add_us(&p7_info->next_slot_time, p7_info->us_adjustment);
+      //   NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC][VNF Timing] Applying us adjustment of %d us\n", 
+      //               p7_info->us_adjustment);
+      //   p7_info->us_adjustment = 0;
+      // }
+      // Fine-grained Dynamic timing adjustment
       // Calculate raw sleep with signed arithmetic to handle negative profiles safely
-      int32_t raw_sleep = (int32_t)p7_info->sleep_baseline_us + slot_profile_us[p7_info->slot % SLOT_ARRAY_SIZE];
+      int32_t raw_sleep = p7_info->us_adjustment + (int32_t)p7_info->sleep_baseline_us + slot_profile_us[p7_info->slot % SLOT_ARRAY_SIZE];
+      p7_info->us_adjustment = 0;
       // Hard clamp to valid range [MIN_SLEEP_US, MAX_SLEEP_US] to prevent VNF from stopping
       if (raw_sleep < MIN_SLEEP_US) raw_sleep = MIN_SLEEP_US;  // 50µs minimum
       if (raw_sleep > MAX_SLEEP_US) raw_sleep = MAX_SLEEP_US;  // 950µs maximum
-      
       uint32_t sleep_us = (uint32_t)raw_sleep;
-      
+      pthread_mutex_unlock(&p7_info->mutex);
+    
       timespec_add_us(&p7_info->next_slot_time, sleep_us);
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
     }
