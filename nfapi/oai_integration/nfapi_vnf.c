@@ -1152,7 +1152,10 @@ void *vnf_timing_thread(void *arg) {
       // Fine-grained Dynamic timing adjustment (Prompt 5)
       // Calculate raw sleep with signed arithmetic to handle negative profiles safely
       int32_t raw_sleep = (int32_t)p7_info->sleep_baseline_us + slot_profile_us[p7_info->slot % SLOT_ARRAY_SIZE];
-      
+      if(raw_sleep < 50) {
+        raw_sleep = 50;
+        NFAPI_TRACE(NFAPI_TRACE_INFO, "!!!!!!!!!! [P7_SYNC][VNF Timing] raw_sleep %d\n", raw_sleep);
+      }
       // Hard clamp to valid range [MIN_SLEEP_US, MAX_SLEEP_US] to prevent VNF from stopping
       if (raw_sleep < MIN_SLEEP_US) raw_sleep = MIN_SLEEP_US;  // 50µs minimum
       if (raw_sleep > MAX_SLEEP_US) raw_sleep = MAX_SLEEP_US;  // 950µs maximum

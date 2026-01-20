@@ -203,7 +203,7 @@ void vnf_p7_critical_correction(nfapi_vnf_p7_connection_info_t* p7_info, uint32_
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot);
 
 /* Main Dynamic Timing Handler */
-void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *void_ind, uint32_t nominal_slot_duration_us);
+void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *void_ind);
 
 void dump_slot_sleep_states(nfapi_vnf_p7_connection_info_t* p7_info, const void* void_ind);
 void dump_slot_profile_us(const void* void_ind);
