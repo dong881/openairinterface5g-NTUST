@@ -390,8 +390,9 @@ void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *v
     // Step 1: Extract Data (Pass 1)
     vnf_p7_extract_timing_info(ind);
     // Calculate current_slot from timing info
-    uint32_t current_slot = NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot) % SLOT_ARRAY_SIZE;
-    
+    // uint32_t current_slot = NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot) % SLOT_ARRAY_SIZE;
+		uint32_t current_slot = NFAPI_SFNSLOT2DEC(p7_info->mu, p7_info->sfn, p7_info->slot) % SLOT_ARRAY_SIZE;
+
     // Step 2: Critical correction DISABLED (baseline stays fixed at 500µs)
     // Verified in Python simulation: dual-controller caused oscillation
     // vnf_p7_critical_correction(p7_info, current_slot);
@@ -1955,7 +1956,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	// Negative offset means VNF clock is AHEAD of PNF (VNF needs to slow down / add delay)
 	int32_t offset = (int32_t)( ((int64_t)ind.t2 - (int64_t)ind.t1 - ((int64_t)t4 - (int64_t)ind.t3)) / 2 );
 	int32_t owd = (int32_t)( ((int64_t)t4 - (int64_t)ind.t1 - ((int64_t)ind.t3 - (int64_t)ind.t2)) / 2 );
-	int32_t TARGET_PNF_MARGIN_US = 2000;//250*(1 << p7_info->mu); // 500us for mu0, 1000us for mu1, 2000us for mu2, 4000us for mu3
+	int32_t TARGET_PNF_MARGIN_US = 250*(1 << p7_info->mu); // 500us for mu0, 1000us for mu1, 2000us for mu2, 4000us for mu3
 	int32_t slot_us = (int32_t)p7_info->slot_duration_us;
 	int32_t offsetslot = (offset + TARGET_PNF_MARGIN_US) / slot_us;
 	int32_t offsetus = (offset  + TARGET_PNF_MARGIN_US) % slot_us;
@@ -2037,10 +2038,14 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	}
 	nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
 
-	// Integration Step (Prompt 5)
-	// handle_dynamic_timing_info(p7_con, &ind, p7_con->slot_duration_us);
+	// Integration Step
+	handle_dynamic_timing_info(p7_con, &ind, p7_con->slot_duration_us);
 
-	int32_t vnf_current_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn, p7_con->slot);
+	// Capture current SFN/Slot locally to avoid race conditions during logging
+	uint16_t vnf_sfn = p7_con->sfn;
+	uint16_t vnf_slot = p7_con->slot;
+
+	int32_t vnf_current_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, vnf_sfn, vnf_slot);
 	int32_t pnf_ind_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn, ind.last_slot);
 
 	// Only print if any jitter/delay/arrival value is non-zero
@@ -2075,14 +2080,14 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 			ind.ul_tti_earliest_arrival,
 			ind.ul_dci_earliest_arrival
 		);
-		log_mmap_entry("NR_TIMING_INFO.txt", p7_con->sfn , p7_con->slot , print_info);
+		log_mmap_entry("NR_TIMING_INFO.txt", vnf_sfn , vnf_slot , print_info);
 
 		NFAPI_TRACE(NFAPI_TRACE_INFO,
 			"NR_TIMING_INFO: PNF:%u.%u VNF:%u.%u delta_slots=%d time_since_last=%u jitter(dl:%u,tx:%u,ul:%u,dci:%u) latest_delay(dl:%d,tx:%d,ul:%d,dci:%d) earliest_arr(dl:%d,tx:%d,ul:%d,dci:%d)\n",
 			ind.last_sfn,
 			ind.last_slot,
-			p7_con->sfn,
-			p7_con->slot,
+			vnf_sfn,
+			vnf_slot,
 			pnf_ind_DEC - vnf_current_DEC,
 			ind.time_since_last_timing_info,
 			ind.dl_tti_jitter,
