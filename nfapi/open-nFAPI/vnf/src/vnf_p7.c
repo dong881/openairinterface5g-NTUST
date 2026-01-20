@@ -384,12 +384,12 @@ void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *v
 
 		// Step 2: Execute Pass 2 (Fine-tuning)
 		// Check UL Stats
-		// if(vnf_ul_stats.max_late != INT32_MIN || vnf_ul_stats.min_early != INT32_MAX){
-		// 	uint32_t packet_slot_ul = (NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot) - 
-		// 		((vnf_ul_stats.max_late) / (1000 >> (p7_info->mu))) + (vnf_ul_stats.max_late < 0) + NFAPI_MAX_SFNSLOTDEC(p7_info->mu)) % SLOT_ARRAY_SIZE;
-		// 	NFAPI_TRACE(NFAPI_TRACE_INFO, "UL: packet_slot_ul=%d max_late=%d min_early=%d\n", packet_slot_ul, vnf_ul_stats.max_late, vnf_ul_stats.min_early);
-		// 	vnf_p7_convergence_optimization(p7_info, packet_slot_ul, &vnf_ul_stats);
-		// }
+		if(vnf_ul_stats.max_late != INT32_MIN || vnf_ul_stats.min_early != INT32_MAX){
+			uint32_t packet_slot_ul = (NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot) - 
+				((vnf_ul_stats.max_late) / (1000 >> (p7_info->mu))) + (vnf_ul_stats.max_late < 0) + NFAPI_MAX_SFNSLOTDEC(p7_info->mu)) % SLOT_ARRAY_SIZE;
+			// NFAPI_TRACE(NFAPI_TRACE_INFO, "UL: packet_slot_ul=%d max_late=%d min_early=%d\n", packet_slot_ul, vnf_ul_stats.max_late, vnf_ul_stats.min_early);
+			vnf_p7_convergence_optimization(p7_info, packet_slot_ul, &vnf_ul_stats);
+		}
 		// Check DL Stats
 		if(vnf_dl_stats.max_late != INT32_MIN || vnf_dl_stats.min_early != INT32_MAX){
 			uint32_t packet_slot_dl = (NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot) - 
@@ -1958,13 +1958,13 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	int32_t owd = (int32_t)( ((int64_t)t4 - (int64_t)ind.t1 - ((int64_t)ind.t3 - (int64_t)ind.t2)) / 2 );
 	// int32_t TARGET_PNF_MARGIN_US = 250*(1 << p7_info->mu); // 500us for mu0, 1000us for mu1, 2000us for mu2, 4000us for mu3
 	int32_t slot_us = (int32_t)p7_info->slot_duration_us;
-	int32_t offsetslot = (offset + TARGET_MARGIN_INITIAL) / slot_us;
-	int32_t offsetus = (offset  + TARGET_MARGIN_INITIAL) % slot_us;
+	int32_t offsetslot = (offset + target_margin_us) / slot_us;
+	int32_t offsetus = (offset  + target_margin_us) % slot_us;
 	
 	// Check if sync has converged (offset within ±10) - once locked, permanently stop adjusting
 	pthread_mutex_lock(&p7_info->mutex);
 	if (!p7_info->sync_locked) {
-		if (offset + TARGET_MARGIN_INITIAL >= -10 && offset + TARGET_MARGIN_INITIAL <= 10) {
+		if (offset + target_margin_us >= -MARGIN_TOLERANCE_US && offset + target_margin_us <= MARGIN_TOLERANCE_US) {
 			// Offset converged within ±10, permanently lock sync and stop adjustments
 			// p7_info->sync_locked = 1;
 			p7_info->us_adjustment = 0;
