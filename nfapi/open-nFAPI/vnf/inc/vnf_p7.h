@@ -133,6 +133,14 @@ typedef struct nfapi_vnf_p7_connection_info {
     int32_t sleep_baseline_us;
     int32_t avg_diff_us;
     int decay_counter;
+
+    /* Timing Stats History (to aggregate split packets) */
+    struct {
+      uint32_t abs_slot;      // Absolute slot number (sfn * slots_per_frame + slot)
+      int32_t max_late;       // Max observed late value
+      int32_t min_early;      // Min observed early value
+      uint32_t jitter;        // Max jitter
+    } slot_history[SLOT_ARRAY_SIZE];
 } nfapi_vnf_p7_connection_info_t;
 
 struct vnf_p7_t{

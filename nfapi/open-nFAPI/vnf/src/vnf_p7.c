@@ -139,10 +139,33 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
     if (raw_data[i].value == 0)
       continue; // Skip zero values
 
-    // Calculate packet slot using helper function
-    uint32_t ps = calc_packet_slot(raw_data[i].value, current_slot_dec, slot_duration_us, max_slot_dec);
+    // Calculate packet slot properties
+    int32_t slot_offset = raw_data[i].value / (int32_t)slot_duration_us;
+    // Calculate absolute slot in the hyperframe cycle (0..max_slot_dec-1)
+    uint32_t true_abs_slot = (current_slot_dec - slot_offset - (raw_data[i].value > 0) + max_slot_dec) % max_slot_dec;
+    // Map to local buffer index
+    uint32_t ps = true_abs_slot % SLOT_ARRAY_SIZE;
 
-    // Check if we already have this slot
+    // --- History Aggregation Logic ---
+    if (p7_info->slot_history[ps].abs_slot == true_abs_slot) {
+        // MATCH: Merge with existing history for this slot
+        if (raw_data[i].value > p7_info->slot_history[ps].max_late)
+            p7_info->slot_history[ps].max_late = raw_data[i].value;
+        if (raw_data[i].value < p7_info->slot_history[ps].min_early)
+            p7_info->slot_history[ps].min_early = raw_data[i].value;
+        if (raw_data[i].jitter > p7_info->slot_history[ps].jitter)
+            p7_info->slot_history[ps].jitter = raw_data[i].jitter;
+    } else {
+        // MISMATCH: New slot detected, reset history
+        p7_info->slot_history[ps].abs_slot = true_abs_slot;
+        p7_info->slot_history[ps].max_late = raw_data[i].value;
+        p7_info->slot_history[ps].min_early = raw_data[i].value;
+        p7_info->slot_history[ps].jitter = raw_data[i].jitter;
+    }
+
+    // --- Prepare Output Stats (merged values) ---
+    // Check if we already have this slot in out_stats to allow multiple updates in one pass if needed
+    // (though usually strict aggregation suggests we just output the latest merged state)
     int found = -1;
     for (int j = 0; j < count; j++) {
       if (out_stats[j].packet_slot == ps) {
@@ -152,19 +175,16 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
     }
 
     if (found >= 0) {
-      // Merge: update max/min
-      if (raw_data[i].value > out_stats[found].max)
-        out_stats[found].max = raw_data[i].value;
-      if (raw_data[i].value < out_stats[found].min)
-        out_stats[found].min = raw_data[i].value;
-      if (raw_data[i].jitter > out_stats[found].jitter)
-        out_stats[found].jitter = raw_data[i].jitter;
+      // Update existing entry in this batch with latest from history
+      out_stats[found].max = p7_info->slot_history[ps].max_late;
+      out_stats[found].min = p7_info->slot_history[ps].min_early;
+      out_stats[found].jitter = p7_info->slot_history[ps].jitter;
     } else if (count < max_stats) {
-      // New slot
+      // New entry in this batch
       out_stats[count].packet_slot = ps;
-      out_stats[count].max = raw_data[i].value;
-      out_stats[count].min = raw_data[i].value;
-      out_stats[count].jitter = raw_data[i].jitter;
+      out_stats[count].max = p7_info->slot_history[ps].max_late;
+      out_stats[count].min = p7_info->slot_history[ps].min_early;
+      out_stats[count].jitter = p7_info->slot_history[ps].jitter;
       count++;
     }
   }
@@ -188,14 +208,15 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
   int32_t all_late = stats->max;
   int32_t all_early = stats->min;
   int32_t all_diff = all_late - all_early;
-  int up_step = 6;
-  int down_step = 6;
-  int SAFETY_PAD = 5;
+  const int up_step = 6;
+  const int down_step = 6;
+  const int SAFETY_PAD = 250;
 	
 	// --- Dynamic Target Margin Logic (Fast Rise, Slow Fall) ---
 	// avg_diff_us and decay_counter moved to p7_info
 	const int DECAY_THRESHOLD = 50; // cycles to wait before decaying
 	const int MARGIN_HEADROOM = 250; // Keep target this much above average
+	NFAPI_TRACE(NFAPI_TRACE_INFO,"[%d] avg_d: %d, d: %d, t: %d\n", current_slot, p7_info->avg_diff_us, all_diff, target_margin_us);
   // 1. EWMA Calculation (Alpha ~ 1/16)
   if (p7_info->avg_diff_us == 0)
     p7_info->avg_diff_us = all_diff;
