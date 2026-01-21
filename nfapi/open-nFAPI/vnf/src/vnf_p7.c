@@ -171,7 +171,7 @@ void vnf_p7_extract_timing_info(const void* void_ind)
 	UPDATE_MIN(dl_min_early, ind->tx_data_earliest_arrival);
 
 	uint32_t dl_jitter = ind->dl_tti_jitter;
-	if (ind->tx_data_request_jitter > dl_jitter) dl_jitter = ind->tx_data_request_jitter;
+	if (ind->tx_data_jitter > dl_jitter) dl_jitter = ind->tx_data_jitter;
 
 	vnf_p7_update_global_stats(&vnf_dl_stats, dl_max_late, dl_min_late, dl_max_early, dl_min_early, dl_jitter);
 
@@ -2040,7 +2040,7 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	// Only print if any jitter/delay/arrival value is non-zero
 	if (
 		ind.dl_tti_jitter != 0 ||
-		ind.tx_data_request_jitter != 0 ||
+		ind.tx_data_jitter != 0 ||
 		ind.ul_tti_jitter != 0 ||
 		ind.ul_dci_jitter != 0 ||
 		ind.dl_tti_latest_delay != 0 ||
@@ -2057,7 +2057,7 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 			pnf_ind_DEC - vnf_current_DEC,
 			ind.time_since_last_timing_info,
 			ind.dl_tti_jitter,
-			ind.tx_data_request_jitter,
+			ind.tx_data_jitter,
 			ind.ul_tti_jitter,
 			ind.ul_dci_jitter,
 			ind.dl_tti_latest_delay,
@@ -2080,7 +2080,7 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 			pnf_ind_DEC - vnf_current_DEC,
 			ind.time_since_last_timing_info,
 			ind.dl_tti_jitter,
-			ind.tx_data_request_jitter,
+			ind.tx_data_jitter,
 			ind.ul_tti_jitter,
 			ind.ul_dci_jitter,
 			ind.dl_tti_latest_delay,

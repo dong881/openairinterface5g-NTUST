@@ -889,7 +889,7 @@ void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7)
 
 	// Use RFC 3550 calculated jitter values (in microseconds)
 	timing_info.dl_tti_jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_DL_TTI);
-	timing_info.tx_data_request_jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_TX_DATA);
+	timing_info.tx_data_jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_TX_DATA);
 	timing_info.ul_tti_jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_UL_TTI);
 	timing_info.ul_dci_jitter = pnf_get_jitter(pnf_p7, NFAPI_JITTER_UL_DCI);
 
