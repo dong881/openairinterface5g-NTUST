@@ -996,6 +996,16 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
   if (pnf_p7->_public.slot_buffer_size != 0) // for now value is same as sf_buffer_size
   {
     // apply the shift to the incoming sfn_sf
+    // send the periodic timing info if configured
+    // This is done at the START of the slot processing to cover the previous slot completion
+    if (pnf_p7->_public.timing_info_mode_periodic && (++pnf_p7->timing_info_period_counter) >= pnf_p7->_public.timing_info_period) {
+      pnf_nr_pack_and_send_timing_info(pnf_p7);
+
+      pnf_p7->timing_info_period_counter = 0;
+    } else if (pnf_p7->_public.timing_info_mode_aperiodic && pnf_p7->timing_info_aperiodic_send) {
+      pnf_nr_pack_and_send_timing_info(pnf_p7);
+    }
+
     if (pnf_p7->slot_shift != 0) // see in vnf_build_send_dl_node_sync
     {
       uint16_t shifted_slot = slot + pnf_p7->slot_shift;
@@ -1055,15 +1065,6 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
           copy_ul_dci_request(&tx_slot_buffer->ul_dci_req, ret_ul_dci);
       tx_slot_buffer->ul_dci_req.SFN = -1;
       tx_slot_buffer->ul_dci_req.Slot = -1;
-    }
-
-    // send the periodic timing info if configured
-    if (pnf_p7->_public.timing_info_mode_periodic && (++pnf_p7->timing_info_period_counter) >= pnf_p7->_public.timing_info_period) {
-      pnf_nr_pack_and_send_timing_info(pnf_p7);
-
-      pnf_p7->timing_info_period_counter = 0;
-    } else if (pnf_p7->_public.timing_info_mode_aperiodic && pnf_p7->timing_info_aperiodic_send) {
-      pnf_nr_pack_and_send_timing_info(pnf_p7);
     }
   }
 
