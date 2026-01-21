@@ -223,20 +223,55 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
 	int32_t all_late = vnf_stats->max_late;
 	int32_t all_early = vnf_stats->min_early;
 	int32_t all_diff = all_late - all_early;
-	int up_step = 6;
-	int down_step = 6;
-	// if(all_diff < 150) target_margin_us--;
-	if(all_late == INT32_MIN && all_early == INT32_MAX) return;
-	if(all_late == 0 && all_early == 0) return;
+	int up_step = 3;
+	int down_step = 3;
+	int SAFETY_PAD = 5;
+
+	// --- Dynamic Target Margin Logic (Fast Rise, Slow Fall) ---
+	static int32_t avg_diff_us = 0;
+	static int decay_counter = 0;
+	const int DECAY_THRESHOLD = 50; // cycles to wait before decaying
+	const int MARGIN_HEADROOM = 250; // Keep target this much above average
+
+	// 1. EWMA Calculation (Alpha ~ 1/16)
+	if(avg_diff_us == 0) avg_diff_us = all_diff;
+	else avg_diff_us = (15 * avg_diff_us + all_diff) >> 4;
+
+	// 2. Fast Rise: If current diff is huge, immediately bump margin
+	// (Existing logic at line 237 covers this, but we make sure we use it)
+	
+	// 3. Slow Fall: If average is well below target, slowly decay
+	if (avg_diff_us + MARGIN_HEADROOM < target_margin_us) {
+		decay_counter++;
+		if(decay_counter > DECAY_THRESHOLD) {
+			target_margin_us--; 
+			decay_counter = 0;
+		}
+	} else {
+		decay_counter = 0; // Reset counter if we are not in safe zone
+	}
+
+	// Safety Clamp from original code (check if still desired? Keeping for stability if it was there)
+	if (all_diff + SAFETY_PAD > TARGET_TIMING_WINDOW) all_diff = target_margin_us;
+
+	if (all_late == INT32_MIN && all_early == INT32_MAX) return;
+	if (all_late == 0 && all_early == 0) return;
+
 	if (all_late > 0) {
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE LATE [%d]:%d (%d, %d, %d) T:%d diff: %d\n", current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, all_diff);
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE LATE [%d]:%d (%d, %d, %d) T:%d avg:%d diff: %d\n", current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, avg_diff_us, all_diff);
     if (slot_profile_us[current_slot] > 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] -= all_late;
-		if(all_diff > target_margin_us) target_margin_us = all_diff;
+		
+		// Fast Rise Implementation
+		if(all_diff > target_margin_us) {
+			target_margin_us = all_diff + SAFETY_PAD;
+			avg_diff_us = target_margin_us; // Reset average to high to avoid fighting the rise
+		}
+
 		if (p7_info->sleep_baseline_us > p7_info->slot_duration_us) p7_info->sleep_baseline_us = p7_info->slot_duration_us;
 		else p7_info->sleep_baseline_us -= up_step;
   } else if (all_early < -TARGET_TIMING_WINDOW){
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY [%d] (%d, %d, %d) %d\n", current_slot, all_early, all_late, all_diff, target_margin_us);
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY [%d] (%d, %d, %d) T:%d avg:%d\n", current_slot, all_early, all_late, all_diff, target_margin_us, avg_diff_us);
 		if (slot_profile_us[current_slot] < 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] += (-TARGET_TIMING_WINDOW - all_early);
 		if (p7_info->sleep_baseline_us < p7_info->slot_duration_us) p7_info->sleep_baseline_us = p7_info->slot_duration_us;
@@ -246,16 +281,23 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
 		// slot_profile_us[current_slot] = 0;
 		p7_info->sleep_baseline_us = p7_info->slot_duration_us;
 	} else if (all_late < 0 && all_late > -target_margin_us + MARGIN_TOLERANCE_US){
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little late [%d]:%d (%d, %d, %d) T:%d diff: %d\n", current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, all_diff);
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little late [%d]:%d (%d, %d, %d) T:%d avg:%d diff: %d\n", current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, avg_diff_us, all_diff);
 		if (slot_profile_us[current_slot] > 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] -= up_step;
-		if(all_diff > target_margin_us) target_margin_us = all_diff;
+		
+		// Fast Rise Check (Also valid here if we have a sudden jitter spike even if "late" is negative but diff is huge? 
+		// Unlikely if late < 0, but consistent with original logic check)
+		if(all_diff > target_margin_us) {
+			target_margin_us = all_diff + SAFETY_PAD;
+			avg_diff_us = target_margin_us;
+		}
+
 	} else if (all_early > -TARGET_TIMING_WINDOW && all_early < -target_margin_us - MARGIN_TOLERANCE_US){
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little early [%d]:%d (%d, %d, %d) T:%d\n", current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us);
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little early [%d]:%d (%d, %d, %d) T:%d avg:%d\n", current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, avg_diff_us);
 		if (slot_profile_us[current_slot] < 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] += down_step;
 	} else {
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "NO CASE ! WHY??? [%d] (%d, %d, %d) %d\n", current_slot, all_early, all_late, all_diff, target_margin_us);
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "NO CASE ! WHY??? [%d] (%d, %d, %d) T:%d avg:%d\n", current_slot, all_early, all_late, all_diff, target_margin_us, avg_diff_us);
 	}
 }
 
