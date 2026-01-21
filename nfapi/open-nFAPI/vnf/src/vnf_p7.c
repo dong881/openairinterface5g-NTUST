@@ -210,10 +210,10 @@ void vnf_p7_extract_timing_info(const void* void_ind)
 
 	vnf_p7_update_global_stats(&vnf_all_stats, all_max_late, all_min_late, all_max_early, all_min_early, all_jitter);
 
-	// NFAPI_TRACE(NFAPI_TRACE_INFO, "ind [%d.%d] delay(%d,%d,%d,%d), early(%d,%d,%d,%d)\n",
-	// 										ind->last_sfn, ind->last_slot,
-	// 										ind->dl_tti_latest_delay, ind->tx_data_latest_delay, ind->ul_tti_latest_delay, ind->ul_dci_latest_delay,
-	// 										ind->dl_tti_earliest_arrival, ind->tx_data_earliest_arrival, ind->ul_tti_earliest_arrival, ind->ul_dci_earliest_arrival);
+	NFAPI_TRACE(NFAPI_TRACE_INFO, "ind [%d.%d] delay(%d,%d,%d,%d), early(%d,%d,%d,%d)\n",
+											ind->last_sfn, ind->last_slot,
+											ind->dl_tti_latest_delay, ind->tx_data_latest_delay, ind->ul_tti_latest_delay, ind->ul_dci_latest_delay,
+											ind->dl_tti_earliest_arrival, ind->tx_data_earliest_arrival, ind->ul_tti_earliest_arrival, ind->ul_dci_earliest_arrival);
 	// NFAPI_TRACE(NFAPI_TRACE_INFO, "ALL: max_late=%d, min_early=%d, jitter=%d\n", 
 	// 				vnf_all_stats.max_late, vnf_all_stats.min_early, vnf_all_stats.jitter);
 }
@@ -237,10 +237,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
 	if(avg_diff_us == 0) avg_diff_us = all_diff;
 	else avg_diff_us = (15 * avg_diff_us + all_diff) >> 4;
 
-	// 2. Fast Rise: If current diff is huge, immediately bump margin
-	// (Existing logic at line 237 covers this, but we make sure we use it)
-	
-	// 3. Slow Fall: If average is well below target, slowly decay
+	// 2. Slow Fall: If average is well below target, slowly decay
 	if (avg_diff_us + MARGIN_HEADROOM < target_margin_us) {
 		decay_counter++;
 		if(decay_counter > DECAY_THRESHOLD) {
@@ -261,13 +258,11 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, ui
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE LATE [%d]:%d (%d, %d, %d) T:%d avg:%d diff: %d\n", current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, avg_diff_us, all_diff);
     if (slot_profile_us[current_slot] > 0) slot_profile_us[current_slot] = 0;
 		else slot_profile_us[current_slot] -= all_late;
-		
 		// Fast Rise Implementation
 		if(all_diff > target_margin_us) {
 			target_margin_us = all_diff + SAFETY_PAD;
 			avg_diff_us = target_margin_us; // Reset average to high to avoid fighting the rise
 		}
-
 		if (p7_info->sleep_baseline_us > p7_info->slot_duration_us) p7_info->sleep_baseline_us = p7_info->slot_duration_us;
 		else p7_info->sleep_baseline_us -= up_step;
   } else if (all_early < -TARGET_TIMING_WINDOW){
@@ -319,14 +314,14 @@ void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *v
 		if(vnf_ul_stats.max_late != INT32_MIN || vnf_ul_stats.min_early != INT32_MAX){
 			uint32_t packet_slot_ul = (NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot) - 
 				((vnf_ul_stats.max_late) / (1000 >> (p7_info->mu))) + (vnf_ul_stats.max_late < 0) + NFAPI_MAX_SFNSLOTDEC(p7_info->mu)) % SLOT_ARRAY_SIZE;
-			// NFAPI_TRACE(NFAPI_TRACE_INFO, "UL: packet_slot_ul=%d max_late=%d min_early=%d\n", packet_slot_ul, vnf_ul_stats.max_late, vnf_ul_stats.min_early);
+			NFAPI_TRACE(NFAPI_TRACE_INFO, "UL: packet_slot_ul=%d max_late=%d min_early=%d\n", packet_slot_ul, vnf_ul_stats.max_late, vnf_ul_stats.min_early);
 			vnf_p7_convergence_optimization(p7_info, packet_slot_ul, &vnf_ul_stats);
 		}
 		// Check DL Stats
 		if(vnf_dl_stats.max_late != INT32_MIN || vnf_dl_stats.min_early != INT32_MAX){
 			uint32_t packet_slot_dl = (NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot) - 
 				((vnf_dl_stats.max_late) / (1000 >> (p7_info->mu))) + (vnf_dl_stats.max_late < 0) + NFAPI_MAX_SFNSLOTDEC(p7_info->mu)) % SLOT_ARRAY_SIZE;
-			// NFAPI_TRACE(NFAPI_TRACE_INFO, "DL: packet_slot_dl=%d max_late=%d min_early=%d\n", packet_slot_dl, vnf_dl_stats.max_late, vnf_dl_stats.min_early);
+			NFAPI_TRACE(NFAPI_TRACE_INFO, "DL: packet_slot_dl=%d max_late=%d min_early=%d\n", packet_slot_dl, vnf_dl_stats.max_late, vnf_dl_stats.min_early);
 			vnf_p7_convergence_optimization(p7_info, packet_slot_dl, &vnf_dl_stats);
 		}
     // Step 3: Dump Telemetry
