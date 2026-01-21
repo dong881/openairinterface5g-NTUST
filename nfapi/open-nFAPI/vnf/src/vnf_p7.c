@@ -101,6 +101,12 @@ vnf_timing_stats_t vnf_dl_stats;
 vnf_timing_stats_t vnf_ul_stats;
 vnf_timing_stats_t vnf_all_stats;
 
+/* Refined Granular Statistics */
+vnf_timing_stats_t vnf_dl_late_stats;
+vnf_timing_stats_t vnf_dl_early_stats;
+vnf_timing_stats_t vnf_ul_late_stats;
+vnf_timing_stats_t vnf_ul_early_stats;
+
 // Helper Macros for explicit update logic
 #define UPDATE_MAX(curr, new_val) do { \
     if ((new_val) != 0) { \
@@ -141,7 +147,14 @@ static inline void vnf_reset_timing_stats(void) {
   vnf_all_stats.min_late = INT32_MAX;
   vnf_all_stats.min_early = INT32_MAX;
   vnf_all_stats.max_early = INT32_MIN;
+  vnf_all_stats.max_early = INT32_MIN;
   vnf_all_stats.jitter = 0;
+
+  // Reset Granular Stats
+  vnf_dl_late_stats.max_late = INT32_MIN; vnf_dl_late_stats.min_late = INT32_MAX; vnf_dl_late_stats.min_early = INT32_MAX; vnf_dl_late_stats.max_early = INT32_MIN; vnf_dl_late_stats.jitter = 0;
+  vnf_dl_early_stats.max_late = INT32_MIN; vnf_dl_early_stats.min_late = INT32_MAX; vnf_dl_early_stats.min_early = INT32_MAX; vnf_dl_early_stats.max_early = INT32_MIN; vnf_dl_early_stats.jitter = 0;
+  vnf_ul_late_stats.max_late = INT32_MIN; vnf_ul_late_stats.min_late = INT32_MAX; vnf_ul_late_stats.min_early = INT32_MAX; vnf_ul_late_stats.max_early = INT32_MIN; vnf_ul_late_stats.jitter = 0;
+  vnf_ul_early_stats.max_late = INT32_MIN; vnf_ul_early_stats.min_late = INT32_MAX; vnf_ul_early_stats.min_early = INT32_MAX; vnf_ul_early_stats.max_early = INT32_MIN; vnf_ul_early_stats.jitter = 0;
 }
 
 void vnf_p7_extract_timing_info(const void* void_ind)
@@ -170,6 +183,10 @@ void vnf_p7_extract_timing_info(const void* void_ind)
 
 	vnf_p7_update_global_stats(&vnf_dl_stats, dl_max_late, dl_min_late, dl_max_early, dl_min_early, dl_jitter);
 
+	// Update Granular DL Stats
+	vnf_p7_update_global_stats(&vnf_dl_late_stats, dl_max_late, dl_min_late, INT32_MAX, INT32_MIN, dl_jitter); // Only Late valid
+	vnf_p7_update_global_stats(&vnf_dl_early_stats, INT32_MIN, INT32_MAX, dl_max_early, dl_min_early, dl_jitter); // Only Early valid
+
 	// --- UL Stats ---
 	int32_t ul_max_late = INT32_MIN;
 	UPDATE_MAX(ul_max_late, ind->ul_tti_latest_delay);
@@ -191,6 +208,10 @@ void vnf_p7_extract_timing_info(const void* void_ind)
 	if (ind->ul_dci_jitter > ul_jitter) ul_jitter = ind->ul_dci_jitter;
 
 	vnf_p7_update_global_stats(&vnf_ul_stats, ul_max_late, ul_min_late, ul_max_early, ul_min_early, ul_jitter);
+	
+	// Update Granular UL Stats
+	vnf_p7_update_global_stats(&vnf_ul_late_stats, ul_max_late, ul_min_late, INT32_MAX, INT32_MIN, ul_jitter); // Only Late valid
+	vnf_p7_update_global_stats(&vnf_ul_early_stats, INT32_MIN, INT32_MAX, ul_max_early, ul_min_early, ul_jitter); // Only Early valid
 
 	// --- ALL Stats (Combined Sorting) ---
 	// Initialize with DL stats
@@ -310,19 +331,56 @@ void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *v
     vnf_p7_extract_timing_info(ind);
 
 		// Step 2: Execute Pass 2 (Fine-tuning)
-		// Check UL Stats
-		if(vnf_ul_stats.max_late != INT32_MIN || vnf_ul_stats.min_early != INT32_MAX){
-			uint32_t packet_slot_ul = (NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot) - 
-				((vnf_ul_stats.max_late) / (1000 >> (p7_info->mu))) + (vnf_ul_stats.max_late < 0) + NFAPI_MAX_SFNSLOTDEC(p7_info->mu)) % SLOT_ARRAY_SIZE;
-			NFAPI_TRACE(NFAPI_TRACE_INFO, "UL: packet_slot_ul=%d max_late=%d min_early=%d\n", packet_slot_ul, vnf_ul_stats.max_late, vnf_ul_stats.min_early);
-			vnf_p7_convergence_optimization(p7_info, packet_slot_ul, &vnf_ul_stats);
+		// Step 2: Execute Pass 2 (Fine-tuning) with Granular Detection & Collision Resolution
+		// Granular Packet Slot Calculation Macro
+		#define CALC_PACKET_SLOT(stats) ((NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot) - \
+				((stats.max_late != INT32_MIN ? stats.max_late : stats.min_early) / (1000 >> (p7_info->mu))) + \
+				(stats.max_late < 0 && stats.max_late != INT32_MIN) + NFAPI_MAX_SFNSLOTDEC(p7_info->mu)) % SLOT_ARRAY_SIZE)
+
+		// --- Check DL Stats (Late vs Early) ---
+		uint32_t ps_dl_late = -1, ps_dl_early = -1;
+		bool has_dl_late = (vnf_dl_late_stats.max_late != INT32_MIN);
+		bool has_dl_early = (vnf_dl_early_stats.min_early != INT32_MAX);
+
+		if(has_dl_late) ps_dl_late = CALC_PACKET_SLOT(vnf_dl_late_stats);
+		if(has_dl_early) ps_dl_early = CALC_PACKET_SLOT(vnf_dl_early_stats);
+
+		if (has_dl_late && has_dl_early && ps_dl_late == ps_dl_early) {
+			// Collision: DL Late & Early on same slot -> Use Combined DL Stats
+			NFAPI_TRACE(NFAPI_TRACE_INFO, "DL COLLISION: slot %d, Late=%d Early=%d -> Optimizing with Combined Stats\n", ps_dl_late, vnf_dl_late_stats.max_late, vnf_dl_early_stats.min_early);
+			vnf_p7_convergence_optimization(p7_info, ps_dl_late, &vnf_dl_stats); 
+		} else {
+			if (has_dl_late) {
+				NFAPI_TRACE(NFAPI_TRACE_INFO, "DL LATE: slot=%d max_late=%d\n", ps_dl_late, vnf_dl_late_stats.max_late);
+				vnf_p7_convergence_optimization(p7_info, ps_dl_late, &vnf_dl_late_stats);
+			}
+			if (has_dl_early) {
+				NFAPI_TRACE(NFAPI_TRACE_INFO, "DL EARLY: slot=%d min_early=%d\n", ps_dl_early, vnf_dl_early_stats.min_early);
+				vnf_p7_convergence_optimization(p7_info, ps_dl_early, &vnf_dl_early_stats);
+			}
 		}
-		// Check DL Stats
-		if(vnf_dl_stats.max_late != INT32_MIN || vnf_dl_stats.min_early != INT32_MAX){
-			uint32_t packet_slot_dl = (NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot) - 
-				((vnf_dl_stats.max_late) / (1000 >> (p7_info->mu))) + (vnf_dl_stats.max_late < 0) + NFAPI_MAX_SFNSLOTDEC(p7_info->mu)) % SLOT_ARRAY_SIZE;
-			NFAPI_TRACE(NFAPI_TRACE_INFO, "DL: packet_slot_dl=%d max_late=%d min_early=%d\n", packet_slot_dl, vnf_dl_stats.max_late, vnf_dl_stats.min_early);
-			vnf_p7_convergence_optimization(p7_info, packet_slot_dl, &vnf_dl_stats);
+
+		// --- Check UL Stats (Late vs Early) ---
+		uint32_t ps_ul_late = -1, ps_ul_early = -1;
+		bool has_ul_late = (vnf_ul_late_stats.max_late != INT32_MIN);
+		bool has_ul_early = (vnf_ul_early_stats.min_early != INT32_MAX);
+
+		if(has_ul_late) ps_ul_late = CALC_PACKET_SLOT(vnf_ul_late_stats);
+		if(has_ul_early) ps_ul_early = CALC_PACKET_SLOT(vnf_ul_early_stats);
+
+		if (has_ul_late && has_ul_early && ps_ul_late == ps_ul_early) {
+			// Collision: UL Late & Early on same slot -> Use Combined UL Stats
+			NFAPI_TRACE(NFAPI_TRACE_INFO, "UL COLLISION: slot %d, Late=%d Early=%d -> Optimizing with Combined Stats\n", ps_ul_late, vnf_ul_late_stats.max_late, vnf_ul_early_stats.min_early);
+			vnf_p7_convergence_optimization(p7_info, ps_ul_late, &vnf_ul_stats);
+		} else {
+			if (has_ul_late) {
+				NFAPI_TRACE(NFAPI_TRACE_INFO, "UL LATE: slot=%d max_late=%d\n", ps_ul_late, vnf_ul_late_stats.max_late);
+				vnf_p7_convergence_optimization(p7_info, ps_ul_late, &vnf_ul_late_stats);
+			}
+			if (has_ul_early) {
+				NFAPI_TRACE(NFAPI_TRACE_INFO, "UL EARLY: slot=%d min_early=%d\n", ps_ul_early, vnf_ul_early_stats.min_early);
+				vnf_p7_convergence_optimization(p7_info, ps_ul_early, &vnf_ul_early_stats);
+			}
 		}
     // Step 3: Dump Telemetry
     dump_slot_sleep_states(p7_info, ind);

@@ -193,6 +193,12 @@ extern vnf_timing_stats_t vnf_dl_stats;
 extern vnf_timing_stats_t vnf_ul_stats;
 extern vnf_timing_stats_t vnf_all_stats;
 
+/* Refined Granular Statistics */
+extern vnf_timing_stats_t vnf_dl_late_stats;
+extern vnf_timing_stats_t vnf_dl_early_stats;
+extern vnf_timing_stats_t vnf_ul_late_stats;
+extern vnf_timing_stats_t vnf_ul_early_stats;
+
 /* Function Declaration */
 void vnf_p7_extract_timing_info(const void* void_ind);
 
