@@ -317,8 +317,6 @@ void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *v
     // Step 1: Extract Data (Pass 1)
     vnf_p7_extract_timing_info(ind);
 
-		// Step 2: Execute Pass 2 (Fine-tuning)
-
 		// Step 2: Execute Pass 2 (Fine-tuning) with Granular Detection & Collision Resolution
 		// Granular Packet Slot Calculation Macro
 		#define CALC_PACKET_SLOT_LATE(stats) ((NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot) - \
@@ -343,19 +341,19 @@ void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *v
 			vnf_p7_convergence_optimization(p7_info, ps_dl_late, &vnf_dl_stats); 
 		} else {
 			if (has_dl_late) {
-				// Late Case: Mask Early if INVALID (MAX) to 0 to avoid overflow in diff calc
+				// Late Case: Collapse range to max_late to focus optimization on Late behavior
 				vnf_timing_stats_t temp = vnf_dl_stats;
-				if(temp.min_early == INT32_MAX) temp.min_early = 0;
+				temp.min_early = temp.max_late; 
 				
 				NFAPI_TRACE(NFAPI_TRACE_INFO, "DL LATE: slot=%d max_late=%d min_early=%d\n", ps_dl_late, temp.max_late, temp.min_early);
 				vnf_p7_convergence_optimization(p7_info, ps_dl_late, &temp);
 			}
 			if (has_dl_early) {
-				// Early Case: Mask Late to 0 to ensure logic falls through to Early Check
+				// Early Case: Collapse range to min_early to focus optimization on Early behavior
 				vnf_timing_stats_t temp = vnf_dl_stats;
-				temp.max_late = 0; 
+				temp.max_late = temp.min_early;
 				 
-				NFAPI_TRACE(NFAPI_TRACE_INFO, "DL EARLY: slot=%d min_early=%d (Late masked)\n", ps_dl_early, temp.min_early);
+				NFAPI_TRACE(NFAPI_TRACE_INFO, "DL EARLY: slot=%d min_early=%d (Collapsed)\n", ps_dl_early, temp.min_early);
 				vnf_p7_convergence_optimization(p7_info, ps_dl_early, &temp);
 			}
 		}
@@ -375,16 +373,16 @@ void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *v
 		} else {
 			if (has_ul_late) {
 				vnf_timing_stats_t temp = vnf_ul_stats;
-				if(temp.min_early == INT32_MAX) temp.min_early = 0;
+				temp.min_early = temp.max_late;
 
 				NFAPI_TRACE(NFAPI_TRACE_INFO, "UL LATE: slot=%d max_late=%d min_early=%d\n", ps_ul_late, temp.max_late, temp.min_early);
 				vnf_p7_convergence_optimization(p7_info, ps_ul_late, &temp);
 			}
 			if (has_ul_early) {
 				vnf_timing_stats_t temp = vnf_ul_stats;
-				temp.max_late = 0;
+				temp.max_late = temp.min_early;
 
-				NFAPI_TRACE(NFAPI_TRACE_INFO, "UL EARLY: slot=%d min_early=%d (Late masked)\n", ps_ul_early, temp.min_early);
+				NFAPI_TRACE(NFAPI_TRACE_INFO, "UL EARLY: slot=%d min_early=%d (Collapsed)\n", ps_ul_early, temp.min_early);
 				vnf_p7_convergence_optimization(p7_info, ps_ul_early, &temp);
 			}
 		}
