@@ -178,29 +178,27 @@ void vnf_p7_release_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* header);
 void vnf_p7_release_pdu(vnf_p7_t* vnf_p7, void* pdu);
 
 extern int32_t slot_profile_us[SLOT_ARRAY_SIZE];
-/* Timing Statistics Structure */
+/* Timing Statistics Structure - Simplified */
 typedef struct {
-    int32_t max_late;       // Maximum late arrival (us)
-    int32_t min_late;       // Minimum late arrival (us)
-    int32_t min_early;      // Minimum early arrival (us) - most negative
-    int32_t max_early;      // Maximum early arrival (us)
-    uint32_t jitter;        // Max jitter (us)
-    uint32_t sample_count;  // Number of samples aggregated
+  int32_t max;            // Maximum timing value (us) - worst late
+  int32_t min;            // Minimum timing value (us) - most early
+  uint32_t jitter;        // Max jitter (us)
+  uint32_t packet_slot;   // Computed packet slot index in SLOT_ARRAY_SIZE
 } vnf_timing_stats_t;
 
-/* Global statistics storage */
-extern vnf_timing_stats_t vnf_dl_stats;
-extern vnf_timing_stats_t vnf_ul_stats;
-extern vnf_timing_stats_t vnf_all_stats;
-
 /* Function Declaration */
-void vnf_p7_extract_timing_info(const void* void_ind);
+// Extract timing info points from a timing_info message
+// Returns the number of valid stats extracted (0-8)
+int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
+                               nfapi_vnf_p7_connection_info_t *p7_info,
+                               vnf_timing_stats_t *out_stats,
+                               int max_stats);
 
 /* Pass 2: Critical Correction */
 void vnf_p7_critical_correction(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot);
 
-/* Pass 3: Convergence Optimization */
-void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t* p7_info, uint32_t current_slot, vnf_timing_stats_t* vnf_stats);
+/* Convergence Optimization */
+void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats);
 
 /* Main Dynamic Timing Handler */
 void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *void_ind);
