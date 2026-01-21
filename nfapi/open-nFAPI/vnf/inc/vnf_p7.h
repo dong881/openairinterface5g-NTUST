@@ -31,12 +31,9 @@
 #define TARGET_MARGIN_INITIAL   250   // Maximum safety buffer (user request: catch all late)
 #define TARGET_TIMING_WINDOW    2200  // Minimum target (to avoid constant adjustment)
 #define JITTER_THRESHOLD_US     200   // High/Low jitter boundary
-#define PROFILE_LIMIT     		450    // Maximum Pass 3 adjustment per cycle
 #define MIN_SLEEP_US            50    // Minimum allowable sleep time
 #define MAX_SLEEP_US            950  // Maximum allowable sleep time
-#define MAX_BORROW_DEPTH        4     // Maximum backward/forward borrow depth
 #define SLOT_ARRAY_SIZE         20    // TDD cycle slot count (Reduced to 20 for faster convergence)
-#define DEFAULT_SLOT_SLEEP_US   500   // Initial sleep value for all slots
 
 
 typedef struct {
@@ -134,6 +131,8 @@ typedef struct nfapi_vnf_p7_connection_info {
 
     /* Timing Control Parameters */
     int32_t sleep_baseline_us;
+    int32_t avg_diff_us;
+    int decay_counter;
 } nfapi_vnf_p7_connection_info_t;
 
 struct vnf_p7_t{

@@ -170,49 +170,47 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
   }
 
   // Debug trace
-  if (count > 0) {
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "ind [%d.%d] delay(%d,%d,%d,%d), early(%d,%d,%d,%d) -> %d slots\n",
-                ind->last_sfn, ind->last_slot,
-                ind->dl_tti_latest_delay, ind->tx_data_latest_delay,
-                ind->ul_tti_latest_delay, ind->ul_dci_latest_delay,
-                ind->dl_tti_earliest_arrival, ind->tx_data_earliest_arrival,
-                ind->ul_tti_earliest_arrival, ind->ul_dci_earliest_arrival,
-                count);
-  }
+  // if (count > 0) {
+  //   NFAPI_TRACE(NFAPI_TRACE_INFO, "ind [%d.%d] delay(%d,%d,%d,%d), early(%d,%d,%d,%d) -> %d slots\n",
+  //               ind->last_sfn, ind->last_slot,
+  //               ind->dl_tti_latest_delay, ind->tx_data_latest_delay,
+  //               ind->ul_tti_latest_delay, ind->ul_dci_latest_delay,
+  //               ind->dl_tti_earliest_arrival, ind->tx_data_earliest_arrival,
+  //               ind->ul_tti_earliest_arrival, ind->ul_dci_earliest_arrival,
+  //               count);
+  // }
   return count;
 }
 
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
 {
-  uint32_t current_slot = stats->packet_slot;
+	uint32_t current_slot = stats->packet_slot;
   int32_t all_late = stats->max;
   int32_t all_early = stats->min;
   int32_t all_diff = all_late - all_early;
   int up_step = 6;
   int down_step = 6;
   int SAFETY_PAD = 5;
-
-  // --- Dynamic Target Margin Logic (Fast Rise, Slow Fall) ---
-  static int32_t avg_diff_us = 0;
-  static int decay_counter = 0;
-  const int DECAY_THRESHOLD = 50; // cycles to wait before decaying
-  const int MARGIN_HEADROOM = 250; // Keep target this much above average
-
+	
+	// --- Dynamic Target Margin Logic (Fast Rise, Slow Fall) ---
+	// avg_diff_us and decay_counter moved to p7_info
+	const int DECAY_THRESHOLD = 50; // cycles to wait before decaying
+	const int MARGIN_HEADROOM = 250; // Keep target this much above average
   // 1. EWMA Calculation (Alpha ~ 1/16)
-  if (avg_diff_us == 0)
-    avg_diff_us = all_diff;
+  if (p7_info->avg_diff_us == 0)
+    p7_info->avg_diff_us = all_diff;
   else
-    avg_diff_us = (15 * avg_diff_us + all_diff) >> 4;
+    p7_info->avg_diff_us = (15 * p7_info->avg_diff_us + all_diff) >> 4;
 
   // 2. Slow Fall: If average is well below target, slowly decay
-  if (avg_diff_us + MARGIN_HEADROOM < target_margin_us) {
-    decay_counter++;
-    if (decay_counter > DECAY_THRESHOLD) {
+  if (p7_info->avg_diff_us + MARGIN_HEADROOM < target_margin_us) {
+    p7_info->decay_counter++;
+    if (p7_info->decay_counter > DECAY_THRESHOLD) {
       target_margin_us--;
-      decay_counter = 0;
+      p7_info->decay_counter = 0;
     }
   } else {
-    decay_counter = 0; // Reset counter if we are not in safe zone
+    p7_info->decay_counter = 0; // Reset counter if we are not in safe zone
   }
 
   // Safety Clamp
@@ -230,14 +228,14 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     // Fast Rise Implementation
     if (all_diff > target_margin_us) {
       target_margin_us = all_diff + SAFETY_PAD;
-      avg_diff_us = target_margin_us;
+      p7_info->avg_diff_us = target_margin_us;
     }
     if (p7_info->sleep_baseline_us > p7_info->slot_duration_us)
       p7_info->sleep_baseline_us = p7_info->slot_duration_us;
     else
       p7_info->sleep_baseline_us -= up_step*2;
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE LATE [%d]:%d (%d, %d, %d) T:%d avg:%d\n",
-                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, avg_diff_us);
+		// NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE LATE [%d]:%d (%d, %d, %d) T:%d avg:%d\n",
+                // current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, avg_diff_us);
   } else if (all_early < -TARGET_TIMING_WINDOW) {
     if (slot_profile_us[current_slot] < 0)
       slot_profile_us[current_slot] = 0;
@@ -247,8 +245,8 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
       p7_info->sleep_baseline_us = p7_info->slot_duration_us;
     else
       p7_info->sleep_baseline_us += down_step;
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY [%d] (%d, %d, %d) T:%d avg:%d\n",
-                current_slot, all_early, all_late, all_diff, target_margin_us, avg_diff_us);
+		// NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY [%d] (%d, %d, %d) T:%d avg:%d\n",
+                // current_slot, all_early, all_late, all_diff, target_margin_us, avg_diff_us);
   } else if (all_late <= -target_margin_us + MARGIN_TOLERANCE_US && all_early >= -target_margin_us - MARGIN_TOLERANCE_US) {
     // Very good - within tolerance
     p7_info->sleep_baseline_us = p7_info->slot_duration_us;
@@ -260,20 +258,20 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     // Fast Rise Check
     if (all_diff > target_margin_us) {
       target_margin_us = all_diff + SAFETY_PAD;
-      avg_diff_us = target_margin_us;
+      p7_info->avg_diff_us = target_margin_us;
     }
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little late [%d]:%d (%d, %d, %d) T:%d avg:%d\n",
-                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, avg_diff_us);
+		// NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little late [%d]:%d (%d, %d, %d) T:%d avg:%d\n",
+                // current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, avg_diff_us);
   } else if (all_early > -TARGET_TIMING_WINDOW && all_early < -target_margin_us - MARGIN_TOLERANCE_US) {
     if (slot_profile_us[current_slot] < 0)
       slot_profile_us[current_slot] = 0;
     else
       slot_profile_us[current_slot] += down_step;
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little early [%d]:%d (%d, %d, %d) T:%d avg:%d\n",
-                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, avg_diff_us);
+		// NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little early [%d]:%d (%d, %d, %d) T:%d avg:%d\n",
+    //             current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, avg_diff_us);
   } else {
     NFAPI_TRACE(NFAPI_TRACE_INFO, "NO CASE [%d] (%d, %d, %d) T:%d avg:%d\n",
-                current_slot, all_early, all_late, all_diff, target_margin_us, avg_diff_us);
+                current_slot, all_early, all_late, all_diff, target_margin_us, p7_info->avg_diff_us);
   }
 }
 
