@@ -27,7 +27,7 @@
  * DYNAMIC SLOT SLEEP TIMING CONTROL CONSTANTS
  * ============================================================================ */
 /* Dynamic Target Margin (adaptive to avoid late packets) */
-#define MARGIN_TOLERANCE_US     50    // Deadband zone: +/- MARGIN_TOLERANCE_US us
+#define MARGIN_TOLERANCE_US     100    // Deadband zone: +/- MARGIN_TOLERANCE_US us
 #define TARGET_MARGIN_INITIAL   250   // Maximum safety buffer (user request: catch all late)
 #define TARGET_TIMING_WINDOW    2200  // Minimum target (to avoid constant adjustment)
 #define JITTER_THRESHOLD_US     200   // High/Low jitter boundary
