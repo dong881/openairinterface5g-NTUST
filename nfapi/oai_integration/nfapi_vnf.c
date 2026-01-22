@@ -1172,20 +1172,49 @@ void *vnf_timing_thread(void *arg) {
     // Step 5: Advance to Next Slot
     sfnslot_dec = (sfnslot_dec + 1) % MAX_SFNSLOTDEC;
 
-    // Step 6: Calculate Duration of Current Slot (Prepare for Next)
+    // Step 6: Calculate adjustments from convergence algorithm
     pthread_mutex_lock(&p7_info->mutex);
-    int32_t raw_sleep = p7_info->us_adjustment + (int32_t)p7_info->sleep_baseline_us + slot_profile_us[sfnslot_dec % SLOT_ARRAY_SIZE];
+    int32_t slot_adj = slot_profile_us[sfnslot_dec % SLOT_ARRAY_SIZE];
+    int32_t us_adj = p7_info->us_adjustment;
+    int32_t baseline_adj = (int32_t)p7_info->sleep_baseline_us - (int32_t)p7_info->slot_duration_us;
     p7_info->us_adjustment = 0;
-    // Use constant MIN_SLEEP_US - do NOT use execution time to limit sleep
-    if (raw_sleep < MIN_SLEEP_US)
-      raw_sleep = MIN_SLEEP_US;
-    if (raw_sleep > MAX_SLEEP_US)
-      raw_sleep = MAX_SLEEP_US;
-    uint32_t sleep_us = (uint32_t)raw_sleep;
     pthread_mutex_unlock(&p7_info->mutex);
 
-    // Step 7: Update Target Time for NEXT slot
-    timespec_add_us(&p7_info->next_slot_time, sleep_us);
+    // Step 7: Compute NEXT slot time based on ACTUAL completion time
+    // This prevents "next_slot_time in past" by using real timestamps
+    struct timespec slot_end;
+    clock_gettime(CLOCK_MONOTONIC, &slot_end);
+
+    // Calculate ideal next slot time (slot_duration_us after THIS slot started)
+    struct timespec ideal_next = p7_info->next_slot_time;
+    timespec_add_us(&ideal_next, p7_info->slot_duration_us);
+
+    // Compute remaining time until ideal next slot
+    int64_t remaining_ns = (ideal_next.tv_sec - slot_end.tv_sec) * 1000000000LL
+                         + (ideal_next.tv_nsec - slot_end.tv_nsec);
+
+    // Total adjustment from all sources (convergence algorithm control)
+    int32_t total_adj = slot_adj + us_adj + baseline_adj;
+
+    if (remaining_ns <= 0) {
+      // Already past ideal time - schedule from now with minimum buffer
+      // This is the key fix: reset to actual time instead of accumulating debt
+      p7_info->next_slot_time = slot_end;
+      timespec_add_us(&p7_info->next_slot_time, MIN_SLEEP_US);
+    } else {
+      // On time - apply adjustments only if there's headroom
+      int32_t remaining_us = (int32_t)(remaining_ns / 1000);
+
+      // Ensure minimum sleep time is maintained after applying adjustments
+      if (remaining_us + total_adj >= MIN_SLEEP_US) {
+        p7_info->next_slot_time = ideal_next;
+        timespec_add_us(&p7_info->next_slot_time, total_adj);
+      } else {
+        // Clamp adjustment to maintain minimum sleep
+        p7_info->next_slot_time = slot_end;
+        timespec_add_us(&p7_info->next_slot_time, MIN_SLEEP_US);
+      }
+    }
   }
   return NULL;
 }

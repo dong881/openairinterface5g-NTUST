@@ -252,6 +252,9 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 
   // 4. Target margin = peak envelope + fixed headroom
   target_margin_us = p7_info->peak_envelope_us + PEAK_HEADROOM;
+  // Clamp target_margin to prevent UE disconnection
+  if (target_margin_us > TARGET_TIMING_WINDOW)
+    target_margin_us = TARGET_TIMING_WINDOW;
 	NFAPI_TRACE(NFAPI_TRACE_INFO,"[%d] avg_d: %d, d: %d, p:%d, t: %d\n", current_slot, p7_info->avg_diff_us, all_diff, p7_info->peak_envelope_us, target_margin_us);
   // Keep EWMA for monitoring (optional, can be removed later)
   if (p7_info->avg_diff_us == 0)
@@ -259,18 +262,44 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
   else
     p7_info->avg_diff_us = (7 * p7_info->avg_diff_us + all_diff) >> 3;
 
+  // Helper function to clamp slot profile
+  #define CLAMP_PROFILE(val) ((val) > MAX_SLOT_PROFILE_US ? MAX_SLOT_PROFILE_US : ((val) < MIN_SLOT_PROFILE_US ? MIN_SLOT_PROFILE_US : (val)))
+  
+  // Helper to spread adjustment to neighbors (Diffusion)
+  // Weights: Current 50%, Prev 25%, Next 25%
+  #define SPREAD_ADJUSTMENT(delta) do { \
+    int32_t d_main = (delta) / 2; \
+    int32_t d_side = (delta) / 4; \
+    if (d_main == 0 && (delta) != 0) d_main = (delta); \
+    /* Apply to current */ \
+    slot_profile_us[current_slot] += d_main; \
+    slot_profile_us[current_slot] = CLAMP_PROFILE(slot_profile_us[current_slot]); \
+    /* Apply to Prev */ \
+    int prev_idx = (current_slot + SLOT_ARRAY_SIZE - 1) % SLOT_ARRAY_SIZE; \
+    slot_profile_us[prev_idx] += d_side; \
+    slot_profile_us[prev_idx] = CLAMP_PROFILE(slot_profile_us[prev_idx]); \
+    /* Apply to Next */ \
+    int next_idx = (current_slot + 1) % SLOT_ARRAY_SIZE; \
+    slot_profile_us[next_idx] += d_side; \
+    slot_profile_us[next_idx] = CLAMP_PROFILE(slot_profile_us[next_idx]); \
+  } while(0)
+
   if (all_late > 0) {
     if (slot_profile_us[current_slot] > 0)
       slot_profile_us[current_slot] = 0;
-    else
-      slot_profile_us[current_slot] -= all_late*0.7;
-    // Clamp slot_profile_us
-    if (slot_profile_us[current_slot] < MIN_SLOT_PROFILE_US)
-      slot_profile_us[current_slot] = MIN_SLOT_PROFILE_US;
-    // Note: target_margin now managed by Peak-Hold logic above
+    else {
+      // Current slot is late - reduce sleep time for it and neighbors
+      // Use diffusion logic with weight on current slot
+      SPREAD_ADJUSTMENT(-(int32_t)(all_late * 0.5)); 
+    }
     
     // --- Baseline Peak-Hold: accumulate reduction on LATE ---
-    p7_info->baseline_envelope_us += all_late;
+    // Fix: Limit instantaneous jump to prevent baseline collapse
+    // Dampen the accumulation factor (0.25) and clamp max step (e.g. 50us)
+    int32_t base_step = all_late; 
+    if (base_step > 50) base_step = 50; 
+    p7_info->baseline_envelope_us += base_step;
+    
     // Clamp envelope to prevent runaway
     if (p7_info->baseline_envelope_us > (int32_t)p7_info->slot_duration_us - MIN_SLEEP_US)
       p7_info->baseline_envelope_us = p7_info->slot_duration_us - MIN_SLEEP_US;
@@ -281,11 +310,11 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
   } else if (all_early < -TARGET_TIMING_WINDOW) {
     if (slot_profile_us[current_slot] < 0)
       slot_profile_us[current_slot] = 0;
-    else
-      slot_profile_us[current_slot] += down_step; // Fixed step
-    // Clamp slot_profile_us
-    if (slot_profile_us[current_slot] > MAX_SLOT_PROFILE_US)
-      slot_profile_us[current_slot] = MAX_SLOT_PROFILE_US;
+    else {
+      // Early arrival - increase sleep time (spread to neighbors)
+      SPREAD_ADJUSTMENT(down_step);
+    }
+
     // NOTE: baseline NOT adjusted here - only slot_profile_us
     // This prevents cross-slot interference when one slot's late causes another's early
     NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY [%d]:%d (%d, %d, %d) T:%d base_env:%d\n",
@@ -298,23 +327,22 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
   } else if (all_late < 0 && all_late > -target_margin_us + MARGIN_TOLERANCE_US) {
     if (slot_profile_us[current_slot] > 0)
       slot_profile_us[current_slot] = 0;
-    else
-      slot_profile_us[current_slot] -= up_step;
-    // Clamp slot_profile_us  
-    if (slot_profile_us[current_slot] < MIN_SLOT_PROFILE_US)
-      slot_profile_us[current_slot] = MIN_SLOT_PROFILE_US;
+    else {
+      // Little late - reduce sleep slightly (spread)
+      SPREAD_ADJUSTMENT(-up_step);
+    }
     NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little late [%d]:%d (%d, %d, %d) T:%d\n",
                 current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us);
   } else if (all_early > -TARGET_TIMING_WINDOW && all_early < -target_margin_us - MARGIN_TOLERANCE_US) {
     if (slot_profile_us[current_slot] < 0)
       slot_profile_us[current_slot] = 0;
-    else
-      slot_profile_us[current_slot] += down_step;
-    // Clamp slot_profile_us
-    if (slot_profile_us[current_slot] > MAX_SLOT_PROFILE_US)
-      slot_profile_us[current_slot] = MAX_SLOT_PROFILE_US;
+    else {
+      // Little early - increase sleep slightly (spread)
+      SPREAD_ADJUSTMENT(down_step);
+    }
     NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little early [%d]:%d (%d, %d, %d) T:%d\n",
                 current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us);
+  
   } else {
     NFAPI_TRACE(NFAPI_TRACE_INFO, "NO CASE [%d] (%d, %d, %d) T:%d\n",
                 current_slot, all_early, all_late, all_diff, target_margin_us);
