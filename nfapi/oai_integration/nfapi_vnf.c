@@ -1114,29 +1114,33 @@ void *vnf_timing_thread(void *arg) {
   while (p7_info->running) {
     // Step 1: Wait for scheduled time OR detect behind-schedule and feed back deficit
     clock_gettime(CLOCK_MONOTONIC, &now);
-    int32_t process_us = ((p7_info->next_slot_time.tv_sec - now.tv_sec) * 1000000000LL
-                         + (p7_info->next_slot_time.tv_nsec - now.tv_nsec)) / 1000;
+    pthread_mutex_lock(&p7_info->mutex);
+    int32_t process_us = ((now.tv_sec - p7_info->next_slot_time.tv_sec) * 1000000000LL
+                         + (now.tv_nsec - p7_info->next_slot_time.tv_nsec)) / 1000;
     int32_t duration_us = p7_info->us_adjustment + p7_info->sleep_baseline_us + slot_profile_us[sfnslot_dec % SLOT_ARRAY_SIZE];
     p7_info->us_adjustment = 0;
-    int behind_us = process_us - duration_us;
-    if (behind_us > p7_info->slot_duration_us){
+    int32_t behind_us = process_us - duration_us;
+    if (behind_us >= (int32_t)p7_info->slot_duration_us){
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE SKIP BEHIND [%d.%d] %d",NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec),NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec), behind_us);
       /*skip behind_us late slots */
       int skip_slots = process_us / p7_info->slot_duration_us;
       int remaining_sleep_us = process_us % p7_info->slot_duration_us;
       sfnslot_dec = (sfnslot_dec + skip_slots + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "skip: %d remaining: %d, sfnslot_dec: [%d.%d]", skip_slots, remaining_sleep_us, NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec),NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec));
       timespec_add_us(&p7_info->next_slot_time, remaining_sleep_us);
+      pthread_mutex_unlock(&p7_info->mutex);
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
     } else if (behind_us > 0) {
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE pending_us %d", behind_us);
       int slot_idx = sfnslot_dec % SLOT_ARRAY_SIZE;
       slot_profile_us[slot_idx] += behind_us;
       // Clamp to valid range
       if (slot_profile_us[slot_idx] > 500) slot_profile_us[slot_idx] = 500;
       // Accumulate to time bank for future repayment
-      pthread_mutex_lock(&p7_info->mutex);
       p7_info->pending_us += behind_us;
       // p7_info->timing_deficit_us += behind_us;
-      pthread_mutex_unlock(&p7_info->mutex);
       p7_info->next_slot_time = now;
+      pthread_mutex_unlock(&p7_info->mutex);
     } else {
       int remaining_us = duration_us - process_us;
       // On schedule - check if we can help repay pending_us debt
@@ -1147,14 +1151,12 @@ void *vnf_timing_thread(void *arg) {
         int32_t repay_amount = (repay_budget < p7_info->pending_us) ? repay_budget : p7_info->pending_us;
         // Cap single repayment to avoid drastic changes
         if (repay_amount > 100) repay_amount = 100;
-        
-        pthread_mutex_lock(&p7_info->mutex);
         p7_info->pending_us -= repay_amount;
-        pthread_mutex_unlock(&p7_info->mutex);
         // Reduce next_slot_time to repay debt (wake up earlier)
         timespec_add_us(&p7_info->next_slot_time, -repay_amount);
       }
       // Sleep until (potentially adjusted) next_slot_time
+      pthread_mutex_unlock(&p7_info->mutex);
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
     }
     // Update slot_start_time_hr for P7 timestamp calculations
