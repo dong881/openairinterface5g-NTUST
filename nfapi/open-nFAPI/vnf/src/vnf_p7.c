@@ -310,7 +310,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     // NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE LATE [%d]:%d (%d, %d, %d) T:%d base_env:%d\n",
     //             current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff,
     //             target_margin_us, p7_info->baseline_envelope_us);
-  } else if (all_early < -TARGET_TIMING_WINDOW) {
+  } else if (all_early <= -TARGET_TIMING_WINDOW) {
     if (slot_profile_us[current_slot] < 0)
       slot_profile_us[current_slot] = 0;
     else {
