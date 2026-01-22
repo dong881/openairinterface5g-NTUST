@@ -1112,7 +1112,21 @@ void *vnf_timing_thread(void *arg) {
   while (p7_info->running) {
     // Step 1: Wait for the scheduled time of the CURRENT slot
     // (First iteration returns immediately as next_slot_time is initialized to NOW)
-    clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
+    // Safety check: if next_slot_time is in the past, reset to current time
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    if (now.tv_sec > p7_info->next_slot_time.tv_sec
+        || (now.tv_sec == p7_info->next_slot_time.tv_sec
+            && now.tv_nsec > p7_info->next_slot_time.tv_nsec)) {
+      // next_slot_time is in the past, reset to now to avoid busy-loop
+      NFAPI_TRACE(NFAPI_TRACE_WARN,
+                  "[VNF_TIMING] next_slot_time in past by %ld us, resetting\n",
+                  (now.tv_sec - p7_info->next_slot_time.tv_sec) * 1000000L
+                      + (now.tv_nsec - p7_info->next_slot_time.tv_nsec) / 1000L);
+      p7_info->next_slot_time = now;
+    }else{
+      clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
+    }
     vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
 
     // Step 2: Apply any pending slot adjustment to the CURRENT slot index
