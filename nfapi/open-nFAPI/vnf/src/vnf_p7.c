@@ -213,10 +213,11 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
   const int SAFETY_PAD = 250;
   const int MAX_SLOT_PROFILE_US = 500;  // Maximum slot profile adjustment
   const int MIN_SLOT_PROFILE_US = -500; // Minimum slot profile adjustment
-	// --- Dynamic Target Margin Logic (Fast Rise, Slow Fall) ---
-	// avg_diff_us and decay_counter moved to p7_info
-	const int DECAY_THRESHOLD = 10; // cycles to wait before decaying (was 50)
-	const int MARGIN_HEADROOM = 250; // Keep target this much above average
+  // --- Peak-Hold with Smooth Decay for Target Margin ---
+  // Creates a smooth envelope curve: instant rise on new max, linear decay otherwise
+  const int PEAK_HEADROOM = 250;     // Fixed offset above peak envelope
+  const int PEAK_DECAY_STEP = 1;    // Linear decay rate (us per cycle)
+  const int PEAK_MIN = 100;         // Minimum peak envelope value
 
   // Early exit if no timing info (before modifying any state)
   if (all_late == 0 && all_early == 0)
@@ -225,28 +226,38 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
   // Fallback: if all_diff=0 but jitter exists, use jitter
   if (all_diff == 0 && stats->jitter > 0)
     all_diff = stats->jitter;
-	
-	NFAPI_TRACE(NFAPI_TRACE_INFO,"[%d] avg_d: %d, d: %d, t: %d\n", current_slot, p7_info->avg_diff_us, all_diff, target_margin_us);
-  // 1. EWMA Calculation (Alpha ~ 1/8, was 1/16 for faster spike response)
+
+  // --- Peak-Hold Logic ---
+  // 1. Initialize peak_envelope if zero
+  if (p7_info->peak_envelope_us == 0)
+    p7_info->peak_envelope_us = all_diff;
+
+  // 2. Update peak envelope: fast rise, smooth decay
+  if (all_diff >= p7_info->peak_envelope_us) {
+    // NEW MAX: Instant follow (fast rise)
+    p7_info->peak_envelope_us = all_diff;
+  } else {
+    // Below current peak: Linear decay
+    p7_info->peak_envelope_us -= PEAK_DECAY_STEP;
+    // Floor at current diff (envelope never goes below current value)
+    if (p7_info->peak_envelope_us < all_diff)
+      p7_info->peak_envelope_us = all_diff;
+  }
+
+  // 3. Clamp peak envelope to valid range
+  if (p7_info->peak_envelope_us < PEAK_MIN)
+    p7_info->peak_envelope_us = PEAK_MIN;
+  if (p7_info->peak_envelope_us > TARGET_TIMING_WINDOW - PEAK_HEADROOM)
+    p7_info->peak_envelope_us = TARGET_TIMING_WINDOW - PEAK_HEADROOM;
+
+  // 4. Target margin = peak envelope + fixed headroom
+  target_margin_us = p7_info->peak_envelope_us + PEAK_HEADROOM;
+	NFAPI_TRACE(NFAPI_TRACE_INFO,"[%d] avg_d: %d, d: %d, p:%d, t: %d\n", current_slot, p7_info->avg_diff_us, all_diff, p7_info->peak_envelope_us, target_margin_us);
+  // Keep EWMA for monitoring (optional, can be removed later)
   if (p7_info->avg_diff_us == 0)
     p7_info->avg_diff_us = all_diff;
   else
     p7_info->avg_diff_us = (7 * p7_info->avg_diff_us + all_diff) >> 3;
-
-  // 2. Slow Fall: If average is well below target, slowly decay
-  if (p7_info->avg_diff_us + MARGIN_HEADROOM < target_margin_us) {
-    p7_info->decay_counter++;
-    if (p7_info->decay_counter > DECAY_THRESHOLD) {
-      target_margin_us -= 5; // Faster decay step (was 1)
-      p7_info->decay_counter = 0;
-    }
-  } else {
-    p7_info->decay_counter = 0; // Reset counter if we are not in safe zone
-  }
-
-  // Safety Clamp
-  if (all_diff + SAFETY_PAD > TARGET_TIMING_WINDOW)
-    all_diff = target_margin_us;
 
   if (all_late > 0) {
 		if (slot_profile_us[current_slot] > 0)
@@ -256,12 +267,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     // Clamp slot_profile_us
     if (slot_profile_us[current_slot] < MIN_SLOT_PROFILE_US)
       slot_profile_us[current_slot] = MIN_SLOT_PROFILE_US;
-    // Fast Rise Implementation (with cap, no EWMA pollution)
-    if (all_diff > target_margin_us) {
-      target_margin_us = all_diff + SAFETY_PAD;
-      if (target_margin_us > TARGET_TIMING_WINDOW)
-        target_margin_us = TARGET_TIMING_WINDOW; // Cap at timing window
-    }
+    // Note: target_margin now managed by Peak-Hold logic above
     if (p7_info->sleep_baseline_us > p7_info->slot_duration_us)
       p7_info->sleep_baseline_us = p7_info->slot_duration_us;
     else
@@ -293,12 +299,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     // Clamp slot_profile_us  
     if (slot_profile_us[current_slot] < MIN_SLOT_PROFILE_US)
       slot_profile_us[current_slot] = MIN_SLOT_PROFILE_US;
-    // Fast Rise Check (with cap, no EWMA pollution)
-    if (all_diff > target_margin_us) {
-      target_margin_us = all_diff + SAFETY_PAD;
-      if (target_margin_us > TARGET_TIMING_WINDOW)
-        target_margin_us = TARGET_TIMING_WINDOW; // Cap at timing window
-    }
+    // Note: target_margin now managed by Peak-Hold logic above
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little late [%d]:%d (%d, %d, %d) T:%d avg:%d\n",
                 current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, p7_info->avg_diff_us);
   } else if (all_early > -TARGET_TIMING_WINDOW && all_early < -target_margin_us - MARGIN_TOLERANCE_US) {

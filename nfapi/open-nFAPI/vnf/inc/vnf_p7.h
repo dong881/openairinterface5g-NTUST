@@ -132,6 +132,7 @@ typedef struct nfapi_vnf_p7_connection_info {
     /* Timing Control Parameters */
     int32_t sleep_baseline_us;
     int32_t avg_diff_us;
+    int32_t peak_envelope_us;  // Peak-hold envelope for smooth target tracking
     int decay_counter;
 
     /* Timing Stats History (to aggregate split packets) */
