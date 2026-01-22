@@ -143,6 +143,14 @@ typedef struct nfapi_vnf_p7_connection_info {
       int32_t min_early;      // Min observed early value
       uint32_t jitter;        // Max jitter
     } slot_history[SLOT_ARRAY_SIZE];
+
+    /* Execution Time Tracking (replaces constant MIN_SLEEP_US) */
+    int32_t exec_time_ewma_us;      // EWMA of phy_nr_slot_indication execution time
+    int32_t exec_time_peak_us;      // Peak-hold envelope for execution time
+    int32_t dynamic_min_sleep_us;   // Dynamic minimum sleep (replaces MIN_SLEEP_US)
+
+    /* Time Borrowing (forward prevention of late slots) */
+    int32_t time_debt_us;           // Accumulated time debt from past events
 } nfapi_vnf_p7_connection_info_t;
 
 struct vnf_p7_t{

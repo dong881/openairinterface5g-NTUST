@@ -1111,22 +1111,27 @@ void *vnf_timing_thread(void *arg) {
 
   while (p7_info->running) {
     // Step 1: Wait for the scheduled time of the CURRENT slot
-    // (First iteration returns immediately as next_slot_time is initialized to NOW)
-    // Safety check: if next_slot_time is in the past, reset to current time
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
+
+    // Check if we're behind schedule
     if (now.tv_sec > p7_info->next_slot_time.tv_sec
         || (now.tv_sec == p7_info->next_slot_time.tv_sec
             && now.tv_nsec > p7_info->next_slot_time.tv_nsec)) {
-      // next_slot_time is in the past, reset to now to avoid busy-loop
+      // next_slot_time is in the past - log and reset
+      int32_t past_us = (now.tv_sec - p7_info->next_slot_time.tv_sec) * 1000000L
+                      + (now.tv_nsec - p7_info->next_slot_time.tv_nsec) / 1000L;
       NFAPI_TRACE(NFAPI_TRACE_WARN,
-                  "[VNF_TIMING] next_slot_time in past by %ld us, resetting\n",
-                  (now.tv_sec - p7_info->next_slot_time.tv_sec) * 1000000L
-                      + (now.tv_nsec - p7_info->next_slot_time.tv_nsec) / 1000L);
+                  "[VNF_TIMING] next_slot_time in past by %d us\n", past_us);
+      // Simply reset to now - let convergence algorithm handle recovery
       p7_info->next_slot_time = now;
-    }else{
+    } else {
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
     }
+
+    // Record start time for monitoring
+    struct timespec exec_start;
+    clock_gettime(CLOCK_MONOTONIC, &exec_start);
     vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
 
     // Step 2: Apply any pending slot adjustment to the CURRENT slot index
@@ -1152,7 +1157,18 @@ void *vnf_timing_thread(void *arg) {
     ind.slot = p7_info->slot;
     ind.header.phy_id = p7_info->phy_id;
     phy_nr_slot_indication(&ind);
-    
+
+    // Step 4.5: Track execution time (monitoring only, no control action)
+    struct timespec exec_end;
+    clock_gettime(CLOCK_MONOTONIC, &exec_end);
+    int32_t exec_time_us = (exec_end.tv_sec - exec_start.tv_sec) * 1000000L
+                         + (exec_end.tv_nsec - exec_start.tv_nsec) / 1000L;
+    // Update EWMA for monitoring
+    if (p7_info->exec_time_ewma_us == 0)
+      p7_info->exec_time_ewma_us = exec_time_us;
+    else
+      p7_info->exec_time_ewma_us = (7 * p7_info->exec_time_ewma_us + exec_time_us) >> 3;
+
     // Step 5: Advance to Next Slot
     sfnslot_dec = (sfnslot_dec + 1) % MAX_SFNSLOTDEC;
 
@@ -1160,8 +1176,11 @@ void *vnf_timing_thread(void *arg) {
     pthread_mutex_lock(&p7_info->mutex);
     int32_t raw_sleep = p7_info->us_adjustment + (int32_t)p7_info->sleep_baseline_us + slot_profile_us[sfnslot_dec % SLOT_ARRAY_SIZE];
     p7_info->us_adjustment = 0;
-    if (raw_sleep < MIN_SLEEP_US) raw_sleep = MIN_SLEEP_US;
-    if (raw_sleep > MAX_SLEEP_US) raw_sleep = MAX_SLEEP_US;
+    // Use constant MIN_SLEEP_US - do NOT use execution time to limit sleep
+    if (raw_sleep < MIN_SLEEP_US)
+      raw_sleep = MIN_SLEEP_US;
+    if (raw_sleep > MAX_SLEEP_US)
+      raw_sleep = MAX_SLEEP_US;
     uint32_t sleep_us = (uint32_t)raw_sleep;
     pthread_mutex_unlock(&p7_info->mutex);
 
