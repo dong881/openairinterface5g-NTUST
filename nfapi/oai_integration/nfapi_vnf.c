@@ -1110,29 +1110,28 @@ void *vnf_timing_thread(void *arg) {
   // Initialize sfnslot_dec for the first iteration
   int sfnslot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, p7_info->sfn, p7_info->slot);
 
+  struct timespec now;
   while (p7_info->running) {
-    // Step 1: Wait for the scheduled time of the CURRENT slot
-    struct timespec now;
+    // Step 1: Wait for scheduled time OR detect behind-schedule and feed back deficit
     clock_gettime(CLOCK_MONOTONIC, &now);
 
-    // Check if we're behind schedule
-    if (now.tv_sec > p7_info->next_slot_time.tv_sec
-        || (now.tv_sec == p7_info->next_slot_time.tv_sec
-            && now.tv_nsec > p7_info->next_slot_time.tv_nsec)) {
-      // next_slot_time is in the past - log and reset
-      int32_t past_us = (now.tv_sec - p7_info->next_slot_time.tv_sec) * 1000000L
-                      + (now.tv_nsec - p7_info->next_slot_time.tv_nsec) / 1000L;
-      NFAPI_TRACE(NFAPI_TRACE_WARN,
-                  "[VNF_TIMING] next_slot_time in past by %d us\n", past_us);
-      // Simply reset to now - let convergence algorithm handle recovery
+    int64_t remaining_ns = (p7_info->next_slot_time.tv_sec - now.tv_sec) * 1000000000LL
+                         + (p7_info->next_slot_time.tv_nsec - now.tv_nsec);
+
+    if (remaining_ns <= 0) {
+      int32_t behind_us = (int32_t)(-remaining_ns / 1000);
+      NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF_TIMING] behind by %d us\n", behind_us);
+
+      pthread_mutex_lock(&p7_info->mutex);
+      p7_info->timing_deficit_us += behind_us;
+      pthread_mutex_unlock(&p7_info->mutex);
       p7_info->next_slot_time = now;
     } else {
+      // On schedule - sleep until next_slot_time
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
     }
 
-    // Record start time for monitoring
-    struct timespec exec_start;
-    clock_gettime(CLOCK_MONOTONIC, &exec_start);
+    // Update slot_start_time_hr for P7 timestamp calculations
     vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
 
     // Step 2: Apply any pending slot adjustment to the CURRENT slot index
@@ -1152,70 +1151,23 @@ void *vnf_timing_thread(void *arg) {
       vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
     }
 
-    // Step 4: Send Slot Indication (Work for Current Slot)
+    // Step 4: Send Slot Indication (Core Work)
     nfapi_nr_slot_indication_scf_t ind = {0};
     ind.sfn = p7_info->sfn;
     ind.slot = p7_info->slot;
     ind.header.phy_id = p7_info->phy_id;
     phy_nr_slot_indication(&ind);
 
-    // Step 4.5: Track execution time (monitoring only, no control action)
-    struct timespec exec_end;
-    clock_gettime(CLOCK_MONOTONIC, &exec_end);
-    int32_t exec_time_us = (exec_end.tv_sec - exec_start.tv_sec) * 1000000L
-                         + (exec_end.tv_nsec - exec_start.tv_nsec) / 1000L;
-    // Update EWMA for monitoring
-    if (p7_info->exec_time_ewma_us == 0)
-      p7_info->exec_time_ewma_us = exec_time_us;
-    else
-      p7_info->exec_time_ewma_us = (7 * p7_info->exec_time_ewma_us + exec_time_us) >> 3;
-
     // Step 5: Advance to Next Slot
     sfnslot_dec = (sfnslot_dec + 1) % MAX_SFNSLOTDEC;
 
-    // Step 6: Calculate adjustments from convergence algorithm
+    // Step 6: Calculate next slot time
     pthread_mutex_lock(&p7_info->mutex);
-    int32_t slot_adj = slot_profile_us[sfnslot_dec % SLOT_ARRAY_SIZE];
-    int32_t us_adj = p7_info->us_adjustment;
-    int32_t baseline_adj = (int32_t)p7_info->sleep_baseline_us - (int32_t)p7_info->slot_duration_us;
+    timespec_add_us(&p7_info->next_slot_time, p7_info->us_adjustment + 
+      p7_info->sleep_baseline_us + slot_profile_us[sfnslot_dec % SLOT_ARRAY_SIZE]);
     p7_info->us_adjustment = 0;
     pthread_mutex_unlock(&p7_info->mutex);
 
-    // Step 7: Compute NEXT slot time based on ACTUAL completion time
-    // This prevents "next_slot_time in past" by using real timestamps
-    struct timespec slot_end;
-    clock_gettime(CLOCK_MONOTONIC, &slot_end);
-
-    // Calculate ideal next slot time (slot_duration_us after THIS slot started)
-    struct timespec ideal_next = p7_info->next_slot_time;
-    timespec_add_us(&ideal_next, p7_info->slot_duration_us);
-
-    // Compute remaining time until ideal next slot
-    int64_t remaining_ns = (ideal_next.tv_sec - slot_end.tv_sec) * 1000000000LL
-                         + (ideal_next.tv_nsec - slot_end.tv_nsec);
-
-    // Total adjustment from all sources (convergence algorithm control)
-    int32_t total_adj = slot_adj + us_adj + baseline_adj;
-
-    if (remaining_ns <= 0) {
-      // Already past ideal time - schedule from now with minimum buffer
-      // This is the key fix: reset to actual time instead of accumulating debt
-      p7_info->next_slot_time = slot_end;
-      timespec_add_us(&p7_info->next_slot_time, MIN_SLEEP_US);
-    } else {
-      // On time - apply adjustments only if there's headroom
-      int32_t remaining_us = (int32_t)(remaining_ns / 1000);
-
-      // Ensure minimum sleep time is maintained after applying adjustments
-      if (remaining_us + total_adj >= MIN_SLEEP_US) {
-        p7_info->next_slot_time = ideal_next;
-        timespec_add_us(&p7_info->next_slot_time, total_adj);
-      } else {
-        // Clamp adjustment to maintain minimum sleep
-        p7_info->next_slot_time = slot_end;
-        timespec_add_us(&p7_info->next_slot_time, MIN_SLEEP_US);
-      }
-    }
   }
   return NULL;
 }

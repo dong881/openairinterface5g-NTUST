@@ -151,6 +151,9 @@ typedef struct nfapi_vnf_p7_connection_info {
 
     /* Time Borrowing (forward prevention of late slots) */
     int32_t time_debt_us;           // Accumulated time debt from past events
+
+    /* Timing Loop Feedback (closed-loop control) */
+    int32_t timing_deficit_us;      // Deficit from behind-schedule events -> feeds into baseline_envelope_us
 } nfapi_vnf_p7_connection_info_t;
 
 struct vnf_p7_t{

@@ -223,6 +223,27 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
   if (all_late == 0 && all_early == 0)
     return;
 
+  // --- Timing Deficit Feedback (closed-loop from timing loop) ---
+  // Process accumulated deficit from behind-schedule events
+  if (p7_info->timing_deficit_us > 0) {
+    // Deficit detected - increase baseline envelope to reduce future sleep time
+    // Use 50% of deficit with cap to prevent oscillation
+    int32_t deficit_step = p7_info->timing_deficit_us / 2;
+    if (deficit_step > 100)
+      deficit_step = 100;  // Cap max step
+
+    p7_info->baseline_envelope_us += deficit_step;
+
+    // Clamp envelope to valid range
+    if (p7_info->baseline_envelope_us > (int32_t)p7_info->slot_duration_us - MIN_SLEEP_US)
+      p7_info->baseline_envelope_us = p7_info->slot_duration_us - MIN_SLEEP_US;
+
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "[DEFICIT_FB] deficit=%d, step=%d, new_envelope=%d\n",
+                p7_info->timing_deficit_us, deficit_step, p7_info->baseline_envelope_us);
+
+    p7_info->timing_deficit_us = 0;  // Clear after processing
+  }
+
   // Fallback: if all_diff=0 but jitter exists, use jitter
   if (all_diff == 0 && stats->jitter > 0)
     all_diff = stats->jitter;
