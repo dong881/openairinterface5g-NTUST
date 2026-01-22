@@ -260,7 +260,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     p7_info->avg_diff_us = (7 * p7_info->avg_diff_us + all_diff) >> 3;
 
   if (all_late > 0) {
-		if (slot_profile_us[current_slot] > 0)
+    if (slot_profile_us[current_slot] > 0)
       slot_profile_us[current_slot] = 0;
     else
       slot_profile_us[current_slot] -= all_late*0.7;
@@ -268,29 +268,33 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     if (slot_profile_us[current_slot] < MIN_SLOT_PROFILE_US)
       slot_profile_us[current_slot] = MIN_SLOT_PROFILE_US;
     // Note: target_margin now managed by Peak-Hold logic above
-    if (p7_info->sleep_baseline_us > p7_info->slot_duration_us)
-      p7_info->sleep_baseline_us = p7_info->slot_duration_us;
-    else
-      p7_info->sleep_baseline_us -= up_step*2;
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE LATE [%d]:%d (%d, %d, %d) T:%d avg:%d\n",
-                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, p7_info->avg_diff_us);
+    
+    // --- Baseline Peak-Hold: accumulate reduction on LATE ---
+    p7_info->baseline_envelope_us += all_late;
+    // Clamp envelope to prevent runaway
+    if (p7_info->baseline_envelope_us > (int32_t)p7_info->slot_duration_us - MIN_SLEEP_US)
+      p7_info->baseline_envelope_us = p7_info->slot_duration_us - MIN_SLEEP_US;
+    
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE LATE [%d]:%d (%d, %d, %d) T:%d base_env:%d\n",
+                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff,
+                target_margin_us, p7_info->baseline_envelope_us);
   } else if (all_early < -TARGET_TIMING_WINDOW) {
     if (slot_profile_us[current_slot] < 0)
       slot_profile_us[current_slot] = 0;
     else
-      slot_profile_us[current_slot] += down_step; // Fixed step (was unbounded)
+      slot_profile_us[current_slot] += down_step; // Fixed step
     // Clamp slot_profile_us
     if (slot_profile_us[current_slot] > MAX_SLOT_PROFILE_US)
       slot_profile_us[current_slot] = MAX_SLOT_PROFILE_US;
-    if (p7_info->sleep_baseline_us < p7_info->slot_duration_us)
-      p7_info->sleep_baseline_us = p7_info->slot_duration_us;
-    else
-      p7_info->sleep_baseline_us += down_step;
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY [%d] (%d, %d, %d) T:%d avg:%d\n",
-                current_slot, all_early, all_late, all_diff, target_margin_us, p7_info->avg_diff_us);
+    // NOTE: baseline NOT adjusted here - only slot_profile_us
+    // This prevents cross-slot interference when one slot's late causes another's early
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY [%d]:%d (%d, %d, %d) T:%d base_env:%d\n",
+                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff,
+                target_margin_us, p7_info->baseline_envelope_us);
   } else if (all_late <= -target_margin_us + MARGIN_TOLERANCE_US && all_early >= -target_margin_us - MARGIN_TOLERANCE_US) {
-    // Very good - within tolerance
-    p7_info->sleep_baseline_us = p7_info->slot_duration_us;
+    // Very good - within tolerance (no action needed, envelope decays naturally)
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE GOOD [%d]:%d (%d, %d, %d) T:%d\n",
+                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us);
   } else if (all_late < 0 && all_late > -target_margin_us + MARGIN_TOLERANCE_US) {
     if (slot_profile_us[current_slot] > 0)
       slot_profile_us[current_slot] = 0;
@@ -299,9 +303,8 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     // Clamp slot_profile_us  
     if (slot_profile_us[current_slot] < MIN_SLOT_PROFILE_US)
       slot_profile_us[current_slot] = MIN_SLOT_PROFILE_US;
-    // Note: target_margin now managed by Peak-Hold logic above
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little late [%d]:%d (%d, %d, %d) T:%d avg:%d\n",
-                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, p7_info->avg_diff_us);
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little late [%d]:%d (%d, %d, %d) T:%d\n",
+                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us);
   } else if (all_early > -TARGET_TIMING_WINDOW && all_early < -target_margin_us - MARGIN_TOLERANCE_US) {
     if (slot_profile_us[current_slot] < 0)
       slot_profile_us[current_slot] = 0;
@@ -310,12 +313,29 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     // Clamp slot_profile_us
     if (slot_profile_us[current_slot] > MAX_SLOT_PROFILE_US)
       slot_profile_us[current_slot] = MAX_SLOT_PROFILE_US;
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little early [%d]:%d (%d, %d, %d) T:%d avg:%d\n",
-                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, p7_info->avg_diff_us);
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little early [%d]:%d (%d, %d, %d) T:%d\n",
+                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us);
   } else {
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "NO CASE [%d] (%d, %d, %d) T:%d avg:%d\n",
-                current_slot, all_early, all_late, all_diff, target_margin_us, p7_info->avg_diff_us);
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "NO CASE [%d] (%d, %d, %d) T:%d\n",
+                current_slot, all_early, all_late, all_diff, target_margin_us);
   }
+
+  // --- Baseline Envelope Decay (applies every cycle) ---
+  // This allows baseline to slowly recover (rise) after late events subside
+  const int BASELINE_DECAY_STEP = 2;  // Slow recovery rate
+  if (p7_info->baseline_envelope_us > 0) {
+    p7_info->baseline_envelope_us -= BASELINE_DECAY_STEP;
+    if (p7_info->baseline_envelope_us < 0)
+      p7_info->baseline_envelope_us = 0;
+  }
+
+  // --- Final baseline calculation: slot_duration - envelope ---
+  p7_info->sleep_baseline_us = p7_info->slot_duration_us - p7_info->baseline_envelope_us;
+  // Clamp to valid range
+  if (p7_info->sleep_baseline_us < MIN_SLEEP_US)
+    p7_info->sleep_baseline_us = MIN_SLEEP_US;
+  if (p7_info->sleep_baseline_us > (int32_t)p7_info->slot_duration_us)
+    p7_info->sleep_baseline_us = p7_info->slot_duration_us;
 }
 
 // Main Dynamic Timing Handler

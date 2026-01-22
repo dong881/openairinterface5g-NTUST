@@ -133,6 +133,7 @@ typedef struct nfapi_vnf_p7_connection_info {
     int32_t sleep_baseline_us;
     int32_t avg_diff_us;
     int32_t peak_envelope_us;  // Peak-hold envelope for smooth target tracking
+    int32_t baseline_envelope_us;  // Peak-hold envelope for baseline reduction
     int decay_counter;
 
     /* Timing Stats History (to aggregate split packets) */
