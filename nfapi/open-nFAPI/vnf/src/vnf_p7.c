@@ -315,11 +315,33 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
       SPREAD_ADJUSTMENT(down_step);
     }
 
-    // NOTE: baseline NOT adjusted here - only slot_profile_us
-    // This prevents cross-slot interference when one slot's late causes another's early
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY [%d]:%d (%d, %d, %d) T:%d base_env:%d\n",
+    // --- Bidirectional Baseline: actively reduce envelope when TOO EARLY ---
+    // Calculate how much we exceeded the safe window (overshoot amount)
+    int32_t over_early = (-all_early) - TARGET_TIMING_WINDOW;
+    
+    // Proportional reduction: aggressive when very early, gentle when slightly over
+    int32_t baseline_reduction = over_early / 4;  // 25% of overshoot
+    if (baseline_reduction < 2)
+      baseline_reduction = 2;   // Minimum step to ensure progress
+    if (baseline_reduction > 50)
+      baseline_reduction = 50;  // Cap max step to prevent oscillation
+    
+    // Safety clamp: never reduce more than current envelope (prevent negative)
+    // AND never reduce so much that we'd flip back into the LATE zone
+    // Target: reduce envelope just enough to bring us back to edge of safe zone
+    int32_t max_safe_reduction = p7_info->baseline_envelope_us;
+    if (baseline_reduction > max_safe_reduction)
+      baseline_reduction = max_safe_reduction;
+    
+    p7_info->baseline_envelope_us -= baseline_reduction;
+    
+    // Floor at zero (envelope cannot go negative)
+    if (p7_info->baseline_envelope_us < 0)
+      p7_info->baseline_envelope_us = 0;
+
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY [%d]:%d (%d, %d, %d) T:%d base_env:%d (reduced by %d)\n",
                 current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff,
-                target_margin_us, p7_info->baseline_envelope_us);
+                target_margin_us, p7_info->baseline_envelope_us, baseline_reduction);
   } else if (all_late <= -target_margin_us + MARGIN_TOLERANCE_US && all_early >= -target_margin_us - MARGIN_TOLERANCE_US) {
     // Very good - within tolerance (no action needed, envelope decays naturally)
     NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE GOOD [%d]:%d (%d, %d, %d) T:%d\n",

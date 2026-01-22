@@ -1103,6 +1103,7 @@ void *vnf_timing_thread(void *arg) {
   p7_sync_init(p7_info);
   // REMOVED init_dynamic_slot_sleep(p7_info->slot_duration_us);
   clock_gettime(CLOCK_MONOTONIC, &p7_info->next_slot_time);
+  // timespec_add_us(&p7_info->next_slot_time, 10);
   vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
   #define MAX_SFNSLOTDEC NFAPI_MAX_SFNSLOTDEC(p7_info->mu)
 
