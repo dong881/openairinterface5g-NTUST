@@ -1120,14 +1120,44 @@ void *vnf_timing_thread(void *arg) {
 
     if (remaining_ns <= 0) {
       int32_t behind_us = (int32_t)(-remaining_ns / 1000);
-      NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF_TIMING] behind by %d us\n", behind_us);
+      NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF_TIMING] behind by %d us, pending_us=%d\n",
+                  behind_us, p7_info->pending_us);
 
       pthread_mutex_lock(&p7_info->mutex);
+      // Feedback: add behind_us back to this slot's profile to avoid future under-sleeping
+      int slot_idx = sfnslot_dec % SLOT_ARRAY_SIZE;
+      slot_profile_us[slot_idx] += behind_us;
+      // Clamp to valid range
+      if (slot_profile_us[slot_idx] > 500) slot_profile_us[slot_idx] = 500;
+
+      // Accumulate to time bank for future repayment
+      p7_info->pending_us += behind_us;
       p7_info->timing_deficit_us += behind_us;
       pthread_mutex_unlock(&p7_info->mutex);
       p7_info->next_slot_time = now;
     } else {
-      // On schedule - sleep until next_slot_time
+      // On schedule - check if we can help repay pending_us debt
+      int32_t remaining_us = (int32_t)(remaining_ns / 1000);
+
+      pthread_mutex_lock(&p7_info->mutex);
+      if (p7_info->pending_us > 0 && remaining_us > 250) {
+        // We have margin to spare - help repay the debt
+        // Repay up to (remaining_us - 250) to keep minimum 250us safety margin
+        int32_t repay_budget = remaining_us - 250;
+        int32_t repay_amount = (repay_budget < p7_info->pending_us) ? repay_budget : p7_info->pending_us;
+        // Cap single repayment to avoid drastic changes
+        if (repay_amount > 100) repay_amount = 100;
+
+        p7_info->pending_us -= repay_amount;
+        // Reduce next_slot_time to repay debt (wake up earlier)
+        timespec_add_us(&p7_info->next_slot_time, -repay_amount);
+
+        NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF_TIMING] repaying %d us, remaining pending_us=%d\n",
+                    repay_amount, p7_info->pending_us);
+      }
+      pthread_mutex_unlock(&p7_info->mutex);
+
+      // Sleep until (potentially adjusted) next_slot_time
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
     }
 
