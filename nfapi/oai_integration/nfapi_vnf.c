@@ -1114,53 +1114,49 @@ void *vnf_timing_thread(void *arg) {
   while (p7_info->running) {
     // Step 1: Wait for scheduled time OR detect behind-schedule and feed back deficit
     clock_gettime(CLOCK_MONOTONIC, &now);
-
-    int64_t remaining_ns = (p7_info->next_slot_time.tv_sec - now.tv_sec) * 1000000000LL
-                         + (p7_info->next_slot_time.tv_nsec - now.tv_nsec);
-
-    if (remaining_ns <= 0) {
-      int32_t behind_us = (int32_t)(-remaining_ns / 1000);
-      NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF_TIMING] behind by %d us, pending_us=%d\n",
-                  behind_us, p7_info->pending_us);
-
-      pthread_mutex_lock(&p7_info->mutex);
-      // Feedback: add behind_us back to this slot's profile to avoid future under-sleeping
+    int32_t process_us = ((p7_info->next_slot_time.tv_sec - now.tv_sec) * 1000000000LL
+                         + (p7_info->next_slot_time.tv_nsec - now.tv_nsec)) / 1000;
+    int32_t duration_us = p7_info->us_adjustment + p7_info->sleep_baseline_us + slot_profile_us[sfnslot_dec % SLOT_ARRAY_SIZE];
+    p7_info->us_adjustment = 0;
+    int behind_us = process_us - duration_us;
+    if (behind_us > p7_info->slot_duration_us){
+      /*skip behind_us late slots */
+      int skip_slots = process_us / p7_info->slot_duration_us;
+      int remaining_sleep_us = process_us % p7_info->slot_duration_us;
+      sfnslot_dec = (sfnslot_dec + skip_slots + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
+      timespec_add_us(&p7_info->next_slot_time, remaining_sleep_us);
+      clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
+    } else if (behind_us > 0) {
       int slot_idx = sfnslot_dec % SLOT_ARRAY_SIZE;
       slot_profile_us[slot_idx] += behind_us;
       // Clamp to valid range
       if (slot_profile_us[slot_idx] > 500) slot_profile_us[slot_idx] = 500;
-
       // Accumulate to time bank for future repayment
+      pthread_mutex_lock(&p7_info->mutex);
       p7_info->pending_us += behind_us;
-      p7_info->timing_deficit_us += behind_us;
+      // p7_info->timing_deficit_us += behind_us;
       pthread_mutex_unlock(&p7_info->mutex);
       p7_info->next_slot_time = now;
     } else {
+      int remaining_us = duration_us - process_us;
       // On schedule - check if we can help repay pending_us debt
-      int32_t remaining_us = (int32_t)(remaining_ns / 1000);
-
-      pthread_mutex_lock(&p7_info->mutex);
+      timespec_add_us(&p7_info->next_slot_time, duration_us);
       if (p7_info->pending_us > 0 && remaining_us > 250) {
-        // We have margin to spare - help repay the debt
-        // Repay up to (remaining_us - 250) to keep minimum 250us safety margin
+        // We have margin to spare - help repay the debt (keep minimum 250us safety margin)
         int32_t repay_budget = remaining_us - 250;
         int32_t repay_amount = (repay_budget < p7_info->pending_us) ? repay_budget : p7_info->pending_us;
         // Cap single repayment to avoid drastic changes
         if (repay_amount > 100) repay_amount = 100;
-
+        
+        pthread_mutex_lock(&p7_info->mutex);
         p7_info->pending_us -= repay_amount;
+        pthread_mutex_unlock(&p7_info->mutex);
         // Reduce next_slot_time to repay debt (wake up earlier)
         timespec_add_us(&p7_info->next_slot_time, -repay_amount);
-
-        NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF_TIMING] repaying %d us, remaining pending_us=%d\n",
-                    repay_amount, p7_info->pending_us);
       }
-      pthread_mutex_unlock(&p7_info->mutex);
-
       // Sleep until (potentially adjusted) next_slot_time
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
     }
-
     // Update slot_start_time_hr for P7 timestamp calculations
     vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
 
@@ -1190,13 +1186,6 @@ void *vnf_timing_thread(void *arg) {
 
     // Step 5: Advance to Next Slot
     sfnslot_dec = (sfnslot_dec + 1) % MAX_SFNSLOTDEC;
-
-    // Step 6: Calculate next slot time
-    pthread_mutex_lock(&p7_info->mutex);
-    timespec_add_us(&p7_info->next_slot_time, p7_info->us_adjustment + 
-      p7_info->sleep_baseline_us + slot_profile_us[sfnslot_dec % SLOT_ARRAY_SIZE]);
-    p7_info->us_adjustment = 0;
-    pthread_mutex_unlock(&p7_info->mutex);
 
   }
   return NULL;
