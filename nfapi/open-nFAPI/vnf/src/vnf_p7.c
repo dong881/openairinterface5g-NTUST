@@ -303,7 +303,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 
   if (all_late > 0) {
 		/* [CASE LATE] */
-		slot_profile_us[current_slot] -= (all_late * 0.1);
+		// slot_profile_us[current_slot] -= (all_late * 0.1);
 		// slot_profile_us[current_slot] = CLAMP_PROFILE(slot_profile_us[current_slot]);
 		// p7_info->us_adjustment -= all_late;
 		p7_info->pending_us += all_late;
@@ -319,11 +319,13 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
                 target_margin_us, p7_info->baseline_envelope_us);
   } else if (all_early <= -target_margin_us + p7_info->margin_tolerance_us && all_early >= -target_margin_us - p7_info->margin_tolerance_us) {
 		/* [CASE GOOD] */
+		p7_info->pending_us = 0;
 		// NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE GOOD [%d]:%d (%d, %d, %d) T:%d\n",
     //             current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us);
 		slot_profile_us[current_slot] *= 0.9;
   } else if (all_late < 0 && all_late > -target_margin_us + p7_info->margin_tolerance_us) {
 		/* [CASE LITTLE LATE] */
+		p7_info->pending_us += up_step;
     if (slot_profile_us[current_slot] > 0) slot_profile_us[current_slot] = 0;
     else {
       slot_profile_us[current_slot] -= up_step;

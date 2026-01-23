@@ -1117,7 +1117,7 @@ void *vnf_timing_thread(void *arg) {
     pthread_mutex_lock(&p7_info->mutex);
     int32_t process_us = ((now.tv_sec - p7_info->next_slot_time.tv_sec) * 1000000000LL
                          + (now.tv_nsec - p7_info->next_slot_time.tv_nsec)) / 1000;
-    int32_t duration_us = p7_info->us_adjustment + p7_info->sleep_baseline_us + slot_profile_us[sfnslot_dec % SLOT_ARRAY_SIZE];
+    int32_t duration_us = p7_info->us_adjustment + p7_info->sleep_baseline_us;// + slot_profile_us[sfnslot_dec % SLOT_ARRAY_SIZE];
     p7_info->us_adjustment = 0;
     int32_t behind_us = process_us - duration_us;
     if (behind_us >= (int32_t)p7_info->slot_duration_us){
@@ -1135,7 +1135,7 @@ void *vnf_timing_thread(void *arg) {
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
     } else if (behind_us > 0) {
       NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE pending_us %d", behind_us);
-      int slot_idx = sfnslot_dec % SLOT_ARRAY_SIZE;
+      // int slot_idx = sfnslot_dec % SLOT_ARRAY_SIZE;
       // slot_profile_us[slot_idx] += behind_us;
       // // Clamp to valid range
       // if (slot_profile_us[slot_idx] > 500) slot_profile_us[slot_idx] = 500;
@@ -1177,7 +1177,7 @@ void *vnf_timing_thread(void *arg) {
     p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec);
     p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
 
-    if (p7_info->sync_slot_counter++ >= p7_info->sync_period_slots) {
+    if (!p7_info->sync_locked && p7_info->sync_slot_counter++ >= p7_info->sync_period_slots) {
       p7_info->sync_slot_counter = 0;
       vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
     }
