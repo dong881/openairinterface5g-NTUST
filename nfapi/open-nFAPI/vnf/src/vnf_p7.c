@@ -148,7 +148,7 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 				i, raw_data[i].value, ind->last_sfn, ind->last_slot,
 				p7_info->sleep_baseline_us, p7_info->baseline_envelope_us);
       p7_info->baseline_envelope_us = 0;
-			p7_info->sleep_baseline_us = p7_info->slot_duration_us;
+			// p7_info->sleep_baseline_us = p7_info->slot_duration_us;
 			continue;
 		}
 
@@ -241,8 +241,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     // Deficit detected - increase baseline envelope to reduce future sleep time
     // Use 50% of deficit with cap to prevent oscillation
     int32_t deficit_step = p7_info->timing_deficit_us / 2;
-    if (deficit_step > 100)
-      deficit_step = 100;  // Cap max step
+    if (deficit_step > 100) deficit_step = 100;  // Cap max step
 
     p7_info->baseline_envelope_us += deficit_step;
 
@@ -257,13 +256,15 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
   }
 
   // Fallback: if all_diff=0 but jitter exists, use jitter
-  if (all_diff == 0 && stats->jitter > 0)
-    all_diff = stats->jitter;
+  // if (all_diff < stats->jitter) all_diff = stats->jitter;
+
+  // --- Jitter EWMA Calculation ---
+  if (p7_info->jitter_ewma_us == 0) p7_info->jitter_ewma_us = stats->jitter;
+  else p7_info->jitter_ewma_us = (7 * p7_info->jitter_ewma_us + stats->jitter) >> 3;
 
   // --- Peak-Hold Logic ---
   // 1. Initialize peak_envelope if zero
-  if (p7_info->peak_envelope_us == 0)
-    p7_info->peak_envelope_us = all_diff;
+  if (p7_info->peak_envelope_us == 0) p7_info->peak_envelope_us = all_diff;
 
   // 2. Update peak envelope: fast rise, smooth decay
   if (all_diff >= p7_info->peak_envelope_us) {
@@ -273,8 +274,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     // Below current peak: Linear decay
     p7_info->peak_envelope_us -= PEAK_DECAY_STEP;
     // Floor at current diff (envelope never goes below current value)
-    if (p7_info->peak_envelope_us < all_diff)
-      p7_info->peak_envelope_us = all_diff;
+    if (p7_info->peak_envelope_us < all_diff) p7_info->peak_envelope_us = all_diff;
   }
 
   // 3. Clamp peak envelope to valid range
@@ -288,122 +288,60 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
   // Clamp target_margin to prevent UE disconnection
   if (target_margin_us > TARGET_TIMING_WINDOW)
     target_margin_us = TARGET_TIMING_WINDOW;
+
+  // --- Dynamic Margin Tolerance ---
+  // Scale validation window with Jitter EWMA
+  // Formula: Tolerance = (Jitter_EWMA / 2) + 50
+  // Resulting Stable Window = 2 * Tolerance - Jitter = Jitter + 100
+  // This maintains a constant 100us safety buffer above the average jitter level
+  p7_info->margin_tolerance_us = (p7_info->jitter_ewma_us / 2) + 50;
+  if (p7_info->margin_tolerance_us < 100) p7_info->margin_tolerance_us = 100; // Minimum floor
 	// NFAPI_TRACE(NFAPI_TRACE_INFO,"[%d] avg_d: %d, d: %d, p:%d, t: %d\n", current_slot, p7_info->avg_diff_us, all_diff, p7_info->peak_envelope_us, target_margin_us);
   // Keep EWMA for monitoring (optional, can be removed later)
-  if (p7_info->avg_diff_us == 0)
-    p7_info->avg_diff_us = all_diff;
-  else
-    p7_info->avg_diff_us = (7 * p7_info->avg_diff_us + all_diff) >> 3;
 
-  // Helper function to clamp slot profile
   #define CLAMP_PROFILE(val) ((val) > MAX_SLOT_PROFILE_US ? MAX_SLOT_PROFILE_US : ((val) < MIN_SLOT_PROFILE_US ? MIN_SLOT_PROFILE_US : (val)))
 
   if (all_late > 0) {
-		if (slot_profile_us[current_slot] > 0)
-			slot_profile_us[current_slot] = 0;
-		else {
-			// Current slot is late - reduce sleep time for THIS slot only
-			int32_t adjustment = -(int32_t)(all_late * 0.5);
-			slot_profile_us[current_slot] += adjustment;
-			slot_profile_us[current_slot] = CLAMP_PROFILE(slot_profile_us[current_slot]);
-		}
-    
-    // --- Baseline Peak-Hold: accumulate reduction on LATE ---
-    // Fix: Limit instantaneous jump to prevent baseline collapse
-    // Dampen the accumulation factor (0.25) and clamp max step (e.g. 50us)
-    int32_t base_step = all_late / 10; 
-    if (base_step > 50) base_step = 50; 
-    p7_info->baseline_envelope_us += base_step;
-    
-    // Clamp envelope to prevent runaway
-    if (p7_info->baseline_envelope_us > (int32_t)p7_info->slot_duration_us - MIN_SLEEP_US)
-      p7_info->baseline_envelope_us = p7_info->slot_duration_us - MIN_SLEEP_US;
-    
+		/* [CASE LATE] */
+		slot_profile_us[current_slot] -= (all_late * 0.1);
+		// slot_profile_us[current_slot] = CLAMP_PROFILE(slot_profile_us[current_slot]);
+		// p7_info->us_adjustment -= all_late;
+		p7_info->pending_us += all_late;
     NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE LATE [%d]:%d (%d, %d, %d) T:%d base_env:%d\n",
                 current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff,
                 target_margin_us, p7_info->baseline_envelope_us);
   } else if (all_early <= -TARGET_TIMING_WINDOW) {
-    if (slot_profile_us[current_slot] < 0)
-      slot_profile_us[current_slot] = 0;
-    else {
-      // Early arrival - increase sleep time for THIS slot only
-      slot_profile_us[current_slot] += down_step;
-      slot_profile_us[current_slot] = CLAMP_PROFILE(slot_profile_us[current_slot]);
-    }
-
-    // --- Bidirectional Baseline: actively reduce envelope when TOO EARLY ---
-    // Calculate how much we exceeded the safe window (overshoot amount)
-    int32_t over_early = (-all_early) - TARGET_TIMING_WINDOW;
-    
-    // Proportional reduction: aggressive when very early, gentle when slightly over
-    int32_t baseline_reduction = over_early / 4;  // 25% of overshoot
-    if (baseline_reduction < 2)
-      baseline_reduction = 2;   // Minimum step to ensure progress
-    if (baseline_reduction > 50)
-      baseline_reduction = 50;  // Cap max step to prevent oscillation
-    
-    // Safety clamp: never reduce more than current envelope (prevent negative)
-    // AND never reduce so much that we'd flip back into the LATE zone
-    // Target: reduce envelope just enough to bring us back to edge of safe zone
-    int32_t max_safe_reduction = p7_info->baseline_envelope_us;
-    if (baseline_reduction > max_safe_reduction)
-      baseline_reduction = max_safe_reduction;
-    
-    p7_info->baseline_envelope_us -= baseline_reduction;
-    
-    // Floor at zero (envelope cannot go negative)
-    if (p7_info->baseline_envelope_us < 0)
-      p7_info->baseline_envelope_us = 0;
-
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY [%d]:%d (%d, %d, %d) T:%d base_env:%d (reduced by %d)\n",
+		/* [CASE EARLY] */
+		slot_profile_us[current_slot] += down_step;
+		slot_profile_us[current_slot] = CLAMP_PROFILE(slot_profile_us[current_slot]);
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY [%d]:%d (%d, %d, %d) T:%d base_env:%d\n",
                 current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff,
-                target_margin_us, p7_info->baseline_envelope_us, baseline_reduction);
-  } else if (all_late <= -target_margin_us + MARGIN_TOLERANCE_US && all_early >= -target_margin_us - MARGIN_TOLERANCE_US) {
-    // Very good - within tolerance (no action needed, envelope decays naturally)
-    // NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE GOOD [%d]:%d (%d, %d, %d) T:%d\n",
+                target_margin_us, p7_info->baseline_envelope_us);
+  } else if (all_early <= -target_margin_us + p7_info->margin_tolerance_us && all_early >= -target_margin_us - p7_info->margin_tolerance_us) {
+		/* [CASE GOOD] */
+		// NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE GOOD [%d]:%d (%d, %d, %d) T:%d\n",
     //             current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us);
-  } else if (all_late < 0 && all_late > -target_margin_us + MARGIN_TOLERANCE_US) {
-    if (slot_profile_us[current_slot] > 0)
-      slot_profile_us[current_slot] = 0;
+		slot_profile_us[current_slot] *= 0.9;
+  } else if (all_late < 0 && all_late > -target_margin_us + p7_info->margin_tolerance_us) {
+		/* [CASE LITTLE LATE] */
+    if (slot_profile_us[current_slot] > 0) slot_profile_us[current_slot] = 0;
     else {
-      // Little late - reduce sleep slightly for THIS slot only
       slot_profile_us[current_slot] -= up_step;
       slot_profile_us[current_slot] = CLAMP_PROFILE(slot_profile_us[current_slot]);
     }
-    // NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little late [%d]:%d (%d, %d, %d) T:%d\n",
-    //             current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us);
-  } else if (all_early > -TARGET_TIMING_WINDOW && all_early < -target_margin_us - MARGIN_TOLERANCE_US) {
-    if (slot_profile_us[current_slot] < 0)
-      slot_profile_us[current_slot] = 0;
-    else {
-      // Little early - increase sleep slightly for THIS slot only
-      slot_profile_us[current_slot] += down_step;
-      slot_profile_us[current_slot] = CLAMP_PROFILE(slot_profile_us[current_slot]);
-    }
-    // NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little early [%d]:%d (%d, %d, %d) T:%d\n",
-    //             current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us);
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little late [%d]:%d (%d, %d, %d) T:%d (tol:%d)\n",
+                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, p7_info->margin_tolerance_us);
+  } else if (all_early > -TARGET_TIMING_WINDOW && all_early < -target_margin_us - p7_info->margin_tolerance_us) {
+		/* [CASE LITTLE EARLY] */
+		slot_profile_us[current_slot] += down_step;
+		slot_profile_us[current_slot] = CLAMP_PROFILE(slot_profile_us[current_slot]);
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little early [%d]:%d (%d, %d, %d) T:%d (tol:%d)\n",
+                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, p7_info->margin_tolerance_us);
   
   } else {
     NFAPI_TRACE(NFAPI_TRACE_INFO, "NO CASE [%d] (%d, %d, %d) T:%d\n",
                 current_slot, all_early, all_late, all_diff, target_margin_us);
   }
-
-  // --- Baseline Envelope Decay (applies every cycle) ---
-  // This allows baseline to slowly recover (rise) after late events subside
-  const int BASELINE_DECAY_STEP = 2;  // Slow recovery rate
-  if (p7_info->baseline_envelope_us > 0) {
-    p7_info->baseline_envelope_us -= BASELINE_DECAY_STEP;
-    if (p7_info->baseline_envelope_us < 0)
-      p7_info->baseline_envelope_us = 0;
-  }
-
-  // --- Final baseline calculation: slot_duration - envelope ---
-  p7_info->sleep_baseline_us = p7_info->slot_duration_us - p7_info->baseline_envelope_us;
-  // Clamp to valid range
-  if (p7_info->sleep_baseline_us < MIN_SLEEP_US)
-    p7_info->sleep_baseline_us = MIN_SLEEP_US;
-  if (p7_info->sleep_baseline_us > (int32_t)p7_info->slot_duration_us)
-    p7_info->sleep_baseline_us = p7_info->slot_duration_us;
 }
 
 // Main Dynamic Timing Handler

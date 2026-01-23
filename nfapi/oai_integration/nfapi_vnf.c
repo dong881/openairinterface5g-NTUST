@@ -1046,7 +1046,7 @@ void timespec_add_us(struct timespec *t, long us) {
     }
 }
 static volatile int nr_start_resp_received = 0;
-#define P7_SYNC_PERIOD_SLOTS_DEFAULT 5  // Send vnf_nr_sync every N slots
+#define P7_SYNC_PERIOD_SLOTS_DEFAULT 3  // Send vnf_nr_sync every N slots
 int vnf_nr_build_send_dl_node_sync(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info);
 
 static inline void p7_sync_init(nfapi_vnf_p7_connection_info_t *p7_info)
@@ -1136,9 +1136,9 @@ void *vnf_timing_thread(void *arg) {
     } else if (behind_us > 0) {
       NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE pending_us %d", behind_us);
       int slot_idx = sfnslot_dec % SLOT_ARRAY_SIZE;
-      slot_profile_us[slot_idx] += behind_us;
-      // Clamp to valid range
-      if (slot_profile_us[slot_idx] > 500) slot_profile_us[slot_idx] = 500;
+      // slot_profile_us[slot_idx] += behind_us;
+      // // Clamp to valid range
+      // if (slot_profile_us[slot_idx] > 500) slot_profile_us[slot_idx] = 500;
       // Accumulate to time bank for future repayment
       p7_info->pending_us += behind_us;
       // p7_info->timing_deficit_us += behind_us;
@@ -1153,7 +1153,7 @@ void *vnf_timing_thread(void *arg) {
         int32_t repay_budget = remaining_us - 250;
         int32_t repay_amount = (repay_budget < p7_info->pending_us) ? repay_budget : p7_info->pending_us;
         // Cap single repayment to avoid drastic changes
-        if (repay_amount > 100) repay_amount = 100;
+        // if (repay_amount > 50) repay_amount = 50;
         p7_info->pending_us -= repay_amount;
         // Reduce next_slot_time to repay debt (wake up earlier)
         timespec_add_us(&p7_info->next_slot_time, -repay_amount);

@@ -27,7 +27,7 @@
  * DYNAMIC SLOT SLEEP TIMING CONTROL CONSTANTS
  * ============================================================================ */
 /* Dynamic Target Margin (adaptive to avoid late packets) */
-#define MARGIN_TOLERANCE_US     100    // Deadband zone: +/- MARGIN_TOLERANCE_US us
+#define MARGIN_TOLERANCE_US     200    // Deadband zone: +/- MARGIN_TOLERANCE_US us
 #define TARGET_MARGIN_INITIAL   250   // Maximum safety buffer (user request: catch all late)
 #define TARGET_TIMING_WINDOW    1900  // Maximum target (to avoid UE disconnection)
 #define MIN_SLEEP_US            50    // Minimum allowable sleep time
@@ -141,6 +141,10 @@ typedef struct nfapi_vnf_p7_connection_info {
       int32_t min_early;      // Min observed early value
       uint32_t jitter;        // Max jitter
     } slot_history[SLOT_ARRAY_SIZE];
+
+    /* Dynamic Control Parameters */
+    int32_t margin_tolerance_us;    // Dynamic tolerance based on jitter
+    int32_t jitter_ewma_us;         // EWMA of jitter for stable tolerance calculation
 
     /* Execution Time Tracking (replaces constant MIN_SLEEP_US) */
     int32_t exec_time_ewma_us;      // EWMA of phy_nr_slot_indication execution time
