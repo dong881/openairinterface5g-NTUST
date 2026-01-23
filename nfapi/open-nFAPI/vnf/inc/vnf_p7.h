@@ -30,11 +30,9 @@
 #define MARGIN_TOLERANCE_US     100    // Deadband zone: +/- MARGIN_TOLERANCE_US us
 #define TARGET_MARGIN_INITIAL   250   // Maximum safety buffer (user request: catch all late)
 #define TARGET_TIMING_WINDOW    1900  // Maximum target (to avoid UE disconnection)
-#define JITTER_THRESHOLD_US     200   // High/Low jitter boundary
 #define MIN_SLEEP_US            50    // Minimum allowable sleep time
 #define MAX_SLEEP_US            950  // Maximum allowable sleep time
 #define SLOT_ARRAY_SIZE         20    // TDD cycle slot count (Reduced to 20 for faster convergence)
-
 
 typedef struct {
 	uint8_t* buffer;

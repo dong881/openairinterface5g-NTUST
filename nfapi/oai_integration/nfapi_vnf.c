@@ -971,6 +971,17 @@ int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
       oai_fapi_send_end_request(0, ind->sfn, ind->slot);
     }
 #else
+  if (sched_response.TX_req.Number_of_PDUs > 0) {
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.tx_data_pack_start);
+    oai_nfapi_tx_data_req(&sched_response.TX_req);
+    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.tx_data_pack_end);
+    long tx_data_time_us = calc_elapsed_us(&vnf_timing.tx_data_pack_start, &vnf_timing.tx_data_pack_end);
+    if (tx_data_time_us > 0) {
+      snprintf(print_info, sizeof(print_info), "[TX_DATA]%ld", tx_data_time_us);
+      log_mmap_entry("nfapi_path.txt", ind->sfn, ind->slot, print_info);
+    }
+  }
+  
   if (sched_response.DL_req.dl_tti_request_body.nPDUs > 0){
     clock_gettime(CLOCK_MONOTONIC, &vnf_timing.dl_tti_pack_start);
     oai_nfapi_dl_tti_req(&sched_response.DL_req);
@@ -989,17 +1000,6 @@ int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
     long ul_tti_time_us = calc_elapsed_us(&vnf_timing.ul_tti_pack_start, &vnf_timing.ul_tti_pack_end);
     if (ul_tti_time_us > 0) {
       snprintf(print_info, sizeof(print_info), "[UL_TTI]%ld", ul_tti_time_us);
-      log_mmap_entry("nfapi_path.txt", ind->sfn, ind->slot, print_info);
-    }
-  }
-
-  if (sched_response.TX_req.Number_of_PDUs > 0) {
-    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.tx_data_pack_start);
-    oai_nfapi_tx_data_req(&sched_response.TX_req);
-    clock_gettime(CLOCK_MONOTONIC, &vnf_timing.tx_data_pack_end);
-    long tx_data_time_us = calc_elapsed_us(&vnf_timing.tx_data_pack_start, &vnf_timing.tx_data_pack_end);
-    if (tx_data_time_us > 0) {
-      snprintf(print_info, sizeof(print_info), "[TX_DATA]%ld", tx_data_time_us);
       log_mmap_entry("nfapi_path.txt", ind->sfn, ind->slot, print_info);
     }
   }
@@ -1121,13 +1121,16 @@ void *vnf_timing_thread(void *arg) {
     p7_info->us_adjustment = 0;
     int32_t behind_us = process_us - duration_us;
     if (behind_us >= (int32_t)p7_info->slot_duration_us){
+      sfnslot_dec = (sfnslot_dec - 1 + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
       NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE SKIP BEHIND [%d.%d] %d",NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec),NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec), behind_us);
       /*skip behind_us late slots */
       int skip_slots = process_us / p7_info->slot_duration_us;
       int remaining_sleep_us = process_us % p7_info->slot_duration_us;
-      sfnslot_dec = (sfnslot_dec + skip_slots + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
+      sfnslot_dec = (sfnslot_dec + skip_slots + 1 + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
       NFAPI_TRACE(NFAPI_TRACE_INFO, "skip: %d remaining: %d, sfnslot_dec: [%d.%d]", skip_slots, remaining_sleep_us, NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec),NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec));
-      timespec_add_us(&p7_info->next_slot_time, remaining_sleep_us);
+      clock_gettime(CLOCK_MONOTONIC, &now);
+      p7_info->next_slot_time = now;
+      timespec_add_us(&p7_info->next_slot_time, p7_info->slot_duration_us - remaining_sleep_us);
       pthread_mutex_unlock(&p7_info->mutex);
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
     } else if (behind_us > 0) {

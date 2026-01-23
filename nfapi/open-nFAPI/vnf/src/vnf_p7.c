@@ -135,9 +135,22 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
   uint32_t base_slot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot);
   uint32_t current_slot_dec = (base_slot_dec + 1) % max_slot_dec;
 
+  const int32_t TIMING_VALUE_MIN = -2000;
+  const int32_t TIMING_VALUE_MAX = 500;
+
   for (int i = 0; i < 8; i++) {
     if (raw_data[i].value == 0)
       continue; // Skip zero values
+
+    // Discard abnormal values outside valid range [-2000, 500]
+    if (raw_data[i].value < TIMING_VALUE_MIN || raw_data[i].value > TIMING_VALUE_MAX){
+			NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE OUT (%d):%d [%d, %d] baseline:%d base_env:%d\n", 
+				i, raw_data[i].value, ind->last_sfn, ind->last_slot,
+				p7_info->sleep_baseline_us, p7_info->baseline_envelope_us);
+      p7_info->baseline_envelope_us = 0;
+			p7_info->sleep_baseline_us = p7_info->slot_duration_us;
+			continue;
+		}
 
     // Calculate packet slot properties
     int32_t slot_offset = raw_data[i].value / (int32_t)slot_duration_us;
@@ -210,7 +223,6 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
   int32_t all_diff = all_late - all_early;
   const int up_step = 6;
   const int down_step = 6;
-  const int SAFETY_PAD = 250;
   const int MAX_SLOT_PROFILE_US = 500;  // Maximum slot profile adjustment
   const int MIN_SLOT_PROFILE_US = -500; // Minimum slot profile adjustment
   // --- Peak-Hold with Smooth Decay for Target Margin ---
@@ -299,7 +311,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     // --- Baseline Peak-Hold: accumulate reduction on LATE ---
     // Fix: Limit instantaneous jump to prevent baseline collapse
     // Dampen the accumulation factor (0.25) and clamp max step (e.g. 50us)
-    int32_t base_step = all_late; 
+    int32_t base_step = all_late / 10; 
     if (base_step > 50) base_step = 50; 
     p7_info->baseline_envelope_us += base_step;
     
@@ -307,9 +319,9 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     if (p7_info->baseline_envelope_us > (int32_t)p7_info->slot_duration_us - MIN_SLEEP_US)
       p7_info->baseline_envelope_us = p7_info->slot_duration_us - MIN_SLEEP_US;
     
-    // NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE LATE [%d]:%d (%d, %d, %d) T:%d base_env:%d\n",
-    //             current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff,
-    //             target_margin_us, p7_info->baseline_envelope_us);
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE LATE [%d]:%d (%d, %d, %d) T:%d base_env:%d\n",
+                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff,
+                target_margin_us, p7_info->baseline_envelope_us);
   } else if (all_early <= -TARGET_TIMING_WINDOW) {
     if (slot_profile_us[current_slot] < 0)
       slot_profile_us[current_slot] = 0;
@@ -343,9 +355,9 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     if (p7_info->baseline_envelope_us < 0)
       p7_info->baseline_envelope_us = 0;
 
-    // NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY [%d]:%d (%d, %d, %d) T:%d base_env:%d (reduced by %d)\n",
-    //             current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff,
-    //             target_margin_us, p7_info->baseline_envelope_us, baseline_reduction);
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY [%d]:%d (%d, %d, %d) T:%d base_env:%d (reduced by %d)\n",
+                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff,
+                target_margin_us, p7_info->baseline_envelope_us, baseline_reduction);
   } else if (all_late <= -target_margin_us + MARGIN_TOLERANCE_US && all_early >= -target_margin_us - MARGIN_TOLERANCE_US) {
     // Very good - within tolerance (no action needed, envelope decays naturally)
     // NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE GOOD [%d]:%d (%d, %d, %d) T:%d\n",
