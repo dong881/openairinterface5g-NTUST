@@ -215,87 +215,36 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
   return count;
 }
 
+int count = 0;
+int32_t global_max = INT32_MIN;
+int32_t global_min = INT32_MAX;
+int32_t global_diff = 0;
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
 {
 	uint32_t current_slot = stats->packet_slot;
   int32_t all_late = stats->max;
   int32_t all_early = stats->min;
   int32_t all_diff = all_late - all_early;
-  const int up_step = 6;
-  const int down_step = 6;
-  const int PEAK_HEADROOM = 250;     // Fixed offset above peak envelope
-  const int PEAK_DECAY_STEP = 1;    // Linear decay rate (us per cycle)
-  const int PEAK_MIN = 100;         // Minimum peak envelope value
-
-  if (all_late == 0 && all_early == 0)
-    return;
-
-  // --- Jitter EWMA Calculation ---
-  if (p7_info->jitter_ewma_us == 0) p7_info->jitter_ewma_us = stats->jitter;
-  else p7_info->jitter_ewma_us = (7 * p7_info->jitter_ewma_us + stats->jitter) >> 3;
-
-  // --- Peak-Hold Logic ---
-  // 1. Initialize peak_envelope if zero
-  if (p7_info->peak_envelope_us == 0) p7_info->peak_envelope_us = all_diff;
-
-  // 2. Update peak envelope: fast rise, smooth decay
-  if (all_diff >= p7_info->peak_envelope_us) {
-    // NEW MAX: Instant follow (fast rise)
-    p7_info->peak_envelope_us = all_diff;
-  } else {
-    // Below current peak: Linear decay
-    p7_info->peak_envelope_us -= PEAK_DECAY_STEP;
-    // Floor at current diff (envelope never goes below current value)
-    if (p7_info->peak_envelope_us < all_diff) p7_info->peak_envelope_us = all_diff;
-  }
-
-  // 3. Clamp peak envelope to valid range
-  if (p7_info->peak_envelope_us < PEAK_MIN)
-    p7_info->peak_envelope_us = PEAK_MIN;
-  if (p7_info->peak_envelope_us > TARGET_TIMING_WINDOW - PEAK_HEADROOM)
-    p7_info->peak_envelope_us = TARGET_TIMING_WINDOW - PEAK_HEADROOM;
-
-  // 4. Target margin = peak envelope + fixed headroom
-  target_margin_us = p7_info->peak_envelope_us + PEAK_HEADROOM;
-  // Clamp target_margin to prevent UE disconnection
-  if (target_margin_us > TARGET_TIMING_WINDOW)
-    target_margin_us = TARGET_TIMING_WINDOW;
-
-  // --- Dynamic Margin Tolerance ---
-  p7_info->margin_tolerance_us = (p7_info->jitter_ewma_us / 2) + 50;
-  if (p7_info->margin_tolerance_us < 100) p7_info->margin_tolerance_us = 100; // Minimum floor
-	// NFAPI_TRACE(NFAPI_TRACE_INFO,"[%d] avg_d: %d, d: %d, p:%d, t: %d\n", current_slot, p7_info->avg_diff_us, all_diff, p7_info->peak_envelope_us, target_margin_us);
-
-  if (all_late > 0) {
-		/* [CASE LATE] */
-		p7_info->pending_us += all_late;
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE LATE [%d]:%d (%d, %d, %d) T:%d base_env:%d\n",
-                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff,
-                target_margin_us, p7_info->baseline_envelope_us);
-  } else if (all_early <= -TARGET_TIMING_WINDOW) {
-		/* [CASE EARLY] */
-		p7_info->pending_us += down_step;
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY [%d]:%d (%d, %d, %d) T:%d base_env:%d\n",
-                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff,
-                target_margin_us, p7_info->baseline_envelope_us);
-  } else if (all_early <= -target_margin_us + p7_info->margin_tolerance_us && all_early >= -target_margin_us - p7_info->margin_tolerance_us) {
-		/* [CASE GOOD] */
-		p7_info->pending_us = 0;
-		// NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE GOOD [%d]:%d (%d, %d, %d) T:%d\n",
-    //             current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us);
-  } else if (all_late < 0 && all_late > -target_margin_us + p7_info->margin_tolerance_us) {
-		/* [CASE LITTLE LATE] */
-		p7_info->pending_us += up_step;
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little late [%d]:%d (%d, %d, %d) T:%d (tol:%d)\n",
-                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, p7_info->margin_tolerance_us);
-  } else if (all_early > -TARGET_TIMING_WINDOW && all_early < -target_margin_us - p7_info->margin_tolerance_us) {
-		/* [CASE LITTLE EARLY] */
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little early [%d]:%d (%d, %d, %d) T:%d (tol:%d)\n",
-                current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, p7_info->margin_tolerance_us);
-  } else {
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "NO CASE [%d] (%d, %d, %d) T:%d\n",
-                current_slot, all_early, all_late, all_diff, target_margin_us);
-  }
+  if (all_late == 0 && all_early == 0) return;
+	
+	/* calc EWMA for each timing stats */
+	if (all_late > global_max) global_max = (global_max * 0.1) + (all_late * 0.9);
+	else global_max = (global_max * 0.9) + (all_late * 0.1);
+	if (all_early < global_min) global_min = (global_min * 0.1) + (all_early * 0.9);
+	else global_min = (global_min * 0.9) + (all_early * 0.1);
+	global_diff = (global_diff * 0.5) + ((global_max - global_min) * 0.5);
+	// NFAPI_TRACE(NFAPI_TRACE_INFO, "(%d, %d, %d)", global_max, global_min, global_diff);
+	if (global_max > -500) {
+		count++;
+		if(count >= 3){
+			/* [CASE LATE] */
+			p7_info->pending_us += (global_max + 500)*0.2;
+			count = 0;
+		}
+	} else{
+		p7_info->pending_us--;
+		count = 0;
+	}
 }
 
 // Main Dynamic Timing Handler

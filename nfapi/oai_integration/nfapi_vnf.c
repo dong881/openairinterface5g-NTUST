@@ -1127,31 +1127,41 @@ void *vnf_timing_thread(void *arg) {
       int skip_slots = process_us / p7_info->slot_duration_us;
       int remaining_sleep_us = process_us % p7_info->slot_duration_us;
       sfnslot_dec = (sfnslot_dec + skip_slots + 1 + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
-      NFAPI_TRACE(NFAPI_TRACE_INFO, "skip: %d remaining: %d, sfnslot_dec: [%d.%d]", skip_slots, remaining_sleep_us, NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec),NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec));
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE SKIP skip: %d remaining: %d, sfnslot_dec: [%d.%d]", skip_slots, remaining_sleep_us, NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec),NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec));
       clock_gettime(CLOCK_MONOTONIC, &now);
       p7_info->next_slot_time = now;
       timespec_add_us(&p7_info->next_slot_time, p7_info->slot_duration_us - remaining_sleep_us);
       pthread_mutex_unlock(&p7_info->mutex);
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
     } else if (behind_us > 0) {
-      NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE pending_us %d", behind_us);
       p7_info->pending_us += behind_us;
+      // NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE NOT ENOUGH [%d.%d] add %d to pending_us %d", p7_info->sfn, p7_info->slot, behind_us, p7_info->pending_us);
+      clock_gettime(CLOCK_MONOTONIC, &now);
       p7_info->next_slot_time = now;
       pthread_mutex_unlock(&p7_info->mutex);
     } else {
       int remaining_us = duration_us - process_us;
       timespec_add_us(&p7_info->next_slot_time, duration_us);
-      if (p7_info->pending_us > 0 && remaining_us > 250) {
-        int32_t repay_budget = remaining_us - 250;
+      if (p7_info->pending_us > 0 && remaining_us > 50) {
+        // NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE ENOUGH [%d.%d] help %d from pending_us %d", p7_info->sfn, p7_info->slot, remaining_us, p7_info->pending_us);
+        int32_t repay_budget = remaining_us - 50;
         int32_t repay_amount = (repay_budget < p7_info->pending_us) ? repay_budget : p7_info->pending_us;
         // if (repay_amount > 50) repay_amount = 50;
         p7_info->pending_us -= repay_amount;
         timespec_add_us(&p7_info->next_slot_time, -repay_amount);
+      } 
+      else if (p7_info->pending_us < 0) {
+        // NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE ENOUGH [%d.%d] help %d from pending_us %d", p7_info->sfn, p7_info->slot, remaining_us, p7_info->pending_us);
+        int32_t repay_amount = (p7_info->pending_us < -250) ? 250 : p7_info->pending_us;
+        p7_info->pending_us += repay_amount;
+        timespec_add_us(&p7_info->next_slot_time, repay_amount);
       }
+      // else if (p7_info->pending_us != 0) {
+      //   NFAPI_TRACE(NFAPI_TRACE_INFO, "Can't HELP pending_us %d", p7_info->pending_us);
+      // }
       pthread_mutex_unlock(&p7_info->mutex);
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
     }
-    
     vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
 
     // Step 2: Apply any pending slot adjustment to the CURRENT slot index
@@ -1161,7 +1171,7 @@ void *vnf_timing_thread(void *arg) {
       p7_info->slot_adjustment = 0;
     }
     pthread_mutex_unlock(&p7_info->mutex);
-
+    
     // Step 3: Update Global State & Send Sync if needed
     p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec);
     p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
@@ -1969,7 +1979,7 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   vnf->p7_vnfs[0].tx_data_timing_offset = 0;
   vnf->p7_vnfs[0].periodic_timing_enabled = 1;
   vnf->p7_vnfs[0].aperiodic_timing_enabled = 0;
-  vnf->p7_vnfs[0].periodic_timing_period = 1;
+  vnf->p7_vnfs[0].periodic_timing_period = 9;
   vnf->p7_vnfs[0].config = nfapi_vnf_p7_config_create();
 #ifndef ENABLE_AERIAL
   NFAPI_TRACE(NFAPI_TRACE_INFO,
