@@ -227,7 +227,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 		count++;
 		if(count >= 3){
 			/* [CASE LATE] */
-			p7_info->pending_us += (global_max + 500)*0.2;
+			p7_info->pending_us += (global_max + 500)*0.1;
 			count = 0;
 		}
 	} else{

@@ -28,7 +28,7 @@
  * ============================================================================ */
 /* Dynamic Target Margin (adaptive to avoid late packets) */
 #define MARGIN_TOLERANCE_US     200    // Deadband zone: +/- MARGIN_TOLERANCE_US us
-#define TARGET_MARGIN_INITIAL   250   // Maximum safety buffer (user request: catch all late)
+#define TARGET_MARGIN_INITIAL   500   // Maximum safety buffer (user request: catch all late)
 #define TARGET_TIMING_WINDOW    1900  // Maximum target (to avoid UE disconnection)
 #define MIN_SLEEP_US            50    // Minimum allowable sleep time
 #define MAX_SLEEP_US            950  // Maximum allowable sleep time
