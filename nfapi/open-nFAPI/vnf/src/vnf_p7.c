@@ -49,54 +49,6 @@
 /* External mmap logger function - level 5 for slot sleep telemetry */
 extern void log_mmap_entry(const char *log_name, int frame_tx, int slot_tx, const char *msg);
 
-int32_t slot_profile_us[SLOT_ARRAY_SIZE] = {0}; // Normalized deviations
-int32_t target_margin_us = TARGET_MARGIN_INITIAL; // Dynamic target margin
-
-
-#define TIMING_WINDOW_US 2200
-void dump_slot_profile_us(const void* void_ind)
-{
-  const nfapi_nr_timing_info_t* ind = (const nfapi_nr_timing_info_t*)void_ind;
-  char buffer[512];
-  int offset = 0;
-
-  offset += snprintf(buffer + offset, sizeof(buffer) - offset, "[");
-
-  for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
-    if (i > 0) {
-      offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",");
-    }
-    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "%d", slot_profile_us[i]);
-  }
-
-  snprintf(buffer + offset, sizeof(buffer) - offset, "]");
-
-  log_mmap_entry("slot_profile_us.txt", ind->last_sfn, ind->last_slot, buffer);
-}
-
-void dump_slot_sleep_states(nfapi_vnf_p7_connection_info_t* p7_info, const void* void_ind)
-{
-  const nfapi_nr_timing_info_t* ind = (const nfapi_nr_timing_info_t*)void_ind;
-  char buffer[512];
-  int offset = 0;
-
-  offset += snprintf(buffer + offset, sizeof(buffer) - offset, "[");
-
-  for (int i = 0; i < SLOT_ARRAY_SIZE; ++i) {
-    if (i > 0) {
-      offset += snprintf(buffer + offset, sizeof(buffer) - offset, ",");
-    }
-    // Calculate sleep time dynamic: Baseline + Profile
-    int32_t sleep_us = p7_info->sleep_baseline_us + slot_profile_us[i];
-    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "%d", sleep_us);
-  }
-
-  snprintf(buffer + offset, sizeof(buffer) - offset, "]");
-
-  log_mmap_entry("learned_margin.txt", ind->last_sfn, ind->last_slot, buffer);
-}
-
-
 /* Helper function to calculate packet slot from timing value */
 static inline uint32_t calc_packet_slot(int32_t timing_us, uint32_t current_slot_dec, 
                                          uint32_t slot_duration_us, uint32_t max_slot_dec)
@@ -112,19 +64,14 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
                                vnf_timing_stats_t *out_stats,
                                int max_stats)
 {
-  // 8 timing data points: (dl_tti, tx_data, ul_tti, ul_dci) × (delay, early)
+  // 4 timing data points: (dl_tti, tx_data, ul_tti, ul_dci) × (delay only)
   struct {
     int32_t value;
-    uint32_t jitter;
-  } raw_data[8] = {
-    {ind->dl_tti_latest_delay, ind->dl_tti_jitter},
-    {ind->tx_data_latest_delay, ind->tx_data_jitter},
-    {ind->ul_tti_latest_delay, ind->ul_tti_jitter},
-    {ind->ul_dci_latest_delay, ind->ul_dci_jitter},
-    {ind->dl_tti_earliest_arrival, ind->dl_tti_jitter},
-    {ind->tx_data_earliest_arrival, ind->tx_data_jitter},
-    {ind->ul_tti_earliest_arrival, ind->ul_tti_jitter},
-    {ind->ul_dci_earliest_arrival, ind->ul_dci_jitter}
+  } raw_data[4] = {
+    {ind->dl_tti_latest_delay},
+    {ind->tx_data_latest_delay},
+    {ind->ul_tti_latest_delay},
+    {ind->ul_dci_latest_delay}
   };
 
   int count = 0;
@@ -138,7 +85,7 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
   const int32_t TIMING_VALUE_MIN = -2000;
   const int32_t TIMING_VALUE_MAX = 500;
 
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < 4; i++) {
     if (raw_data[i].value == 0)
       continue; // Skip zero values
 
@@ -148,7 +95,6 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 				i, raw_data[i].value, ind->last_sfn, ind->last_slot,
 				p7_info->sleep_baseline_us, p7_info->baseline_envelope_us);
       p7_info->baseline_envelope_us = 0;
-			// p7_info->sleep_baseline_us = p7_info->slot_duration_us;
 			continue;
 		}
 
@@ -164,16 +110,10 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
         // MATCH: Merge with existing history for this slot
         if (raw_data[i].value > p7_info->slot_history[ps].max_late)
             p7_info->slot_history[ps].max_late = raw_data[i].value;
-        if (raw_data[i].value < p7_info->slot_history[ps].min_early)
-            p7_info->slot_history[ps].min_early = raw_data[i].value;
-        if (raw_data[i].jitter > p7_info->slot_history[ps].jitter)
-            p7_info->slot_history[ps].jitter = raw_data[i].jitter;
     } else {
         // MISMATCH: New slot detected, reset history
         p7_info->slot_history[ps].abs_slot = true_abs_slot;
         p7_info->slot_history[ps].max_late = raw_data[i].value;
-        p7_info->slot_history[ps].min_early = raw_data[i].value;
-        p7_info->slot_history[ps].jitter = raw_data[i].jitter;
     }
 
     // --- Prepare Output Stats (merged values) ---
@@ -190,14 +130,10 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
     if (found >= 0) {
       // Update existing entry in this batch with latest from history
       out_stats[found].max = p7_info->slot_history[ps].max_late;
-      out_stats[found].min = p7_info->slot_history[ps].min_early;
-      out_stats[found].jitter = p7_info->slot_history[ps].jitter;
     } else if (count < max_stats) {
       // New entry in this batch
       out_stats[count].packet_slot = ps;
       out_stats[count].max = p7_info->slot_history[ps].max_late;
-      out_stats[count].min = p7_info->slot_history[ps].min_early;
-      out_stats[count].jitter = p7_info->slot_history[ps].jitter;
       count++;
     }
   }
@@ -210,19 +146,14 @@ int32_t global_max = INT32_MIN;
 // int32_t global_diff = 0;
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
 {
-	// uint32_t current_slot = stats->packet_slot;
-  int32_t all_late = stats->max;
-  // int32_t all_early = stats->min;
-  // int32_t all_diff = all_late - all_early;
-  if (all_late == 0) return;
-	// if (all_early == 0) return;
+	int32_t all_late = stats->max;
+
+	if (all_late == 0) return;
+
 	/* calc EWMA for each timing stats */
 	if (all_late > global_max) global_max = (global_max * 0.1) + (all_late * 0.9);
 	else global_max = (global_max * 0.9) + (all_late * 0.1);
-	// if (all_early < global_min) global_min = (global_min * 0.1) + (all_early * 0.9);
-	// else global_min = (global_min * 0.9) + (all_early * 0.1);
-	// global_diff = (global_diff * 0.5) + ((global_max - global_min) * 0.5);
-	// NFAPI_TRACE(NFAPI_TRACE_INFO, "(%d, %d, %d)", global_max, global_min, global_diff);
+
 	if (global_max > -500) {
 		count++;
 		if(count >= 3){
@@ -255,10 +186,6 @@ void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *v
   for (int i = 0; i < num_slots; i++) {
     vnf_p7_convergence_optimization(p7_info, &slot_stats[i]);
   }
-
-  // Step 3: Dump Telemetry
-  dump_slot_sleep_states(p7_info, ind);
-  dump_slot_profile_us(ind);
 }
 
 void* vnf_p7_malloc(vnf_p7_t* vnf_p7, size_t size)
@@ -1814,13 +1741,13 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	int32_t owd = (int32_t)( ((int64_t)t4 - (int64_t)ind.t1 - ((int64_t)ind.t3 - (int64_t)ind.t2)) / 2 );
 	// int32_t TARGET_PNF_MARGIN_US = 250*(1 << p7_info->mu); // 500us for mu0, 1000us for mu1, 2000us for mu2, 4000us for mu3
 	int32_t slot_us = (int32_t)p7_info->slot_duration_us;
-	int32_t offsetslot = (offset + target_margin_us) / slot_us;
-	int32_t offsetus = (offset  + target_margin_us) % slot_us;
+	int32_t offsetslot = (offset + TARGET_MARGIN_INITIAL) / slot_us;
+	int32_t offsetus = (offset  + TARGET_MARGIN_INITIAL) % slot_us;
 	
 	// Check if sync has converged (offset within ±10) - once locked, permanently stop adjusting
 	pthread_mutex_lock(&p7_info->mutex);
 	// if (!p7_info->sync_locked) {
-		if (offset + target_margin_us >= -MARGIN_TOLERANCE_US && offset + target_margin_us <= MARGIN_TOLERANCE_US) {
+		if (offset + TARGET_MARGIN_INITIAL >= -MARGIN_TOLERANCE_US && offset + TARGET_MARGIN_INITIAL <= MARGIN_TOLERANCE_US) {
 			// Offset converged within ±10, permanently lock sync and stop adjustments
 			p7_info->sync_locked = 1;
 			p7_info->us_adjustment = 0;

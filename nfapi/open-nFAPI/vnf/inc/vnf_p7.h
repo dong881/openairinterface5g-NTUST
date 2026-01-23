@@ -135,11 +135,10 @@ typedef struct nfapi_vnf_p7_connection_info {
     int decay_counter;
 
     /* Timing Stats History (to aggregate split packets) */
+    /* Timing Stats History (to aggregate split packets) */
     struct {
       uint32_t abs_slot;      // Absolute slot number (sfn * slots_per_frame + slot)
       int32_t max_late;       // Max observed late value
-      int32_t min_early;      // Min observed early value
-      uint32_t jitter;        // Max jitter
     } slot_history[SLOT_ARRAY_SIZE];
 
     /* Dynamic Control Parameters */
@@ -202,12 +201,9 @@ int vnf_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* hea
 void vnf_p7_release_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* header);
 void vnf_p7_release_pdu(vnf_p7_t* vnf_p7, void* pdu);
 
-extern int32_t slot_profile_us[SLOT_ARRAY_SIZE];
 /* Timing Statistics Structure - Simplified */
 typedef struct {
   int32_t max;            // Maximum timing value (us) - worst late
-  int32_t min;            // Minimum timing value (us) - most early
-  uint32_t jitter;        // Max jitter (us)
   uint32_t packet_slot;   // Computed packet slot index in SLOT_ARRAY_SIZE
 } vnf_timing_stats_t;
 
@@ -228,7 +224,6 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 /* Main Dynamic Timing Handler */
 void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *void_ind);
 
-void dump_slot_sleep_states(nfapi_vnf_p7_connection_info_t* p7_info, const void* void_ind);
-void dump_slot_profile_us(const void* void_ind);
+
 
 #endif // _VNF_P7_H_
