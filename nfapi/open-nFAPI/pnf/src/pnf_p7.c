@@ -694,10 +694,12 @@ static bool check_nr_p7_timing(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_t msg_
 		*earliest_arrival = (int32_t)offset;
 	}
 
-	char *print_str;
-	asprintf(&print_str, "m:%ld, %s", (long)margin, name);
-	log_mmap_entry("margin.txt", msg_sfn, msg_slot, print_str);
-	free(print_str);
+	if(margin > -1000){
+		char *print_str;
+		asprintf(&print_str, "m:%ld, %s", (long)margin, name);
+		log_mmap_entry("margin.txt", msg_sfn, msg_slot, print_str);
+		free(print_str);
+	}
 
 	if (margin < 0 || margin > (int64_t)pnf_p7->timing_window) {
 		if (margin < 0) {
