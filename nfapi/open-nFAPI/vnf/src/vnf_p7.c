@@ -201,38 +201,27 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
       count++;
     }
   }
-
-  // Debug trace
-  // if (count > 0) {
-  //   NFAPI_TRACE(NFAPI_TRACE_INFO, "ind [%d.%d] delay(%d,%d,%d,%d), early(%d,%d,%d,%d) -> %d slots\n",
-  //               ind->last_sfn, ind->last_slot,
-  //               ind->dl_tti_latest_delay, ind->tx_data_latest_delay,
-  //               ind->ul_tti_latest_delay, ind->ul_dci_latest_delay,
-  //               ind->dl_tti_earliest_arrival, ind->tx_data_earliest_arrival,
-  //               ind->ul_tti_earliest_arrival, ind->ul_dci_earliest_arrival,
-  //               count);
-  // }
   return count;
 }
 
 int count = 0;
 int32_t global_max = INT32_MIN;
-int32_t global_min = INT32_MAX;
-int32_t global_diff = 0;
+// int32_t global_min = INT32_MAX;
+// int32_t global_diff = 0;
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
 {
-	uint32_t current_slot = stats->packet_slot;
+	// uint32_t current_slot = stats->packet_slot;
   int32_t all_late = stats->max;
-  int32_t all_early = stats->min;
-  int32_t all_diff = all_late - all_early;
-  if (all_late == 0 && all_early == 0) return;
-	
+  // int32_t all_early = stats->min;
+  // int32_t all_diff = all_late - all_early;
+  if (all_late == 0) return;
+	// if (all_early == 0) return;
 	/* calc EWMA for each timing stats */
 	if (all_late > global_max) global_max = (global_max * 0.1) + (all_late * 0.9);
 	else global_max = (global_max * 0.9) + (all_late * 0.1);
-	if (all_early < global_min) global_min = (global_min * 0.1) + (all_early * 0.9);
-	else global_min = (global_min * 0.9) + (all_early * 0.1);
-	global_diff = (global_diff * 0.5) + ((global_max - global_min) * 0.5);
+	// if (all_early < global_min) global_min = (global_min * 0.1) + (all_early * 0.9);
+	// else global_min = (global_min * 0.9) + (all_early * 0.1);
+	// global_diff = (global_diff * 0.5) + ((global_max - global_min) * 0.5);
 	// NFAPI_TRACE(NFAPI_TRACE_INFO, "(%d, %d, %d)", global_max, global_min, global_diff);
 	if (global_max > -500) {
 		count++;
