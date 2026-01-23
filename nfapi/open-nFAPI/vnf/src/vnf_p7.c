@@ -223,40 +223,12 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
   int32_t all_diff = all_late - all_early;
   const int up_step = 6;
   const int down_step = 6;
-  const int MAX_SLOT_PROFILE_US = 500;  // Maximum slot profile adjustment
-  const int MIN_SLOT_PROFILE_US = -500; // Minimum slot profile adjustment
-  // --- Peak-Hold with Smooth Decay for Target Margin ---
-  // Creates a smooth envelope curve: instant rise on new max, linear decay otherwise
   const int PEAK_HEADROOM = 250;     // Fixed offset above peak envelope
   const int PEAK_DECAY_STEP = 1;    // Linear decay rate (us per cycle)
   const int PEAK_MIN = 100;         // Minimum peak envelope value
 
-  // Early exit if no timing info (before modifying any state)
   if (all_late == 0 && all_early == 0)
     return;
-
-  // --- Timing Deficit Feedback (closed-loop from timing loop) ---
-  // Process accumulated deficit from behind-schedule events
-  if (p7_info->timing_deficit_us > 0) {
-    // Deficit detected - increase baseline envelope to reduce future sleep time
-    // Use 50% of deficit with cap to prevent oscillation
-    int32_t deficit_step = p7_info->timing_deficit_us / 2;
-    if (deficit_step > 100) deficit_step = 100;  // Cap max step
-
-    p7_info->baseline_envelope_us += deficit_step;
-
-    // Clamp envelope to valid range
-    if (p7_info->baseline_envelope_us > (int32_t)p7_info->slot_duration_us - MIN_SLEEP_US)
-      p7_info->baseline_envelope_us = p7_info->slot_duration_us - MIN_SLEEP_US;
-
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "[DEFICIT_FB] deficit=%d, step=%d, new_envelope=%d\n",
-                p7_info->timing_deficit_us, deficit_step, p7_info->baseline_envelope_us);
-
-    p7_info->timing_deficit_us = 0;  // Clear after processing
-  }
-
-  // Fallback: if all_diff=0 but jitter exists, use jitter
-  // if (all_diff < stats->jitter) all_diff = stats->jitter;
 
   // --- Jitter EWMA Calculation ---
   if (p7_info->jitter_ewma_us == 0) p7_info->jitter_ewma_us = stats->jitter;
@@ -290,30 +262,19 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     target_margin_us = TARGET_TIMING_WINDOW;
 
   // --- Dynamic Margin Tolerance ---
-  // Scale validation window with Jitter EWMA
-  // Formula: Tolerance = (Jitter_EWMA / 2) + 50
-  // Resulting Stable Window = 2 * Tolerance - Jitter = Jitter + 100
-  // This maintains a constant 100us safety buffer above the average jitter level
   p7_info->margin_tolerance_us = (p7_info->jitter_ewma_us / 2) + 50;
   if (p7_info->margin_tolerance_us < 100) p7_info->margin_tolerance_us = 100; // Minimum floor
 	// NFAPI_TRACE(NFAPI_TRACE_INFO,"[%d] avg_d: %d, d: %d, p:%d, t: %d\n", current_slot, p7_info->avg_diff_us, all_diff, p7_info->peak_envelope_us, target_margin_us);
-  // Keep EWMA for monitoring (optional, can be removed later)
-
-  #define CLAMP_PROFILE(val) ((val) > MAX_SLOT_PROFILE_US ? MAX_SLOT_PROFILE_US : ((val) < MIN_SLOT_PROFILE_US ? MIN_SLOT_PROFILE_US : (val)))
 
   if (all_late > 0) {
 		/* [CASE LATE] */
-		// slot_profile_us[current_slot] -= (all_late * 0.1);
-		// slot_profile_us[current_slot] = CLAMP_PROFILE(slot_profile_us[current_slot]);
-		// p7_info->us_adjustment -= all_late;
 		p7_info->pending_us += all_late;
     NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE LATE [%d]:%d (%d, %d, %d) T:%d base_env:%d\n",
                 current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff,
                 target_margin_us, p7_info->baseline_envelope_us);
   } else if (all_early <= -TARGET_TIMING_WINDOW) {
 		/* [CASE EARLY] */
-		slot_profile_us[current_slot] += down_step;
-		slot_profile_us[current_slot] = CLAMP_PROFILE(slot_profile_us[current_slot]);
+		p7_info->pending_us += down_step;
     NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE EARLY [%d]:%d (%d, %d, %d) T:%d base_env:%d\n",
                 current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff,
                 target_margin_us, p7_info->baseline_envelope_us);
@@ -322,24 +283,15 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 		p7_info->pending_us = 0;
 		// NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE GOOD [%d]:%d (%d, %d, %d) T:%d\n",
     //             current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us);
-		slot_profile_us[current_slot] *= 0.9;
   } else if (all_late < 0 && all_late > -target_margin_us + p7_info->margin_tolerance_us) {
 		/* [CASE LITTLE LATE] */
 		p7_info->pending_us += up_step;
-    if (slot_profile_us[current_slot] > 0) slot_profile_us[current_slot] = 0;
-    else {
-      slot_profile_us[current_slot] -= up_step;
-      slot_profile_us[current_slot] = CLAMP_PROFILE(slot_profile_us[current_slot]);
-    }
     NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little late [%d]:%d (%d, %d, %d) T:%d (tol:%d)\n",
                 current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, p7_info->margin_tolerance_us);
   } else if (all_early > -TARGET_TIMING_WINDOW && all_early < -target_margin_us - p7_info->margin_tolerance_us) {
 		/* [CASE LITTLE EARLY] */
-		slot_profile_us[current_slot] += down_step;
-		slot_profile_us[current_slot] = CLAMP_PROFILE(slot_profile_us[current_slot]);
     NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE little early [%d]:%d (%d, %d, %d) T:%d (tol:%d)\n",
                 current_slot, slot_profile_us[current_slot], all_early, all_late, all_diff, target_margin_us, p7_info->margin_tolerance_us);
-  
   } else {
     NFAPI_TRACE(NFAPI_TRACE_INFO, "NO CASE [%d] (%d, %d, %d) T:%d\n",
                 current_slot, all_early, all_late, all_diff, target_margin_us);

@@ -1117,7 +1117,7 @@ void *vnf_timing_thread(void *arg) {
     pthread_mutex_lock(&p7_info->mutex);
     int32_t process_us = ((now.tv_sec - p7_info->next_slot_time.tv_sec) * 1000000000LL
                          + (now.tv_nsec - p7_info->next_slot_time.tv_nsec)) / 1000;
-    int32_t duration_us = p7_info->us_adjustment + p7_info->sleep_baseline_us;// + slot_profile_us[sfnslot_dec % SLOT_ARRAY_SIZE];
+    int32_t duration_us = p7_info->us_adjustment + p7_info->slot_duration_us;
     p7_info->us_adjustment = 0;
     int32_t behind_us = process_us - duration_us;
     if (behind_us >= (int32_t)p7_info->slot_duration_us){
@@ -1135,34 +1135,23 @@ void *vnf_timing_thread(void *arg) {
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
     } else if (behind_us > 0) {
       NFAPI_TRACE(NFAPI_TRACE_INFO, "CASE pending_us %d", behind_us);
-      // int slot_idx = sfnslot_dec % SLOT_ARRAY_SIZE;
-      // slot_profile_us[slot_idx] += behind_us;
-      // // Clamp to valid range
-      // if (slot_profile_us[slot_idx] > 500) slot_profile_us[slot_idx] = 500;
-      // Accumulate to time bank for future repayment
       p7_info->pending_us += behind_us;
-      // p7_info->timing_deficit_us += behind_us;
       p7_info->next_slot_time = now;
       pthread_mutex_unlock(&p7_info->mutex);
     } else {
       int remaining_us = duration_us - process_us;
-      // On schedule - check if we can help repay pending_us debt
       timespec_add_us(&p7_info->next_slot_time, duration_us);
       if (p7_info->pending_us > 0 && remaining_us > 250) {
-        // We have margin to spare - help repay the debt (keep minimum 250us safety margin)
         int32_t repay_budget = remaining_us - 250;
         int32_t repay_amount = (repay_budget < p7_info->pending_us) ? repay_budget : p7_info->pending_us;
-        // Cap single repayment to avoid drastic changes
         // if (repay_amount > 50) repay_amount = 50;
         p7_info->pending_us -= repay_amount;
-        // Reduce next_slot_time to repay debt (wake up earlier)
         timespec_add_us(&p7_info->next_slot_time, -repay_amount);
       }
-      // Sleep until (potentially adjusted) next_slot_time
       pthread_mutex_unlock(&p7_info->mutex);
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
     }
-    // Update slot_start_time_hr for P7 timestamp calculations
+    
     vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
 
     // Step 2: Apply any pending slot adjustment to the CURRENT slot index
