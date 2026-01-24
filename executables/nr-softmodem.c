@@ -836,8 +836,6 @@ int main( int argc, char **argv ) {
   init_mmap_logger("NR_TIMING_INFO.txt");
   init_mmap_logger("ul_node_sync.txt");
   init_mmap_logger("margin.txt");
-  init_mmap_logger("learned_margin.txt");
-  init_mmap_logger("slot_profile_us.txt");
   int ru_id, CC_id = 0;
   start_background_system();
 
