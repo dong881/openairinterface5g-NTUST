@@ -1,98 +1,380 @@
-<h1 align="center">
-    <a href="https://openairinterface.org/"><img src="https://openairinterface.org/wp-content/uploads/2015/06/cropped-oai_final_logo.png" alt="OAI" width="550"></a>
-</h1>
+<h1 align="center">Project Documentation - Guideline</h1>
 
-<p align="center">
-    <a href="https://gitlab.eurecom.fr/oai/openairinterface5g/-/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-OAI--Public--V1.1-blue" alt="License"></a>
-    <a href="https://releases.ubuntu.com/22.04/"><img src="https://img.shields.io/badge/OS-Ubuntu22-Green" alt="Supported OS Ubuntu 22"></a>
-    <a href="https://releases.ubuntu.com/24.04/"><img src="https://img.shields.io/badge/OS-Ubuntu24-Green" alt="Supported OS Ubuntu 24"></a>
-    <a href="https://www.redhat.com/en/technologies/linux-platforms/enterprise-linux"><img src="https://img.shields.io/badge/OS-RHEL9-Green" alt="Supported OS RHEL9"></a>
-    <a href="https://getfedora.org/en/workstation/"><img src="https://img.shields.io/badge/OS-Fedore41-Green" alt="Supported OS Fedora 41"></a>
-</p>
+---
 
-<p align="center">
-    <a href="https://gitlab.eurecom.fr/oai/openairinterface5g/-/releases"><img alt="GitLab Release (custom instance)" src="https://img.shields.io/gitlab/v/release/oai/openairinterface5g?gitlab_url=https%3A%2F%2Fgitlab.eurecom.fr&include_prereleases&sort=semver"></a>
-</p>
+> [!CAUTION]
+> **Confidentiality Notice:**
+> Keep this document **private** by default. Publish only after paper acceptance.
+> Request repository access from the GitHub admin.
 
-<p align="center">
-    <a href="https://jenkins-oai.eurecom.fr/job/RAN-Ubuntu18-Image-Builder/"><img src="https://img.shields.io/jenkins/build?jobUrl=https%3A%2F%2Fjenkins-oai.eurecom.fr%2Fjob%2FRAN-Ubuntu18-Image-Builder%2F&label=build-Ubuntu-x86%20Images"></a>
-    <a href="https://jenkins-oai.eurecom.fr/job/RAN-RHEL8-Cluster-Image-Builder/"><img src="https://img.shields.io/jenkins/build?jobUrl=https%3A%2F%2Fjenkins-oai.eurecom.fr%2Fjob%2FRAN-RHEL8-Cluster-Image-Builder%2F&label=build-UBI-x86%20Images"></a>
-    <a href="https://jenkins-oai.eurecom.fr/job/RAN-Ubuntu-ARM-Image-Builder/"><img src="https://img.shields.io/jenkins/build?jobUrl=https%3A%2F%2Fjenkins-oai.eurecom.fr%2Fjob%2FRAN-Ubuntu-ARM-Image-Builder%2F&label=build-Ubuntu-ARM%20Images"></a>
-</p>
+---
 
-<p align="center">
-  <a href="https://hub.docker.com/r/oaisoftwarealliance/oai-gnb"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/oaisoftwarealliance/oai-gnb?label=gNB%20docker%20pulls"></a>
-  <a href="https://hub.docker.com/r/oaisoftwarealliance/oai-nr-ue"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/oaisoftwarealliance/oai-nr-ue?label=NR-UE%20docker%20pulls"></a>
-  <a href="https://hub.docker.com/r/oaisoftwarealliance/oai-enb"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/oaisoftwarealliance/oai-enb?label=eNB%20docker%20pulls"></a>
-  <a href="https://hub.docker.com/r/oaisoftwarealliance/oai-lte-ue"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/oaisoftwarealliance/oai-lte-ue?label=LTE-UE%20docker%20pulls"></a>
-  <a href="https://hub.docker.com/r/oaisoftwarealliance/oai-nr-cuup"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/oaisoftwarealliance/oai-nr-cuup?label=NR-CUUP%20docker%20pulls"></a>
-</p>
+> [!NOTE]
+> **Documentation Structure:**
+>
+> - **Installation Guide**: System setup, configuration, and deployment procedures
+> - **User Guide**: Operating instructions for the deployed system
+> - **Project Documentation**: Technical architecture, use cases, MSC, flowcharts, and class diagrams with links to installation guides
 
-# OpenAirInterface License #
+**Documentation Hierarchy:**
 
- *  [OAI License Model](http://www.openairinterface.org/?page_id=101)
- *  [OAI License v1.1 on our website](http://www.openairinterface.org/?page_id=698)
+```mermaid
+graph TD
+    PD[Project Documentation]
+    
+    subgraph "System Core"
+        IG-sys[Installation Guide]
+        UG-sys[User Guide]
+    end
 
-It is distributed under **OAI Public License V1.1**.
+    subgraph "NFAPI P7 Timing"
+        IG-tm[Timing Config Guide]
+        UG-tm[Telemetry & Logging]
+    end
 
-The license information is distributed under [LICENSE](LICENSE) file in the same directory.
-
-Please see [NOTICE](NOTICE.md) file for third party software that is included in the sources.
-
-# Where to Start #
-
- *  [General overview of documentation](./doc/README.md)
- *  [The implemented features](./doc/FEATURE_SET.md)
- *  [System Requirements for Using OAI Stack](./doc/system_requirements.md)
- *  [How to build](./doc/BUILD.md)
- *  [How to run the modems](./doc/RUNMODEM.md)
-
-Not all information is available in a central place, and information for
-specific sub-systems might be available in the corresponding sub-directories.
-To find all READMEs, this command might be handy:
-
-```
-find . -iname "readme*"
+    IG-sys --> PD
+    IG-tm --> PD
 ```
 
-# RAN repository structure #
+## Table of Contents
 
-The OpenAirInterface (OAI) software is composed of the following parts: 
+- [Table of Contents](#table-of-contents)
+- [Introduction](#introduction)
+- [Execution Status](#execution-status)
+- [System Architecture](#system-architecture)
+  - [Folder Structure](#folder-structure)
+  - [Module Interaction](#module-interaction)
+- [NFAPI P7 Timing Synchronization](#nfapi-p7-timing-synchronization-system)
+  - [Key Features](#key-features)
+  - [Dynamic Slot-Level Adjustments](#dynamic-slot-level-adjustments)
+  - [RFC 3550 Jitter Calculation](#rfc-3550-jitter-calculation)
+  - [Three-Layer Defense Strategy](#three-layer-defense-strategy)
+  - [Synchronization & Recovery](#synchronization--recovery)
+  - [Synchronization & Recovery](#synchronization--recovery)
+- [Algorithm Details](#algorithm-details)
+  - [VNF Autonomous Timing Loop](#1-vnf-autonomous-timing-loop)
+  - [Synchronization Offset Calculation](#2-synchronization-offset-calculation)
+  - [PNF Timing Verification](#3-pnf-timing-verification)
+  - [Dynamic Timing Handler](#4-dynamic-timing-handler)
+  - [Timing Control Parameters](#5-timing-control-parameters)
+- [Telemetry & Debugging](#telemetry--debugging)
+- [Message Sequence Chart (MSC)](#message-sequence-chart-msc)
+
+---
+
+## Introduction
+
+This project implements a comprehensive **NFAPI P7 Timing Synchronization and Dynamic Adjustment System** for OAI (OpenAirInterface) 5G NR. The system replaces static timing assumptions with a dynamic, adaptive control loop that maintains precise synchronization between the VNF (Virtual Network Function) and PNF (Physical Network Function) even under varying network conditions and jitter.
+
+Key enhancements include a complete overhaul of the timing management system, implementation of RFC 3550 jitter analysis, and a robust three-layer defense strategy against timing drift.
+
+## Execution Status
+
+The following log snippet demonstrates the system in a **locked** and **stable** state.
+
+```text
+[P7_SYNC] ul_node_sync phy_id:0 (t1/2/3/4:  301402,  301490,  301625,  301712) offset:0 owd:43 slot_adj:0 us_adj:0 locked:1
+NR_TIMING_INFO: PNF:182.0 VNF:182.0 delta_slots=0 time_since_last=10 jitter(dl:0,tx:42,ul:41,dci:11) latest_delay(dl:0,tx:-139,ul:-194,dci:-197) earliest_arr(dl:0,tx:-212,ul:-318,dci:-273)
+```
+
+**Interpretation:**
+*   **`locked:1`**: The VNF/PNF clock offset is confirmed to be within $\pm 10 \mu s$.
+*   **`offset:0`**: Perfect alignment between VNF and PNF clocks.
+*   **`delta_slots=0`**: Both systems are processing the exact same slot index.
+*   **`latest_delay` (negative)**: Packets are arriving **early** (with margin), which is the desired state. For example, TX data arrived $139 \mu s$ before the deadline.
+
+---
+
+## System Architecture
+
+The system architecture aligns with the OAI nFAPI implementation, with specific enhancements in the VNF and PNF integration layers.
+
+### Folder Structure
+
+```mermaid
+graph TD
+    Root[openairinterface5g]
+    
+    subgraph "NFAPI Integration"
+        NFAPI[nfapi]
+        INT[oai_integration]
+        OPEN[open-nFAPI]
+        
+        NFAPI --> INT
+        NFAPI --> OPEN
+        
+        INT --> VNF_C[nfapi_vnf.c]
+        INT --> PNF_C[nfapi_pnf.c]
+        
+        OPEN --> VNF_LIB[vnf]
+        OPEN --> PNF_LIB[pnf]
+        
+        VNF_LIB --> VNF_SRC[src/vnf_p7.c]
+        VNF_LIB --> VNF_INC[inc/vnf_p7.h]
+        
+        PNF_LIB --> PNF_SRC[src/pnf_p7.c]
+        PNF_LIB --> PNF_INC[inc/pnf_p7.h]
+    end
+```
+
+### Module Interaction
+
+*   **`nfapi_vnf.c`**: Manages the VNF main loop and high-level scheduling. Now includes the `vnf_timing_thread` for autonomous timing control.
+*   **`vnf_p7.c`**: Implements the core timing algorithms, including the PID-like convergence optimization and critical correction logic.
+*   **`nfapi_pnf.c` & `pnf_p7.c`**: Handles PNF-side timestamping, jitter calculation (RFC 3550), and timing info reporting.
+
+---
+
+## NFAPI P7 Timing Synchronization System
+
+The core contribution is a robust adaptive timing controller that ensures the VNF processes slots at the correct time relative to the PNF's radio frame.
+
+### Key Features
+
+> [!IMPORTANT]
+> **BREAKING CHANGE**: The timing adjustment logic has been completely rewritten. Previous static configuration parameters may need recalibration.
+
+-   **Dynamic Margin Control**: `TARGET_PNF_MARGIN_US` (default 150μs) is dynamically maintained.
+-   **Jitter Analysis**: Fully implemented RFC 3550 inter-arrival jitter calculation.
+-   **Improved Logging**: Mmap-based high-performance logging for timing analysis.
+
+### Dynamic Slot-Level Adjustments
+
+The system uses a circular buffer (`SLOT_ARRAY_SIZE` = 20) to track sleep profiles for each slot in the TDD cycle.
+
+*   **Mechanism**: The VNF calculates a specific sleep time (`us_adjustment`) for each slot to align with the PNF's reception window.
+*   **Circular Buffer**: Stores a `slot_profile_us` that adapts over time based on feedback from the PNF.
+
+### RFC 3550 Jitter Calculation
+
+Implemented in `pnf_p7.c`. This provides a standardized metric for network stability.
+
+```math
+J(i) = J(i-1) + (|D(i-1, i)| - J(i-1)) / 16
+```
+Where $D$ is the difference in transit time between two packets.
+
+*   **Metrics Tracked**:
+    *   `dl_tti_jitter`
+    *   `ul_tti_jitter`
+    *   `ul_dci_jitter`
+    *   `tx_data_jitter`
+
+### Three-Layer Defense Strategy
+
+To maintain synchronization under various network conditions, a three-layer defense is implemented in `vnf_p7.c`:
+
+1.  **Critical Correction**: Immediate, aggressive adjustment when timing deviates significantly (exponential decay).
+2.  **Convergence Optimization**: Fine-grained, one-shot margin-based sleep adjustments for steady-state maintenance.
+3.  **Profile Diffusion**: Gradual propagation of timing changes with slew rate limiting (clamped to ±450μs) to prevent oscillation.
+
+### Synchronization & Recovery
+
+*   **UL Node Sync**: Enhanced with clock offset computation and convergence detection.
+*   **Locking Mechanism**: Code detects checking `offset <= ±10μs`. Once converged, the sync allows the system to enter a locked state.
+*   **Auto-Stop/Start**: Consolidated scripts for reduced operational overhead.
+
+---
+
+## Algorithm Details
+
+### 1. VNF Autonomous Timing Loop
+
+The `vnf_timing_thread` in `nfapi_vnf.c` maintains the VNF's heartbeat. It handles catch-up logic for late slots and debt repayment for early slots.
+
+**Key Logic:**
+- **Behind Schedule (`behind_us > slot_duration`)**: Skips slots to catch up immediately.
+- **Time Bank (`pending_us`)**: Accumulates small timing debts and repays them when the system has slack (is early).
+- **Slot Adjustment**: Applies corrections derived from the synchronization logic.
+
+```mermaid
+flowchart TD
+    Start([Start Loop]) --> Wait{Wait for Next Slot}
+    Wait -->|Wake Up| Calc[Calculate behind_us]
+    
+    Calc --> CheckBehind{behind_us > SlotDuration?}
+    CheckBehind -- Yes --> Skip[Skip Slots relative to behind_us]
+    Skip --> Reset[Update next_slot_time]
+    
+    CheckBehind -- No --> CheckDebt{behind_us > 0?}
+    CheckDebt -- Yes --> AddDebt[pending_us += behind_us]
+    CheckDebt -- No --> RepayDebt[Repay pending_us if possible]
+    
+    AddDebt --> Adjust[Apply Slot Adjustment]
+    RepayDebt --> Adjust
+    Reset --> Adjust
+    
+    Adjust --> Sync[Periodic Sync Check]
+    Sync --> Work[phy_nr_slot_indication]
+    Work --> Start
+```
+
+### 2. Synchronization Offset Calculation
+
+Located in `vnf_nr_handle_ul_node_sync` (`vnf_p7.c`). This calculates the offset between VNF and PNF clocks and locks the system once converged.
+
+**Formulae:**
+$$ Offset = \frac{(t_2 - t_1) - (t_4 - t_3)}{2} $$
+$$ OWD = \frac{(t_4 - t_1) - (t_3 - t_2)}{2} $$
+
+**Logic Flow:**
+
+```mermaid
+flowchart LR
+    Recv[Receive UL_NODE_SYNC] --> CalcT4[Calculate t4]
+    CalcT4 --> CalcOff[Calculate Offset & OWD]
+    CalcOff --> CheckLock{Offset within ±TOLERANCE?}
+    
+    CheckLock -- Yes --> Lock[Set sync_locked = 1]
+    Lock --> StopAdj[Stop Adjustments]
+    
+    CheckLock -- No --> Apply[Apply Correction]
+    Apply --> SlotAdj[Calculate slot_adjustment]
+    Apply --> UsAdj[Calculate us_adjustment]
+```
+
+### 3. PNF Timing Verification
+
+Located in `check_nr_p7_timing` (`pnf_p7.c`). Verifies if the packet arrived within the valid P7 window.
+
+**Logic:**
+1.  **Calculate Margin**: $Margin = Deadline - ArrivalTime - Offset$
+2.  **Update Stats**: Tracks `latest_delay` (worst-case lateness) and `earliest_arrival` (best-case headroom).
+3.  **Window Check**: If `Margin < 0` (Too Late) or `Margin > Window` (Too Early), the packet is discarded (or logged as warning).
+
+```mermaid
+graph TD
+    Packet[Packet Arrival] --> Time[Get RecvTime]
+    Time --> Jitter[Update RFC 3550 Jitter]
+    Jitter --> Margin[Calculate Margin]
+    
+    Margin --> Check{0 < Margin < Window?}
+    Check -- Yes --> Accept[Process Packet]
+    Check -- No --> Drop[Log Warning / Trigger Info]
+```
+
+##### 4.1. Core Logic Flow (`handle_dynamic_timing_info`)
+
+```mermaid
+flowchart TD
+    Ind[Timing Info Indication] --> Sanity{Time since last < 10s?}
+    Sanity -- No --> Err[Return]
+    Sanity -- Yes --> Extract[**Pass 1**: Extract Stats]
+    
+    subgraph "vnf_p7_extract_timing_info"
+        Extract --> LoopExtract[Loop 4 Message Types]
+        LoopExtract --> CheckVal{Val in -2000..500?}
+        CheckVal -- No --> CleanBaseline[Reset Baseline Envelope]
+        CheckVal -- Yes --> CalcSlot[Calculate Absolute Packet Slot]
+        CalcSlot --> Agg[Aggregate to History]
+        Agg --> NextExtract[Next Type]
+    end
+    
+    Extract --> Opt[**Pass 2**: Optimization]
+    
+    subgraph "vnf_p7_convergence_optimization"
+        Opt --> EWMA[Update global_max EWMA]
+        EWMA --> Stable{global_max > -500?}
+        
+        Stable -- Yes (LATE) --> Count[Increment Counter]
+        Count --> TriggerL{Counter >= 3?}
+        TriggerL -- Yes --> AddPen["pending_us += (global_max + 500)*0.1"]
+        
+        Stable -- No (EARLY) --> SubPen[pending_us--]
+    end
+```
+
+### 5. Timing Control Parameters
+
+
+Critical constants defined in `vnf_p7.h` that govern the stability and responsiveness of the system.
+
+| Constant | Value | Description |
+| :--- | :--- | :--- |
+| `MARGIN_TOLERANCE_US` | 200 | Deadband zone ($\pm 200 \mu s$). Adjustments are suppressed if the offset is within this range to prevent oscillation. |
+| `TARGET_MARGIN_INITIAL` | 500 | The target safety margin in microseconds. The system aims to keep packet arrival $~500 \mu s$ ahead of the deadline. |
+| `TARGET_TIMING_WINDOW` | 1900 | Maximum valid window. If delay exceeds this, the link is considered unstable. |
+| `MIN_SLEEP_US` | 50 | Minimum execution time floor. Prevents busy-waiting (0 sleep) which can starve other threads. |
+| `MAX_SLEEP_US` | 950 | Maximum sleep cap per slot to ensure the VNF always wakes up in time for processing. |
+| `SLOT_ARRAY_SIZE` | 20 | Size of the circular buffer tracking slot profiles. Reduced to 20 to strictly match the TDD pattern cycle for faster convergence. |
+
+---
+
+## Telemetry & Debugging
+
+New mmap-based logging infrastructure replaces standard I/O for performance.
+
+| Log File | Description |
+| :--- | :--- |
+| `harq_timing.txt` | HARQ timing tracking for DLSCH processes |
+| `nfapi_path.txt` | NFAPI scheduling path instrumentation |
+| `margin.txt` | Timing margin analysis (budget remaining) |
+| `ul_node_sync.txt` | Uplink synchronization metrics & offsets |
+| `NR_TIMING_INFO.txt` | Detailed P7 timing info from PNF feedback |
+
+---
+
+## Message Sequence Chart (MSC)
+
+The following diagram illustrates the closed-loop timing control, starting from synchronization to steady-state maintenance.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor System
+    participant VNF as VNF Main Loop
+    participant VNF_P7 as VNF Timing Core
+    participant PNF_P7 as PNF P7 Interface
+    participant PHY as Hardware (PHY)
+
+    %% Phase 1: Initial Synchronization
+    Note over VNF, PHY: == Phase 1: Synchronization ==
+    
+    VNF_P7->>VNF_P7: vnf_nr_build_send_dl_node_sync()
+    VNF_P7->>PNF_P7: DL_NODE_SYNC (T1)
+    PNF_P7->>PNF_P7: Record T2 (Arrival)
+    PNF_P7->>PNF_P7: Process...
+    PNF_P7->>VNF_P7: UL_NODE_SYNC (T2, T3)
+    
+    VNF_P7->>VNF_P7: Record T4 (Arrival)
+    VNF_P7->>VNF_P7: Offset = ((T2-T1)-(T4-T3))/2
+    
+    alt Offset not Converged
+        VNF_P7->>VNF_P7: Apply us_adjustment / slot_adjustment
+    else Offset <= 10us
+        VNF_P7->>VNF_P7: LOCK SYNC (Stop Adjustments)
+    end
+
+    %% Phase 2: Steady State Operation
+    Note over VNF, PHY: == Phase 2: Telemetry & Control ==
+
+    loop Every Slot (0.5ms/1ms)
+        Note right of VNF: Sleep = next_slot_time
+        VNF->>VNF_P7: Sleep(slot_duration + adj + debt_repayment)
+        
+        VNF_P7->>PNF_P7: DL_TTI_REQ (Timestamp SFN/Slot)
+        
+        Note right of PNF_P7: PNF Reception
+        PNF_P7->>PNF_P7: Jitter = RFC3550(TransitTime)
+        PNF_P7->>PNF_P7: Margin = Deadline - Arrival - SyncOffset
+        PNF_P7->>PNF_P7: Update latest_delay / earliest_arrival
+    end
+
+    %% Phase 3: Feedback Loop
+    Note over VNF, PHY: == Phase 3: Feedback Loop ==
+    
+    PFN_P7->>PNF_P7: Check Timing Info Period (e.g. 10ms)
+    PNF_P7->>VNF_P7: TIMING_INFO (Jitter, MaxLate, MinEarly)
+    
+    VNF_P7->>VNF_P7: handle_dynamic_timing_info()
+    VNF_P7->>VNF_P7: vnf_p7_convergence_optimization()
+    
+    alt System is Late (global_max > -500)
+        VNF_P7->>VNF_P7: pending_us += Correction (Accumulate Debt)
+        VNF_P7->>VNF: next_slot_time includes debt repayment
+    else System is Early
+        VNF_P7->>VNF_P7: pending_us-- (Reduce Debt/Bank)
+    end
 
 ```
-openairinterface5g
-├── charts
-├── ci-scripts        : Meta-scripts used by the OSA CI process. Contains also configuration files used day-to-day by CI.
-├── CMakeLists.txt    : Top-level CMakeLists.txt for building
-├── cmake_targets     : Build utilities to compile (simulation, emulation and real-time platforms), and generated build files.
-├── common            : Some common OAI utilities, some other tools can be found at openair2/UTILS.
-├── doc               : Documentation
-├── docker            : Dockerfiles to build for Ubuntu and RHEL
-├── executables       : Top-level executable source files (gNB, eNB, ...)
-├── maketags          : Script to generate emacs tags.
-├── nfapi             : (n)FAPI code for MAC-PHY interface
-├── openair1          : Layer 1 (3GPP LTE Rel-10/12 PHY, NR Rel-15 PHY)
-├── openair2          : Layer 2 (3GPP LTE Rel-10 MAC/RLC/PDCP/RRC/X2AP, LTE Rel-14 M2AP, NR Rel-15+ MAC/RLC/PDCP/SDAP/RRC/X2AP/F1AP/E1AP), E2AP
-├── openair3          : Layer 3 (3GPP LTE Rel-10 S1AP/GTP, NR Rel-15 NGAP/GTP)
-├── openshift         : OpenShift helm charts for some deployment options of OAI
-├── radio             : Drivers for various radios such as USRP, AW2S, RFsim, 7.2 FHI, ...
-├── targets           : Some configuration files; only historical relevance, and might be deleted in the future
-└── tools             : Tools for use by the developers/ci machines: code analysis and formatting
-```
 
-# How to get support from the OAI Community # 
-
-You can ask your question on the [mailing lists](https://gitlab.eurecom.fr/oai/openairinterface5g/-/wikis/MailingList).
-
-Your email should contain below information:
-
-- A clear subject in your email.
-- For all the queries there should be [Query\] in the subject of the email and for problems there should be [Problem\].
-- In case of a problem, add a small description.
-- Do not share any photos unless you want to share a diagram.
-- OAI gNB/DU/CU/CU-CP/CU-UP configuration file in `.conf` format only.
-- Logs of OAI gNB/DU/CU/CU-CP/CU-UP in `.log` or `.txt` format only.
-- In case your question is related to performance, include a small description of the machine (Operating System, Kernel version, CPU, RAM and networking card) and diagram of your testing environment.
-- Known/open issues are present on [GitLab](https://gitlab.eurecom.fr/oai/openairinterface5g/-/issues), so keep checking.
-
-Always remember a structured email will help us understand your issues quickly.
