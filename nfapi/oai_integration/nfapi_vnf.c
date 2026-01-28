@@ -1176,7 +1176,7 @@ void *vnf_timing_thread(void *arg) {
     p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec);
     p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
 
-    if (!p7_info->sync_locked && p7_info->sync_slot_counter++ >= p7_info->sync_period_slots) {
+    if (p7_info->sync_slot_counter++ >= p7_info->sync_period_slots) {
       p7_info->sync_slot_counter = 0;
       vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
     }
