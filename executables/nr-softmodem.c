@@ -87,6 +87,7 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include "x2ap_eNB.h"
 #include "openair1/SCHED_NR/sched_nr.h"
 #include "openair2/SDAP/nr_sdap/nr_sdap.h"
+#include "common/utils/LOG/vcd_signal_dumper.h"
 
 pthread_cond_t nfapi_sync_cond;
 pthread_mutex_t nfapi_sync_mutex;
@@ -544,6 +545,10 @@ int main( int argc, char **argv ) {
 
   softmodem_verify_mode(get_softmodem_params());
 
+  ouput_vcd = 0;
+  if (ouput_vcd)
+    vcd_signal_dumper_init("/tmp/N4.vcd");
+
 #if T_TRACER
   T_Config_Init();
 #endif
@@ -730,6 +735,9 @@ int main( int argc, char **argv ) {
   pthread_mutex_destroy(&nfapi_sync_mutex);
 
   time_manager_finish();
+
+  if (ouput_vcd)
+    vcd_signal_dumper_close();  
 
   free(pckg);
   logClean();

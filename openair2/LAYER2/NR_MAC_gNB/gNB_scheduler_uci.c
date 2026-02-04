@@ -604,7 +604,7 @@ static void evaluate_rsrp_report(gNB_MAC_INST *nrmac,
   csi_report->nb_of_csi_ssb_report++;
   bool valid = get_measured_rsrp(rsrp_index, &rsrp_report->RSRP[0]);
   if (!valid) {
-    LOG_E(NR_MAC, "UE %04x: reported RSRP index %d invalid\n", UE->rnti, rsrp_index);
+    // LOG_E(NR_MAC, "UE %04x: reported RSRP index %d invalid\n", UE->rnti, rsrp_index);
     return;
   }
 

@@ -69,6 +69,7 @@
 #include "thread-pool.h"
 #include "time_meas.h"
 #include "utils.h"
+#include "common/utils/LOG/vcd_signal_dumper.h"
 
 #define TICK_TO_US(ts) (ts.trials==0?0:ts.diff/ts.trials)
 #define L1STATSSTRLEN 16384
@@ -167,6 +168,206 @@ void *L1_tx_thread(void *arg) {
   return NULL;
 }
 
+#ifdef MULTI_PUSCH
+static int get_nb_re_pusch (NR_DL_FRAME_PARMS *frame_parms, nfapi_nr_pusch_pdu_t *rel15_ul,int symbol) 
+{
+  uint8_t dmrs_symbol_flag = (rel15_ul->ul_dmrs_symb_pos >> symbol) & 0x01;
+  if (dmrs_symbol_flag == 1) {
+    if ((rel15_ul->ul_dmrs_symb_pos >> ((symbol + 1) % frame_parms->symbols_per_slot)) & 0x01)
+      AssertFatal(1==0,"Double DMRS configuration is not yet supported\n");
+
+    if (rel15_ul->dmrs_config_type == 0) {
+      // if no data in dmrs cdm group is 1 only even REs have no data
+      // if no data in dmrs cdm group is 2 both odd and even REs have no data
+      return(rel15_ul->rb_size *(12 - (rel15_ul->num_dmrs_cdm_grps_no_data*6)));
+    }
+    else return(rel15_ul->rb_size *(12 - (rel15_ul->num_dmrs_cdm_grps_no_data*4)));
+  } else return(rel15_ul->rb_size * NR_NB_SC_PER_RB);
+}
+
+static int task_num_based_on_rbsize(int rb_size) 
+{
+  int task_num = 0;
+  if (rb_size <= 70) task_num = 1;
+  else if (rb_size <= 140) task_num = 2;
+  else if (rb_size <= 210) task_num = 3;
+  else task_num = 4;
+  return task_num;
+}
+
+// void pilot_generation(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx)
+// {
+//   NR_DL_FRAME_PARMS *fp = &gNB->frame_parms;
+//   for (int ULSCH_id = 0; ULSCH_id < gNB->max_nb_pusch; ULSCH_id++) {
+//     NR_gNB_ULSCH_t *ulsch = &gNB->ulsch[ULSCH_id];
+//     NR_UL_gNB_HARQ_t *ulsch_harq = ulsch->harq_process;
+
+//     NR_gNB_PUSCH *pusch_vars = &gNB->pusch_vars[ULSCH_id]; // this is for test
+
+//     c16_t **ul_ch_estimates = (c16_t **)pusch_vars->ul_ch_estimates;
+//     if ((ulsch->active == true) && (ulsch->frame == frame_rx) && (ulsch->slot == slot_rx) && (ulsch->handled == 0)) {
+//       nfapi_nr_pusch_pdu_t *pusch_pdu = &ulsch_harq->ulsch_pdu;
+
+//       int rb_size = pusch_pdu->rb_size;
+//       int end_symbol = pusch_pdu->start_symbol_index + pusch_pdu->nr_of_symbols;
+      
+//       //----------------------------------------------------------
+//       //-------------------- Initialization ----------------------
+//       //----------------------------------------------------------
+//       for(uint8_t symbol = pusch_pdu->start_symbol_index; symbol < end_symbol; symbol++) {
+//         uint8_t dmrs_symbol_flag = (pusch_pdu->ul_dmrs_symb_pos >> symbol) & 0x01;
+
+//         pusch_vars->ul_valid_re_per_slot[symbol] = get_nb_re_pusch(fp,pusch_pdu,symbol);
+//         pusch_vars->llr_offset[symbol] = (symbol == pusch_pdu->start_symbol_index) ? 0 :
+//                                           pusch_vars->llr_offset[symbol-1] + pusch_vars->ul_valid_re_per_slot[symbol-1] * pusch_pdu->qam_mod_order;
+//         if (dmrs_symbol_flag == 1) {
+
+//           for (int nl = 0; nl < pusch_pdu->nrOfLayers; nl++) {
+//             const int symbol_offset = gNB->frame_parms.ofdm_symbol_size * symbol;
+//             for (int aarx=0; aarx<gNB->frame_parms.nb_antennas_rx; aarx++) {
+//               c16_t *ul_ch = &ul_ch_estimates[nl * gNB->frame_parms.nb_antennas_rx + aarx][symbol_offset];
+//               memset(ul_ch, 0, sizeof(*ul_ch) * gNB->frame_parms.ofdm_symbol_size);
+//             }
+
+//             c16_t *pilot = pusch_vars->pilot[PILOT_IDX(nl, symbol)];
+//             const uint32_t *gold = nr_gold_pusch(fp->N_RB_UL,
+//                                                 fp->symbols_per_slot,
+//                                                 gNB->gNB_config.cell_config.phy_cell_id.value,
+//                                                 pusch_pdu->scid,
+//                                                 slot_rx,
+//                                                 symbol);
+//             pusch_dmrs_type_t dmrs_type = pusch_pdu->dmrs_config_type == NFAPI_NR_DMRS_TYPE1 ? pusch_dmrs_type1 : pusch_dmrs_type2;
+//             float beta_dmrs_pusch = get_beta_dmrs(pusch_pdu->num_dmrs_cdm_grps_no_data, dmrs_type);
+//             int16_t dmrs_scaling = (1 / beta_dmrs_pusch) * (1 << 14);
+//             nr_pusch_dmrs_rx(gNB,
+//                             slot_rx,
+//                             gold,
+//                             pilot,
+//                             (1000 + get_dmrs_port(nl, pusch_pdu->dmrs_ports)),
+//                             0,
+//                             rb_size,
+//                             (pusch_pdu->bwp_start + pusch_pdu->rb_start) * NR_NB_SC_PER_RB,
+//                             pusch_pdu->dmrs_config_type,
+//                             dmrs_scaling);
+//           }
+//         }
+//       }
+//     }
+//   }
+// }
+
+/// @brief This function will dispatch task based on RB size and push them into task queue
+static void dispatch_task(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx)
+{
+  NR_DL_FRAME_PARMS *fp = &gNB->frame_parms;
+  int task_count = 0;
+  for (int ULSCH_id = 0; ULSCH_id < gNB->max_nb_pusch; ULSCH_id++) {
+    NR_gNB_ULSCH_t *ulsch = &gNB->ulsch[ULSCH_id];
+    NR_UL_gNB_HARQ_t *ulsch_harq = ulsch->harq_process;
+
+    // #ifdef TEST_FUNCTIONALITY
+    // NR_gNB_PUSCH *pusch_vars = &gNB->pusch_test[ULSCH_id];
+    // #else
+    NR_gNB_PUSCH *pusch_vars = &gNB->pusch_vars[ULSCH_id]; // this is for test
+    // #endif
+
+    c16_t **ul_ch_estimates = (c16_t **)pusch_vars->ul_ch_estimates;
+    if ((ulsch->active == true) && (ulsch->frame == frame_rx) && (ulsch->slot == slot_rx) && (ulsch->handled == 0)) {
+      nfapi_nr_pusch_pdu_t *pusch_pdu = &ulsch_harq->ulsch_pdu;
+
+      int rb_size = pusch_pdu->rb_size;
+      int task_num = task_num_based_on_rbsize(rb_size);
+
+      int rb_per_task = (rb_size + task_num - 1) / task_num;
+      int remain_rb = rb_size - (task_num - 1) * rb_per_task;
+      int vue_id;
+      int end_symbol = pusch_pdu->start_symbol_index + pusch_pdu->nr_of_symbols;
+      
+      //----------------------------------------------------------
+      //-------------------- Initialization ----------------------
+      //----------------------------------------------------------
+      for(uint8_t symbol = pusch_pdu->start_symbol_index; symbol < end_symbol; symbol++) {
+        uint8_t dmrs_symbol_flag = (pusch_pdu->ul_dmrs_symb_pos >> symbol) & 0x01;
+
+        pusch_vars->ul_valid_re_per_slot[symbol] = get_nb_re_pusch(fp,pusch_pdu,symbol);
+        pusch_vars->llr_offset[symbol] = (symbol == pusch_pdu->start_symbol_index) ? 0 :
+                                          pusch_vars->llr_offset[symbol-1] + pusch_vars->ul_valid_re_per_slot[symbol-1] * pusch_pdu->qam_mod_order;
+        if (dmrs_symbol_flag == 1) {
+
+          for (int nl = 0; nl < pusch_pdu->nrOfLayers; nl++) {
+            const int symbol_offset = gNB->frame_parms.ofdm_symbol_size * symbol;
+            for (int aarx=0; aarx<gNB->frame_parms.nb_antennas_rx; aarx++) {
+              c16_t *ul_ch = &ul_ch_estimates[nl * gNB->frame_parms.nb_antennas_rx + aarx][symbol_offset];
+              memset(ul_ch, 0, sizeof(*ul_ch) * gNB->frame_parms.ofdm_symbol_size);
+            }
+
+            // c16_t *pilot = pusch_vars->pilot[PILOT_IDX(nl, symbol)];
+            // const uint32_t *gold = nr_gold_pusch(fp->N_RB_UL,
+            //                                     fp->symbols_per_slot,
+            //                                     gNB->gNB_config.cell_config.phy_cell_id.value,
+            //                                     pusch_pdu->scid,
+            //                                     slot_rx,
+            //                                     symbol);
+            // pusch_dmrs_type_t dmrs_type = pusch_pdu->dmrs_config_type == NFAPI_NR_DMRS_TYPE1 ? pusch_dmrs_type1 : pusch_dmrs_type2;
+            // float beta_dmrs_pusch = get_beta_dmrs(pusch_pdu->num_dmrs_cdm_grps_no_data, dmrs_type);
+            // int16_t dmrs_scaling = (1 / beta_dmrs_pusch) * (1 << 14);
+            // nr_pusch_dmrs_rx(gNB,
+            //                 slot_rx,
+            //                 gold,
+            //                 pilot,
+            //                 (1000 + get_dmrs_port(nl, pusch_pdu->dmrs_ports)),
+            //                 0,
+            //                 rb_size,
+            //                 (pusch_pdu->bwp_start + pusch_pdu->rb_start) * NR_NB_SC_PER_RB,
+            //                 pusch_pdu->dmrs_config_type,
+            //                 dmrs_scaling);
+          }
+        }
+      }
+
+      //----------------------------------------------------------
+      //-------------------- Dispatch task -----------------------
+      //----------------------------------------------------------
+      uint32_t bwp_start_subcarrier = ((pusch_pdu->rb_start + pusch_pdu->bwp_start) * NR_NB_SC_PER_RB + fp->first_carrier_offset) % fp->ofdm_symbol_size;
+      for (int t = 0; t < task_num; t++) {
+        vue_id = 8 * ULSCH_id + t;
+
+        VUE_Task_t *task = &gNB->task_list[gNB->write_index][task_count++];
+        task->gNB                   = gNB;
+        task->parent_pdu            = pusch_pdu;
+        task->parent_rb_size        = pusch_pdu->rb_size;
+        task->parent_rb_start       = pusch_pdu->rb_start;
+        task->rb_size               = t < (task_num - 1) ? rb_per_task : remain_rb;
+        task->rb_start              = pusch_pdu->rb_start + t * rb_per_task;
+        task->bwp_start_subcarrier  = bwp_start_subcarrier;
+        task->previous_rb           = rb_per_task * t;
+        task->real_ue_id            = ULSCH_id;
+        task->vue_id                = vue_id;
+        task->frame_rx              = frame_rx;
+        task->slot_rx               = slot_rx;
+        task->beam_nb               = ulsch->beam_nb;
+        // task->thread_id             = t;
+      }
+    }
+  }
+
+  pthread_mutex_lock(&gNB->slot_mutex);
+  while (gNB->slot_busy)
+    pthread_cond_wait(&gNB->slot_cond, &gNB->slot_mutex);
+  gNB->slot_busy = 1;
+  pthread_mutex_unlock(&gNB->slot_mutex);
+
+  gNB->complete_num = 0;
+  gNB->task_count[gNB->write_index] = task_count;
+  gNB->read_index = gNB->write_index;
+  gNB->write_index ^= 1;
+  if (task_count > 0) {
+    for (int i = 0; i < NUM_THREAD; i++)
+      pthread_cond_signal(&gNB->thread_pusch[i].cond_rx);
+  }
+}
+#endif
+
 static void rx_func(processingData_L1_t *info)
 {
   PHY_VARS_gNB *gNB = info->gNB;
@@ -179,13 +380,17 @@ static void rx_func(processingData_L1_t *info)
   // RX processing
   int rx_slot_type = nr_slot_select(cfg, frame_rx, slot_rx);
   if (rx_slot_type == NR_UPLINK_SLOT || rx_slot_type == NR_MIXED_SLOT) {
+    vcd_signal_dumper_dump_variable_by_name(VCD_SIGNAL_DUMPER_VARIABLES_FRAME_RX, frame_rx);
+    vcd_signal_dumper_dump_variable_by_name(VCD_SIGNAL_DUMPER_VARIABLES_SLOT_RX, slot_rx);
     LOG_D(NR_PHY, "%d.%d Starting RX processing\n", frame_rx, slot_rx);
 
     // UE-specific RX processing for subframe n
     NR_UL_IND_t UL_INFO = {.frame = frame_rx, .slot = slot_rx, .module_id = gNB->Mod_id, .CC_id = gNB->CC_id};
     // Do PRACH RU processing
     UL_INFO.rach_ind.pdu_list = UL_INFO.prach_pdu_indication_list;
+    vcd_signal_dumper_dump_function_by_name(VCD_SIGNAL_DUMPER_FUNCTIONS_NR_RX_PRACH, 1);
     L1_nr_prach_procedures(gNB, frame_rx, slot_rx, &UL_INFO.rach_ind);
+    vcd_signal_dumper_dump_function_by_name(VCD_SIGNAL_DUMPER_FUNCTIONS_NR_RX_PRACH, 0);
 
     //WA: comment rotation in tx/rx
     if (gNB->phase_comp) {
@@ -204,7 +409,19 @@ static void rx_func(processingData_L1_t *info)
         }
       }
     }
+#ifdef MULTI_PUSCH
+    // pilot_generation(gNB, frame_rx, slot_rx);
+    // pthread_mutex_lock(&gNB->slot_mutex);
+    // while (gNB->slot_busy)
+    //   pthread_cond_wait(&gNB->slot_cond, &gNB->slot_mutex);
+    // gNB->slot_busy = 1;
+    // pthread_mutex_unlock(&gNB->slot_mutex);
+    dispatch_task(gNB, frame_rx, slot_rx);
+    phy_remain_gNB_uespec_RX(gNB, frame_rx, slot_rx, &UL_INFO);
+    remain_pusch_uespec_RX(gNB, frame_rx, slot_rx, &UL_INFO);
+#else
     phy_procedures_gNB_uespec_RX(gNB, frame_rx, slot_rx, &UL_INFO);
+#endif
 
     // Call the scheduler
     start_meas(&gNB->ul_indication_stats);
@@ -318,6 +535,35 @@ void *nrL1_stats_thread(void *param) {
   return(NULL);
 }
 
+#ifdef MULTI_PUSCH
+/// @brief Thread function of PUSCH thread 
+void *pusch_procedure(void *arg)
+{
+  ul_pusch *thread_pusch = (ul_pusch *)arg;
+  int inst = thread_pusch->inst;
+  int thread_id = thread_pusch->thread_id;
+  int read_index;
+  PHY_VARS_gNB *gNB = RC.gNB[inst];
+  char name[16];
+  snprintf(name, sizeof(name), "PUSCH thread %d", thread_id);
+  pthread_setname_np(pthread_self(), name);
+  while (oai_exit == 0) {
+    while (pthread_cond_wait(&thread_pusch->cond_rx, &thread_pusch->mutex_rx)!=0);
+    read_index = gNB->read_index;
+    for (int i = thread_id; i < gNB->task_count[read_index]; i += NUM_THREAD) {
+      vcd_signal_dumper_dump_function_by_name(VCD_SIGNAL_DUMPER_FUNCTIONS_NR_RX_WORKER_THREAD_0 + thread_id, 1);
+      nr_rx_pusch_tp_virtual_ue((void *)&gNB->task_list[read_index][i]);
+      vcd_signal_dumper_dump_function_by_name(VCD_SIGNAL_DUMPER_FUNCTIONS_NR_RX_WORKER_THREAD_0 + thread_id, 0);
+    }
+    pthread_mutex_lock(&gNB->complete_mutex);
+    gNB->complete_num += 1;
+    pthread_cond_signal(&gNB->complete_cond);
+    pthread_mutex_unlock(&gNB->complete_mutex);
+  }
+  return NULL;
+}
+#endif
+
 void init_gNB_Tpool(int inst)
 {
   AssertFatal(NFAPI_MODE == NFAPI_MODE_PNF || NFAPI_MODE == NFAPI_MONOLITHIC,
@@ -349,6 +595,49 @@ void init_gNB_Tpool(int inst)
   // create the TX thread responsible for TX processing start event (L1_tx_out msg queue), then launch tx_func()
   threadCreate(&gNB->L1_tx_thread, L1_tx_thread, (void *)gNB, "L1_tx_thread", gNB->L1_tx_thread_core, OAI_PRIORITY_RT_MAX);
 
+  threadCreate(&gNB->L1_rx_thread_2, L1_rx_thread, (void *)gNB, "L1_rx_thread_2", 14, OAI_PRIORITY_RT_MAX);
+#ifdef MULTI_PUSCH
+  int ret = 0;
+  int affinity = 0;
+  pthread_cond_init(&gNB->complete_cond, NULL);
+  pthread_mutex_init(&gNB->complete_mutex, NULL);
+  for (int i = 0; i < NUM_THREAD; i++) {
+    ul_pusch *thread_pusch = &gNB->thread_pusch[i];
+    thread_pusch->inst = inst;
+    thread_pusch->thread_id = i;
+    pthread_mutex_init(&thread_pusch->mutex_rx, NULL);
+    pthread_cond_init(&thread_pusch->cond_rx, NULL);
+    pthread_attr_init(&thread_pusch->attr_rx);
+    ret = pthread_attr_setinheritsched(&thread_pusch->attr_rx, PTHREAD_EXPLICIT_SCHED);
+    AssertFatal(ret == 0, "Error in pthread_attr_setinheritsched(): ret: %d, errno: %d\n", ret, errno);
+    ret = pthread_attr_setschedpolicy(&thread_pusch->attr_rx, SCHED_OAI);
+    AssertFatal(ret == 0, "Error in pthread_attr_setschedpolicy(): ret: %d, errno: %d\n", ret, errno);
+    struct sched_param sparam = {0};
+    sparam.sched_priority = OAI_PRIORITY_RT_MAX;
+    ret = pthread_attr_setschedparam(&thread_pusch->attr_rx, &sparam);
+    AssertFatal(ret == 0, "Error in pthread_attr_setschedparam(): ret: %d errno: %d\n", ret, errno);
+
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    switch (i)
+    {
+      default:
+        affinity = 2 * i + 1;
+        break;
+    }
+    CPU_SET(affinity, &cpuset);
+    ret = pthread_attr_setaffinity_np(&thread_pusch->attr_rx, sizeof(cpu_set_t), &cpuset);
+    pthread_create(&gNB->thread_pusch[i].pthread_rx, &thread_pusch->attr_rx, pusch_procedure, thread_pusch);
+  }
+  pthread_cond_init(&gNB->slot_cond, NULL);
+  pthread_mutex_init(&gNB->slot_mutex, NULL);
+  gNB->slot_busy = 0;
+  gNB->read_index = 0;
+  gNB->write_index = 0;
+  gNB->complete_num = 0;
+
+#endif
+
   notifiedFIFO_elt_t *msgL1Tx = newNotifiedFIFO_elt(sizeof(processingData_L1tx_t), 0, &gNB->L1_tx_out, NULL);
   processingData_L1tx_t *msgDataTx = (processingData_L1tx_t *)NotifiedFifoData(msgL1Tx);
   memset(msgDataTx, 0, sizeof(processingData_L1tx_t));
@@ -365,6 +654,7 @@ void term_gNB_Tpool(int inst) {
   PHY_VARS_gNB *gNB = RC.gNB[inst];
   abortNotifiedFIFO(&gNB->resp_L1);
   pthread_join(gNB->L1_rx_thread, NULL);
+  pthread_join(gNB->L1_rx_thread_2, NULL);
   abortNotifiedFIFO(&gNB->L1_tx_out);
   pthread_join(gNB->L1_tx_thread, NULL);
 

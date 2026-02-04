@@ -211,12 +211,39 @@ void phy_init_nr_gNB(PHY_VARS_gNB *gNB)
       pusch->rxdataF_comp[i] = (int32_t *)malloc16_clear(sizeof(int32_t) * nb_re_pusch2 * fp->symbols_per_slot);
     }
 
+#ifdef MULTI_PUSCH
+    pusch->pilot = (c16_t **)malloc(max_ul_mimo_layers * NR_NUMBER_OF_SYMBOLS_PER_SLOT * sizeof(c16_t *));
     for (int i = 0; i < max_ul_mimo_layers; i++) {
+      for (int j = 0; j < NR_NUMBER_OF_SYMBOLS_PER_SLOT; j++) {
+        pusch->pilot[PILOT_IDX(i, j)] = (c16_t *)malloc16_clear(sizeof(c16_t) * 3280);
+      }
     }
+    pusch->scramblingSequence = (int16_t *)malloc16_clear(sizeof(int16_t) * 301488);
+#endif
+
     pusch->llr = (int16_t *)malloc16_clear((8 * ((3 * 8 * 6144) + 12))
                                            * sizeof(int16_t)); // [hna] 6144 is LTE and (8*((3*8*6144)+12)) is not clear
     pusch->ul_valid_re_per_slot = (int16_t *)malloc16_clear(sizeof(int16_t) * fp->symbols_per_slot);
   } // ulsch_id
+
+#ifdef MULTI_PUSCH
+  // initialization of vue variables
+  gNB->vue_vars = (NR_gNB_PUSCH_VIRTUAL_UE *)malloc16_clear(8 * gNB->max_nb_pusch * sizeof(NR_gNB_PUSCH_VIRTUAL_UE));
+  for (int vue_id = 0; vue_id < 8 * gNB->max_nb_pusch; vue_id++) {
+    NR_gNB_PUSCH_VIRTUAL_UE *vue_vars = &gNB->vue_vars[vue_id];
+    vue_vars->rxdataF_comp = (int32_t **)malloc16(n_buf * sizeof(int32_t *));
+    vue_vars->llr_layers = (int16_t **)malloc16(max_ul_mimo_layers * sizeof(int32_t *));
+    for (int i = 0; i < n_buf; i++) {
+      vue_vars->rxdataF_comp[i] = (int32_t *)malloc16_clear(sizeof(int32_t) * nb_re_pusch2 * fp->symbols_per_slot);
+    }
+
+    for (int i = 0; i < max_ul_mimo_layers; i++) {
+      vue_vars->llr_layers[i] = (int16_t *)malloc16_clear(14 * 8 * 3280
+                                                    * sizeof(int16_t)); // 14 (symbol) * 8 (256 QAM) * 3280 (CEIL_MOD(273*12, 16))
+    }
+    vue_vars->ul_valid_re_per_slot = (int16_t *)malloc16_clear(sizeof(int16_t) * fp->symbols_per_slot);
+  }
+#endif
 }
 
 void phy_free_nr_gNB(PHY_VARS_gNB *gNB)
@@ -281,6 +308,11 @@ void phy_free_nr_gNB(PHY_VARS_gNB *gNB)
     free_and_zero(pusch_vars->rxdataF_comp);
 
     free_and_zero(pusch_vars->llr);
+#ifdef MULTI_PUSCH
+    for (int i = 0; i < max_ul_mimo_layers * NR_NUMBER_OF_SYMBOLS_PER_SLOT; i++)
+      free_and_zero(pusch_vars->pilot[i]);
+    free_and_zero(pusch_vars->pilot);
+#endif
   } // ULSCH_id
   free(gNB->pusch_vars);
 

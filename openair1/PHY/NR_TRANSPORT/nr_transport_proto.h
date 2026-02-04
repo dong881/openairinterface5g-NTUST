@@ -130,6 +130,20 @@ int nr_rx_pusch_tp(PHY_VARS_gNB *gNB,
                    unsigned char harq_pid,
                    int beam_nb);
 
+/** \brief This function is the top-level entry point to PUSCH demodulation for virtual UE, after frequency-domain transformation and channel estimation.  It performs
+    - RB extraction (signal and channel estimates)
+    - channel compensation (matched filtering)
+    - RE extraction (dmrs)
+    - antenna combining (MRC, Alamouti, cycling)
+    - Channel compensation
+    - MIMO detection and decoding (ML & MMSE)
+    - Demodulation (Layer de-mapping)
+*/
+void nr_rx_pusch_tp_virtual_ue(void *arg);
+
+void unscrambling_llr(PHY_VARS_gNB *gNB,
+                   uint8_t ulsch_id);
+
 /*!
 \brief This function implements the idft transform precoding in PUSCH
 \param z Pointer to input in frequnecy domain, and it is also the output in time domain

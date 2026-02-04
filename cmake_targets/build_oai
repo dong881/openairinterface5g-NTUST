@@ -309,7 +309,7 @@ function main() {
             shift;;
        -V | --vcd)
             echo_info "Setting gtk-wave output"
-            CMAKE_CMD="$CMAKE_CMD -DENABLE_VCD_FIFO=True"
+            CMAKE_CMD="$CMAKE_CMD -DENABLE_VCD_FIFO=True -DENABLE_USE_CPU_EXECUTION_TIME=True"
             shift;;
        --build-doxygen)
            CMAKE_CMD="$CMAKE_CMD -DGENERATE_DOXYGEN=ON"

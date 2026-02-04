@@ -14,6 +14,7 @@
 #include "T.h"
 #include <sys/time.h>
 #include "PHY/log_tools.h"
+#include "common/utils/LOG/vcd_signal_dumper.h"
 
 #define INVALID_VALUE 255
 
@@ -1674,3 +1675,321 @@ int nr_rx_pusch_tp(PHY_VARS_gNB *gNB,
   gNBscopeCopyWithMetadata(gNB, gNBPuschLlr, pusch_vars->llr, sizeof(c16_t), 1, total_llrs, 0, &mt);
   return 0;
 }
+
+#ifdef MULTI_PUSCH
+typedef struct mmseSymbolProc_s{
+  PHY_VARS_gNB *gNB;
+  NR_DL_FRAME_PARMS *frame_parms;
+  nfapi_nr_pusch_pdu_t *rel15_ul;
+  int ulsch_id;
+  int vue_id;
+  int slot;
+  int startSymbol;
+  int16_t *llr;
+  int16_t **llr_layers;
+  uint32_t nvar;
+  int beam_nb;
+  int parent_rb_size;
+  int16_t *scramblingSequence;
+} mmseSymbolProc_t;
+
+static void inner_rx_modified(PHY_VARS_gNB *gNB,
+                              int vue_id,
+                              int slot,
+                              int parent_rb_size,
+                              NR_DL_FRAME_PARMS *frame_parms,
+                              NR_gNB_PUSCH *pusch_vars,
+                              NR_gNB_PUSCH_VIRTUAL_UE *vue_vars,
+                              nfapi_nr_pusch_pdu_t *rel15_ul,
+                              c16_t **rxF,
+                              int16_t **llr_layers,
+                              int soffset,
+                              int length,
+                              int symbol,
+                              int output_shift,
+                              uint32_t nvar)
+{
+  int nb_layer = rel15_ul->nrOfLayers;
+  int nb_rx_ant = frame_parms->nb_antennas_rx;
+  int dmrs_symbol_flag = (rel15_ul->ul_dmrs_symb_pos >> symbol) & 0x01;
+  int buffer_length = ceil_mod(rel15_ul->rb_size * NR_NB_SC_PER_RB, 16);
+  c16_t rxFext[nb_rx_ant][buffer_length] __attribute__((aligned(32)));
+  c16_t chFext[nb_layer][nb_rx_ant][buffer_length] __attribute__((aligned(32)));
+
+  memset(rxFext, 0, sizeof(c16_t) * nb_rx_ant * buffer_length);
+  memset(chFext, 0, sizeof(c16_t) * nb_layer * nb_rx_ant* buffer_length);
+  int dmrs_symbol;
+  dmrs_symbol = dmrs_symbol_flag ? symbol : get_valid_dmrs_idx_for_channel_est(rel15_ul->ul_dmrs_symb_pos, symbol);
+  for (int aarx = 0; aarx < nb_rx_ant; aarx++) {
+    for (int aatx = 0; aatx < nb_layer; aatx++) {
+      nr_ulsch_extract_rbs(rxF[aarx],
+                           (c16_t *)pusch_vars->ul_ch_estimates[aatx * nb_rx_ant + aarx],
+                           rxFext[aarx],
+                           chFext[aatx][aarx],
+                           soffset+(symbol * frame_parms->ofdm_symbol_size),
+                           dmrs_symbol * frame_parms->ofdm_symbol_size + vue_vars->previous_rb * 12,
+                           aarx,
+                           dmrs_symbol_flag, 
+                           rel15_ul,
+                           frame_parms);
+    }
+  }
+
+  c16_t rho[nb_layer][nb_layer][buffer_length] __attribute__((aligned(32)));
+  c16_t rxF_ch_maga  [nb_layer][buffer_length] __attribute__((aligned(32)));
+  c16_t rxF_ch_magb  [nb_layer][buffer_length] __attribute__((aligned(32)));
+  c16_t rxF_ch_magc  [nb_layer][buffer_length] __attribute__((aligned(32)));
+
+  memset(rho, 0, sizeof(c16_t) * nb_layer * nb_layer* buffer_length);
+  memset(rxF_ch_maga, 0, sizeof(c16_t) * nb_layer * buffer_length);
+  memset(rxF_ch_magb, 0, sizeof(c16_t) * nb_layer * buffer_length);
+  memset(rxF_ch_magc, 0, sizeof(c16_t) * nb_layer * buffer_length);
+
+  // need to move to uespec_RX() to initial
+  for (int i = 0; i < nb_layer; i++)
+    memset(&vue_vars->rxdataF_comp[i*nb_rx_ant][symbol * buffer_length], 0, sizeof(int32_t) * buffer_length);
+
+  nr_ulsch_channel_compensation(buffer_length,
+                                nb_rx_ant,
+                                rxFext,
+                                chFext,
+                                rxF_ch_maga,
+                                rxF_ch_magb,
+                                rxF_ch_magc,
+                                vue_vars->rxdataF_comp,
+                                nb_layer,
+                                rho,
+                                rel15_ul,
+                                symbol,
+                                output_shift);
+
+  if (nb_layer != 2 || rel15_ul->qam_mod_order >= 6)
+    for (int aatx = 0; aatx < nb_layer; aatx++) 
+      nr_ulsch_compute_llr((int32_t*)&vue_vars->rxdataF_comp[aatx * nb_rx_ant][symbol * buffer_length],
+                          rxF_ch_maga[aatx],
+                          rxF_ch_magb[aatx],
+                          rxF_ch_magc[aatx],
+                          &llr_layers[aatx][pusch_vars->llr_offset[symbol]],
+                          length,
+                          symbol,
+                          rel15_ul->qam_mod_order);
+}
+
+static void nr_mmse_symbol_processing(void *arg)
+{
+  mmseSymbolProc_t *rdata = (mmseSymbolProc_t*) arg;
+
+  PHY_VARS_gNB *gNB = rdata->gNB;
+  NR_DL_FRAME_PARMS *frame_parms = rdata->frame_parms;
+  nfapi_nr_pusch_pdu_t *rel15_ul = rdata->rel15_ul;
+  int ulsch_id = rdata->ulsch_id;
+  int vue_id = rdata->vue_id;
+  int slot = rdata->slot;
+  int parent_rb_size = rdata->parent_rb_size;
+  int previous_valid_re;
+
+#ifdef TEST_FUNCTIONALITY
+  NR_gNB_PUSCH *pusch_vars = &gNB->pusch_test[ulsch_id];
+#else
+  NR_gNB_PUSCH *pusch_vars = &gNB->pusch_vars[ulsch_id];
+#endif  
+  NR_gNB_PUSCH_VIRTUAL_UE *vue_vars = &gNB->vue_vars[vue_id];
+
+  for (int symbol = rdata->startSymbol; symbol < rdata->startSymbol + 1; symbol++) {
+    uint8_t dmrs_symbol_flag = (rel15_ul->ul_dmrs_symb_pos >> symbol) & 0x01;
+    if (dmrs_symbol_flag == 1) {
+      if (rel15_ul->dmrs_config_type == 0)
+        previous_valid_re = vue_vars->previous_rb * (12 - rel15_ul->num_dmrs_cdm_grps_no_data*6);
+      else
+        previous_valid_re = vue_vars->previous_rb * (12 - rel15_ul->num_dmrs_cdm_grps_no_data*4);
+    } else {
+      previous_valid_re = vue_vars->previous_rb * 12;
+    }
+
+    int soffset = (slot % RU_RX_SLOT_DEPTH) * frame_parms->symbols_per_slot * frame_parms->ofdm_symbol_size;
+    inner_rx_modified(gNB,
+                      vue_id,
+                      slot,
+                      parent_rb_size,
+                      frame_parms,
+                      pusch_vars,
+                      vue_vars,
+                      rel15_ul,
+                      gNB->common_vars.rxdataF[rdata->beam_nb],
+                      rdata->llr_layers,
+                      soffset,
+                      vue_vars->ul_valid_re_per_slot[symbol],
+                      symbol,
+                      13,
+                      0);
+                      // gNB->pusch_vars[ulsch_id].log2_maxh,
+                      // rdata->nvar);
+
+    int nb_re_pusch = vue_vars->ul_valid_re_per_slot[symbol];
+    // layer de-mapping
+    const int current_llr_offset = (pusch_vars->llr_offset[symbol] + previous_valid_re * rel15_ul->qam_mod_order) * rel15_ul->nrOfLayers;
+    int16_t* llr_ptr = &rdata->llr[current_llr_offset];
+    // int16_t* llr_ptr = &rdata->llr[pusch_vars->llr_offset[symbol] * rel15_ul->nrOfLayers];
+    
+    for (int i = 0; i < (nb_re_pusch); i++) 
+      for (int l = 0; l < rel15_ul->nrOfLayers; l++) 
+        for (int m = 0; m < rel15_ul->qam_mod_order; m++) 
+          llr_ptr[i*rel15_ul->nrOfLayers*rel15_ul->qam_mod_order+l*rel15_ul->qam_mod_order+m] = rdata->llr_layers[l][pusch_vars->llr_offset[symbol] + i*rel15_ul->qam_mod_order+m];
+    // unscrambling
+    int16_t *llr16 = (int16_t*)&rdata->llr[current_llr_offset];
+    int16_t *s = rdata->scramblingSequence + current_llr_offset;
+    const int end = nb_re_pusch * rel15_ul->qam_mod_order * rel15_ul->nrOfLayers;
+    for (int i = 0; i < end; i++)
+      llr16[i] = llr_ptr[i] * s[i];
+  }
+}
+
+void unscrambling_llr(PHY_VARS_gNB *gNB,
+                      uint8_t ulsch_id)
+{
+  vcd_signal_dumper_dump_function_by_name(VCD_SIGNAL_DUMPER_FUNCTIONS_NR_RX_UNSCRAMBLE_INIT, 1);
+  nfapi_nr_pusch_pdu_t *rel15_ul = &gNB->ulsch[ulsch_id].harq_process->ulsch_pdu;
+  NR_gNB_PUSCH *pusch_vars = &gNB->pusch_vars[ulsch_id];
+  int end_symbol = rel15_ul->start_symbol_index + rel15_ul->nr_of_symbols;
+  // // Scrambling initialization
+  // int number_dmrs_symbols = 0;
+  // for (int l = rel15_ul->start_symbol_index; l < end_symbol; l++)
+  //   number_dmrs_symbols += ((rel15_ul->ul_dmrs_symb_pos)>>l) & 0x01;
+  // int nb_re_dmrs;
+  // if (rel15_ul->dmrs_config_type == pusch_dmrs_type1)
+  //   nb_re_dmrs = 6*rel15_ul->num_dmrs_cdm_grps_no_data;
+  // else
+  //   nb_re_dmrs = 4*rel15_ul->num_dmrs_cdm_grps_no_data;
+
+  // uint32_t unav_res = 0;
+  // if (rel15_ul->pdu_bit_map & PUSCH_PDU_BITMAP_PUSCH_PTRS) {
+  //   uint16_t ptrsSymbPos = 0;
+  //   set_ptrs_symb_idx(&ptrsSymbPos,
+  //                     rel15_ul->nr_of_symbols,
+  //                     rel15_ul->start_symbol_index,
+  //                     1 << rel15_ul->pusch_ptrs.ptrs_time_density,
+  //                     rel15_ul->ul_dmrs_symb_pos);
+  //   int ptrsSymbPerSlot = get_ptrs_symbols_in_slot(ptrsSymbPos, rel15_ul->start_symbol_index, rel15_ul->nr_of_symbols);
+  //   int n_ptrs = (rel15_ul->rb_size + rel15_ul->pusch_ptrs.ptrs_freq_density - 1) / rel15_ul->pusch_ptrs.ptrs_freq_density;
+  //   unav_res = n_ptrs * ptrsSymbPerSlot;
+  // }
+
+  // // get how many bit in a slot //
+  // int G = nr_get_G(rel15_ul->rb_size,
+  //                  rel15_ul->nr_of_symbols,
+  //                  nb_re_dmrs,
+  //                  number_dmrs_symbols, // number of dmrs symbols irrespective of single or double symbol dmrs
+  //                  unav_res,
+  //                  rel15_ul->qam_mod_order,
+  //                  rel15_ul->nrOfLayers);
+  // gNB->ulsch[ulsch_id].unav_res = unav_res;
+
+  // // initialize scrambling sequence //
+  // int16_t scramblingSequence[G + 96] __attribute__((aligned(32)));
+
+  // nr_codeword_unscrambling_init(scramblingSequence, G, 0, rel15_ul->data_scrambling_id, rel15_ul->rnti);
+  vcd_signal_dumper_dump_function_by_name(VCD_SIGNAL_DUMPER_FUNCTIONS_NR_RX_UNSCRAMBLE_INIT, 0);
+
+  int16_t *scramblingSequence = pusch_vars->scramblingSequence;
+  vcd_signal_dumper_dump_function_by_name(VCD_SIGNAL_DUMPER_FUNCTIONS_NR_RX_UNSCRAMBLING, 1);
+  for(uint8_t symbol = rel15_ul->start_symbol_index; symbol < end_symbol; symbol++) {
+    int16_t *llr16 = (int16_t*)&pusch_vars->llr[pusch_vars->llr_offset[symbol] * rel15_ul->nrOfLayers];
+    int16_t *s = scramblingSequence + pusch_vars->llr_offset[symbol] * rel15_ul->nrOfLayers;
+    int nb_re_pusch = gNB->pusch_vars[ulsch_id].ul_valid_re_per_slot[symbol];
+    const int end = nb_re_pusch * rel15_ul->qam_mod_order * rel15_ul->nrOfLayers;
+    for (int i = 0; i < end; i++)
+      llr16[i] *= s[i];
+  }
+  vcd_signal_dumper_dump_function_by_name(VCD_SIGNAL_DUMPER_FUNCTIONS_NR_RX_UNSCRAMBLING, 0);
+
+}
+
+void nr_rx_pusch_tp_virtual_ue(void *arg)
+{
+  VUE_Task_t *task = (VUE_Task_t*)arg;
+  PHY_VARS_gNB *gNB = task->gNB;
+  task->rel15_ul = *task->parent_pdu;
+  nfapi_nr_pusch_pdu_t *rel15_ul = &task->rel15_ul;
+  rel15_ul->rb_size = task->rb_size;
+  rel15_ul->rb_start = task->rb_start;
+  uint8_t ulsch_id = task->real_ue_id;
+  uint8_t vue_id = task->vue_id;
+  // uint32_t frame = task->frame_rx;
+  uint8_t slot = task->slot_rx;
+  int beam_nb = task->beam_nb;
+
+  // printf("thread id %d and vue_id is %d\n", thread_id, vue_id);
+
+#ifdef TEST_FUNCTIONALITY
+  NR_gNB_PUSCH *pusch_vars = &gNB->pusch_test[ulsch_id];
+#else
+  NR_gNB_PUSCH *pusch_vars = &gNB->pusch_vars[ulsch_id];
+#endif
+  NR_gNB_PUSCH_VIRTUAL_UE *vue_vars = &gNB->vue_vars[vue_id];
+  NR_DL_FRAME_PARMS *frame_parms = &gNB->frame_parms;
+  vue_vars->previous_rb = task->previous_rb;
+  //----------------------------------------------------------
+  //------------------- Channel estimation -------------------
+  //----------------------------------------------------------
+  int max_ch = 0;
+  uint32_t nvar = 0;
+  int end_symbol = rel15_ul->start_symbol_index + rel15_ul->nr_of_symbols;
+  for(uint8_t symbol = rel15_ul->start_symbol_index; symbol < end_symbol; symbol++) {
+    uint8_t dmrs_symbol_flag = (rel15_ul->ul_dmrs_symb_pos >> symbol) & 0x01;
+    
+    if (dmrs_symbol_flag == 1) {
+
+      for (int nl = 0; nl < rel15_ul->nrOfLayers; nl++) {
+        uint32_t nvar_tmp = 0;
+        nr_pusch_channel_estimation_virtual(gNB,
+                                            slot,
+                                            nl,
+                                            get_dmrs_port(nl, rel15_ul->dmrs_ports),
+                                            symbol,
+                                            ulsch_id,
+                                            vue_id,
+                                            task->parent_rb_size,
+                                            task->parent_rb_start,
+                                            beam_nb,
+                                            task->bwp_start_subcarrier,
+                                            rel15_ul,
+                                            &max_ch,
+                                            &nvar_tmp);
+        nvar += nvar_tmp;
+      }
+    }
+  }
+  // vcd_signal_dumper_dump_function_by_name(v)
+
+  nvar /= (rel15_ul->nr_of_symbols * rel15_ul->nrOfLayers * frame_parms->nb_antennas_rx);
+  nvar = 0;
+  max_ch = 0;
+
+  int total_res = 0;
+
+  mmseSymbolProc_t arr[rel15_ul->nr_of_symbols];
+  for(uint8_t symbol = rel15_ul->start_symbol_index; symbol < end_symbol; symbol++) {
+    vue_vars->ul_valid_re_per_slot[symbol] = get_nb_re_pusch(frame_parms, rel15_ul, symbol);
+    total_res = vue_vars->ul_valid_re_per_slot[symbol];
+    if (total_res > 0) {
+      mmseSymbolProc_t *rdata = &arr[symbol];
+
+      rdata->gNB = gNB;
+      rdata->frame_parms = frame_parms;
+      rdata->rel15_ul = rel15_ul;
+      rdata->slot = slot;
+      rdata->startSymbol = symbol;
+      rdata->ulsch_id = ulsch_id;
+      rdata->vue_id = vue_id;
+      rdata->llr = pusch_vars->llr;
+      rdata->llr_layers = vue_vars->llr_layers;
+      rdata->nvar = nvar;
+      rdata->beam_nb = beam_nb;
+      rdata->parent_rb_size = task->parent_rb_size;
+      rdata->scramblingSequence = pusch_vars->scramblingSequence;
+
+      nr_mmse_symbol_processing(rdata);
+    }
+  } // symbol loop
+}
+#endif

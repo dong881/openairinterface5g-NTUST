@@ -55,6 +55,21 @@ int nr_pusch_channel_estimation(PHY_VARS_gNB *gNB,
                                 c16_t *pusch_dmrs_slot_mem,
                                 c16_t *pusch_ch_est_dmrs_pos_slot_mem);
 
+int nr_pusch_channel_estimation_virtual(PHY_VARS_gNB *gNB,
+                                        unsigned char Ns,
+                                        int nl,
+                                        unsigned short p,
+                                        unsigned char symbol,
+                                        int ul_id,
+                                        int vue_id,
+                                        int parent_rbsize,
+                                        int parent_rbstart,
+                                        int beam_nb,
+                                        unsigned short bwp_start_subcarrier,
+                                        nfapi_nr_pusch_pdu_t *pusch_pdu,
+                                        int *max_ch,
+                                        uint32_t *nvar);
+
 void dump_nr_I0_stats(FILE *fd,PHY_VARS_gNB *gNB);
 
 void gNB_I0_measurements(PHY_VARS_gNB *gNB, int slot, int first_symb, int num_symb, uint32_t rb_mask_ul[14][9]);

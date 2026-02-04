@@ -44,8 +44,17 @@
 #include "PHY/CODING/nrLDPC_decoder/nrLDPC_types.h"
 #include "nfapi_nr_interface_scf.h"
 
+#define MULTI_PUSCH
+
 #define MAX_NUM_RU_PER_gNB 8
 #define MAX_PUCCH0_NID 8
+
+#ifdef MULTI_PUSCH
+#define NUM_THREAD 4
+#define MAX_TASKS 128
+#endif
+
+#define PILOT_IDX(layer, symbol) (layer * NR_NUMBER_OF_SYMBOLS_PER_SLOT + symbol)
 
 typedef struct {
   int nb_id;
@@ -332,7 +341,30 @@ typedef struct {
   int llr_offset[14];
   /// flag to indicate DTX on reception
   int DTX;
+#ifdef MULTI_PUSCH
+  c16_t **pilot;
+  int16_t *scramblingSequence;
+#endif
 } NR_gNB_PUSCH;
+
+#ifdef MULTI_PUSCH
+typedef struct {
+  /// \brief Holds the compensated signal.
+  /// - first index: rx antenna id [0..nb_antennas_rx[
+  /// - second index: ? [0..12*N_RB_UL*frame_parms->symbols_per_tti[
+  int32_t **rxdataF_comp;
+  /// \f$\log_2(\max|H_i|^2)\f$
+  // int16_t log2_maxh;
+  /// \brief llr values per layer.
+  /// - first index: ? [0..3] (hard coded)
+  /// - first index: ? [0..1179743] (hard coded)
+  int16_t **llr_layers;
+  /// \brief Total RE count after DMRS/PTRS RE's are extracted from respective symbol.
+  /// - first index: ? [0...14] smybol per slot
+  int16_t *ul_valid_re_per_slot;
+  int previous_rb;
+} NR_gNB_PUSCH_VIRTUAL_UE;
+#endif
 
 /// Context data structure for RX/TX portion of slot processing
 typedef struct {
@@ -410,6 +442,40 @@ typedef struct {
 // therefore, we can have up to "number of UE" UCI PDUs
 #define MAX_NUM_NR_UCI_PDUS MAX_MOBILES_PER_GNB
 
+/*=================================================================================*/
+/*                            Part of RX procedure                                 */
+/*=================================================================================*/
+#ifdef MULTI_PUSCH
+typedef struct{
+  int inst;
+	int thread_id;
+	pthread_t pthread_rx;
+	pthread_cond_t cond_rx;
+	pthread_mutex_t mutex_rx;
+  pthread_attr_t attr_rx;
+} ul_pusch;
+
+struct PHY_VARS_gNB_s;
+
+typedef struct VUE_Task_s {
+  struct PHY_VARS_gNB_s *gNB;
+  nfapi_nr_pusch_pdu_t *parent_pdu;
+  nfapi_nr_pusch_pdu_t rel15_ul;
+  int parent_rb_size;
+  int parent_rb_start;
+  int rb_start;
+  int rb_size;
+  uint32_t bwp_start_subcarrier;
+  int previous_rb;
+  int real_ue_id;
+  int vue_id;
+  int frame_rx;
+  int slot_rx;
+  int beam_nb;
+  // int thread_id;
+} VUE_Task_t;
+#endif
+
 /// Top-level PHY Data Structure for gNB
 typedef struct PHY_VARS_gNB_s {
   /// Module ID indicator for this instance
@@ -441,6 +507,9 @@ typedef struct PHY_VARS_gNB_s {
   NR_gNB_PRACH prach_vars;
   NR_gNB_PRS prs_vars;
   NR_gNB_PUSCH *pusch_vars;
+#ifdef MULTI_PUSCH
+  NR_gNB_PUSCH_VIRTUAL_UE *vue_vars;
+#endif
   NR_gNB_PUCCH_t *pucch;
   NR_gNB_SRS_t *srs;
   NR_gNB_ULSCH_t *ulsch;
@@ -556,6 +625,21 @@ typedef struct PHY_VARS_gNB_s {
   int L1_tx_thread_core;
   struct processingData_L1tx *msgDataTx;
   void *scopeData;
+
+  pthread_t L1_rx_thread_2;
+  pthread_mutex_t slot_mutex;
+  pthread_cond_t slot_cond;
+  int slot_busy;
+
+#ifdef MULTI_PUSCH
+  volatile int complete_num;
+  pthread_mutex_t complete_mutex;
+  pthread_cond_t complete_cond;
+  ul_pusch thread_pusch[NUM_THREAD];
+  VUE_Task_t task_list[2][MAX_TASKS];
+  int task_count[2];
+  int read_index, write_index;
+#endif
 } PHY_VARS_gNB;
 
 struct puschSymbolReqId {

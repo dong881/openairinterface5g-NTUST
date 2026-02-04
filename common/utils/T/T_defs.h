@@ -59,11 +59,13 @@ typedef struct {
   int length;
 } T_cache_t;
 
+/* default number is 273 */
 /* number of VCD functions (to be kept up to date! see in T_messages.txt) */
-#define VCD_NUM_FUNCTIONS (273)
+#define VCD_NUM_FUNCTIONS (287)
 
+/* default number is 187 */
 /* number of VCD variables (to be kept up to date! see in T_messages.txt) */
-#define VCD_NUM_VARIABLES (187)
+#define VCD_NUM_VARIABLES (191)
 
 /* first VCD function (to be kept up to date! see in T_messages.txt) */
 #define VCD_FIRST_FUNCTION    ((uintptr_t)T_VCD_FUNCTION_RT_SLEEP)

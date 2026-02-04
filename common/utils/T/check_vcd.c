@@ -15,7 +15,7 @@
 /* VCD specific defines and includes
  * If the codebase changes, it may need to be updated
  */
-#define ENABLE_USE_CPU_EXECUTION_TIME
+// #define ENABLE_USE_CPU_EXECUTION_TIME
 #include "../LOG/vcd_signal_dumper.c"
 
 /*

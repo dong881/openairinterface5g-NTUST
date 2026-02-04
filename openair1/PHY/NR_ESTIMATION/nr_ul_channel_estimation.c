@@ -1070,3 +1070,199 @@ int nr_srs_channel_estimation(
 
   return 0;
 }
+
+#ifdef MULTI_PUSCH
+int nr_pusch_channel_estimation_virtual(PHY_VARS_gNB *gNB,
+                                        unsigned char Ns,
+                                        int nl,
+                                        unsigned short p,
+                                        unsigned char symbol,
+                                        int ul_id,
+                                        int vue_id,
+                                        int parent_rbsize,
+                                        int parent_rbstart,
+                                        int beam_nb,
+                                        unsigned short bwp_start_subcarrier,
+                                        nfapi_nr_pusch_pdu_t *pusch_pdu,
+                                        int *max_ch,
+                                        uint32_t *nvar)
+{
+  const int chest_freq = gNB->chest_freq;
+#ifdef DEBUG_CH
+  FILE *debug_ch_est;
+  debug_ch_est = fopen("debug_ch_est.txt","w");
+#endif
+
+#ifdef TEST_FUNCTIONALITY
+  NR_gNB_PUSCH *pusch_vars = &gNB->pusch_test[ul_id];
+#else
+  NR_gNB_PUSCH *pusch_vars = &gNB->pusch_vars[ul_id];
+#endif
+  c16_t **ul_ch_estimates = (c16_t **)pusch_vars->ul_ch_estimates;
+  c16_t *pilot =  pusch_vars->pilot[PILOT_IDX(nl, symbol)];
+
+  const int symbolSize = gNB->frame_parms.ofdm_symbol_size;
+  const int slot_offset = (Ns & 3) * gNB->frame_parms.symbols_per_slot * symbolSize;
+  const int delta = get_delta(p, pusch_pdu->dmrs_config_type);
+  const int symbol_offset = symbolSize * symbol;
+  const int k0 = bwp_start_subcarrier;
+  const int rb_start = pusch_pdu->rb_start - parent_rbstart;
+  const int nb_rb_pusch = pusch_pdu->rb_size;
+  const int rb_end = rb_start + nb_rb_pusch;
+  int pilot_offset = 0;
+  int ul_ch_offset = 0;
+
+  if (vue_id % 4 != 0) {
+    pilot_offset = 6 * rb_start;
+    ul_ch_offset = 12 * rb_start - 8;
+  }
+
+  LOG_D(PHY, "symbol_offset %d, slot_offset %d, OFDM size %d, Ns = %d, k0 = %d, symbol %d\n",
+        symbol_offset,
+        slot_offset,
+        symbolSize,
+        Ns,
+        k0,
+        symbol);
+
+#ifdef DEBUG_PUSCH
+
+  for (int i = 0; i < (6 * nb_rb_pusch); i++) {
+    LOG_I(PHY, "In %s: %d + j*(%d)\n", __FUNCTION__, pilot[i].r,pilot[i].i);
+  }
+
+#endif
+
+  int nest_count = 0;
+  uint64_t noise_amp2 = 0;
+  c16_t ul_ls_est[symbolSize] __attribute__((aligned(32)));
+  memset(ul_ls_est, 0, sizeof(c16_t) * symbolSize);
+
+  for (int aarx=0; aarx<gNB->frame_parms.nb_antennas_rx; aarx++) {
+    c16_t *rxdataF = (c16_t *)&gNB->common_vars.rxdataF[beam_nb][aarx][symbol_offset + slot_offset];
+    c16_t *ul_ch = &ul_ch_estimates[nl * gNB->frame_parms.nb_antennas_rx + aarx][symbol_offset];
+
+#ifdef DEBUG_PUSCH
+    LOG_I(PHY, "symbol_offset %d, delta %d\n", symbol_offset, delta);
+    LOG_I(PHY, "ch est pilot, N_RB_UL %d\n", gNB->frame_parms.N_RB_UL);
+    LOG_I(PHY,
+          "bwp_start_subcarrier %d, k0 %d, first_carrier %d, nb_rb_pusch %d\n",
+          bwp_start_subcarrier,
+          k0,
+          gNB->frame_parms.first_carrier_offset,
+          nb_rb_pusch);
+    LOG_I(PHY, "ul_ch addr %p \n", ul_ch);
+#endif
+
+    if (pusch_pdu->dmrs_config_type == pusch_dmrs_type1 && chest_freq == 0) {
+      // this place should modify to 6 * rb has been processed; 
+      c16_t *pil   = pilot + 6 * rb_start;
+      int re_offset = k0; // k0 = bwp_start_subcarrier
+      LOG_D(PHY,"PUSCH estimation DMRS type 1, Freq-domain interpolation");
+      int pilot_cnt = 0;
+
+      // 0 change to start_rb, nb_rb_pusch change to end_rb (start_rb + rb_size)
+      // cuz not every virtual UE start from 0
+      pilot_cnt += pilot_offset;
+      for (int n = 3 * rb_start; n < 3 * rb_end; n++) {
+        // LS estimation
+        c32_t ch = {0};
+
+        for (int k_line = 0; k_line <= 1; k_line++) {
+          re_offset = (k0 + (n << 2) + (k_line << 1) + delta) % symbolSize;
+          ch = c32x16maddShift(*pil, rxdataF[re_offset], ch, 16);
+          pil++;
+        }
+
+        c16_t ch16 = {.r = (int16_t)ch.r, .i = (int16_t)ch.i};
+        *max_ch = max(*max_ch, max(abs(ch.r), abs(ch.i)));
+        for (int k = pilot_cnt << 1; k < (pilot_cnt << 1) + 4; k++) {
+          ul_ls_est[k] = ch16;
+        }
+        pilot_cnt += 2;
+      }
+
+#ifdef DEBUG_PUSCH
+      printf("Estimated delay = %i\n", delay->est_delay >> 1);
+#endif
+
+      pilot_cnt = pilot_offset;
+      ul_ch += ul_ch_offset;
+      // 0 change to start_rb, nb_rb_pusch change to end_rb
+      for (int n = 3 * rb_start; n < 3 * rb_end; n++) {
+
+        // Channel interpolation
+        for (int k_line = 0; k_line <= 1; k_line++) {
+
+          int k = pilot_cnt << 1;
+          c16_t ch16 = ul_ls_est[k];
+
+#ifdef DEBUG_PUSCH
+          re_offset = (k0 + (n << 2) + (k_line << 1)) % symbolSize;
+          c16_t *rxF = &rxdataF[re_offset];
+          printf("pilot %4d: pil -> (%6d,%6d), rxF -> (%4d,%4d), ch -> (%4d,%4d)\n",
+                  pilot_cnt, pil->r, pil->i, rxF->r, rxF->i, ch16.r, ch16.i);
+#endif
+
+          if (pilot_cnt == 0) {
+            c16multaddVectRealComplex(filt16_ul_p0, &ch16, ul_ch, 16);
+          } else if (pilot_cnt == 1 || pilot_cnt == 2) {
+            c16multaddVectRealComplex(filt16_ul_p1p2, &ch16, ul_ch, 16);
+          } else if (pilot_cnt == (6 * parent_rbsize - 1)) {
+            c16multaddVectRealComplex(filt16_ul_last, &ch16, ul_ch, 16);
+          } else {
+            c16multaddVectRealComplex(filt16_ul_middle, &ch16, ul_ch, 16);
+            if (pilot_cnt % 2 == 0) {
+              ul_ch += 4;
+            }
+          }
+
+          pilot_cnt++;
+        }
+      }
+
+      pilot_cnt = pilot_offset;
+      ul_ch = &ul_ch_estimates[nl * gNB->frame_parms.nb_antennas_rx + aarx][symbol_offset];
+
+      ul_ch += ul_ch_offset;
+      for (int n = 3 * rb_start; n < 3 * rb_end; n++) {
+        for (int k_line = 0; k_line <= 1; k_line++) {
+          int k = pilot_cnt << 1;
+
+          noise_amp2 += c16amp2(c16sub(ul_ls_est[k], ul_ch[k]));
+          noise_amp2 += c16amp2(c16sub(ul_ls_est[k + 1], ul_ch[k + 1]));
+
+#ifdef DEBUG_PUSCH
+          re_offset = (k0 + (n << 2) + (k_line << 1)) % symbolSize;
+          printf("ch -> (%4d,%4d), ch_inter -> (%4d,%4d)\n", ul_ls_est[k].r, ul_ls_est[k].i, ul_ch[k].r, ul_ch[k].i);
+#endif
+          pilot_cnt++;
+          nest_count += 2;
+        }
+      }
+
+    }
+    
+#ifdef DEBUG_PUSCH
+    ul_ch = &ul_ch_estimates[nl * gNB->frame_parms.nb_antennas_rx + aarx][symbol_offset];
+    for (int idxP = 0; idxP < ceil((float)nb_rb_pusch * 12 / 8); idxP++) {
+      for (int idxI = 0; idxI < 8; idxI++) {
+          printf("%d\t%d\t", ul_ch[idxP * 8 + idxI].r, ul_ch[idxP * 8 + idxI].i);
+      }
+      printf("%d\n", idxP);
+    }
+#endif
+
+  }
+
+#ifdef DEBUG_CH
+  fclose(debug_ch_est);
+#endif
+
+  if (nvar && nest_count > 0) {
+    *nvar = (uint32_t)(noise_amp2 / nest_count);
+  }
+  
+  return 0;
+}
+#endif

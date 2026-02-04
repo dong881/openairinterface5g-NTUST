@@ -67,6 +67,7 @@ static int DEFRUTPCORES[] = {-1,-1,-1,-1};
 #include "nfapi_interface.h"
 #include <nfapi/oai_integration/vendor_ext.h>
 #include "executables/nr-softmodem-common.h"
+#include "PHY/NR_REFSIG/nr_refsig.h"
 
 static void NRRCconfig_RU(configmodule_interface_t *cfg);
 
@@ -1028,6 +1029,53 @@ static bool wait_free_rx_tti(notifiedFIFO_t *L1_rx_out, bool rx_tti_busy[RU_RX_S
   return true;
 }
 
+void pilot_generation(PHY_VARS_gNB *gNB, int frame_rx, int slot_rx)
+{
+  NR_DL_FRAME_PARMS *fp = &gNB->frame_parms;
+  for (int ULSCH_id = 0; ULSCH_id < gNB->max_nb_pusch; ULSCH_id++) {
+    NR_gNB_ULSCH_t *ulsch = &gNB->ulsch[ULSCH_id];
+    NR_UL_gNB_HARQ_t *ulsch_harq = ulsch->harq_process;
+    NR_gNB_PUSCH *pusch_vars = &gNB->pusch_vars[ULSCH_id]; // this is for test
+    if ((ulsch->active == true) && (ulsch->frame == frame_rx) && (ulsch->slot == slot_rx) && (ulsch->handled == 0)) {
+      nfapi_nr_pusch_pdu_t *pusch_pdu = &ulsch_harq->ulsch_pdu;
+
+      int rb_size = pusch_pdu->rb_size;
+      int end_symbol = pusch_pdu->start_symbol_index + pusch_pdu->nr_of_symbols;
+      
+      //----------------------------------------------------------
+      //-------------------- Initialization ----------------------
+      //----------------------------------------------------------
+      for(uint8_t symbol = pusch_pdu->start_symbol_index; symbol < end_symbol; symbol++) {
+        uint8_t dmrs_symbol_flag = (pusch_pdu->ul_dmrs_symb_pos >> symbol) & 0x01;
+        if (dmrs_symbol_flag == 1) {
+          for (int nl = 0; nl < pusch_pdu->nrOfLayers; nl++) {
+            c16_t *pilot = pusch_vars->pilot[PILOT_IDX(nl, symbol)];
+            const uint32_t *gold = nr_gold_pusch(fp->N_RB_UL,
+                                                fp->symbols_per_slot,
+                                                gNB->gNB_config.cell_config.phy_cell_id.value,
+                                                pusch_pdu->scid,
+                                                slot_rx,
+                                                symbol);
+            pusch_dmrs_type_t dmrs_type = pusch_pdu->dmrs_config_type == NFAPI_NR_DMRS_TYPE1 ? pusch_dmrs_type1 : pusch_dmrs_type2;
+            float beta_dmrs_pusch = get_beta_dmrs(pusch_pdu->num_dmrs_cdm_grps_no_data, dmrs_type);
+            int16_t dmrs_scaling = (1 / beta_dmrs_pusch) * (1 << 14);
+            nr_pusch_dmrs_rx(gNB,
+                            slot_rx,
+                            gold,
+                            pilot,
+                            (1000 + get_dmrs_port(nl, pusch_pdu->dmrs_ports)),
+                            0,
+                            rb_size,
+                            (pusch_pdu->bwp_start + pusch_pdu->rb_start) * NR_NB_SC_PER_RB,
+                            pusch_pdu->dmrs_config_type,
+                            dmrs_scaling);
+          }
+        }
+      }
+    }
+  }
+}
+
 void *ru_thread(void *param)
 {
   static int ru_thread_status;
@@ -1157,6 +1205,7 @@ void *ru_thread(void *param)
     LOG_D(PHY,"[RU_thread] read data: frame_rx = %d, tti_rx = %d\n", frame, slot);
 
     AssertFatal(ru->fh_south_in, "No fronthaul interface at south port");
+    pilot_generation(gNB, proc->frame_rx, proc->tti_rx);
     ru->fh_south_in(ru, &frame, &slot);
 
     if (initial_wait == 1 && proc->frame_rx < 300) {

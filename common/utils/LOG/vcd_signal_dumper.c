@@ -249,6 +249,10 @@ const char* eurecomVariablesNames[] = {
   "slot_number_RX0_gNB",
   "slot_number_RX1_gNB",
   "ru_tx_ofdm_mask",
+  "frame_rx",
+  "slot_rx",
+  "mcs",
+  "nb_rb",
   "usrp_send_return"
 };
 
@@ -532,9 +536,25 @@ const char* eurecomFunctionsNames[] = {
   "phy_procedures_gNB_tx",
   "phy_procedures_gNB_common_tx",
   "phy_procedures_gNB_uespec_rx",
+  "nr_rx_prach",
+  "nr_rx_fill_ul_mask",
+  "nr_rx_power_measurement",
+  "nr_rx_pucch",
   "nr_rx_pusch",
+  "nr_rx_unscramble_init",
+  "nr_rx_unscrambling",
+  "nr_rx_power_antenna_computation",
+  "nr_rx_power_total_computation",
+  "nr_rx_ldpc_decode",
   "nr_ulsch_procedures_rx",
   "macxface_gNB_dlsch_ulsch_scheduler",
+
+  /*NR softmodem signal for worker thread */
+  "nr_rx_main_thread",
+  "nr_rx_worker_thread_0",
+  "nr_rx_worker_thread_1",
+  "nr_rx_worker_thread_2",
+  "nr_rx_worker_thread_3",
 
   /*NR ue-softmodem signal*/
   "nr_ue_ulsch_encoding",
@@ -674,7 +694,7 @@ void *vcd_dumper_thread_rt(void *args)
   struct sched_param sched_param;
   uint32_t data_ready_wait;
 
-  return 0; //signal_mask(); //function defined at common/utils/ocp_itti/intertask_interface.cpp
+  // return 0; //signal_mask(); //function defined at common/utils/ocp_itti/intertask_interface.cpp
 
   sched_param.sched_priority = sched_get_priority_min(SCHED_FIFO) + 1;
   sched_setscheduler(0, SCHED_FIFO, &sched_param);
