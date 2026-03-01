@@ -18,20 +18,19 @@ while true; do
         spawn ssh $USER@$TARGET_IP
         
         expect {
-            # If banner block symbol is matched, state is correct
-            -re \"\342\226\210|\342\225\227|██\" {
-                expect \"password:\"
-                send \"$PASS\r\"
-                expect \"#\"
-                send \"reboot\r\"
-                puts \"\n>> Reboot command sent successfully.\"
-                expect eof
-                exit 0
-            }
-            # If password prompt appears before banner, state is incorrect
+            # Check length of the buffer before password prompt. Long buffer = banner is present.
             \"$USER@$TARGET_IP's password:\" {
-                puts \"\n>> Error: No Banner detected. Host needs triggering.\"
-                exit 1
+                if { [string length \$expect_out(buffer)] > 100 } {
+                    send \"$PASS\r\"
+                    expect \"#\"
+                    send \"reboot\r\"
+                    puts \"\n>> Reboot command sent successfully.\"
+                    expect eof
+                    exit 0
+                } else {
+                    puts \"\n>> Error: No Banner detected. Host needs triggering.\"
+                    exit 1
+                }
             }
             timeout {
                 puts \"\n>> SSH Timeout.\"
@@ -52,7 +51,6 @@ while true; do
         break
     elif [ $RET_VAL -eq 1 ]; then
         echo "[Trigger Needed] Host not triggered, running Nmap..."
-        # Run sudo nmap, may require local sudo password
         echo ">> Running: sudo $NMAP_CMD"
         sudo $NMAP_CMD
         echo ">> Waiting 2 seconds before retry..."
@@ -66,8 +64,6 @@ done
 echo "------------------------------------------------"
 echo "[Step 2] Waiting for RU reboot to complete (Ping Monitoring)..."
 
-# Simple wait logic: wait for disconnect (usually after reboot command), then wait for online
-# Sleep 10 seconds first to ensure complete shutdown
 sleep 10
 
 echo ">> Starting ping detection, waiting for response..."
@@ -81,7 +77,6 @@ echo "[Online] $TARGET_IP is back online!"
 echo "------------------------------------------------"
 echo "[Step 3] Running NETCONF configuration (will retry until success)..."
 
-# NETCONF service may start later than network, need to wait
 sleep 30
 
 PEGAM_SCRIPT="$HOME/SMO-Mplane/Pegatron/Mplane_pega.sh"
@@ -91,7 +86,7 @@ RETRY_INTERVAL=10
 for ((i=1; i<=MAX_RETRIES; i++)); do
     echo ">> Attempting NETCONF configuration (attempt $i/$MAX_RETRIES)..."
     
-    # Run the expect script directly and capture exit code
+    # Run the expect script natively
     if $PEGAM_SCRIPT; then
         echo ""
         echo "=========================================="
