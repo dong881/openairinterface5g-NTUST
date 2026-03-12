@@ -546,6 +546,26 @@ uint8_t pack_nr_param_response(void *msg, uint8_t **ppWritePackedMsg, uint8_t *e
                            ppWritePackedMsg,
                            end,
                            &pack_uint8_tlv_value)
+            && pack_nr_tlv(NFAPI_NR_NFAPI_DL_TTI_TIMING_OFFSET,
+                           &(pNfapiMsg->nfapi_config.dl_tti_timing_offset),
+                           ppWritePackedMsg,
+                           end,
+                           &pack_uint32_tlv_value)
+            && pack_nr_tlv(NFAPI_NR_NFAPI_UL_TTI_TIMING_OFFSET,
+                           &(pNfapiMsg->nfapi_config.ul_tti_timing_offset),
+                           ppWritePackedMsg,
+                           end,
+                           &pack_uint32_tlv_value)
+            && pack_nr_tlv(NFAPI_NR_NFAPI_UL_DCI_TIMING_OFFSET,
+                           &(pNfapiMsg->nfapi_config.ul_dci_timing_offset),
+                           ppWritePackedMsg,
+                           end,
+                           &pack_uint32_tlv_value)
+            && pack_nr_tlv(NFAPI_NR_NFAPI_TX_DATA_TIMING_OFFSET,
+                           &(pNfapiMsg->nfapi_config.tx_data_timing_offset),
+                           ppWritePackedMsg,
+                           end,
+                           &pack_uint32_tlv_value)
             && pack_vendor_extension_tlv(pNfapiMsg->vendor_extension, ppWritePackedMsg, end, config);
   return retval;
 }
