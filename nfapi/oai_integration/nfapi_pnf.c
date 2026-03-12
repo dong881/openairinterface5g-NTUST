@@ -2352,7 +2352,9 @@ void handle_nr_slot_ind(uint16_t sfn, uint16_t slot, NR_Sched_Rsp_t *sched_resp)
 
   // printf("send slot indication for sfn/slot:%4d.%2d current:%4d.%2d\n", sfn_tx, slot_tx, sfn, slot);
   nfapi_nr_slot_indication_scf_t ind = {.sfn = sfn_tx, .slot = slot_tx};
+#ifdef ENABLE_WLS
   oai_nfapi_nr_slot_indication(&ind);
+#endif
 
   // copy data from appropriate p7 slot buffers into channel structures for PHY processing
   nfapi_pnf_p7_get_msgs(config,
