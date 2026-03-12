@@ -74,6 +74,8 @@ static nfapi_vnf_config_t *config;
 extern RAN_CONTEXT_t RC;
 extern UL_RCC_IND_t  UL_RCC_INFO;
 
+static int nr_start_resp_received = 0;
+
 nfapi_vnf_config_t * get_config()
 {
   return config;
@@ -1316,7 +1318,7 @@ void *vnf_p7_thread_start(void *ptr) {
   p7_vnf->config->codec_config.deallocate = &vnf_deallocate;
   p7_vnf->config->allocate_p7_vendor_ext = &phy_allocate_p7_vendor_ext;
   p7_vnf->config->deallocate_p7_vendor_ext = &phy_deallocate_p7_vendor_ext;
-  NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Creating VNF NFAPI P7 start thread %s\n", __FUNCTION__);
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Creating VNF NFAPI start thread %s\n", __FUNCTION__);
   pthread_create(&vnf_p7_start_pthread, NULL, &vnf_p7_start_thread, p7_vnf->config);
   return 0;
 }
@@ -1544,6 +1546,7 @@ int start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_start_response_t
 
 int nr_start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_start_response_scf_t *resp) {
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Received NFAPI_START_RESP idx:%d phy_id:%d\n", p5_idx, resp->header.phy_id);
+  nr_start_resp_received = 1;
   return 0;
 }
 
@@ -1746,6 +1749,9 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   config->vnf_ipv6 = 0;
   config->pnf_list = 0;
   config->phy_list = 0;
+  config->timing_window = vnf->p7_vnfs[0].timing_window;
+  config->timing_info_mode = (vnf->p7_vnfs[0].aperiodic_timing_enabled << 1) | (vnf->p7_vnfs[0].periodic_timing_enabled);
+  config->timing_info_period = vnf->p7_vnfs[0].periodic_timing_period;
 
   config->pnf_nr_connection_indication = &pnf_nr_connection_indication_cb;
   config->pnf_disconnect_indication = &pnf_disconnection_indication_cb;
