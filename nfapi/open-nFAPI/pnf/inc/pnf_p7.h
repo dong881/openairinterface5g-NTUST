@@ -134,6 +134,13 @@ struct pnf_p7_t {
 	uint32_t ul_dci_jitter;
 	uint32_t tx_data_jitter;
 
+	// Timing Configuration
+	uint32_t dl_tti_timing_offset;
+	uint32_t ul_tti_timing_offset;
+	uint32_t ul_dci_timing_offset;
+	uint32_t tx_data_timing_offset;
+	uint32_t timing_window;
+
 	uint32_t tick;
 	pnf_p7_stats_t stats;
 	pnf_p7_nr_stats_t nr_stats;
