@@ -42,6 +42,143 @@
 
 #define SYNC_CYCLE_COUNT 2
 
+/* ============================================================================
+ * DYNAMIC SLOT SLEEP TIMING CONTROL
+ * ============================================================================ */
+
+/* Helper function to calculate packet slot from timing value */
+static inline uint32_t calc_packet_slot(int32_t timing_us, uint32_t current_slot_dec, 
+                                         uint32_t slot_duration_us, uint32_t max_slot_dec)
+{
+  // Calculate slot offset based on timing value (in microseconds)
+  // Positive timing = late, negative timing = early
+  int32_t slot_offset = timing_us / (int32_t)slot_duration_us;
+  return (current_slot_dec - slot_offset - (timing_us > 0) + max_slot_dec) % SLOT_ARRAY_SIZE;
+}
+
+int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
+                               nfapi_vnf_p7_connection_info_t *p7_info,
+                               vnf_timing_stats_t *out_stats,
+                               int max_stats)
+{
+  // 4 timing data points: (dl_tti, tx_data, ul_tti, ul_dci) × (delay only)
+  struct {
+    int32_t value;
+  } raw_data[4] = {
+    {ind->dl_tti_latest_delay},
+    {ind->tx_data_latest_delay},
+    {ind->ul_tti_latest_delay},
+    {ind->ul_dci_latest_delay}
+  };
+
+  int count = 0;
+  uint32_t slot_duration_us = 1000 >> p7_info->mu; // 500us for mu=1, 1000us for mu=0
+  uint32_t max_slot_dec = NFAPI_MAX_SFNSLOTDEC(p7_info->mu);
+
+  // PNF sends last_sfn/last_slot as (current - 1)
+  uint32_t base_slot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot);
+  uint32_t current_slot_dec = (base_slot_dec + 1) % max_slot_dec;
+
+  const int32_t TIMING_VALUE_MIN = -2000;
+  const int32_t TIMING_VALUE_MAX = 500;
+
+  for (int i = 0; i < 4; i++) {
+    if (raw_data[i].value == 0)
+      continue; // Skip zero values
+
+    // Discard abnormal values outside valid range [-2000, 500]
+    if (raw_data[i].value < TIMING_VALUE_MIN || raw_data[i].value > TIMING_VALUE_MAX){
+      continue;
+    }
+
+    // Calculate packet slot properties
+    int32_t slot_offset = raw_data[i].value / (int32_t)slot_duration_us;
+    // Calculate absolute slot in the hyperframe cycle (0..max_slot_dec-1)
+    uint32_t true_abs_slot = (current_slot_dec - slot_offset - (raw_data[i].value > 0) + max_slot_dec) % max_slot_dec;
+    // Map to local buffer index
+    uint32_t ps = true_abs_slot % SLOT_ARRAY_SIZE;
+
+    // --- History Aggregation Logic ---
+    if (p7_info->slot_history[ps].abs_slot == true_abs_slot) {
+        // MATCH: Merge with existing history for this slot
+        if (raw_data[i].value > p7_info->slot_history[ps].max_late)
+            p7_info->slot_history[ps].max_late = raw_data[i].value;
+    } else {
+        // MISMATCH: New slot detected, reset history
+        p7_info->slot_history[ps].abs_slot = true_abs_slot;
+        p7_info->slot_history[ps].max_late = raw_data[i].value;
+    }
+
+    // --- Prepare Output Stats (merged values) ---
+    // Check if we already have this slot in out_stats to allow multiple updates in one pass if needed
+    // (though usually strict aggregation suggests we just output the latest merged state)
+    int found = -1;
+    for (int j = 0; j < count; j++) {
+      if (out_stats[j].packet_slot == ps) {
+        found = j;
+        break;
+      }
+    }
+
+    if (found >= 0) {
+      // Update existing entry in this batch with latest from history
+      out_stats[found].max = p7_info->slot_history[ps].max_late;
+    } else if (count < max_stats) {
+      // New entry in this batch
+      out_stats[count].packet_slot = ps;
+      out_stats[count].max = p7_info->slot_history[ps].max_late;
+      count++;
+    }
+  }
+  return count;
+}
+
+void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
+{
+	int32_t all_late = stats->max;
+
+	if (all_late == 0) return;
+
+	if (p7_info->global_max_late == 0) p7_info->global_max_late = all_late; // Initialize
+
+	/* calc EWMA for each timing stats */
+	if (all_late > p7_info->global_max_late) p7_info->global_max_late = (p7_info->global_max_late * 0.1) + (all_late * 0.9);
+	else p7_info->global_max_late = (p7_info->global_max_late * 0.9) + (all_late * 0.1);
+
+	if (p7_info->global_max_late > -500) {
+		p7_info->convergence_count++;
+		if(p7_info->convergence_count >= 3){
+			/* [CASE LATE] */
+			p7_info->pending_us += (p7_info->global_max_late + 500)*0.1;
+			p7_info->convergence_count = 0;
+		}
+	} else{
+		p7_info->pending_us--;
+		p7_info->convergence_count = 0;
+	}
+}
+
+// Main Dynamic Timing Handler
+void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *void_ind)
+{
+  nfapi_nr_timing_info_t *ind = (nfapi_nr_timing_info_t *)void_ind;
+
+  // Error Handling
+  if (!ind || !p7_info)
+    return;
+  if (ind->time_since_last_timing_info > 10000)
+    return; // Basic sanity check
+
+  // Step 1: Extract per-slot timing stats (up to 8 unique slots)
+  vnf_timing_stats_t slot_stats[8];
+  int num_slots = vnf_p7_extract_timing_info(ind, p7_info, slot_stats, 8);
+
+  // Step 2: Process each unique slot
+  for (int i = 0; i < num_slots; i++) {
+    vnf_p7_convergence_optimization(p7_info, &slot_stats[i]);
+  }
+}
+
 void* vnf_p7_malloc(vnf_p7_t* vnf_p7, size_t size)
 {
 	if(vnf_p7->_public.malloc)
@@ -1613,7 +1750,6 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 		}
 	}
 	pthread_mutex_unlock(&p7_info->mutex);
-
 	NFAPI_TRACE(NFAPI_TRACE_DEBUG, 
 		"[P7_SYNC] ul_node_sync phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) offset:%d owd:%d slot_adj:%d us_adj:%d locked:%d\n",
 		ind.header.phy_id, ind.t1, ind.t2, ind.t3, t4,
@@ -1652,8 +1788,6 @@ void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
         }
 }
 
-static int16_t vnf_pnf_sfnslot_delta;
-
 void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 {
 	if (pRecvMsg == NULL || vnf_p7 == NULL)
@@ -1663,34 +1797,24 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	}
 
 	nfapi_nr_timing_info_t ind;
-  const bool result = vnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, &ind, sizeof(nfapi_timing_info_t), &vnf_p7->_public.codec_config);
+	const bool result = vnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, &ind, sizeof(nfapi_timing_info_t), &vnf_p7->_public.codec_config);
 	if(!result)
 	{
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack timing_info\n");
 		return;
 	}
+	nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
 
-        if (vnf_p7 && vnf_p7->p7_connections)
-        {
-          //int16_t vnf_pnf_sfnsf_delta = NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf) - NFAPI_SFNSF2DEC(ind.last_sfn_sf);
-          nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
-            vnf_pnf_sfnslot_delta = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn,p7_con->slot) - NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn,ind.last_slot);
-          //NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() PNF:SFN/SF:%d VNF:SFN/SF:%d deltaSFNSF:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(ind.last_sfn_sf), NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf), vnf_pnf_sfnsf_delta);
+	// Integration Step
+	handle_dynamic_timing_info(p7_con, &ind);
 
-          // Panos: Careful here!!! Modification of the original nfapi-code
-          //if (vnf_pnf_sfnsf_delta>1 || vnf_pnf_sfnsf_delta < -1)
-		  //printf("VNF-PNF delta - %d", vnf_pnf_sfnslot_delta);
-          if (vnf_pnf_sfnslot_delta > 1) // we need to have a small delta, otherwise it would mean we don't advance
-          {
-            NFAPI_TRACE(NFAPI_TRACE_WARN, "%s() LARGE SFN/SLOT DELTA between PNF and VNF. Delta %d slots. PNF:%d.%d VNF:%d.%d\n",
-                        __FUNCTION__, vnf_pnf_sfnslot_delta,
-                        ind.last_sfn, ind.last_slot,
-                        vnf_p7->p7_connections[0].sfn, vnf_p7->p7_connections[0].slot);
-            // Panos: Careful here!!! Modification of the original nfapi-code
-            vnf_p7->p7_connections[0].sfn = ind.last_sfn;
-            vnf_p7->p7_connections[0].slot = ind.last_slot;
-          }
-        }
+	// Capture current SFN/Slot locally to avoid race conditions during logging
+	uint16_t vnf_sfn = p7_con->sfn;
+	uint16_t vnf_slot = p7_con->slot;
+
+	int32_t vnf_current_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, vnf_sfn, vnf_slot);
+	int32_t pnf_ind_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn, ind.last_slot);	
+	p7_con->initial_timinginfo_received = 1; 
 }
 
 void vnf_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
