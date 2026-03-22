@@ -2375,7 +2375,7 @@ static void nr_ue_get_sdu_mac_ce_post(NR_UE_MAC_INST_t *mac,
   int short_bsr_sz = sizeof(NR_BSR_SHORT) + sizeof(NR_MAC_SUBHEADER_FIXED);
   int num_lcg_id_with_data = 0;
   for (int lcg_id = 0; lcg_id < NR_MAX_NUM_LCGID; lcg_id++)
-    num_lcg_id_with_data += LCG_bytes[lcg_id] > 0;
+    num_lcg_id_with_data += LCG_bytes > 0;
   int long_bsr_sz = num_lcg_id_with_data + sizeof(NR_BSR_LONG) + sizeof(NR_MAC_SUBHEADER_SHORT);
   if (num_lcg_id_with_data < 2 && padding_len >= short_bsr_sz) {
     mac_ce_p->bsr.type_bsr = b_short;

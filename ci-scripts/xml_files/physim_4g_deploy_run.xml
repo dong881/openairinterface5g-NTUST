@@ -37,7 +37,7 @@
         </testCase>
 
         <testCase id="010201">
-		<class>Deploy_Run_OC_PhySim</class>
+		<class>Deploy_Run_PhySim</class>
                 <desc>Deploy and run physical simulator on openshift</desc>
                 <oc_release>physims-4g</oc_release>
                 <node>avra</node>

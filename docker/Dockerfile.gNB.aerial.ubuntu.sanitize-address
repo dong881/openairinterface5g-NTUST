@@ -45,7 +45,7 @@ WORKDIR /oai-ran
 COPY . .
 
 RUN /bin/sh oaienv && \
-    tar -xvzf nvipc_src.*.tar.gz  && \
+    tar -xvzf nvipc* && \
     cd nvipc_src.* && \
     rm -rf build && mkdir build && cd build && \
     cmake .. -DNVIPC_DPDK_ENABLE=OFF -DNVIPC_DOCA_ENABLE=OFF -DNVIPC_CUDA_ENABLE=OFF -DENABLE_SLT_RSP=ON && \

@@ -66,8 +66,7 @@ def CreateWorkspace(host, sourcePath, ranRepository, ranCommitID, ranTargetBranc
 			ranTargetBranch = 'develop'
 		options += f" {ranTargetBranch}"
 	logging.info(f'execute "{script}" with options "{options}" on node {host}')
-	with cls_cmd.getConnection(host) as c:
-		ret = c.exec_script(script, 90, options)
+	ret = cls_cmd.runScript(host, script, 90, options)
 	logging.debug(f'"{script}" finished with code {ret.returncode}, output:\n{ret.stdout}')
 	return ret.returncode == 0
 
@@ -363,6 +362,7 @@ class Containerize():
 			cmd.close()
 			logging.error('\u001B[1m Building OAI Images Failed\u001B[0m')
 			HTML.CreateHtmlTestRow(self.imageKind, 'KO', CONST.ALL_PROCESSES_OK)
+			HTML.CreateHtmlTabFooter(False)
 			return False
 		else:
 			result = re.search(r'Size *= *(?P<size>[0-9\-]+) *bytes', cmd.getBefore())
@@ -389,13 +389,13 @@ class Containerize():
 			elif image != 'ran-build':
 				cmd.run(f'sed -i -e "s#ran-build:latest#ran-build:{imageTag}#" docker/Dockerfile.{pattern}{self.dockerfileprefix}')
 			if image == 'oai-gnb-aerial':
-				cmd.run('cp -f /opt/nvidia-ipc/nvipc_src.2025.08.27.tar.gz .')
+				cmd.run('cp -f /opt/nvidia-ipc/nvipc.src.2025.05.20.tar.gz .')
 			logfile = f'{lSourcePath}/cmake_targets/log/{name}.docker.log'
 			ret = cmd.run(f'{self.cli} build {self.cliBuildOptions} --target {image} --tag {name}:{imageTag} --file docker/Dockerfile.{pattern}{self.dockerfileprefix} {option} . > {logfile} 2>&1', timeout=1200)
 			t = (name, archiveArtifact(cmd, ctx, logfile))
 			log_files.append(t)
 			if image == 'oai-gnb-aerial':
-				cmd.run('rm -f nvipc_src.2025.08.27.tar.gz')
+				cmd.run('rm -f nvipc.src.2025.05.20.tar.gz')
 			# check the status of the build
 			ret = cmd.run(f"{self.cli} image inspect --format=\'Size = {{{{.Size}}}} bytes\' {name}:{imageTag}")
 			if ret.returncode != 0:
@@ -486,6 +486,7 @@ class Containerize():
 				logging.error('\u001B[1m Build of L2sim proxy failed\u001B[0m')
 				ssh.close()
 				HTML.CreateHtmlTestRow('commit ' + tag, 'KO', CONST.ALL_PROCESSES_OK)
+				HTML.CreateHtmlTabFooter(False)
 				return False
 		else:
 			logging.debug('L2sim proxy image for tag ' + tag + ' already exists, skipping build')
@@ -554,6 +555,7 @@ class Containerize():
 		if ret.returncode != 0:
 			logging.error(f'No {baseImage} image present, cannot build tests')
 			HTML.CreateHtmlTestRow(self.imageKind, 'KO', CONST.ALL_PROCESSES_OK)
+			HTML.CreateHtmlTabFooter(False)
 			return False
 
 		# build ran-unittests image
@@ -564,6 +566,7 @@ class Containerize():
 		if ret.returncode != 0:
 			logging.error(f'Cannot build unit tests')
 			HTML.CreateHtmlTestRow("Unit test build failed", 'KO', [dockerfile])
+			HTML.CreateHtmlTabFooter(False)
 			return False
 
 		HTML.CreateHtmlTestRowQueue("Build unit tests", 'OK', [dockerfile])
@@ -582,9 +585,11 @@ class Containerize():
 
 		if ret.returncode == 0:
 			HTML.CreateHtmlTestRowQueue('Unit tests succeeded', 'OK', [ret.stdout])
+			HTML.CreateHtmlTabFooter(True)
 			return True
 		else:
 			HTML.CreateHtmlTestRowQueue('Unit tests failed (see also doc/UnitTests.md)', 'KO', [ret.stdout])
+			HTML.CreateHtmlTabFooter(False)
 			return False
 
 	def Push_Image_to_Local_Registry(self, node, HTML, tag_prefix=""):

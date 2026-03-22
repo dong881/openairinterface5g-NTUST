@@ -765,9 +765,3 @@ int nr_rlc_entity_um_available_tx_space(nr_rlc_entity_t *_entity)
   nr_rlc_entity_um_t *entity = (nr_rlc_entity_um_t *)_entity;
   return entity->tx_maxsize - entity->tx_size;
 }
-
-int nr_rlc_entity_um_tx_list_occupancy(nr_rlc_entity_t *_entity)
-{
-  nr_rlc_entity_um_t *entity = (nr_rlc_entity_um_t *)_entity;
-  return entity->tx_size;
-}

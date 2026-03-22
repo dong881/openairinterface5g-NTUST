@@ -269,7 +269,14 @@ void oran_fh_if4p5_south_out(RU_t *ru, int frame, int slot, uint64_t timestamp)
   ru_info_t ru_info;
   ru_info.nb_tx = ru->nb_tx * ru->num_beams_period;
   ru_info.txdataF_BF = ru->common.txdataF_BF;
-  // printf("south_out:\tframe=%d\tslot=%d\ttimestamp=%ld\n",frame,slot,timestamp);
+
+  // Direct txdataF access - bypasses feptx_prec memcpy for better performance
+  PHY_VARS_gNB *gNB = ru->gNB_list[0];
+  NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
+  ru_info.txdataF = (int32_t ***)gNB->common_vars.txdataF;
+  ru_info.txdataF_offset = slot * fp->samples_per_slot_wCP;
+  ru_info.num_beams = ru->num_beams_period;
+  ru_info.samples_per_slot = fp->samples_per_slot_wCP;
 
   int ret = xran_fh_tx_send_slot(&ru_info, frame, slot, timestamp);
   if (ret != 0) {
@@ -338,11 +345,6 @@ __attribute__((__visibility__("default"))) int transport_init(openair0_device *d
       if (!ru_ready[i] && ru_session->ru_notif.config_change && ru_session->ru_notif.rx_carrier_state && ru_session->ru_notif.tx_carrier_state) {
         MP_LOG_I("RU \"%s\" is now ready.\n", ru_session->ru_ip_add);
         ru_ready[i] = true;
-        if (!ru_session->pm_stats.start_up_timing) {
-          success = pm_conf(ru_session, "true");
-          if (success)
-            MP_LOG_I("Sucessfully activated PM after start-up procedure for RU \"%s\".\n", ru_session->ru_ip_add);
-        }
       } else {
         all_rus_ready = false;
         break;

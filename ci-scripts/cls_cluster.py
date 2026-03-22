@@ -34,6 +34,7 @@ import time
 import os
 
 import cls_oai_html
+import cls_analysis
 import constants as CONST
 import helpreadme as HELP
 import cls_containerize
@@ -416,3 +417,34 @@ class Cluster:
 			c.run(f'cp -r {ctx.logPath} {os.getcwd()}/test_log_{ctx.test_id}/')
 
 		return status
+
+	def deploy_oc_physim(self, ctx, HTML, oc_release, node):
+		if self.ranRepository == '' or self.ranBranch == '' or self.ranCommitID == '':
+			HELP.GenericHelp(CONST.Version)
+			raise ValueError(f'Insufficient Parameter: ranRepository {self.ranRepository} ranBranch {self.ranBranch} ranCommitID {self.ranCommitID}')
+		image_tag = cls_containerize.CreateTag(self.ranCommitID, self.ranBranch, self.ranAllowMerge)
+		logging.debug(f'Running physims from server: {node}')
+		script = "scripts/oc-deploy-physims.sh"
+		options = f"oaicicd-core-for-ci-ran {oc_release} {image_tag} {self.eNBSourceCodePath}"
+		ret = cls_cmd.runScript(node, script, 600, options)
+		logging.debug(f'"{script}" finished with code {ret.returncode}, output:\n{ret.stdout}')
+		with cls_cmd.getConnection(node) as ssh:
+			details_json = archiveArtifact(ssh, ctx, f'{self.eNBSourceCodePath}/ci-scripts/{oc_release}-tests.json')
+			result_junit = archiveArtifact(ssh, ctx, f'{self.eNBSourceCodePath}/ci-scripts/{oc_release}-run.xml')
+			archiveArtifact(ssh, ctx, f'{self.eNBSourceCodePath}/ci-scripts/physim_log.txt')
+			archiveArtifact(ssh, ctx, f'{self.eNBSourceCodePath}/ci-scripts/physim_pods_summary.txt')
+			archiveArtifact(ssh, ctx, f'{self.eNBSourceCodePath}/ci-scripts/LastTestsFailed.log')
+		test_status, test_summary, test_result = cls_analysis.Analysis.analyze_oc_physim(result_junit, details_json, ctx.logPath)
+		if test_summary:
+			if test_status:
+				HTML.CreateHtmlTestRow('N/A', 'OK', CONST.ALL_PROCESSES_OK)
+				HTML.CreateHtmlTestRowPhySimTestResult(test_summary, test_result)
+				logging.info('\u001B[1m Physical Simulator Pass\u001B[0m')
+			else:
+				HTML.CreateHtmlTestRowQueue('At least one physical simulator test failed!', 'KO', ["See below for details"])
+				HTML.CreateHtmlTestRowPhySimTestResult(test_summary, test_result)
+				logging.error('\u001B[1m Physical Simulator Fail\u001B[0m')
+		else:
+			HTML.CreateHtmlTestRowQueue('Physical simulator failed', 'KO', [test_result])
+			logging.error('\u001B[1m Physical Simulator Fail\u001B[0m')
+		return test_status

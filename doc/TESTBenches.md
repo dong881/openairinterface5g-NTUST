@@ -172,17 +172,10 @@ information on how the images are built.
   ~4G-LTE ~5G-NR
   - nepes + B200 (eNB), ofqot + B200 (gNB), idefix + Quectel, nepes w/ ltebox
   - basic NSA test
-- [RAN-PhySim-Cluster-4G](https://jenkins-oai.eurecom.fr/job/RAN-PhySim-Cluster-4G/)
-  ~4G-LTE
-  - tests 4G physical simulators (`nr_dlsim`, etc.) in OpenShift Cluster (x86)
-  - see [`./physical-simulators.md`](./physical-simulators.md) for an overview
-- [RAN-PhySim-Cluster-5G](https://jenkins-oai.eurecom.fr/job/RAN-PhySim-Cluster-5G/)
-  ~5G-NR ~nrUE
-  - tests 5G physical simulators (`nr_dlsim`, etc.) in OpenShift Cluster (x86)
-  - see [`./physical-simulators.md`](./physical-simulators.md) for an overview
-- [RAN-PhySim-GraceHopper-5G](https://jenkins-oai.eurecom.fr/job/RAN-PhySim-GraceHopper-5G/)
-  ~5G-NR ~nrUE
-  - tests 5G physical simulators (`nr_dlsim`, etc.) on Nvidia GraceHopper (ARMv9)
+- [RAN-PhySim-Cluster](https://jenkins-oai.eurecom.fr/job/RAN-PhySim-Cluster/)
+  ~4G-LTE ~5G-NR ~nrUE
+  - cluster (`RAN_OC` resource), tests in OpenShift Cluster
+  - unitary simulators (`nr_dlsim`, etc.)
   - see [`./physical-simulators.md`](./physical-simulators.md) for an overview
 - [RAN-RF-Sim-Test-4G](https://jenkins-oai.eurecom.fr/job/RAN-RF-Sim-Test-4G/)
   ~4G-LTE

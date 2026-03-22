@@ -115,7 +115,7 @@ int ngap_gNB_encode_pdu(NGAP_NGAP_PDU_t *pdu, uint8_t **buffer, uint32_t *len)
   DevAssert(pdu != NULL);
   DevAssert(buffer != NULL);
   DevAssert(len != NULL);
-  if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
+  if (asn1_xer_print) {
     xer_fprint(stdout, &asn_DEF_NGAP_NGAP_PDU, (void *)pdu);
   }
   switch (pdu->present) {

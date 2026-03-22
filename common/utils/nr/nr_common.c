@@ -1465,13 +1465,13 @@ frequency_range_t get_freq_range_from_band(uint16_t band)
   return band <= 256 ? FR1 : FR2;
 }
 
-float get_beta_dmrs(int num_cdm_groups_no_data, bool is_type2)
+float get_beta_dmrs_pusch(int num_cdm_groups_no_data, pusch_dmrs_type_t dmrs_type)
 {
   float beta_dmrs_pusch = 1.0;
   if (num_cdm_groups_no_data == 2) {
     beta_dmrs_pusch = powf(10.0, 3.0 / 20.0);
   } else if (num_cdm_groups_no_data == 3) {
-    if (is_type2)
+    if (dmrs_type == pusch_dmrs_type2)
       beta_dmrs_pusch = powf(10.0, 4.77 / 20.0);
   }
   return beta_dmrs_pusch;

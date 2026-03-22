@@ -48,6 +48,9 @@
 
 #define NGAP_UE_ID_FMT  "0x%06"PRIX32
 
+extern int asn_debug;
+extern int asn1_xer_print;
+
 # include "common/utils/LOG/log.h"
 # include "ngap_gNB_default_values.h"
 # define NGAP_ERROR(x, args...) LOG_E(NGAP, x, ##args)

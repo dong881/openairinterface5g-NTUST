@@ -654,7 +654,6 @@ typedef struct NR_UE_MAC_INST_s {
   bool msg3_C_RNTI;
   pthread_mutex_t if_mutex;
   ue_mac_stats_t stats;
-  notifiedFIFO_t input_nf;
 } NR_UE_MAC_INST_t;
 
 static inline int GET_NTN_UE_K_OFFSET(const ntn_timing_advance_componets_t *ntn_ta, int scs)

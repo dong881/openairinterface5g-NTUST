@@ -237,6 +237,7 @@ static int ngap_gNB_handle_ng_setup_response(sctp_assoc_t assoc_id, uint32_t str
 
     STAILQ_INSERT_TAIL(&amf_desc_p->served_guami, new_guami_p, next);
   }
+  ngap_dump_served_guami(amf_desc_p);
 
   /* Set the capacity of this AMF */
   NGAP_FIND_PROTOCOLIE_BY_ID(NGAP_NGSetupResponseIEs_t, ie, container,
@@ -253,7 +254,7 @@ static int ngap_gNB_handle_ng_setup_response(sctp_assoc_t assoc_id, uint32_t str
     memcpy(amf_desc_p->amf_name, ie->value.choice.AMFName.buf, ie->value.choice.AMFName.size);
     amf_desc_p->amf_name[ie->value.choice.AMFName.size] = '\0';
   }
-  ngap_dump_served_guami(amf_desc_p);
+
   
   /* mandatory set the plmn supports */
   NGAP_FIND_PROTOCOLIE_BY_ID(NGAP_NGSetupResponseIEs_t, ie, container,
@@ -1126,14 +1127,7 @@ static int ngap_gNB_handle_paging(sctp_assoc_t assoc_id, uint32_t stream, NGAP_N
     TBCD_TO_MCC_MNC(&(item_p->tAI.pLMNIdentity), msg->plmn_identity[i].mcc, msg->plmn_identity[i].mnc, msg->plmn_identity[i].mnc_digit_length);
     OCTET_STRING_TO_INT16(&(item_p->tAI.tAC), msg->tac[i]);
     msg->tai_size++;
-    plmn_id_t *p = &msg->plmn_identity[i];
-    LOG_D(NGAP,
-          "[SCTP %u] PLMN in TAI list for Paging: MCC=%03d, MNC=%0*d, TAC=%d\n",
-          assoc_id,
-          p->mcc,
-          p->mnc_digit_length,
-          p->mnc,
-          msg->tac[i]);
+    NGAP_DEBUG("[SCTP %u] Received Paging: MCC %d, MNC %d, TAC %d\n", assoc_id, msg->plmn_identity[i].mcc, msg->plmn_identity[i].mnc, msg->tac[i]);
   }
 
   //paging parameter values

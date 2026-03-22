@@ -485,7 +485,6 @@ static int nr_process_mac_pdu(instance_t module_idP,
           UE->mac_stats.ul.total_sdu_bytes += mac_len;
           UE->mac_stats.ul.lc_bytes[lcid] += mac_len;
         }
-        T(T_GNB_MAC_LCID_UL, T_INT(UE->rnti), T_INT(frameP), T_INT(slot), T_INT(lcid), T_INT(mac_len * 8));
         break;
 
       case UL_SCH_LCID_DTCH ...(UL_SCH_LCID_DTCH + 28):
@@ -513,7 +512,6 @@ static int nr_process_mac_pdu(instance_t module_idP,
           else
             sched_ctrl->estimated_ul_buffer = 0;
         }
-        T(T_GNB_MAC_LCID_UL, T_INT(UE->rnti), T_INT(frameP), T_INT(slot), T_INT(lcid), T_INT(mac_len * 8));
         break;
 
       case UL_SCH_LCID_RECOMMENDED_BITRATE_QUERY:
@@ -595,7 +593,6 @@ static int nr_process_mac_pdu(instance_t module_idP,
         /* Extract short BSR value */
         ce_ptr = &pduP[mac_subheader_len];
         sched_ctrl->estimated_ul_buffer = estimate_ul_buffer_short_bsr((NR_BSR_SHORT *)ce_ptr);
-        sched_ctrl->sched_ul_bytes = 0;
         LOG_D(NR_MAC, "SHORT BSR at %4d.%2d, est buf %d\n", frameP, slot, sched_ctrl->estimated_ul_buffer);
         break;
 
@@ -604,7 +601,6 @@ static int nr_process_mac_pdu(instance_t module_idP,
         /* Extract long BSR value */
         ce_ptr = &pduP[mac_subheader_len];
         sched_ctrl->estimated_ul_buffer = estimate_ul_buffer_long_bsr((NR_BSR_LONG *)ce_ptr);
-        sched_ctrl->sched_ul_bytes = 0;
         LOG_D(NR_MAC, "LONG BSR at %4d.%2d, estim buf %d\n", frameP, slot, sched_ctrl->estimated_ul_buffer);
         break;
 
@@ -882,7 +878,7 @@ static void nr_rx_ra_sdu(const module_id_t mod_id,
       if (!old_UE->reconfigSpCellConfig) {
         LOG_I(NR_MAC, "Received UL_SCH_LCID_C_RNTI with C-RNTI 0x%04x, triggering RRC Reconfiguration\n", crnti);
         // Trigger RRCReconfiguration
-        nr_mac_trigger_reconfiguration(mac, old_UE, -1);
+        nr_mac_trigger_reconfiguration(mac, old_UE);
         // we configure the UE using common search space with DCIX0 while waiting for a reconfiguration
         configure_UE_BWP(mac, scc, old_UE, false, NR_SearchSpace__searchSpaceType_PR_common, -1, -1);
       }
@@ -1502,17 +1498,8 @@ void handle_nr_srs_measurements(const module_id_t module_id,
                                 nfapi_nr_srs_indication_pdu_t *srs_ind)
 {
   gNB_MAC_INST *nrmac = RC.nrmac[module_id];
-  LOG_D(NR_MAC, "(%d.%d) Received SRS indication for UE %04x\n", frame, slot, srs_ind->rnti);
-  if (srs_ind->report_type == 0) {
-    //SCF 222.10.04 Table 3-129 Report type = 0 means a null report, we can skip unpacking it
-    return;
-  }
-
-  if (srs_ind->timing_advance_offset == 0xFFFF) {
-    LOG_W(NR_MAC, "Invalid timing advance offset for RNTI %04x\n", srs_ind->rnti);
-    return;
-  }
   NR_SCHED_LOCK(&nrmac->sched_lock);
+  LOG_D(NR_MAC, "(%d.%d) Received SRS indication for UE %04x\n", frame, slot, srs_ind->rnti);
 
 #ifdef SRS_IND_DEBUG
   LOG_I(NR_MAC, "frame = %i\n", frame);
@@ -1527,6 +1514,12 @@ void handle_nr_srs_measurements(const module_id_t module_id,
   NR_UE_info_t *UE = find_nr_UE(&RC.nrmac[module_id]->UE_info, srs_ind->rnti);
   if (!UE) {
     LOG_W(NR_MAC, "Could not find UE for RNTI %04x\n", srs_ind->rnti);
+    NR_SCHED_UNLOCK(&nrmac->sched_lock);
+    return;
+  }
+
+  if (srs_ind->timing_advance_offset == 0xFFFF) {
+    LOG_W(NR_MAC, "Invalid timing advance offset for RNTI %04x\n", srs_ind->rnti);
     NR_SCHED_UNLOCK(&nrmac->sched_lock);
     return;
   }
@@ -1807,7 +1800,7 @@ static bool allocate_ul_retransmission(gNB_MAC_INST *nrmac,
   new_sched.bwp_info = bwp_info;
   DevAssert(new_sched.ul_harq_pid == harq_pid);
 
-  bool reuse_old_tda = retInfo->time_domain_allocation == tda;
+  bool reuse_old_tda = (retInfo->tda_info.startSymbolIndex == tda_info->startSymbolIndex) && (retInfo->tda_info.nrOfSymbols <= tda_info->nrOfSymbols);
   if (reuse_old_tda && nrOfLayers == retInfo->nrOfLayers) {
     /* Check the resource is enough for retransmission */
     const uint16_t slbitmap = SL_to_bitmap(retInfo->tda_info.startSymbolIndex, retInfo->tda_info.nrOfSymbols);
@@ -1878,6 +1871,7 @@ static bool allocate_ul_retransmission(gNB_MAC_INST *nrmac,
                                sched_ctrl->search_space,
                                sched_ctrl->coreset,
                                &sched_ctrl->sched_pdcch,
+                               false,
                                sched_ctrl->pdcch_cl_adjust);
   if (CCEIndex<0) {
     LOG_D(NR_MAC, "[UE %04x][%4d.%2d] no free CCE for retransmission UL DCI UE\n", UE->rnti, frame, slot);
@@ -1889,7 +1883,6 @@ static bool allocate_ul_retransmission(gNB_MAC_INST *nrmac,
   fill_pdcch_vrb_map(nrmac, CC_id, &sched_ctrl->sched_pdcch, CCEIndex, sched_ctrl->aggregation_level, dci_beam_idx);
 
   // signal new allocation
-  DevAssert(new_sched.time_domain_allocation == tda);
   post_process_ulsch(nrmac, pp_pusch, UE, &new_sched);
   LOG_D(NR_MAC,
         "%4d.%2d Allocate UL retransmission RNTI %04x sched %4d.%2d (%d RBs)\n",
@@ -1966,7 +1959,7 @@ static int  pf_ul(gNB_MAC_INST *nrmac,
   UE_iterator(UE_list, UE) {
 
     NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
-    if (!nr_mac_ue_is_active(UE))
+    if (sched_ctrl->ul_failure)
       continue;
 
     LOG_D(NR_MAC,"pf_ul: preparing UL scheduling for UE %04x\n",UE->rnti);
@@ -2064,11 +2057,7 @@ static int  pf_ul(gNB_MAC_INST *nrmac,
     const int max_mcs = min(bo->max_mcs, max_mcs_table); /* no per-user maximum MCS yet */
     int selected_mcs;
     if (bo->harq_round_max == 1) {
-      int nrOfLayers = get_ul_nrOfLayers(sched_ctrl, current_BWP->dci_format);
-      selected_mcs = get_mcs_from_SINRx10(current_BWP->mcs_table, sched_ctrl->pusch_snrx10, nrOfLayers);
-      selected_mcs = min(max_mcs, selected_mcs);
-      selected_mcs = max(bo->min_mcs, selected_mcs);
-      sched_ctrl->ul_bler_stats.mcs = selected_mcs;
+      selected_mcs = sched_ctrl->ul_bler_stats.mcs = max_mcs;
     } else {
       selected_mcs = get_mcs_from_bler(bo, stats, &sched_ctrl->ul_bler_stats, max_mcs, frame);
       LOG_D(NR_MAC, "%d.%d starting mcs %d bler %f\n", frame, slot, selected_mcs, sched_ctrl->ul_bler_stats.bler);
@@ -2131,6 +2120,7 @@ static int  pf_ul(gNB_MAC_INST *nrmac,
                                  sched_ctrl->search_space,
                                  sched_ctrl->coreset,
                                  &sched_ctrl->sched_pdcch,
+                                 false,
                                  sched_ctrl->pdcch_cl_adjust);
 
     if (CCEIndex < 0) {
@@ -2427,11 +2417,16 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac, post_process_pusch_t *pusch, NR_UE
   /* Statistics */
   AssertFatal(cur_harq->round < nr_mac->ul_bler.harq_round_max, "Indexing ulsch_rounds[%d] is out of bounds\n", cur_harq->round);
   UE->mac_stats.ul.rounds[cur_harq->round]++;
-  /* Save information on MCS, TBS etc for the current initial transmission
-   * so we have access to it when retransmitting */
-  cur_harq->sched_pusch = *sched_pusch;
   if (cur_harq->round == 0) {
     UE->mac_stats.ulsch_total_bytes_scheduled += sched_pusch->tb_size;
+    /* Save information on MCS, TBS etc for the current initial transmission
+     * so we have access to it when retransmitting */
+    cur_harq->sched_pusch = *sched_pusch;
+    /* save which time allocation and nrOfLayers have been used, to be used on
+     * retransmissions */
+    cur_harq->sched_pusch.time_domain_allocation = sched_pusch->time_domain_allocation;
+    cur_harq->sched_pusch.nrOfLayers = sched_pusch->nrOfLayers;
+    cur_harq->sched_pusch.tpmi = sched_pusch->tpmi;
     sched_ctrl->sched_ul_bytes += sched_pusch->tb_size;
     UE->mac_stats.ul.total_rbs += sched_pusch->rbSize;
 
@@ -2444,7 +2439,7 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac, post_process_pusch_t *pusch, NR_UE
   sched_ctrl->last_ul_slot = sched_pusch->slot;
 
   LOG_D(NR_MAC,
-        "ULSCH/PUSCH: %4d.%2d RNTI %04x UL sched %4d.%2d DCI L %d start %2d RBS %3d TDA %2d dmrs_pos %x MCS "
+        "ULSCH/PUSCH: %4d.%2d RNTI %04x UL sched %4d.%2d DCI L %d start %2d RBS %3d startSymbol %2d nb_symbol %2d dmrs_pos %x MCS "
         "Table %2d MCS %2d nrOfLayers %2d num_dmrs_cdm_grps_no_data %2d TBS %4d HARQ PID %2d round %d RV %d NDI %d est %6d sched "
         "%6d est BSR %6d TPC %d\n",
         frame,
@@ -2455,7 +2450,8 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac, post_process_pusch_t *pusch, NR_UE
         sched_ctrl->aggregation_level,
         sched_pusch->rbStart,
         sched_pusch->rbSize,
-        sched_pusch->time_domain_allocation,
+        sched_pusch->tda_info.startSymbolIndex,
+        sched_pusch->tda_info.nrOfSymbols,
         sched_pusch->dmrs_info.ul_dmrs_symb_pos,
         current_BWP->mcs_table,
         sched_pusch->mcs,
@@ -2470,8 +2466,6 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac, post_process_pusch_t *pusch, NR_UE
         sched_ctrl->sched_ul_bytes,
         sched_ctrl->estimated_ul_buffer - sched_ctrl->sched_ul_bytes,
         sched_ctrl->tpc0);
-
-  T(T_GNB_MAC_UL, T_INT(UE->rnti), T_INT(frame), T_INT(slot), T_INT(sched_pusch->mcs), T_INT(sched_pusch->tb_size));
 
   /* PUSCH in a later slot, but corresponding DCI now! */
   const int index = ul_buffer_index(sched_pusch->frame,

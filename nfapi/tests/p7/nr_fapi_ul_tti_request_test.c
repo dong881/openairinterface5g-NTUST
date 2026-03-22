@@ -24,7 +24,7 @@
 
 static void fill_ul_tti_request_beamforming(nfapi_nr_ul_beamforming_t *beamforming_pdu)
 {
-  beamforming_pdu->trp_scheme = rand8();
+  // beamforming_pdu->trp_scheme = rand8(); // not part of 10.02
   beamforming_pdu->num_prgs = rand16_range(1, NFAPI_MAX_NUM_PRGS);
   beamforming_pdu->prg_size = rand16_range(1, 275);
   beamforming_pdu->dig_bf_interface = rand8_range(1,NFAPI_MAX_NUM_BG_IF);

@@ -856,8 +856,6 @@ static void nr_generate_Msg3_retransmission(module_id_t module_idP,
     }
     if (rbStart > (sched_pusch.bwp_info.bwpSize - ra->msg3_nb_rb)) {
       // cannot find free vrb_map for msg3 retransmission in this slot
-      reset_beam_status(&nr_mac->beam_info, sched_frame, sched_slot, UE->UE_beam_index, slots_frame, beam_ul.new_beam);
-      reset_beam_status(&nr_mac->beam_info, frame, slot, UE->UE_beam_index, slots_frame, beam_dci.new_beam);
       return;
     }
 
@@ -917,11 +915,10 @@ static void nr_generate_Msg3_retransmission(module_id_t module_idP,
                                  ss,
                                  coreset,
                                  &UE->UE_sched_ctrl.sched_pdcch,
+                                 true,
                                  0);
     if (CCEIndex < 0) {
       LOG_E(NR_MAC, "UE %04x cannot find free CCE!\n", UE->rnti);
-      reset_beam_status(&nr_mac->beam_info, sched_frame, sched_slot, UE->UE_beam_index, slots_frame, beam_ul.new_beam);
-      reset_beam_status(&nr_mac->beam_info, frame, slot, UE->UE_beam_index, slots_frame, beam_dci.new_beam);
       return;
     }
 
@@ -1510,7 +1507,7 @@ static void nr_generate_Msg2(module_id_t module_idP,
   }
 
   uint8_t aggregation_level;
-  int CCEIndex = get_cce_index(nr_mac, CC_id, slotP, 0, &aggregation_level, beam.idx, ss, coreset, &sched_ctrl->sched_pdcch, 0);
+  int CCEIndex = get_cce_index(nr_mac, CC_id, slotP, 0, &aggregation_level, beam.idx, ss, coreset, &sched_ctrl->sched_pdcch, true, 0);
 
   if (CCEIndex < 0) {
     LOG_W(NR_MAC, "UE %04x: %d.%d cannot find free CCE for Msg2!\n", UE->rnti, frameP, slotP);
@@ -1710,6 +1707,7 @@ static void nr_generate_Msg4_MsgB(module_id_t module_idP,
                                  ss,
                                  coreset,
                                  &sched_ctrl->sched_pdcch,
+                                 true,
                                  0);
 
     if (CCEIndex < 0) {
@@ -1737,10 +1735,8 @@ static void nr_generate_Msg4_MsgB(module_id_t module_idP,
                                              TYPE_TC_RNTI_,
                                              coreset->controlResourceSetId,
                                              false);
-    if (!msg4_tda.valid_tda) {
-      reset_beam_status(&nr_mac->beam_info, frameP, slotP, UE->UE_beam_index, n_slots_frame, beam.new_beam);
+    if (!msg4_tda.valid_tda)
       return;
-    }
 
     NR_pdsch_dmrs_t dmrs_info = get_dl_dmrs_params(scc, dl_bwp, &msg4_tda, 1);
     bwp_info_t bwp_info = get_pdsch_bwp_start_size(nr_mac, UE);

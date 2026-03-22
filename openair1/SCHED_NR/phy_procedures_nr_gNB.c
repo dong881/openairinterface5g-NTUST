@@ -41,8 +41,12 @@
 #include <time.h>
 #include <sys/time.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <openair1/PHY/TOOLS/phy_scope_interface.h>
 #include "PHY/log_tools.h"
+#include "PHY/NR_THREAD_POOL/nr_thread_pool.h"
+#include "PHY/ISIP_POOL/isip_pool.h"
+#include "nr_slot_timing.h"
 
 //#define DEBUG_RXDATA
 //#define SRS_IND_DEBUG
@@ -194,6 +198,20 @@ void clear_slot_beamid(PHY_VARS_gNB *gNB, int slot)
   }
 }
 
+// Legacy timing control - now redirects to slot_timing
+// Keep for backward compatibility with command-line option
+void enable_l1_timing_measurement(void) {
+  slot_timing_enable();
+}
+
+void disable_l1_timing_measurement(void) {
+  slot_timing_disable();
+}
+
+static inline long timespec_diff_ns(struct timespec *start, struct timespec *end) {
+  return (end->tv_sec - start->tv_sec) * 1000000000L + (end->tv_nsec - start->tv_nsec);
+}
+
 void phy_procedures_gNB_TX(processingData_L1tx_t *msgTx,
                            int frame,
                            int slot,
@@ -206,19 +224,129 @@ void phy_procedures_gNB_TX(processingData_L1tx_t *msgTx,
   int txdataF_offset = slot * fp->samples_per_slot_wCP;
   prs_config_t *prs_config = NULL;
 
+  // Timing measurement variables (now using shared slot_timing structure)
+  struct timespec t_func_start, t_func_end;
+
+  // Register L1_tx_thread with ISIP pool (only needs to be done once)
+  static int thread_registered = 0;
+  if (!thread_registered && isip_pool_is_initialized()) {
+    thread_registered = isip_pool_register_external_thread();
+  }
+
   if ((cfg->cell_config.frame_duplex_type.value == TDD) && (nr_slot_select(cfg,frame,slot) == NR_UPLINK_SLOT))
     return;
 
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_PROCEDURES_gNB_TX + gNB->CC_id, 1);
 
-  // clear the transmit data array and beam index for the current slot
-  for (int i = 0; i < gNB->common_vars.num_beams_period; i++) {
-    for (int aa = 0; aa < cfg->carrier_config.num_tx_ant.value; aa++) {
-      memset(&gNB->common_vars.txdataF[i][aa][txdataF_offset], 0, fp->samples_per_slot_wCP * sizeof(int32_t));
-    }
+  // Store PDCCH/PDSCH count for timing
+  if (slot_timing_enabled) {
+    current_slot_timing.num_pdcch = msgTx->num_ul_pdcch + msgTx->num_dl_pdcch;
+    current_slot_timing.num_pdsch = msgTx->num_pdsch_slot;
   }
 
-  // Check for PRS slot - section 7.4.1.7.4 in 3GPP rel16 38.211
+  // ========== ASYNC MEMORY CLEAR WITH PDSCH ENCODING OVERLAP ==========
+  // Optimization: Run memory clear in parallel with PDSCH encoding.
+  // Memory clear writes to txdataF[], encoding writes to local buffer.
+  // These are independent and can execute concurrently.
+  //
+  // Flow:
+  //   1. Start async memory clear (returns immediately)
+  //   2. Do PDSCH encoding (overlaps with memory clear, ~163µs vs ~31µs)
+  //   3. Wait for memory clear to complete
+  //   4. PRS/SSB/PDCCH generation (need clear txdataF)
+  //   5. PDSCH codeword phase (scrambling, modulation, RE mapping)
+  //   6. CSI-RS, phase rotation
+
+  // 1. Start async memory clear (runs in background)
+  isip_pool_memclear_tx_async((void***)gNB->common_vars.txdataF,
+                                gNB->common_vars.num_beams_period,
+                                cfg->carrier_config.num_tx_ant.value,
+                                txdataF_offset,
+                                fp->samples_per_slot_wCP);
+
+  // 1b. Reset and start async DMRS precompute (runs in parallel with memclear and encoding)
+  int pdsch_count = msgTx->num_pdsch_slot;  // Save count before we clear it
+  nr_dlsch_dmrs_precompute_reset();  // Reset DMRS precompute state
+
+  // Static buffer for DMRS params (persists across async operation)
+  static isip_dmrs_params_t dmrs_params[ISIP_MAX_PDSCH_PER_SLOT];
+  int dmrs_precompute_count = 0;
+
+  if (pdsch_count > 0 && isip_pool_dmrs_precompute_enabled()) {
+    // Prepare DMRS precompute parameters for all PDSCHs
+    dmrs_precompute_count = pdsch_count < ISIP_MAX_PDSCH_PER_SLOT ? pdsch_count : ISIP_MAX_PDSCH_PER_SLOT;
+
+    for (int i = 0; i < dmrs_precompute_count; i++) {
+      NR_gNB_DLSCH_t *dlsch = msgTx->dlsch[i];
+      NR_DL_gNB_HARQ_t *harq = &dlsch->harq_process;
+      nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15 = &harq->pdsch_pdu.pdsch_pdu_rel15;
+
+      // Calculate n_dmrs
+      int nb_re_dmrs = rel15->numDmrsCdmGrpsNoData * (rel15->dmrsConfigType == NFAPI_NR_DMRS_TYPE1 ? 6 : 4);
+      int n_dmrs = (rel15->BWPStart + rel15->rbStart + rel15->rbSize) * nb_re_dmrs;
+
+      // Get output buffer
+      int stride;
+      isip_c16_t *out_buf = (isip_c16_t *)nr_dlsch_dmrs_get_buffer(i, &stride);
+
+      // Fill parameters
+      dmrs_params[i].n_dmrs = n_dmrs;
+      dmrs_params[i].slot = slot;
+      dmrs_params[i].dlDmrsScramblingId = rel15->dlDmrsScramblingId;
+      dmrs_params[i].SCID = rel15->SCID;
+      dmrs_params[i].StartSymbolIndex = rel15->StartSymbolIndex;
+      dmrs_params[i].NrOfSymbols = rel15->NrOfSymbols;
+      dmrs_params[i].dmrs_symbol_map = rel15->dlDmrsSymbPos;
+      dmrs_params[i].N_RB_DL = fp->N_RB_DL;
+      dmrs_params[i].symbols_per_slot = fp->symbols_per_slot;
+      dmrs_params[i].mod_dmrs_out = out_buf;
+      dmrs_params[i].dmrs_buf_stride = stride;
+    }
+
+    // Start async DMRS precompute
+    isip_pool_dmrs_precompute_async(dmrs_params, dmrs_precompute_count);
+    LOG_D(PHY, "Started async DMRS precompute for %d PDSCHs in frame %d.%d\n", dmrs_precompute_count, frame, slot);
+  }
+
+  // 2. PDSCH Encoding Phase (runs in parallel with async memory clear and DMRS precompute)
+  // Encoding (~160µs) completely hides memory clear (~31µs) and DMRS (~5µs)
+  if (slot_timing_enabled) clock_gettime(CLOCK_MONOTONIC, &t_func_start);
+  if (pdsch_count > 0) {
+    LOG_D(PHY, "PDSCH encoding phase started (%d) in frame %d.%d\n",
+          pdsch_count, frame, slot);
+    nr_pdsch_encoding_phase(msgTx, frame, slot);
+  }
+  if (slot_timing_enabled) {
+    clock_gettime(CLOCK_MONOTONIC, &t_func_end);
+    current_slot_timing.encoding_overlap_ns = timespec_diff_ns(&t_func_start, &t_func_end);
+  }
+
+  // 3. Wait for async memory clear to complete
+  // Should be near-instant since encoding (~160µs) >> memclear (~31µs)
+  if (slot_timing_enabled) clock_gettime(CLOCK_MONOTONIC, &t_func_start);
+  isip_pool_memclear_tx_wait();
+
+  // 3b. Wait for async DMRS precompute to complete and enable precomputed DMRS
+  isip_pool_dmrs_precompute_wait();
+  if (dmrs_precompute_count > 0) {
+    // Copy metadata from ISIP params to nr_dlsch buffers
+    for (int i = 0; i < dmrs_precompute_count; i++) {
+      nr_dlsch_dmrs_set_precomputed(i, dmrs_params[i].symbol_indices_out,
+                                     dmrs_params[i].l_prime_out,
+                                     dmrs_params[i].num_precomputed);
+    }
+    nr_dlsch_dmrs_precompute_enable();
+    LOG_D(PHY, "DMRS precompute completed for %d PDSCHs\n", dmrs_precompute_count);
+  }
+  if (slot_timing_enabled) {
+    clock_gettime(CLOCK_MONOTONIC, &t_func_end);
+    current_slot_timing.memclear_wait_ns = timespec_diff_ns(&t_func_start, &t_func_end);
+    // Backward compat: total "memory clear" time = overlap + wait
+    current_slot_timing.memory_clear_ns = current_slot_timing.encoding_overlap_ns + current_slot_timing.memclear_wait_ns;
+  }
+
+  // 3. PRS Generation (needs clear txdataF)
+  if (slot_timing_enabled) clock_gettime(CLOCK_MONOTONIC, &t_func_start);
   for(int rsc_id = 0; rsc_id < gNB->prs_vars.NumPRSResources; rsc_id++)
   {
     prs_config = &gNB->prs_vars.prs_cfg[rsc_id];
@@ -232,40 +360,66 @@ void phy_procedures_gNB_TX(processingData_L1tx_t *msgTx,
       }
     }
   }
+  if (slot_timing_enabled) {
+    clock_gettime(CLOCK_MONOTONIC, &t_func_end);
+    current_slot_timing.prs_gen_ns = timespec_diff_ns(&t_func_start, &t_func_end);
+  }
 
+  // 4. SSB Generation (needs clear txdataF)
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_PROCEDURES_gNB_COMMON_TX,1);
+  if (slot_timing_enabled) clock_gettime(CLOCK_MONOTONIC, &t_func_start);
   for (int i = 0; i < fp->Lmax; i++) {
     if (msgTx->ssb[i].active) {
       nr_common_signal_procedures(gNB, frame, slot, msgTx->ssb[i].ssb_pdu);
       msgTx->ssb[i].active = false;
     }
   }
-
+  if (slot_timing_enabled) {
+    clock_gettime(CLOCK_MONOTONIC, &t_func_end);
+    current_slot_timing.ssb_gen_ns = timespec_diff_ns(&t_func_start, &t_func_end);
+  }
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_PROCEDURES_gNB_COMMON_TX,0);
 
   int num_pdcch_pdus = msgTx->num_ul_pdcch + msgTx->num_dl_pdcch;
 
+  // 5. PDCCH Generation (needs clear txdataF)
   if (num_pdcch_pdus > 0) {
     LOG_D(PHY, "[gNB %d] Frame %d slot %d Calling nr_generate_dci_top (number of UL/DL PDCCH PDUs %d/%d)\n",
 	  gNB->Mod_id, frame, slot, msgTx->num_ul_pdcch, msgTx->num_dl_pdcch);
-  
+
     VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_gNB_PDCCH_TX,1);
+    if (slot_timing_enabled) clock_gettime(CLOCK_MONOTONIC, &t_func_start);
 
     nr_generate_dci_top(msgTx, slot, txdataF_offset);
 
+    if (slot_timing_enabled) {
+      clock_gettime(CLOCK_MONOTONIC, &t_func_end);
+      current_slot_timing.pdcch_gen_ns = timespec_diff_ns(&t_func_start, &t_func_end);
+    }
     VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_gNB_PDCCH_TX,0);
   }
   msgTx->num_dl_pdcch = 0;
   msgTx->num_ul_pdcch = 0;
- 
-  if (msgTx->num_pdsch_slot > 0) {
+
+  // 6. PDSCH Codeword Phase (scrambling, modulation, layer mapping, RE mapping)
+  // Encoding was already done in phase 1 (overlapped with memory clear)
+  if (pdsch_count > 0) {
     VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_GENERATE_DLSCH,1);
-    LOG_D(PHY, "PDSCH generation started (%d) in frame %d.%d\n", msgTx->num_pdsch_slot,frame,slot);
-    nr_generate_pdsch(msgTx, frame, slot);
+    LOG_D(PHY, "PDSCH codeword phase started (%d) in frame %d.%d\n", pdsch_count, frame, slot);
+    if (slot_timing_enabled) clock_gettime(CLOCK_MONOTONIC, &t_func_start);
+
+    nr_pdsch_codeword_phase(msgTx, frame, slot);
+
+    if (slot_timing_enabled) {
+      clock_gettime(CLOCK_MONOTONIC, &t_func_end);
+      current_slot_timing.pdsch_gen_ns = timespec_diff_ns(&t_func_start, &t_func_end);
+    }
     VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_GENERATE_DLSCH,0);
   }
-  msgTx->num_pdsch_slot = 0;
+  // Note: Don't reset msgTx->num_pdsch_slot here - phase rotation needs it for 2-layer optimization
 
+  // 7. CSI-RS Generation (needs clear txdataF)
+  if (slot_timing_enabled) clock_gettime(CLOCK_MONOTONIC, &t_func_start);
   for (int i = 0; i < NR_SYMBOLS_PER_SLOT; i++){
     NR_gNB_CSIRS_t *csirs = &msgTx->csirs_pdu[i];
     if (csirs->active == 1) {
@@ -309,29 +463,96 @@ void phy_procedures_gNB_TX(processingData_L1tx_t *msgTx,
       csirs->active = 0;
     }
   }
+  if (slot_timing_enabled) {
+    clock_gettime(CLOCK_MONOTONIC, &t_func_end);
+    current_slot_timing.csirs_gen_ns = timespec_diff_ns(&t_func_start, &t_func_end);
+  }
 
-  //apply the OFDM symbol rotation here
+  // 8. Phase Rotation
   start_meas(&gNB->phase_comp_stats);
-  for (int i = 0; i < gNB->common_vars.num_beams_period; ++i) {
-    for (int aa = 0; aa < cfg->carrier_config.num_tx_ant.value; aa++) {
-      if (gNB->phase_comp) {
-        apply_nr_rotation_TX(fp,
-                             &gNB->common_vars.txdataF[i][aa][txdataF_offset],
-                             fp->symbol_rotation[0],
-                             slot,
-                             fp->N_RB_DL,
-                             0,
-                             fp->Ncp == EXTENDED ? 12 : 14);
+  if (slot_timing_enabled) clock_gettime(CLOCK_MONOTONIC, &t_func_start);
+
+  if (gNB->phase_comp) {
+    // OPTIMIZATION: Symbol-first processing for better L2 cache locality
+    const c16_t *rot_base = fp->symbol_rotation[0];
+    const int symb_offset_base = (slot % fp->slots_per_subframe) * fp->symbols_per_slot;
+    const int nsymb = fp->Ncp == EXTENDED ? 12 : 14;
+    const int nb_rb = fp->N_RB_DL;
+    const int num_antennas = cfg->carrier_config.num_tx_ant.value;
+
+    // 2-LAYER OPTIMIZATION: Skip zero-filled antennas
+    bool is_2layer_mode = false;
+    if (msgTx->num_pdsch_slot > 0) {
+      for (int i = 0; i < msgTx->num_pdsch_slot; i++) {
+        NR_gNB_DLSCH_t *dlsch = msgTx->dlsch[i];
+        NR_DL_gNB_HARQ_t *harq = &dlsch->harq_process;
+        nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15 = &harq->pdsch_pdu.pdsch_pdu_rel15;
+        if (rel15->nrOfLayers == 2) {
+          is_2layer_mode = true;
+          break;
+        }
       }
-      T(T_GNB_PHY_DL_OUTPUT_SIGNAL,
-        T_INT(0),
-        T_INT(frame),
-        T_INT(slot),
-        T_INT(aa),
-        T_BUFFER(&gNB->common_vars.txdataF[i][aa][txdataF_offset], fp->samples_per_slot_wCP * sizeof(int32_t)));
+    }
+    const int active_antennas = is_2layer_mode ? 2 : num_antennas;
+
+    for (int i = 0; i < gNB->common_vars.num_beams_period; ++i) {
+      for (int sym = 0; sym < nsymb; sym++) {
+        const c16_t *this_rotation = rot_base + symb_offset_base + sym;
+        const int sym_offset = txdataF_offset + sym * fp->ofdm_symbol_size;
+
+        for (int aa = 0; aa < active_antennas; aa++) {
+          c16_t *this_symbol = &gNB->common_vars.txdataF[i][aa][sym_offset];
+
+          if (nb_rb & 1) {
+            rotate_cpx_vector(this_symbol, this_rotation, this_symbol,
+                              (nb_rb + 1) * 6, 15);
+            rotate_cpx_vector(this_symbol + fp->first_carrier_offset - 6,
+                              this_rotation,
+                              this_symbol + fp->first_carrier_offset - 6,
+                              (nb_rb + 1) * 6, 15);
+          } else {
+            rotate_cpx_vector(this_symbol, this_rotation, this_symbol,
+                              nb_rb * 6, 15);
+            rotate_cpx_vector(this_symbol + fp->first_carrier_offset,
+                              this_rotation,
+                              this_symbol + fp->first_carrier_offset,
+                              nb_rb * 6, 15);
+          }
+        }
+      }
+
+      // T tracing after rotation
+      for (int aa = 0; aa < num_antennas; aa++) {
+        T(T_GNB_PHY_DL_OUTPUT_SIGNAL,
+          T_INT(0),
+          T_INT(frame),
+          T_INT(slot),
+          T_INT(aa),
+          T_BUFFER(&gNB->common_vars.txdataF[i][aa][txdataF_offset], fp->samples_per_slot_wCP * sizeof(int32_t)));
+      }
+    }
+  } else {
+    // No phase compensation - just T tracing
+    for (int i = 0; i < gNB->common_vars.num_beams_period; ++i) {
+      for (int aa = 0; aa < cfg->carrier_config.num_tx_ant.value; aa++) {
+        T(T_GNB_PHY_DL_OUTPUT_SIGNAL,
+          T_INT(0),
+          T_INT(frame),
+          T_INT(slot),
+          T_INT(aa),
+          T_BUFFER(&gNB->common_vars.txdataF[i][aa][txdataF_offset], fp->samples_per_slot_wCP * sizeof(int32_t)));
+      }
     }
   }
+
+  if (slot_timing_enabled) {
+    clock_gettime(CLOCK_MONOTONIC, &t_func_end);
+    current_slot_timing.phase_rot_ns = timespec_diff_ns(&t_func_start, &t_func_end);
+  }
   stop_meas(&gNB->phase_comp_stats);
+
+  // Reset PDSCH count after all processing including phase rotation
+  msgTx->num_pdsch_slot = 0;
 
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_PHY_PROCEDURES_gNB_TX + gNB->CC_id, 0);
 }

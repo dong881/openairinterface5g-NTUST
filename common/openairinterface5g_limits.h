@@ -7,10 +7,10 @@
 #        define NUMBER_OF_RU_MAX 2
 #        define NUMBER_OF_NR_RU_MAX 2
 #        define NUMBER_OF_UCI_MAX 16
-#        define NUMBER_OF_ULSCH_MAX 8
-#        define NUMBER_OF_DLSCH_MAX 8 
+#        define NUMBER_OF_ULSCH_MAX 16
+#        define NUMBER_OF_DLSCH_MAX 32 
 #        define NUMBER_OF_SRS_MAX 16
-#        define NUMBER_OF_SCH_STATS_MAX 16
+#        define NUMBER_OF_SCH_STATS_MAX 32
 
 #define MAX_MANAGED_ENB_PER_MOBILE  2
 #define MAX_MANAGED_GNB_PER_MOBILE  2

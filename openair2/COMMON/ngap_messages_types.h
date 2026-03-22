@@ -82,8 +82,6 @@
 
 #define QOSFLOW_MAX_VALUE           64
 
-#define NGAP_MAX_NO_TAI_PAGING 16 // 9.2.4.1 3GPP TS 38.413
-
 /* Security key length used within gNB
  * Even if only 16 bytes will be effectively used,
  * the key length is 32 bytes (256 bits)
@@ -208,6 +206,12 @@ typedef struct fiveg_s_tmsi_s {
   uint32_t m_tmsi;
 } fiveg_s_tmsi_t;
 
+typedef struct ngap_tai_plmn_identity_s {
+  uint16_t mcc;
+  uint16_t mnc;
+  uint8_t  mnc_digit_length;
+} ngap_plmn_identity_t;
+
 typedef struct ngap_ue_paging_identity_s {
   fiveg_s_tmsi_t s_tmsi;
 } ngap_ue_paging_identity_t;
@@ -224,7 +228,7 @@ typedef struct ngap_ue_identity_s {
 } ngap_ue_identity_t;
 
 typedef struct ngap_mobility_restriction_s{
-  plmn_id_t serving_plmn;
+  ngap_plmn_identity_t serving_plmn;
 }ngap_mobility_restriction_t;
 
 typedef enum pdusession_qosflow_mapping_ind_e{
@@ -596,10 +600,10 @@ typedef struct ngap_paging_ind_s {
   ngap_cn_domain_t cn_domain;
 
   /* PLMN_identity in TAI of Paging*/
-  plmn_id_t plmn_identity[NGAP_MAX_NO_TAI_PAGING];
+  ngap_plmn_identity_t plmn_identity[256];
 
   /* TAC in TAIList of Paging*/
-  int16_t tac[NGAP_MAX_NO_TAI_PAGING];
+  int16_t tac[256];
 
   /* size of TAIList*/
   int16_t tai_size;

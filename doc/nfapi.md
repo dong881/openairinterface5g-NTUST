@@ -171,7 +171,7 @@ After installing WLS, you can run the build command as shown below:
 
 #### How to run OAI PNF with OAI VNF
 
-Refer to the above steps in [Quickstart](#quickstart), but run the PNF first as it is the WLS "master".
+Refer to the above steps in [Quickstart](.#quickstart), but run the PNF first as it is the WLS "master".
 
 #### How to run OAI PNF with OSC/Radisys O-DU
 

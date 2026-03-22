@@ -64,3 +64,18 @@ class Native():
 			logging.error('\u001B[1m Building OAI Failed\u001B[0m')
 			HTML.CreateHtmlTestRow(options, 'KO', CONST.ALL_PROCESSES_OK)
 		return success
+
+	def Run_Physim(ctx, HTML, host, directory, options, physim_test, threshold):
+		logging.debug(f'Runnin {physim_test} on server: {host}')
+		workSpacePath = f'{directory}/cmake_targets'
+		runLogFile=f'{workSpacePath}/physim.log'
+		with cls_cmd.getConnection(host) as cmd:
+			cmd.run(f'sudo LD_LIBRARY_PATH=.:{DPDK_PATH}/lib64/ {workSpacePath}/ran_build/build/{physim_test} {options} > {runLogFile} 2>&1')
+			physim_file = archiveArtifact(cmd, ctx, runLogFile)
+		success, msg = cls_analysis.Analysis.analyze_physim(physim_file, physim_test, options, threshold)
+		if success:
+			HTML.CreateHtmlTestRowQueue(options, 'OK', [msg])
+		else:
+			logging.error(msg)
+			HTML.CreateHtmlTestRowQueue(options, 'KO', [msg])
+		return success

@@ -700,11 +700,8 @@ static void modlist_coreset(NR_ControlResourceSet_t *source, NR_ControlResourceS
           if (id == *target->tci_StatesPDCCH_ToAddList->list.array[j])
             break;
         }
-        if (j == target->tci_StatesPDCCH_ToAddList->list.count) {
-          long *tci_id = calloc(1, sizeof(*tci_id));
-          *tci_id = id;
-          ASN_SEQUENCE_ADD(&target->tci_StatesPDCCH_ToAddList->list, tci_id);
-        }
+        if (j == target->tci_StatesPDCCH_ToAddList->list.count)
+          ASN_SEQUENCE_ADD(&target->tci_StatesPDCCH_ToAddList->list, source->tci_StatesPDCCH_ToAddList->list.array[i]);
       }
     } else
       UPDATE_IE(target->tci_StatesPDCCH_ToAddList,
@@ -2680,8 +2677,8 @@ static void configure_BWPs(NR_UE_MAC_INST_t *mac, NR_ServingCellConfig_t *scd)
   if (scd->downlinkBWP_ToReleaseList) {
     for (int i = 0; i < scd->downlinkBWP_ToReleaseList->list.count; i++) {
       for (int j = 0; j < mac->dl_BWPs.count; j++) {
-        if (*scd->downlinkBWP_ToReleaseList->list.array[i] == mac->dl_BWPs.array[j]->bwp_id)
-          release_dl_BWP(mac, j);
+        if (*scd->downlinkBWP_ToReleaseList->list.array[i] == mac->dl_BWPs.array[i]->bwp_id)
+          release_dl_BWP(mac, i);
       }
     }
   }
@@ -2702,8 +2699,8 @@ static void configure_BWPs(NR_UE_MAC_INST_t *mac, NR_ServingCellConfig_t *scd)
     if (scd->uplinkConfig->uplinkBWP_ToReleaseList) {
       for (int i = 0; i < scd->uplinkConfig->uplinkBWP_ToReleaseList->list.count; i++) {
         for (int j = 0; j < mac->ul_BWPs.count; j++) {
-          if (*scd->uplinkConfig->uplinkBWP_ToReleaseList->list.array[i] == mac->ul_BWPs.array[j]->bwp_id)
-            release_ul_BWP(mac, j);
+          if (*scd->uplinkConfig->uplinkBWP_ToReleaseList->list.array[i] == mac->ul_BWPs.array[i]->bwp_id)
+            release_ul_BWP(mac, i);
         }
       }
     }

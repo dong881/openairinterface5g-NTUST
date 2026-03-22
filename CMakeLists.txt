@@ -170,7 +170,7 @@ endif()
 if (NOT CROSS_COMPILE)
   set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -march=native")
 else ()
-  set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -march=armv8.2-a")
+  set(C_FLAGS_PROCESSOR "${C_FLAGS_PROCESSOR} -march=armv8-a")
 endif()
 
 # add autotools definitions that were maybe used!
@@ -194,26 +194,26 @@ set(CMAKE_CXX_FLAGS
   "${C_FLAGS_PROCESSOR}  ${commonOpts} -std=c++11 ${CMAKE_CXX_FLAGS}")
 
 
-add_boolean_option(SANITIZE_ADDRESS OFF "enable the address sanitizer (ASan)" ON)
+add_boolean_option(SANITIZE_ADDRESS False "enable the address sanitizer (ASan)" ON)
 if (SANITIZE_ADDRESS)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address -fno-omit-frame-pointer -fno-common")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer -fno-common")
 endif ()
 
-add_boolean_option(SANITIZE_THREAD OFF "enable the address sanitizer (TSan)" ON)
+add_boolean_option(SANITIZE_THREAD False "enable the address sanitizer (TSan)" ON)
 if (SANITIZE_THREAD)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=thread -fno-omit-frame-pointer -fno-common")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread -fno-omit-frame-pointer -fno-common")
   set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=thread")
 endif()
 
-add_boolean_option(SANITIZE_UNDEFINED OFF "enable the undefined behavior sanitizer (UBSan)" ON)
+add_boolean_option(SANITIZE_UNDEFINED False "enable the undefined behavior sanitizer (UBSan)" ON)
 if (SANITIZE_UNDEFINED)
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=undefined -fno-sanitize-recover=all")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined -fno-sanitize-recover=all")
 endif ()
 
-add_boolean_option(SANITIZE_MEMORY OFF "enable the memory sanitizer (MSan, requires clang, incompatible with ASan/UBSan)" ON)
+add_boolean_option(SANITIZE_MEMORY False "enable the memory sanitizer (MSan, requires clang, incompatible with ASan/UBSan)" ON)
 if(SANITIZE_MEMORY)
   if (SANITIZE_UNDEFINED OR SANITIZE_ADDRESS)
     message(FATAL_ERROR "memory sanitizer cannot coexist with address sanitizer or undefined behavior sanitizer, please disable either MSan or ASan and UBSan")
@@ -278,16 +278,14 @@ endif()
 # OAI uses this feature to re-use OAI LOG_I(ASN1, ...)
 # see common/utils/config.h
 add_boolean_option(TRACE_ASN1C_ENC_DEC OFF "Enable ASN1 encoder/decoder debug traces via OAI logging system" ON)
-add_boolean_option(T_TRACER            ON  "Activate the T tracer, a debugging/monitoring framework" ON)
-add_boolean_option(ENABLE_LTTNG        OFF "Activate the LTTNG tracer, a debugging/monitoring framework" ON)
-add_boolean_option(UE_DEBUG_TRACE      OFF "Activate UE debug trace" ON)
-add_boolean_option(UE_TIMING_TRACE     OFF "Activate UE timing trace" ON)
+add_boolean_option(T_TRACER            True  "Activate the T tracer, a debugging/monitoring framework" ON)
+add_boolean_option(ENABLE_LTTNG        False "Activate the LTTNG tracer, a debugging/monitoring framework" ON)
+add_boolean_option(UE_DEBUG_TRACE      False "Activate UE debug trace" ON)
+add_boolean_option(UE_TIMING_TRACE     False "Activate UE timing trace" ON)
 
 add_boolean_option(TRACY_ENABLE OFF "Enable tracy instrumentation" ON)
 if (TRACY_ENABLE)
-  # the tracy version here should match the tracy server version
-  # below is latest release as of this commit
-  CPMAddPackage("gh:wolfpld/tracy#0.12.2")
+  CPMAddPackage("gh:wolfpld/tracy#v0.11.1")
 endif()
 
 set (OCP_ITTI ${OPENAIR_DIR}/common/utils/ocp_itti)
@@ -339,6 +337,7 @@ target_link_libraries(nr_rrc PUBLIC asn1_nr_rrc asn1_lte_rrc)
 set(S1AP_DIR ${OPENAIR3_DIR}/S1AP)
 include_directories ("${S1AP_DIR}")
 add_library(s1ap
+  ${S1AP_DIR}/s1ap_common.c
   ${S1AP_DIR}/s1ap_eNB.c
   ${S1AP_DIR}/s1ap_eNB_context_management_procedures.c
   ${S1AP_DIR}/s1ap_eNB_decoder.c
@@ -510,34 +509,34 @@ include_directories ("${OPENAIR_DIR}/radio/COMMON")
 #    ???!!! TO BE DOCUMENTED OPTIONS !!!???
 ##############################################################
 
-add_boolean_option(UE_EXPANSION             OFF         "enable UE_EXPANSION with max 256 UE" ON)
-add_boolean_option(PHY_TX_THREAD            OFF         "enable UE_EXPANSION with max 256 UE" ON)
-add_boolean_option(PRE_SCD_THREAD           OFF         "enable UE_EXPANSION with max 256 UE" ON)
+add_boolean_option(UE_EXPANSION             False         "enable UE_EXPANSION with max 256 UE" ON)
+add_boolean_option(PHY_TX_THREAD            False         "enable UE_EXPANSION with max 256 UE" ON)
+add_boolean_option(PRE_SCD_THREAD           False         "enable UE_EXPANSION with max 256 UE" ON)
 
 ##########################
 # SCHEDULING/REAL-TIME/PERF options
 ##########################
-add_boolean_option(ENABLE_USE_CPU_EXECUTION_TIME OFF "Add data in vcd traces: disable it if perf issues" ON)
-add_boolean_option(ENABLE_VCD              OFF  "always true now, time measurements of proc calls and var displays" ON)
-add_boolean_option(ENABLE_VCD_FIFO         OFF  "time measurements of proc calls and var displays sent to FIFO (one more thread)" ON)
+add_boolean_option(ENABLE_USE_CPU_EXECUTION_TIME False "Add data in vcd traces: disable it if perf issues" ON)
+add_boolean_option(ENABLE_VCD              False  "always true now, time measurements of proc calls and var displays" ON)
+add_boolean_option(ENABLE_VCD_FIFO         False  "time measurements of proc calls and var displays sent to FIFO (one more thread)" ON)
 
 ##########################
 # PHY options
 ##########################
-add_integer_option(MAX_NUM_CCs             1     "Carrier component data arrays size (oai doesn't support carrier aggregation for now)" ON)
-add_boolean_option(SMBV                    OFF "Rohde&Schwarz SMBV100A vector signal generator" ON)
-add_boolean_option(DEBUG_PHY               OFF "Enable PHY layer debugging options" ON)
-add_boolean_option(DEBUG_PHY_PROC          OFF "Enable debugging of PHY layer procedures" ON)
+add_integer_option(MAX_NUM_CCs             1     "Carrier component data arrays size (oai doesn't support carrier aggreagtion for now)" ON)
+add_boolean_option(SMBV                    False "Rohde&Schwarz SMBV100A vector signal generator" ON)
+add_boolean_option(DEBUG_PHY               False "Enable PHY layer debugging options" ON)
+add_boolean_option(DEBUG_PHY_PROC          False "Enable debugging of PHY layer procedures" ON)
 
 ##########################
 # NAS LAYER OPTIONS
 ##########################
-add_boolean_option(NAS_BUILT_IN_UE         ON  "UE NAS layer present in this executable" ON)
+add_boolean_option(NAS_BUILT_IN_UE         True  "UE NAS layer present in this executable" ON)
 
 ##########################
 # RRC LAYER OPTIONS
 ##########################
-add_boolean_option(RRC_DEFAULT_RAB_IS_AM       ON   "set the LTE RLC mode to AM for the default bearer, otherwise it is UM." ON)
+add_boolean_option(RRC_DEFAULT_RAB_IS_AM       True   "set the LTE RLC mode to AM for the default bearer, otherwise it is UM." ON)
 
 # add the binary tree to the search path for include files
 # We will find common/oai_version.h after generation in target directory
@@ -604,7 +603,7 @@ include_directories("${OPENAIR_DIR}")
 ###############
 
 # include T directory even if the T is off because T macros are in the code
-# no matter what. Note: some files are generated, so we have both source and
+# no matter what. Note: sone files are generated, so we have both source and
 # binary directories
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/common/utils/T
                     ${CMAKE_CURRENT_BINARY_DIR}/common/utils/T)
@@ -674,9 +673,10 @@ set(SCHED_NR_SRC
   ${OPENAIR1_DIR}/SCHED_NR/phy_procedures_nr_gNB.c
   ${OPENAIR1_DIR}/SCHED_NR/nr_prach_procedures.c
   ${OPENAIR1_DIR}/SCHED_NR/phy_frame_config_nr.c
+  ${OPENAIR1_DIR}/SCHED_NR/nr_slot_timing.c
 )
 add_library(SCHED_NR_LIB ${SCHED_NR_SRC})
-target_link_libraries(SCHED_NR_LIB PRIVATE asn1_nr_rrc_hdrs UTIL)
+target_link_libraries(SCHED_NR_LIB PRIVATE asn1_nr_rrc_hdrs UTIL isip_pool)
 
 set(SCHED_SRC_RU
   ${OPENAIR1_DIR}/SCHED/ru_procedures.c
@@ -1065,7 +1065,7 @@ add_library(PHY_NR_COMMON ${PHY_NR_SRC_COMMON})
 target_link_libraries(PHY_NR_COMMON PUBLIC UTIL)
 
 add_library(PHY_NR ${PHY_NR_SRC})
-target_link_libraries(PHY_NR nr_phy_common nr_common nr_fapi_p5)
+target_link_libraries(PHY_NR nr_phy_common nr_common nr_fapi_p5 isip_pool)
 
 add_library(PHY_NR_NO_AVX_256 ${PHY_NR_SRC})
 target_link_libraries(PHY_NR_NO_AVX_256 nr_phy_common nr_common)
@@ -1396,10 +1396,9 @@ include_directories("${OPENAIR1_DIR}/SCHED_NR_UE")
 add_library (GTPV1U
   ${RRC_DIR}/rrc_eNB_GTPV1U.c
   ${OPENAIR3_DIR}/ocp-gtpu/gtp_itf.cpp
-  ${OPENAIR3_DIR}/ocp-gtpu/gtpu_extensions.c
   )
 target_link_libraries(GTPV1U PRIVATE asn1_nr_rrc_hdrs asn1_lte_rrc_hdrs)
-target_link_libraries(GTPV1U PRIVATE SIMU ds)
+target_link_libraries(GTPV1U PRIVATE SIMU)
 include_directories(${OPENAIR3_DIR}/ocp-gtp)
 
 set (MME_APP_SRC
@@ -1853,6 +1852,8 @@ target_link_libraries(nr-softmodem PRIVATE
   ngap s1ap L2_LTE_NR L2_NR MAC_NR_COMMON NFAPI_LIB NFAPI_VNF_LIB NFAPI_PNF_LIB NFAPI_USER_LIB SIMU
   x2ap f1ap m2ap m3ap e1ap shlib_loader
   time_management
+  # nr_thread_pool  # Disabled
+  isip_pool        # ISIP thread pool
   -Wl,--end-group z dl)
 
 target_link_libraries(nr-softmodem PRIVATE pthread m CONFIG_LIB rt)
@@ -1892,6 +1893,7 @@ target_link_libraries(nr-cuup PRIVATE
                       CONFIG_LIB ITTI SCTP_CLIENT
                       GTPV1U e1ap f1ap
                       time_management
+                      # nr_thread_pool  # Disabled
                       z dl pthread shlib_loader ${T_LIB})
 target_link_libraries(nr-cuup PRIVATE asn1_lte_rrc_hdrs asn1_nr_rrc_hdrs)
 if(E2_AGENT)

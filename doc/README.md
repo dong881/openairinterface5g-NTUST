@@ -118,7 +118,6 @@ Some directories under `radio` contain READMEs:
 - [IQPlayer](../radio/iqplayer/DOC/iqrecordplayer_usage.md), and [general documentation](./iqrecordplayer_usage.md)
 - [fhi_72](../radio/fhi_72/README.md)
 - [vrtsim](../radio/vrtsim/README.md)
-- [rf_emulator](../radio/emulator/README.md)
 
 The other SDRs (AW2S, LimeSDR, ...) have no READMEs.
 

@@ -62,6 +62,22 @@ void nr_layer_mapping(int nbCodes,
                       uint32_t n_symbs,
                       c16_t tx_layers[][layerSz]);
 
+/*! \brief Perform NR layer mapping with enkiTS parallelization
+  @param[in] mod_symbs, Pointer to modulated symbols for each codeword
+  @param[in] n_layers, number of layers (1-4)
+  @param[in] n_symbs, number of modulated symbols
+  @param[out] tx_layers, modulated symbols for each layer
+  Splits work into symbol ranges across multiple enkiTS threads.
+  Falls back to sequential nr_layer_mapping if enkiTS unavailable or n_symbs < 2048.
+*/
+void nr_layer_mapping_parallel(int nbCodes,
+                               int encoded_len,
+                               c16_t mod_symbs[nbCodes][encoded_len],
+                               uint8_t n_layers,
+                               int layerSz,
+                               uint32_t n_symbs,
+                               c16_t tx_layers[][layerSz]);
+
 /*! \brief Perform NR layer mapping. TS 38.211 V15.4.0 subclause 7.3.1.3
   @param[in] ulsch_ue, double Pointer to NR_UE_ULSCH_t struct
   @param[in] n_layers, number of layers
@@ -155,4 +171,37 @@ void nr_layer_precoder_simd(const int n_layers,
                             const int sc_offset,
                             const int re_cnt,
                             c16_t *txdataF_precoded);
+
+/*! \brief Fused modulation + layer mapping for 256QAM
+ *  Takes already-scrambled data and performs modulation + layer mapping in one pass.
+ *  Eliminates the intermediate mod_symbs buffer (~98KB for 273 RB).
+ *
+ *  @param[in]  scrambled_data Already scrambled bytes (after nr_codeword_scrambling)
+ *  @param[in]  n_symbols      Number of modulated symbols to produce
+ *  @param[in]  n_layers       Number of layers (1, 2, 3, or 4)
+ *  @param[in]  layerSz        Size of each layer buffer
+ *  @param[out] tx_layers      Output layer buffers [n_layers][layerSz]
+ */
+void nr_modulate_layer_map_256qam(const uint8_t *scrambled_data,
+                                   uint32_t n_symbols,
+                                   uint8_t n_layers,
+                                   int layerSz,
+                                   c16_t tx_layers[][layerSz]);
+
+/*! \brief Parallel version of fused modulation + layer mapping for 256QAM using enkiTS
+ *  Uses enkiTS thread pool to parallelize across output indices.
+ *  Falls back to sequential version if enkiTS is not available.
+ *
+ *  @param[in]  scrambled_data Already scrambled bytes (after nr_codeword_scrambling)
+ *  @param[in]  n_symbols      Number of modulated symbols to produce
+ *  @param[in]  n_layers       Number of layers (1, 2, 3, or 4)
+ *  @param[in]  layerSz        Size of each layer buffer
+ *  @param[out] tx_layers      Output layer buffers [n_layers][layerSz]
+ */
+void nr_modulate_layer_map_256qam_parallel(const uint8_t *scrambled_data,
+                                            uint32_t n_symbols,
+                                            uint8_t n_layers,
+                                            int layerSz,
+                                            c16_t tx_layers[][layerSz]);
+
 #endif

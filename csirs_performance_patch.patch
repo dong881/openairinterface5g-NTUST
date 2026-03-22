@@ -1,0 +1,214 @@
+diff --git a/openair1/SCHED_NR/phy_procedures_nr_gNB.c b/openair1/SCHED_NR/phy_procedures_nr_gNB.c
+index abc123..def456 100644
+--- a/openair1/SCHED_NR/phy_procedures_nr_gNB.c
++++ b/openair1/SCHED_NR/phy_procedures_nr_gNB.c
+@@ -180,6 +180,35 @@ void phy_procedures_gNB_TX(processingData_L1tx_t *msgTx,
+   // Add timing measurement variables
+   struct timespec t_start, t_end, t_func_start;
+
++  // OPTIMIZATION: Pre-calculate CSI-RS positions before PDSCH
++  csirs_re_map_t csirs_map = {0};
++  bool has_csirs = false;
++
++  // Check if any CSI-RS is configured for this slot
++  for (int i = 0; i < NR_SYMBOLS_PER_SLOT; i++) {
++    if (msgTx->csirs_pdu[i].active == 1) {
++      has_csirs = true;
++      nfapi_nr_dl_tti_csi_rs_pdu_rel15_t *csi_params = &msgTx->csirs_pdu[i].csirs_pdu.csi_rs_pdu_rel15;
++      if (csi_params->csi_type != 2) { // Not ZP-CSI
++        // Build bitmap of CSI-RS positions
++        csi_mapping_parms_t mapping = get_csi_mapping_parms(csi_params->row,
++                                                           csi_params->freq_domain,
++                                                           csi_params->symb_l0,
++                                                           csi_params->symb_l1);
++        // Mark CSI-RS REs in bitmap
++        mark_csirs_res_in_bitmap(&csirs_map, &mapping, csi_params, fp);
++      }
++    }
++  }
++
++  // Allocate separate CSI-RS buffer if needed (avoid cache pollution)
++  csirs_buffer_t *csirs_buf = NULL;
++  if (has_csirs) {
++    csirs_buf = get_csirs_buffer(gNB);
++    csirs_buf->active = true;
++    memset(csirs_buf->data, 0, fp->samples_per_slot_wCP * sizeof(c16_t));
++  }
++
+   // Clear TX arrays
+   clock_gettime(CLOCK_MONOTONIC, &t_start);
+   for (int i = 0; i < gNB->common_vars.num_beams_period; ++i) {
+@@ -267,7 +296,8 @@ void phy_procedures_gNB_TX(processingData_L1tx_t *msgTx,
+     LOG_D(PHY, "PDSCH generation started (%d) in frame %d.%d\n", msgTx->num_pdsch_slot,frame,slot);
+     clock_gettime(CLOCK_MONOTONIC, &t_func_start);
+
+-    nr_generate_pdsch(msgTx, frame, slot);
++    // Pass CSI-RS map to PDSCH generation for RE avoidance
++    nr_generate_pdsch_with_csirs_avoidance(msgTx, frame, slot, has_csirs ? &csirs_map : NULL);
+
+     clock_gettime(CLOCK_MONOTONIC, &t_end);
+     pdsch_gen_ns = timespec_diff_ns(&t_func_start, &t_end);
+@@ -275,7 +305,7 @@ void phy_procedures_gNB_TX(processingData_L1tx_t *msgTx,
+   }
+   msgTx->num_pdsch_slot = 0;
+
+-  // Measure CSI-RS generation time
++  // Generate CSI-RS in separate buffer to avoid cache pollution
+   clock_gettime(CLOCK_MONOTONIC, &t_func_start);
+   for (int i = 0; i < NR_SYMBOLS_PER_SLOT; i++){
+     NR_gNB_CSIRS_t *csirs = &msgTx->csirs_pdu[i];
+@@ -302,13 +332,22 @@ void phy_procedures_gNB_TX(processingData_L1tx_t *msgTx,
+                          slot,
+                          fp->symbols_per_slot,
+                          csi_bitmap);
+-
+-      nr_generate_csi_rs(&gNB->frame_parms,
++
++      if (csirs_buf) {
++        // Generate in separate buffer
++        nr_generate_csi_rs_separate(&gNB->frame_parms,
++                                   &mapping_parms,
++                                   gNB->TX_AMP,
++                                   slot,
++                                   csi_params,
++                                   csirs_buf->data);
++      } else {
++        // Fallback to original method
++        nr_generate_csi_rs(&gNB->frame_parms,
+                          &mapping_parms,
+                          gNB->TX_AMP,
+                          slot,
+-                         csi_params->freq_density,
+-                         csi_params->start_rb,
++                         csi_params->freq_density,
++                         csi_params->start_rb,
+                          csi_params->nr_of_rbs,
+                          csi_params->symb_l0,
+                          csi_params->symb_l1,
+@@ -317,12 +356,27 @@ void phy_procedures_gNB_TX(processingData_L1tx_t *msgTx,
+                          csi_params->power_control_offset_ss,
+                          csi_params->cdm_type,
+                          gNB->common_vars.txdataF[beam_nb]);
++      }
+       csirs->active = 0;
+     }
+   }
+   clock_gettime(CLOCK_MONOTONIC, &t_end);
+   csirs_gen_ns = timespec_diff_ns(&t_func_start, &t_end);
++
++  // Merge CSI-RS buffer with PDSCH if separate buffer was used
++  if (csirs_buf && csirs_buf->active) {
++    struct timespec t_merge_start;
++    clock_gettime(CLOCK_MONOTONIC, &t_merge_start);
++
++    merge_csirs_with_pdsch(gNB->common_vars.txdataF,
++                          csirs_buf,
++                          txdataF_offset,
++                          fp);
++
++    clock_gettime(CLOCK_MONOTONIC, &t_end);
++    long merge_time = timespec_diff_ns(&t_merge_start, &t_end);
++    LOG_D(PHY, "CSI-RS merge took %ld ns\n", merge_time);
++  }
+
+   // Measure phase rotation time
+   start_meas(&gNB->phase_comp_stats);
+
+diff --git a/openair1/PHY/NR_TRANSPORT/nr_dlsch.c b/openair1/PHY/NR_TRANSPORT/nr_dlsch.c
+index 111222..333444 100644
+--- a/openair1/PHY/NR_TRANSPORT/nr_dlsch.c
++++ b/openair1/PHY/NR_TRANSPORT/nr_dlsch.c
+@@ -340,6 +340,7 @@ static inline int do_onelayer(NR_DL_FRAME_PARMS *frame_parms,
+                               int slot,
+                               nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15,
+                               int layer,
++                              csirs_re_map_t *csirs_map,  // NEW PARAMETER
+                               c16_t *output,
+                               c16_t *txl_start,
+                               int start_sc,
+@@ -369,6 +370,15 @@ static inline int do_onelayer(NR_DL_FRAME_PARMS *frame_parms,
+     ptrs_symbol = is_ptrs_symbol(l_symbol, dlPtrsSymPos);
+   }
+
++  // Check if CSI-RS is present in this symbol for optimization
++  bool has_csirs = false;
++  uint32_t *csirs_bitmap = NULL;
++  if (csirs_map && (csirs_map->symbol_bitmap & (1 << l_symbol))) {
++    has_csirs = true;
++    csirs_bitmap = csirs_map->re_bitmap[l_symbol];
++  }
++
++  // If no CSI-RS, use original fast path
+   if (ptrs_symbol) {
+     /* PTRS QPSK Modulation for each OFDM symbol in a slot */
+     LOG_D(PHY, "Doing ptrs modulation for symbol %d, n_ptrs %d\n", l_symbol, n_ptrs);
+@@ -447,8 +457,44 @@ static inline int do_onelayer(NR_DL_FRAME_PARMS *frame_parms,
+       } // generic DMRS case
+   } else { // no PTRS or DMRS in this symbol
+-    txl += no_ptrs_dmrs_case(output + start_sc, txl, amp, upper_limit);
+-    txl += no_ptrs_dmrs_case(output, txl, amp, remaining_re);
++    if (!has_csirs) {
++      // Fast path: no CSI-RS, use vectorized copy
++      txl += no_ptrs_dmrs_case(output + start_sc, txl, amp, upper_limit);
++      txl += no_ptrs_dmrs_case(output, txl, amp, remaining_re);
++    } else {
++      // Slow path: must check CSI-RS positions
++      int k = start_sc;
++      for (int i = 0; i < sz; i++) {
++        // Check if this RE is used by CSI-RS
++        if (!(csirs_bitmap[k >> 5] & (1U << (k & 31)))) {
++          // RE is available for PDSCH
++          output[k] = c16mulRealShift(*txl++, amp, 15);
++        }
++        k = (k + 1) % symbol_sz;
++      }
++    }
+   } // no DMRS/PTRS in symbol
+   return txl - txl_start;
+ }
+@@ -566,7 +612,8 @@ static inline int do_onelayer(NR_DL_FRAME_PARMS *frame_parms,
+   return (end->tv_sec - start->tv_sec) * 1000000000L + (end->tv_nsec - start->tv_nsec);
+ }
+
+-static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSCH_t *dlsch, int slot)
++static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DLSCH_t *dlsch, int slot,
++                       csirs_re_map_t *csirs_map)  // NEW PARAMETER
+ {
+   const int16_t amp = gNB->TX_AMP;
+   NR_DL_FRAME_PARMS *frame_parms = &gNB->frame_parms;
+@@ -775,6 +822,7 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DL
+                              slot,
+                              rel15,
+                              layer,
++                             csirs_map,  // Pass CSI-RS map
+                              txdataF_precoding[layer],
+                              tx_layers[layer] + re_beginning_of_symbol,
+                              start_sc,
+@@ -816,7 +864,8 @@ static int do_one_dlsch(unsigned char *input_ptr, PHY_VARS_gNB *gNB, NR_gNB_DL
+   return ((size_output_tb + 511) >> 9) << 6;
+ }
+
+-void nr_generate_pdsch(processingData_L1tx_t *msgTx, int frame, int slot)
++void nr_generate_pdsch_with_csirs_avoidance(processingData_L1tx_t *msgTx, int frame, int slot,
++                                           csirs_re_map_t *csirs_map)  // NEW PARAMETER
+ {
+   PHY_VARS_gNB *gNB = msgTx->gNB;
+   NR_DL_FRAME_PARMS *frame_parms = &gNB->frame_parms;
+@@ -898,10 +947,16 @@ void nr_generate_pdsch(processingData_L1tx_t *msgTx, int frame, int slot)
+
+   unsigned char *output_ptr = output;
+   for (int dlsch_id = 0; dlsch_id < msgTx->num_pdsch_slot; dlsch_id++) {
+-    output_ptr += do_one_dlsch(output_ptr, gNB, msgTx->dlsch[dlsch_id], slot);
++    output_ptr += do_one_dlsch(output_ptr, gNB, msgTx->dlsch[dlsch_id], slot, csirs_map);
+   }
+ }
+
++// Wrapper for compatibility
++void nr_generate_pdsch(processingData_L1tx_t *msgTx, int frame, int slot)
++{
++  nr_generate_pdsch_with_csirs_avoidance(msgTx, frame, slot, NULL);
++}
++
+ void dump_pdsch_stats(FILE *fd, PHY_VARS_gNB *gNB)
+ {
+   for (int i = 0; i < MAX_MOBILES_PER_GNB; i++) {

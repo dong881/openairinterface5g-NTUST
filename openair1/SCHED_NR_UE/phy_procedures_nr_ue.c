@@ -553,7 +553,6 @@ static int nr_ue_pdsch_procedures(PHY_VARS_NR_UE *ue,
                                       dlschCfg->dlDmrsScramblingId,
                                       dlschCfg->BWPStart,
                                       dlschCfg->dmrsConfigType,
-                                      dlschCfg->n_dmrs_cdm_groups,
                                       dlschCfg->rb_offset,
                                       ue->frame_parms.first_carrier_offset + (dlschCfg->BWPStart + dlschCfg->start_rb) * 12,
                                       dlschCfg->number_rbs,
@@ -699,7 +698,7 @@ static uint32_t compute_csi_rm_unav_res(fapi_nr_dl_config_dlsch_pdu_rel15_t *dls
     int num_symb = num_l0[csi_pdu->row - 1];
     for (int s = 0; s < num_symb; s++) {
       int l0_symb = csi_pdu->symb_l0 + s;
-      if (l0_symb >= dlsch_config->start_symbol && l0_symb < dlsch_config->start_symbol + dlsch_config->number_symbols)
+      if (l0_symb >= dlsch_config->start_symbol && l0_symb <= dlsch_config->start_symbol + dlsch_config->number_symbols)
         num_overlap_symb++;
     }
     // check also l1 if relevant
@@ -707,7 +706,7 @@ static uint32_t compute_csi_rm_unav_res(fapi_nr_dl_config_dlsch_pdu_rel15_t *dls
       num_symb += 2;
       for (int s = 0; s < 2; s++) { // two consecutive symbols including l1
         int l1_symb = csi_pdu->symb_l1 + s;
-        if (l1_symb >= dlsch_config->start_symbol && l1_symb < dlsch_config->start_symbol + dlsch_config->number_symbols)
+        if (l1_symb >= dlsch_config->start_symbol && l1_symb <= dlsch_config->start_symbol + dlsch_config->number_symbols)
           num_overlap_symb++;
       }
     }

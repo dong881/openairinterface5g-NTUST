@@ -214,7 +214,7 @@ bool eq_dl_tti_request(const nfapi_nr_dl_tti_request_t *a, const nfapi_nr_dl_tti
 
 static bool eq_ul_tti_beamforming(const nfapi_nr_ul_beamforming_t *a, const nfapi_nr_ul_beamforming_t *b)
 {
-  EQ(a->trp_scheme, b->trp_scheme);
+  // EQ(a->trp_scheme, b->trp_scheme);
   EQ(a->num_prgs, b->num_prgs);
   EQ(a->prg_size, b->prg_size);
   EQ(a->dig_bf_interface, b->dig_bf_interface);
@@ -1174,7 +1174,7 @@ void copy_dl_tti_request(const nfapi_nr_dl_tti_request_t *src, nfapi_nr_dl_tti_r
 
 static void copy_ul_tti_beamforming(const nfapi_nr_ul_beamforming_t *src, nfapi_nr_ul_beamforming_t *dst)
 {
-  dst->trp_scheme = src->trp_scheme;
+  // dst->trp_scheme = src->trp_scheme;
   dst->num_prgs = src->num_prgs;
   dst->prg_size = src->prg_size;
   dst->dig_bf_interface = src->dig_bf_interface;
@@ -2201,7 +2201,7 @@ void dump_dl_tti_request(const nfapi_nr_dl_tti_request_t *msg)
 
 static void dump_ul_tti_beamforming(const nfapi_nr_ul_beamforming_t *pdu, int depth)
 {
-  INDENTED_PRINTF("TRP Scheme = %d\n", pdu->trp_scheme);
+  // INDENTED_PRINTF("TRP Scheme = %d\n", pdu->trp_scheme);
   INDENTED_PRINTF("numPRGs = %d\n", pdu->num_prgs);
   INDENTED_PRINTF("prgSize = %d\n", pdu->prg_size);
   INDENTED_PRINTF("digBFInterface = %d\n", pdu->dig_bf_interface);

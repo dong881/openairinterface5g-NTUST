@@ -284,10 +284,6 @@ sudo ./nr_dlsim -n300 -s30 -R 106 -e 27 --loader.ldpc.shlibversion _aal --nrLDPC
 
 ### Running OAI gNB with USRP B210/FHI72
 
-When running the gNB **with FHI 7.2**, it is not necessary to provide the `--nrLDPC_coding_aal.dpdk_core_list` argument
-since the core list specified for FHI 7.2 will be used for DPDK.
-If it is provided, the AAL core list wil be ignored.  
-
 Example command:
 ```bash
 cd ~/openairinterface5g
@@ -298,15 +294,19 @@ sudo ./nr-softmodem -O ~/gnb.conf --loader.ldpc.shlibversion _aal --nrLDPC_codin
 
 # Known Issue(s)
 
+## BBDEV CPU Usage
+
+When running the E2E setup (this applies to both USRP and FHI72), BBDEV may not be using the list of CPU cores as specified by `nrLDPC_coding_aal.dpdk_core_list` accordingly.
+This is an issue under investigation, and subject for future fixes.
+In the meantime, we recommend allocating idle, and isolated CPU cores in the configuration for BBDEV.
+
 ## Potential Low Throughput
 
 The current implementation has been tested to work in an end-to-end setup and is functional. 
-However, depending on the accelerator in use,
-there are still opportunities for optimization, particularly in LDPC decoding performance, which is an area of ongoing improvement. 
+However, there are still opportunities for optimization, particularly in LDPC decoding performance, which is an area of ongoing improvement. 
 As such, downlink/uplink throughput may be suboptimal with the default configurations, but enhancements are actively being explored.
 
-For example, to achieve better E2E performance with the current implementation with Intel ACC 100 and 200 (vRAN Boost),
-we recommend the following adjustments:
+To achieve better E2E performance with the current implementation, we recommend the following adjustments:
 1. Increasing the number of LDPC decoding iterations of the L1, e.g., `max_ldpc_iterations` to 200.
 2. Increasing the BLER targets of the MAC scheduler. 
 

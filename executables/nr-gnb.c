@@ -58,6 +58,7 @@
 #include "SCHED_NR/fapi_nr_l1.h"
 #include "SCHED_NR/phy_frame_config_nr.h"
 #include "SCHED_NR/sched_nr.h"
+#include "SCHED_NR/nr_slot_timing.h"
 #include "assertions.h"
 #include "common/ran_context.h"
 #include "common/utils/LOG/log.h"
@@ -87,16 +88,35 @@ static void tx_func(processingData_L1tx_t *info)
   NR_IF_Module_t *ifi = gNB->if_inst;
   nfapi_nr_config_request_scf_t *cfg = &gNB->gNB_config;
 
+  // Start complete slot timing measurement
+  SLOT_TIMING_START(frame_tx, slot_tx);
+  int tx_slot_type = nr_slot_select(cfg, frame_tx, slot_tx);
+  current_slot_timing.slot_type = tx_slot_type;
+
   T(T_GNB_PHY_DL_TICK, T_INT(gNB->Mod_id), T_INT(frame_tx), T_INT(slot_tx));
+
+  // Wait for previous slot's async RU TX to complete before starting new slot
+  // This ensures the previous slot's fronthaul transmission is done
+  ru_tx_wait();
 
   if (slot_rx == 0) {
     reset_active_stats(gNB, frame_rx);
     reset_active_ulsch(gNB, frame_rx);
   }
 
+  // Phase 1: MAC Scheduling
+  struct timespec t_slot_ind_start, t_slot_ind_end;
+  if (slot_timing_enabled) clock_gettime(CLOCK_MONOTONIC, &t_slot_ind_start);
+
   start_meas(&gNB->slot_indication_stats);
   ifi->NR_slot_indication(module_id, CC_id, frame_tx, slot_tx);
   stop_meas(&gNB->slot_indication_stats);
+
+  if (slot_timing_enabled) {
+    clock_gettime(CLOCK_MONOTONIC, &t_slot_ind_end);
+    current_slot_timing.slot_indication_ns = timespec_diff_ns_timing(&t_slot_ind_start, &t_slot_ind_end);
+  }
+
   gNB->msgDataTx->timestamp_tx = info->timestamp_tx;
   info = gNB->msgDataTx;
   info->gNB = gNB;
@@ -113,21 +133,48 @@ static void tx_func(processingData_L1tx_t *info)
   res->key = slot_rx;
   pushNotifiedFIFO(&gNB->resp_L1, res);
 
-  int tx_slot_type = nr_slot_select(cfg, frame_tx, slot_tx);
   if (tx_slot_type == NR_DOWNLINK_SLOT || tx_slot_type == NR_MIXED_SLOT || get_softmodem_params()->continuous_tx || IS_SOFTMODEM_RFSIM) {
+    // Phase 2: PHY Processing
+    struct timespec t_phy_start, t_phy_end;
+    if (slot_timing_enabled) clock_gettime(CLOCK_MONOTONIC, &t_phy_start);
+
     start_meas(&info->gNB->phy_proc_tx);
     phy_procedures_gNB_TX(info, frame_tx, slot_tx, 1);
 
+    if (slot_timing_enabled) {
+      clock_gettime(CLOCK_MONOTONIC, &t_phy_end);
+      current_slot_timing.phy_proc_total_ns = timespec_diff_ns_timing(&t_phy_start, &t_phy_end);
+    }
+
+    // Phase 3: RU Processing
     PHY_VARS_gNB *gNB = info->gNB;
     processingData_RU_t syncMsgRU;
     syncMsgRU.frame_tx = frame_tx;
     syncMsgRU.slot_tx = slot_tx;
     syncMsgRU.ru = gNB->RU_list[0];
     syncMsgRU.timestamp_tx = info->timestamp_tx;
-    LOG_D(PHY, "gNB: %d.%d : calling RU TX function\n", syncMsgRU.frame_tx, syncMsgRU.slot_tx);
-    ru_tx_func((void *)&syncMsgRU);
+
+    struct timespec t_ru_start, t_ru_end;
+    if (slot_timing_enabled) clock_gettime(CLOCK_MONOTONIC, &t_ru_start);
+
+    LOG_D(PHY, "gNB: %d.%d : calling RU TX function (async)\n", syncMsgRU.frame_tx, syncMsgRU.slot_tx);
+
+    // Use async RU TX - returns immediately, allowing next slot to start
+    // The actual RU processing runs in background via ISIP pool
+    // ru_tx_wait() at start of next tx_func() ensures completion
+    ru_tx_func_async((void *)&syncMsgRU);
+
+    if (slot_timing_enabled) {
+      clock_gettime(CLOCK_MONOTONIC, &t_ru_end);
+      // Note: This timing now only measures task submission, not actual RU TX
+      current_slot_timing.ru_tx_total_ns = timespec_diff_ns_timing(&t_ru_start, &t_ru_end);
+    }
+
     stop_meas(&info->gNB->phy_proc_tx);
   }
+
+  // End slot timing and write to CSV
+  SLOT_TIMING_END();
 
   if (NFAPI_MODE == NFAPI_MONOLITHIC) {
     /* this thread is done with the sched_info, decrease the reference counter.
@@ -173,8 +220,6 @@ static void rx_func(processingData_L1_t *info)
   int frame_rx = info->frame_rx;
   int slot_rx = info->slot_rx;
   nfapi_nr_config_request_scf_t *cfg = &gNB->gNB_config;
-
-  T(T_GNB_PHY_UL_TICK, T_INT(gNB->Mod_id), T_INT(frame_rx), T_INT(slot_rx));
 
   // RX processing
   int rx_slot_type = nr_slot_select(cfg, frame_rx, slot_rx);
@@ -233,9 +278,6 @@ static size_t dump_L1_meas_stats(PHY_VARS_gNB *gNB, RU_t *ru, char *output, size
   output += print_meas_log(&gNB->dlsch_resource_mapping_stats, "DLSCH resource mapping", NULL, NULL, output,end-output);
   output += print_meas_log(&gNB->dlsch_precoding_stats, "DLSCH precoding", NULL, NULL, output,end-output);
   output += print_meas_log(&gNB->phy_proc_rx, "L1 Rx processing", NULL, NULL, output, end - output);
-  output += print_meas_log(&gNB->ts_deinterleave, "UL segment deinterleaving", NULL, NULL, output, end - output);
-  output += print_meas_log(&gNB->ts_rate_unmatch, "UL segment rate recovery", NULL, NULL, output, end - output);
-  output += print_meas_log(&gNB->ts_ldpc_decode, "UL segments decoding", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->ul_indication_stats, "UL Indication", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->slot_indication_stats, "Slot Indication", NULL, NULL, output, end - output);
   output += print_meas_log(&gNB->rx_pusch_stats, "PUSCH inner-receiver", NULL, NULL, output, end - output);
@@ -293,9 +335,6 @@ void *nrL1_stats_thread(void *param) {
   reset_meas(&gNB->phy_proc_tx);
   reset_meas(&gNB->dlsch_encoding_stats);
   reset_meas(&gNB->phy_proc_rx);
-  reset_meas(&gNB->ts_deinterleave);
-  reset_meas(&gNB->ts_rate_unmatch);
-  reset_meas(&gNB->ts_ldpc_decode);
   reset_meas(&gNB->ul_indication_stats);
   reset_meas(&gNB->slot_indication_stats);
   reset_meas(&gNB->rx_pusch_stats);

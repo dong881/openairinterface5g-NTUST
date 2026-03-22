@@ -43,14 +43,22 @@
 extern const uint16_t NCS_unrestricted[16];
 extern const uint16_t NCS_restricted[15];
 extern const uint16_t NCS_4[7];
-extern c16_t root_unit[839]; // quantized roots of unity
+
+extern int16_t ru[2 * 839]; // quantized roots of unity
 extern uint16_t du[838];
+
+
+
 // This is table 5.7.1-4 from 36.211
 extern PRACH_TDD_PREAMBLE_MAP tdd_preamble_map[64][7];
 
-extern const uint16_t prach_root_sequence_map0_3[838];
 
-extern const uint16_t prach_root_sequence_map4[138];
+
+
+extern uint16_t prach_root_sequence_map0_3[838];
+ 
+
+extern uint16_t prach_root_sequence_map4[138];
 
 void dump_prach_config(LTE_DL_FRAME_PARMS *frame_parms,uint8_t subframe);
 

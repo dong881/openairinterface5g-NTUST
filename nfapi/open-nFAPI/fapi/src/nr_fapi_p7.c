@@ -708,7 +708,7 @@ static uint8_t pack_nr_rx_beamforming_pdu(const nfapi_nr_ul_beamforming_t *beamf
                                           uint8_t **ppWritePackedMsg,
                                           uint8_t *end)
 { // Pack RX Beamforming PDU
-  if (!(push8(beamforming_pdu->trp_scheme, ppWritePackedMsg, end) && push16(beamforming_pdu->num_prgs, ppWritePackedMsg, end)
+  if (!(push16(beamforming_pdu->num_prgs, ppWritePackedMsg, end)
         && push16(beamforming_pdu->prg_size, ppWritePackedMsg, end)
         && push8(beamforming_pdu->dig_bf_interface, ppWritePackedMsg, end))) {
     return 0;
@@ -1033,7 +1033,7 @@ uint8_t pack_ul_tti_request(void *msg, uint8_t **ppWritePackedMsg, uint8_t *end,
 
 static uint8_t unpack_nr_rx_beamforming_pdu(nfapi_nr_ul_beamforming_t *beamforming_pdu, uint8_t **ppReadPackedMsg, uint8_t *end)
 { // Unpack RX Beamforming PDU
-  if (!(pull8(ppReadPackedMsg, &beamforming_pdu->trp_scheme, end) && pull16(ppReadPackedMsg, &beamforming_pdu->num_prgs, end)
+  if (!(pull16(ppReadPackedMsg, &beamforming_pdu->num_prgs, end)
         && pull16(ppReadPackedMsg, &beamforming_pdu->prg_size, end)
         && pull8(ppReadPackedMsg, &beamforming_pdu->dig_bf_interface, end))) {
     return 0;
@@ -2308,7 +2308,7 @@ uint8_t unpack_nr_srs_report_tlv_value(nfapi_srs_report_tlv_t *report_tlv, uint8
     }
   }
 #else
-  const int16_t last_idx = ((report_tlv->length + 3) / 4) - 1;
+  const uint16_t last_idx = ((report_tlv->length + 3) / 4) - 1;
   for (int i = 0; i < last_idx; i++) {
     if (!pull32(ppReadPackedMsg, &report_tlv->value[i], end)) {
       return 0;

@@ -242,22 +242,10 @@ def ExecuteActionWithParam(action, ctx):
 		st = test.findtext('idle_sleep_time_in_sec') or "5"
 		success = cls_oaicitest.IdleSleep(HTML, int(st))
 
-	elif action == 'Deploy_Run_OC_PhySim':
+	elif action == 'Deploy_Run_PhySim':
 		oc_release = test.findtext('oc_release')
 		node = test.findtext('node') or None
-		script = "scripts/oc-deploy-physims.sh"
-		image_tag = cls_containerize.CreateTag(CLUSTER.ranCommitID, CLUSTER.ranBranch, CLUSTER.ranAllowMerge)
-		options = f"oaicicd-core-for-ci-ran {oc_release} {image_tag} {CLUSTER.eNBSourceCodePath}"
-		workdir = CLUSTER.eNBSourceCodePath
-		success = cls_oaicitest.Deploy_Physim(ctx, HTML, node, workdir, script, options)
-
-	elif action == 'Build_Deploy_Docker_PhySim' or action == 'Build_Deploy_Source_PhySim':
-		node = test.findtext('node') or None
-		ctest_opt = test.findtext('ctest-opt') or ''
-		script = "scripts/docker-build-and-deploy-physims.sh" if action == 'Build_Deploy_Docker_PhySim' else 'scripts/source-deploy-physims.sh'
-		options = f"{CONTAINERS.eNBSourceCodePath} {ctest_opt}"
-		workdir = CONTAINERS.eNBSourceCodePath
-		success = cls_oaicitest.Deploy_Physim(ctx, HTML, node, workdir, script, options)
+		success = CLUSTER.deploy_oc_physim(ctx, HTML, oc_release, node)
 
 	elif action == 'DeployCoreNetwork' or action == 'UndeployCoreNetwork':
 		cn_id = test.findtext('cn_id')
@@ -285,6 +273,13 @@ def ExecuteActionWithParam(action, ctx):
 				# Do not create a working directory when running locally. Current repo directory will be used
 				return True
 			success = CONTAINERS.Create_Workspace(node, HTML)
+
+	elif action == 'Run_Physim':
+		physim_options = test.findtext('physim_run_args')
+		physim_test = test.findtext('physim_test')
+		physim_threshold = test.findtext('physim_time_threshold') or 'inf'
+		node = test.findtext('node')
+		success = cls_native.Native.Run_Physim(ctx, HTML, node, RAN.eNBSourceCodePath, physim_options, physim_test, physim_threshold)
 
 	elif action == 'LicenceAndFormattingCheck':
 		node = test.findtext('node')

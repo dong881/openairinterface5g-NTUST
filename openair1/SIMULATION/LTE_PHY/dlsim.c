@@ -90,6 +90,7 @@ static int cmpdouble(const void *p1, const void *p2) {
 }
 RAN_CONTEXT_t RC;
 
+int emulate_rf = 0;
 void handler(int sig) {
   void *array[10];
   size_t size;

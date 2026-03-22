@@ -21,7 +21,6 @@ extern "C" {
 #include <openair2/LAYER2/nr_pdcp/nr_pdcp_oai_api.h>
 #include <openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h>
 #include "openair2/SDAP/nr_sdap/nr_sdap.h"
-#include "openair3/ocp-gtpu/gtpu_extensions.h"
 #include "sim.h"
 
 #pragma pack(1)
@@ -113,7 +112,6 @@ typedef struct gtpv1u_bearer_s {
   teid_t teid_outgoing;
   uint16_t seqNum;
   uint8_t npduNum;
-  int32_t nru_sequence_number;
   int outgoing_qfi;
 } gtpv1u_bearer_t;
 
@@ -232,9 +230,11 @@ static int gtpv1uCreateAndSendMsg(gtpv1u_bearer_t *bearer,
                                   int msgLen,
                                   bool seqNumFlag,
                                   bool npduNumFlag,
-                                  gtpu_extension_header_t *extensions,
-                                  int extensions_count)
+                                  int extHdrType,
+                                  uint8_t *extensionHeader_buffer,
+                                  uint8_t extensionHeader_length)
 {
+
   DevAssert(msgLen + HDR_MAX < 65536); // maximum size of UDP packet
   uint8_t buffer[msgLen + HDR_MAX];
   uint8_t *curPtr = buffer;
@@ -242,7 +242,7 @@ static int gtpv1uCreateAndSendMsg(gtpv1u_bearer_t *bearer,
   // N should be 0 for us (it was used only in 2G and 3G)
   msgHdr->PN = npduNumFlag;
   msgHdr->S = seqNumFlag;
-  msgHdr->E = extensions_count != 0;
+  msgHdr->E = extHdrType != NO_MORE_EXT_HDRS;
   msgHdr->spare = 0;
   // PT=0 is for GTP' TS 32.295 (charging)
   msgHdr->PT = 1;
@@ -252,32 +252,32 @@ static int gtpv1uCreateAndSendMsg(gtpv1u_bearer_t *bearer,
 
   curPtr += sizeof(Gtpv1uMsgHeaderT);
 
-  if (msgHdr->PN || msgHdr->S || msgHdr->E) {
+  if (seqNumFlag || (extHdrType != NO_MORE_EXT_HDRS) || npduNumFlag) {
     *(uint16_t *)curPtr = seqNumFlag ? bearer->seqNum : 0x0000;
     curPtr += sizeof(uint16_t);
     *(uint8_t *)curPtr = npduNumFlag ? bearer->npduNum : 0x00;
     curPtr++;
-    *curPtr = extensions_count ? serialize_gtpu_extension_type(extensions[0].type) : 0;
+    *(uint8_t *)curPtr = extHdrType;
     curPtr++;
   }
 
-  for (int i = 0; i < extensions_count; i++) {
-    int available_size = sizeof(buffer) - (curPtr - buffer);
-    gtpu_extension_header_type_t next = i == extensions_count - 1 ? GTPU_EXT_NONE : extensions[i + 1].type;
-    int len = serialize_extension(&extensions[i], next, curPtr, available_size);
-    if (len == -1) {
-      LOG_E(GTPU, "GTP extension serialization: buffer too small\n");
-      return GTPNOK;
+  // Bug: if there is more than one extension, infinite loop on extensionHeader_buffer
+  while (extHdrType != NO_MORE_EXT_HDRS) {
+    if (extensionHeader_length > 0) {
+      memcpy(curPtr, extensionHeader_buffer, extensionHeader_length);
+      curPtr += extensionHeader_length;
+      LOG_D(GTPU,
+            "Extension Header for DDD added. The length is: %d, extension header type is: %x \n",
+            extensionHeader_length,
+            *((uint8_t *)(buffer + 11)));
+      extHdrType = extensionHeader_buffer[extensionHeader_length - 1];
+      LOG_D(GTPU, "Next extension header type is: %x \n", *((uint8_t *)(buffer + 11)));
+    } else {
+      LOG_W(GTPU, "Extension header type not supported, returning... \n");
     }
-    curPtr += len;
   }
 
   if (Msg != NULL) {
-    int available_size = sizeof(buffer) - (curPtr - buffer);
-    if (msgLen > available_size) {
-      LOG_E(GTPU, "GTP message creation: buffer too small\n");
-      return GTPNOK;
-    }
     memcpy(curPtr, Msg, msgLen);
     curPtr += msgLen;
   }
@@ -307,14 +307,13 @@ static int gtpv1uCreateAndSendMsg(gtpv1u_bearer_t *bearer,
   return !GTPNOK;
 }
 
-static void _gtpv1uSendDirect(instance_t instance,
-                              ue_id_t ue_id,
-                              int bearer_id,
-                              uint8_t *buf,
-                              size_t len,
-                              bool seqNumFlag,
-                              bool npduNumFlag,
-                              int32_t nru_seqnum)
+void gtpv1uSendDirect(instance_t instance,
+                      ue_id_t ue_id,
+                      int bearer_id,
+                      uint8_t *buf,
+                      size_t len,
+                      bool seqNumFlag,
+                      bool npduNumFlag)
 {
   pthread_mutex_lock(&globGtp.gtp_lock);
   getInstRetVoid(compatInst(instance));
@@ -348,44 +347,18 @@ static void _gtpv1uSendDirect(instance_t instance,
   gtpv1u_bearer_t bearer = ptr2->second;
   pthread_mutex_unlock(&globGtp.gtp_lock);
 
-  int extension_count = 0;
-  gtpu_extension_header_t ext[2];
+  Gtpv1uExtHeaderT *opt_ext = NULL;
+  Gtpv1uExtHeaderT ext = {0};
   if (bearer.outgoing_qfi != -1) {
-    /* 29.281 Figure 5.2.1-3 note 4 says PDU Session Container must come first.
-     * GTPU_EXT_UL_PDU_SESSION_INFORMATION is within a PDU Session Container
-     * so it must be put before any other extension.
-     */
-    ext[extension_count] = {
-      .type = GTPU_EXT_UL_PDU_SESSION_INFORMATION,
-      .ul_pdu_session_information = {
-        .qmp = false,
-        .dl_delay_ind = false,
-        .ul_delay_ind = false,
-        .snp = false,
-        .n3n9_delay_ind = false,
-        .new_ie_flag = false,
-        .qfi = bearer.outgoing_qfi
-      }
-    };
-    extension_count++;
-  }
+    opt_ext = &ext;
+    ext.ExtHeaderLen = 1; // in quad bytes  EXT_HDR_LNTH_OCTET_UNITS
+    ext.pdusession_cntr.spare = 0;
+    ext.pdusession_cntr.PDU_type = UL_PDU_SESSION_INFORMATION;
+    ext.pdusession_cntr.QFI = bearer.outgoing_qfi;
+    ext.pdusession_cntr.Reflective_QoS_activation = false;
+    ext.pdusession_cntr.Paging_Policy_Indicator = false;
+    ext.NextExtHeaderType = NO_MORE_EXT_HDRS;
 
-  if (nru_seqnum != -1) {
-    ext[extension_count] = {
-      .type = GTPU_EXT_DL_USER_DATA,
-      .dl_user_data = {
-        .dl_discard_blocks = false,
-        .dl_flush = false,
-        .report_polling = false,
-        .request_out_of_seq_report = false,
-        .report_delivered = false,
-        .user_data_existence_flag = false,
-        .assistance_info_report_polling_flag = false,
-        .retransmission_flag = false,
-        .nru_sequence_number = (uint32_t)nru_seqnum
-      }
-    };
-    extension_count++;
   }
 
   DevAssert(compatInst(instance) == bearer.sock_fd);
@@ -395,81 +368,9 @@ static void _gtpv1uSendDirect(instance_t instance,
                          len,
                          seqNumFlag,
                          npduNumFlag,
-                         ext,
-                         extension_count);
-}
-
-void gtpv1uSendDirect(instance_t instance,
-                      ue_id_t ue_id,
-                      int bearer_id,
-                      uint8_t *buf,
-                      size_t len,
-                      bool seqNumFlag,
-                      bool npduNumFlag)
-{
-  _gtpv1uSendDirect(instance,
-                    ue_id,
-                    bearer_id,
-                    buf,
-                    len,
-                    seqNumFlag,
-                    npduNumFlag,
-                    -1);
-}
-
-void gtpv1uSendDirectWithNRUSeqNum(instance_t instance,
-                                   ue_id_t ue_id,
-                                   int bearer_id,
-                                   uint8_t *buf,
-                                   size_t len)
-{
-  pthread_mutex_lock(&globGtp.gtp_lock);
-  getInstRetVoid(compatInst(instance));
-  getUeRetVoid(inst, ue_id);
-  auto ptr2 = ptrUe->second.bearers.find(bearer_id);
-
-  if (ptr2 == ptrUe->second.bearers.end()) {
-    LOG_E(GTPU, "[%ld] GTP-U instance: sending a packet to a non existant UE:RAB: %lx/%x\n", instance, ue_id, bearer_id);
-    pthread_mutex_unlock(&globGtp.gtp_lock);
-    return;
-  }
-
-  int32_t nru_seqnum = ptr2->second.nru_sequence_number;
-  ptr2->second.nru_sequence_number++;
-  ptr2->second.nru_sequence_number &= (1 << 24) - 1;
-
-  pthread_mutex_unlock(&globGtp.gtp_lock);
-
-  _gtpv1uSendDirect(instance,
-                    ue_id,
-                    bearer_id,
-                    buf,
-                    len,
-                    false,
-                    false,
-                    nru_seqnum);
-}
-
-static void fillDlDeliveryStatusReport(gtpu_extension_header_t *ext, uint32_t RLC_buffer_availability, uint32_t NR_PDCP_PDU_SN)
-{
-  *ext = {
-    .type = GTPU_EXT_DL_DATA_DELIVERY_STATUS,
-    .dl_data_delivery_status = {
-      /* previous version of the code was sending highest_transmitted_nr_pdcp_sn if
-       * it is != 0, let's do the same for the moment */
-      .highest_transmitted_nr_pdcp_sn_ind = NR_PDCP_PDU_SN != 0,
-      .highest_delivered_nr_pdcp_sn_ind = false,
-      .final_frame_ind = false,
-      .lost_packet_report = false,
-      .delivered_nr_pdcp_sn_range_ind = false,
-      .data_rate_ind = false,
-      .retransmitted_nr_pdcp_sn_ind = false,
-      .delivered_retransmitted_nr_pdcp_ind = false,
-      .cause_report = false,
-      .desired_buffer_size = RLC_buffer_availability,
-      .highest_transmitted_nr_pdcp_sn = NR_PDCP_PDU_SN
-    }
-  };
+                         opt_ext ? PDU_SESSION_CONTAINER : NO_MORE_EXT_HDRS,
+                         (uint8_t *)opt_ext,
+                         sizeof(*opt_ext));
 }
 
 static void gtpv1uEndTunnel(instance_t instance, gtpv1u_enb_end_marker_req_t *req)
@@ -580,13 +481,16 @@ static int udpServerSocket(openAddr_s addr)
   }
 
   int sendbuff = 1000 * 1000 * 10;
+  int recvbuff = 1000 * 1000 * 64;  // 64MB receive buffer for high throughput DL
   AssertFatal(0 == setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &sendbuff, sizeof(sendbuff)), "");
-  LOG_D(GTPU,
-        "[%d] Created listener for paquets to: %s:%s, send buffer size: %d\n",
+  AssertFatal(0 == setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, &recvbuff, sizeof(recvbuff)), "");
+  LOG_I(GTPU,
+        "[%d] Created listener for paquets to: %s:%s, send buffer: %d, recv buffer: %d\n",
         sockfd,
         addr.originHost,
         addr.originService,
-        sendbuff);
+        sendbuff,
+        recvbuff);
   return sockfd;
 }
 
@@ -1049,6 +953,7 @@ static int Gtpv1uHandleEchoReq(int h, uint8_t *msgBuf, uint32_t msgBufLen, const
                                 sizeof recovery,
                                 true,
                                 false,
+                                NO_MORE_EXT_HDRS,
                                 NULL,
                                 0);
 }
@@ -1266,8 +1171,37 @@ static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const st
     LOG_D(GTPU, "Create and send DL DATA Delivery status for the previously received PDU, NR_PDCP_PDU_SN: %u \n", NR_PDCP_PDU_SN);
     int rlc_tx_buffer_space = nr_rlc_get_available_tx_space(ctxt.rntiMaybeUEid, rb_id + 3);
     LOG_D(GTPU, "Available buffer size in RLC for Tx: %d \n", rlc_tx_buffer_space);
-    gtpu_extension_header_t ext;
-    fillDlDeliveryStatusReport(&ext, rlc_tx_buffer_space, NR_PDCP_PDU_SN);
+    /*Total size of DDD_status PDU = 1 octet to report extension header length
+     * size of mandatory part + 3 octets for highest transmitted/delivered PDCP SN
+     * 1 octet for padding + 1 octet for next extension header type,
+     * according to TS 38.425: Fig. 5.5.2.2-1 and section 5.5.3.24*/
+    extensionHeader_t *extensionHeader;
+    extensionHeader = (extensionHeader_t *)calloc(1, sizeof(extensionHeader_t));
+    extensionHeader->buffer[0] = (1 + sizeof(DlDataDeliveryStatus_flagsT) + 3 + 1 + 1) / 4;
+    DlDataDeliveryStatus_flagsT DlDataDeliveryStatus;
+    DlDataDeliveryStatus.deliveredPdcpSn = 0;
+    DlDataDeliveryStatus.transmittedPdcpSn = 1;
+    DlDataDeliveryStatus.pduType = 1;
+    DlDataDeliveryStatus.drbBufferSize =
+        htonl(rlc_tx_buffer_space); // htonl(10000000); //hardcoded for now but normally we should extract it from RLC
+    memcpy(extensionHeader->buffer + 1, &DlDataDeliveryStatus, sizeof(DlDataDeliveryStatus_flagsT));
+    uint8_t offset = sizeof(DlDataDeliveryStatus_flagsT) + 1;
+
+    extensionHeader->buffer[offset] = (NR_PDCP_PDU_SN >> 16) & 0xff;
+    extensionHeader->buffer[offset + 1] = (NR_PDCP_PDU_SN >> 8) & 0xff;
+    extensionHeader->buffer[offset + 2] = NR_PDCP_PDU_SN & 0xff;
+    LOG_D(GTPU,
+          "Octets reporting NR_PDCP_PDU_SN, extensionHeader-> %u:%u:%u \n",
+          extensionHeader->buffer[offset],
+          extensionHeader->buffer[offset + 1],
+          extensionHeader->buffer[offset + 2]);
+    extensionHeader->buffer[offset + 3] = 0x00; // Padding octet
+    extensionHeader->buffer[offset + 4] = 0x00; // No more extension headers
+    /*Total size of DDD_status PDU = size of mandatory part +
+     * 3 octets for highest transmitted/delivered PDCP SN +
+     * 1 octet for padding + 1 octet for next extension header type,
+     * according to TS 38.425: Fig. 5.5.2.2-1 and section 5.5.3.24*/
+    extensionHeader->length = 1 + sizeof(DlDataDeliveryStatus_flagsT) + 3 + 1 + 1;
     uint32_t teid = globGtp.te2ue_mapping[ntohl(msgHdr->teid)].outgoing_teid;
     gtpv1u_bearer_t bearer = create_bearer(h, addr, teid, 0);
     gtpv1uCreateAndSendMsg(&bearer,
@@ -1276,8 +1210,9 @@ static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const st
                            0,
                            false,
                            false,
-                           &ext,
-                           1);
+                           NR_RAN_CONTAINER,
+                           extensionHeader->buffer,
+                           extensionHeader->length);
   }
 
   LOG_D(GTPU, "[%d] Received a %d bytes packet for: teid:%x\n", h, msgBufLen - offset, ntohl(msgHdr->teid));

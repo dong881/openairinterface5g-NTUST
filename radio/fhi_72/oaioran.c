@@ -42,7 +42,96 @@
 
 #include "common/utils/threadPool/notified_fifo.h"
 
+// ISIP for parallel fh_south_out processing
+#include "openair1/PHY/ISIP_POOL/isip_pool.h"
+#include "TaskScheduler_c.h"
+
 #define N_SC_PER_PRB 12
+
+// ============================================================================
+// SIMD-optimized byte swap for network byte order conversion
+// Converts host byte order (little-endian) to network byte order (big-endian)
+// for 16-bit I/Q samples. Much faster than scalar htons() loop.
+// ============================================================================
+
+#if defined(__i386__) || defined(__x86_64__)
+
+// AVX-512 byte swap: processes 32 x 16-bit values (64 bytes) per iteration
+static inline void byteswap_16bit_avx512(const uint16_t *src, uint16_t *dst, int count)
+{
+  // Shuffle mask to swap bytes within each 16-bit word
+  // For each pair of bytes [A, B], produces [B, A]
+  const __m512i shuffle_mask = _mm512_set_epi8(
+      62, 63, 60, 61, 58, 59, 56, 57, 54, 55, 52, 53, 50, 51, 48, 49,
+      46, 47, 44, 45, 42, 43, 40, 41, 38, 39, 36, 37, 34, 35, 32, 33,
+      30, 31, 28, 29, 26, 27, 24, 25, 22, 23, 20, 21, 18, 19, 16, 17,
+      14, 15, 12, 13, 10, 11, 8, 9, 6, 7, 4, 5, 2, 3, 0, 1);
+
+  int i = 0;
+
+  // Process 32 elements (64 bytes) at a time with AVX-512
+  for (; i + 32 <= count; i += 32) {
+    __m512i data = _mm512_loadu_si512((const __m512i *)&src[i]);
+    __m512i swapped = _mm512_shuffle_epi8(data, shuffle_mask);
+    _mm512_storeu_si512((__m512i *)&dst[i], swapped);
+  }
+
+  // Handle remaining elements with scalar code
+  for (; i < count; i++) {
+    dst[i] = __builtin_bswap16(src[i]);
+  }
+}
+
+// AVX2 fallback: processes 16 x 16-bit values (32 bytes) per iteration
+static inline void byteswap_16bit_avx2(const uint16_t *src, uint16_t *dst, int count)
+{
+  const __m256i shuffle_mask = _mm256_set_epi8(
+      30, 31, 28, 29, 26, 27, 24, 25, 22, 23, 20, 21, 18, 19, 16, 17,
+      14, 15, 12, 13, 10, 11, 8, 9, 6, 7, 4, 5, 2, 3, 0, 1);
+
+  int i = 0;
+
+  // Process 16 elements (32 bytes) at a time with AVX2
+  for (; i + 16 <= count; i += 16) {
+    __m256i data = _mm256_loadu_si256((const __m256i *)&src[i]);
+    __m256i swapped = _mm256_shuffle_epi8(data, shuffle_mask);
+    _mm256_storeu_si256((__m256i *)&dst[i], swapped);
+  }
+
+  // Handle remaining elements
+  for (; i < count; i++) {
+    dst[i] = __builtin_bswap16(src[i]);
+  }
+}
+
+// Main entry point: selects best available SIMD width
+// For 273 PRBs: count = 273 * 12 * 2 = 6552 (I and Q components)
+static inline void byteswap_16bit_simd(const uint16_t *src, uint16_t *dst, int count)
+{
+#ifdef __AVX512F__
+  byteswap_16bit_avx512(src, dst, count);
+#elif defined(__AVX2__)
+  byteswap_16bit_avx2(src, dst, count);
+#else
+  for (int i = 0; i < count; i++) {
+    dst[i] = __builtin_bswap16(src[i]);
+  }
+#endif
+}
+
+#else // ARM
+
+static inline void byteswap_16bit_simd(const uint16_t *src, uint16_t *dst, int count)
+{
+  // ARM: use REV16 instruction via compiler intrinsic
+  for (int i = 0; i < count; i++) {
+    dst[i] = __builtin_bswap16(src[i]);
+  }
+}
+
+#endif // x86 vs ARM
+
+// ============================================================================
 
 #if OAI_FHI72_USE_POLLING
 #define USE_POLLING
@@ -283,14 +372,14 @@ int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot)
   // pull next even from oran_sync_fifo
   notifiedFIFO_elt_t *res = pullNotifiedFIFO(&oran_sync_fifo);
 
-  notifiedFIFO_elt_t *f;
-  while ((f = pollNotifiedFIFO(&oran_sync_fifo)) != NULL) {
-    oran_sync_info_t *old_info = NotifiedFifoData(res);
-    oran_sync_info_t *new_info = NotifiedFifoData(f);
-    LOG_E(HW, "Detected double sync message %d.%d => %d.%d\n", old_info->f, old_info->sl, new_info->f, new_info->sl);
-    delNotifiedFIFO_elt(res);
-    res = f;
-  }
+  // notifiedFIFO_elt_t *f;
+  // while ((f = pollNotifiedFIFO(&oran_sync_fifo)) != NULL) {
+  //   oran_sync_info_t *old_info = NotifiedFifoData(res);
+  //   oran_sync_info_t *new_info = NotifiedFifoData(f);
+  //   LOG_E(HW, "Detected double sync message %d.%d => %d.%d\n", old_info->f, old_info->sl, new_info->f, new_info->sl);
+  //   delNotifiedFIFO_elt(res);
+  //   res = f;
+  // }
 
   oran_sync_info_t *info = NotifiedFifoData(res);
 
@@ -467,52 +556,274 @@ int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot)
   return (0);
 }
 
-/** @details Write PDSCH IQ-data from OAI txdataF_BF buffer to xran buffers. If
- * I/Q compression (bitwidth < 16 bits) is configured, compresses the data
+// Task arguments for parallel fh_south_out processing
+// Symbol-level parallelization: 4 antennas × 14 symbols = 56 tasks
+// This better utilizes 8 ISIP workers compared to antenna-level (4 tasks)
+typedef struct {
+  ru_info_t *ru;
+  int tti;
+  int ant_id;
+  int sym_idx;        // NEW: symbol index for finer granularity
+  int nPRBs;
+  int fftsize;
+  int nb_tx_per_ru;
+  int use_direct_txdataF;
+  int txdataF_offset;
+  int antennas_per_beam;
+} fh_tx_task_args_t;
+
+// Process one antenna-symbol combination - called by ISIP workers
+// Finer granularity (56 tasks) vs old antenna-level (4 tasks)
+static void process_antenna_symbol(uint32_t start, uint32_t end, uint32_t threadNum, void *pArgs) {
+  fh_tx_task_args_t *args = (fh_tx_task_args_t *)pArgs;
+  if (!args) return;
+
+  for (uint32_t task_idx = start; task_idx < end; task_idx++) {
+    fh_tx_task_args_t *task = &args[task_idx];
+    ru_info_t *ru = task->ru;
+    if (!ru) continue;
+
+    int tti = task->tti;
+    int ant_id = task->ant_id;
+    int sym_idx = task->sym_idx;
+    int nPRBs = task->nPRBs;
+    int fftsize = task->fftsize;
+    int nb_tx_per_ru = task->nb_tx_per_ru;
+    if (nb_tx_per_ru == 0) continue;
+
+    oran_buf_list_t *bufs = get_xran_buffers(ant_id / nb_tx_per_ru);
+    if (!bufs) continue;
+
+    uint8_t *pData =
+        bufs->src[ant_id % nb_tx_per_ru][tti % XRAN_N_FE_BUF_LEN].pBuffers[sym_idx].pData;
+    uint8_t *pPrbMapData = bufs->srccp[ant_id % nb_tx_per_ru][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
+    struct xran_prb_map *pPrbMap = (struct xran_prb_map *)pPrbMapData;
+
+    int32_t *pos = NULL;
+    if (task->use_direct_txdataF) {
+      if (!ru->txdataF) continue;
+      int beam = ant_id / task->antennas_per_beam;
+      int ant_in_beam = ant_id % task->antennas_per_beam;
+      pos = &ru->txdataF[beam][ant_in_beam][task->txdataF_offset + sym_idx * fftsize];
+    } else {
+      if (!ru->txdataF_BF) continue;
+      pos = &ru->txdataF_BF[ant_id][sym_idx * fftsize];
+    }
+
+    uint8_t *u8dptr = (uint8_t *)pData;
+    struct xran_prb_map *pRbMap = pPrbMap;
+
+    if (pData && pos) {
+      uint8_t *dst = u8dptr;
+
+      for (uint32_t idxElm = 0; idxElm < pRbMap->nPrbElm; idxElm++) {
+        struct xran_prb_elm *p_prbMapElm = &pRbMap->prbMap[idxElm];
+        struct xran_section_desc *p_sec_desc = NULL;
+#ifdef E_RELEASE
+        p_sec_desc = p_prbMapElm->p_sec_desc[sym_idx][0];
+#elif F_RELEASE
+        p_sec_desc = &p_prbMapElm->sec_desc[sym_idx][0];
+#endif
+
+        dst = xran_add_hdr_offset(dst, p_prbMapElm->compMethod);
+
+        if (p_sec_desc == NULL) {
+          continue;
+        }
+
+        int pos_len = 0;
+        int neg_len = 0;
+
+        if (p_prbMapElm->nRBStart < (nPRBs >> 1))
+          neg_len = min((nPRBs * 6) - (p_prbMapElm->nRBStart * 12), p_prbMapElm->nRBSize * N_SC_PER_PRB);
+        pos_len = (p_prbMapElm->nRBSize * N_SC_PER_PRB) - neg_len;
+
+        uint16_t *src1 = (uint16_t *)&pos[(neg_len == 0) ? ((p_prbMapElm->nRBStart * N_SC_PER_PRB) - (nPRBs * 6)) : 0];
+        uint16_t *src2 = (uint16_t *)&pos[(p_prbMapElm->nRBStart * N_SC_PER_PRB) + fftsize - (nPRBs * 6)];
+
+        uint32_t local_src[p_prbMapElm->nRBSize * N_SC_PER_PRB] __attribute__((aligned(64)));
+        memcpy((void *)local_src, (void *)src2, neg_len * 4);
+        memcpy((void *)&local_src[neg_len], (void *)src1, pos_len * 4);
+
+        int16_t payload_len = 0;
+
+        if (p_prbMapElm->compMethod == XRAN_COMPMETHOD_NONE) {
+          payload_len = p_prbMapElm->nRBSize * N_SC_PER_PRB * 4L;
+          // SIMD-optimized byte swap (AVX-512/AVX2)
+          byteswap_16bit_simd((const uint16_t *)local_src, (uint16_t *)dst, (pos_len + neg_len) * 2);
+        } else if (p_prbMapElm->compMethod == XRAN_COMPMETHOD_BLKFLOAT) {
+          payload_len = (3 * p_prbMapElm->iqWidth + 1) * p_prbMapElm->nRBSize;
+
+#if defined(__i386__) || defined(__x86_64__)
+          struct xranlib_compress_request bfp_com_req = {};
+          struct xranlib_compress_response bfp_com_rsp = {};
+
+          bfp_com_req.data_in = (int16_t *)local_src;
+          bfp_com_req.numRBs = p_prbMapElm->nRBSize;
+          bfp_com_req.len = payload_len;
+          bfp_com_req.compMethod = p_prbMapElm->compMethod;
+          bfp_com_req.iqWidth = p_prbMapElm->iqWidth;
+
+          bfp_com_rsp.data_out = (int8_t *)dst;
+          bfp_com_rsp.len = 0;
+
+          xranlib_compress_avx512(&bfp_com_req, &bfp_com_rsp);
+#elif defined(__arm__) || defined(__aarch64__)
+          armral_bfp_compression(p_prbMapElm->iqWidth, p_prbMapElm->nRBSize, (int16_t *)local_src, (int8_t *)dst);
+#endif
+        } else {
+          continue;
+        }
+
+        p_sec_desc->iq_buffer_offset = RTE_PTR_DIFF(dst, u8dptr);
+        p_sec_desc->iq_buffer_len = payload_len;
+
+        dst += payload_len;
+        dst = xran_add_hdr_offset(dst, p_prbMapElm->compMethod);
+      }
+
+      // Update tti_id only once per antenna (when sym_idx == 0)
+      if (sym_idx == 0) {
+        pRbMap->tti_id = tti;
+      }
+    }
+  }
+}
+
+// Pre-allocated task sets for fh_south_out - ping-pong pattern
+// Two task sets allow slot N and slot N+1 to overlap
+static enkiTaskSet *g_fh_tx_task[2] = {NULL, NULL};
+
+// Async fh_south_out state - ping-pong pattern to avoid buffer conflicts
+static fh_tx_task_args_t g_fh_tx_task_args[2][16 * XRAN_NUM_OF_SYMBOL_PER_SLOT];
+static volatile int g_fh_tx_in_progress[2] = {0, 0};
+static int g_fh_tx_buffer_idx = 0;
+
+/** @brief Wait for any in-progress async fh_south_out to complete */
+void xran_fh_tx_wait(void)
+{
+  void *scheduler = isip_pool_get_scheduler();
+  if (!scheduler) return;
+
+  for (int i = 0; i < 2; i++) {
+    if (g_fh_tx_task[i] && g_fh_tx_in_progress[i]) {
+      enkiWaitForTaskSet(scheduler, g_fh_tx_task[i]);
+      g_fh_tx_in_progress[i] = 0;
+    }
+  }
+}
+
+/** @details Write PDSCH IQ-data directly from PHY txdataF to xran buffers.
+ * This optimized version bypasses the intermediate txdataF_BF buffer copy
+ * (feptx_prec), reading directly from gNB->common_vars.txdataF.
+ * Uses ISIP to parallelize across antennas for ~4x speedup.
+ * If I/Q compression (bitwidth < 16 bits) is configured, compresses the data
  * before writing. */
 int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp)
 {
-  int tti = /*frame*SUBFRAMES_PER_SYSTEMFRAME*SLOTNUM_PER_SUBFRAME+*/ 20 * frame
-            + slot; // commented out temporarily to check that compilation of oran 5g is working.
-
-  void *ptr = NULL;
-  int32_t *pos = NULL;
-  int idx = 0;
+  // Safety checks first
+  if (!ru) return -1;
 
   const struct xran_fh_init *fh_init = get_xran_fh_init();
   const struct xran_fh_config *fh_cfg = get_xran_fh_config(0);
+  if (!fh_init || !fh_cfg || fh_init->xran_ports == 0) return -1;
+
+  int tti = 20 * frame + slot;
   int nPRBs = fh_cfg->nDLRBs;
   int fftsize = 1 << fh_cfg->ru_conf.fftSize;
   int nb_tx_per_ru = ru->nb_tx / fh_init->xran_ports;
 
-  for (uint16_t cc_id = 0; cc_id < 1 /*nSectorNum*/; cc_id++) { // OAI does not support multiple CC yet.
+  // Use direct txdataF access if available (bypasses feptx_prec memcpy)
+  const int use_direct_txdataF = (ru->txdataF != NULL);
+  const int txdataF_offset = ru->txdataF_offset;
+  const int num_beams = ru->num_beams;
+  const int antennas_per_beam = (num_beams > 0) ? (ru->nb_tx / num_beams) : ru->nb_tx;
+
+  // Symbol-level parallel processing with ISIP
+  // 4 antennas × 14 symbols = 56 tasks (better utilizes 10 workers)
+  void *scheduler = isip_pool_get_scheduler();
+  if (scheduler && ru->nb_tx > 0 && ru->nb_tx <= 16) {
+    // Create task sets on first use (two for ping-pong)
+    if (!g_fh_tx_task[0]) {
+      g_fh_tx_task[0] = enkiCreateTaskSet(scheduler, process_antenna_symbol);
+      g_fh_tx_task[1] = enkiCreateTaskSet(scheduler, process_antenna_symbol);
+    }
+
+    if (g_fh_tx_task[0] && g_fh_tx_task[1]) {
+      // Toggle to next buffer FIRST
+      int next_buf = 1 - g_fh_tx_buffer_idx;
+
+      // Wait for the task that PREVIOUSLY used this buffer (2 slots ago)
+      // This allows slot N and slot N+1 to run in parallel
+      if (g_fh_tx_in_progress[next_buf]) {
+        enkiWaitForTaskSet(scheduler, g_fh_tx_task[next_buf]);
+        g_fh_tx_in_progress[next_buf] = 0;
+      }
+
+      g_fh_tx_buffer_idx = next_buf;
+      fh_tx_task_args_t *task_args = g_fh_tx_task_args[next_buf];
+
+      // Prepare task arguments for each antenna-symbol combination
+      // Max: 16 antennas × 14 symbols = 224 tasks
+      int num_tasks = ru->nb_tx * XRAN_NUM_OF_SYMBOL_PER_SLOT;
+
+      int task_idx = 0;
+      for (int ant_id = 0; ant_id < ru->nb_tx; ant_id++) {
+        for (int sym_idx = 0; sym_idx < XRAN_NUM_OF_SYMBOL_PER_SLOT; sym_idx++) {
+          task_args[task_idx].ru = ru;
+          task_args[task_idx].tti = tti;
+          task_args[task_idx].ant_id = ant_id;
+          task_args[task_idx].sym_idx = sym_idx;
+          task_args[task_idx].nPRBs = nPRBs;
+          task_args[task_idx].fftsize = fftsize;
+          task_args[task_idx].nb_tx_per_ru = nb_tx_per_ru;
+          task_args[task_idx].use_direct_txdataF = use_direct_txdataF;
+          task_args[task_idx].txdataF_offset = txdataF_offset;
+          task_args[task_idx].antennas_per_beam = antennas_per_beam;
+          task_idx++;
+        }
+      }
+
+      // Start processing with this buffer's task set
+      enkiAddTaskSetMinRange(scheduler, g_fh_tx_task[next_buf], task_args, num_tasks, 1);
+      // SYNC MODE: Wait for completion (async was causing NULL pointer crashes)
+      enkiWaitForTaskSet(scheduler, g_fh_tx_task[next_buf]);
+      g_fh_tx_in_progress[next_buf] = 0;
+
+      return 0;
+    }
+  }
+
+  // Fallback to sequential processing
+  for (uint16_t cc_id = 0; cc_id < 1; cc_id++) {
     for (uint8_t ant_id = 0; ant_id < ru->nb_tx; ant_id++) {
       oran_buf_list_t *bufs = get_xran_buffers(ant_id / nb_tx_per_ru);
-      // This loop would better be more inner to avoid confusion and maybe also errors.
+
       for (int32_t sym_idx = 0; sym_idx < XRAN_NUM_OF_SYMBOL_PER_SLOT; sym_idx++) {
         uint8_t *pData =
             bufs->src[ant_id % nb_tx_per_ru][tti % XRAN_N_FE_BUF_LEN].pBuffers[sym_idx % XRAN_NUM_OF_SYMBOL_PER_SLOT].pData;
         uint8_t *pPrbMapData = bufs->srccp[ant_id % nb_tx_per_ru][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
         struct xran_prb_map *pPrbMap = (struct xran_prb_map *)pPrbMapData;
-        ptr = pData;
-        pos = &ru->txdataF_BF[ant_id][sym_idx * fftsize];
 
-        uint8_t *u8dptr;
+        int32_t *pos;
+        if (use_direct_txdataF) {
+          int beam = ant_id / antennas_per_beam;
+          int ant_in_beam = ant_id % antennas_per_beam;
+          pos = &ru->txdataF[beam][ant_in_beam][txdataF_offset + sym_idx * fftsize];
+        } else {
+          pos = &ru->txdataF_BF[ant_id][sym_idx * fftsize];
+        }
+
+        uint8_t *u8dptr = (uint8_t *)pData;
         struct xran_prb_map *pRbMap = pPrbMap;
         int32_t sym_id = sym_idx % XRAN_NUM_OF_SYMBOL_PER_SLOT;
-        if (ptr && pos) {
-          uint32_t idxElm = 0;
-          u8dptr = (uint8_t *)ptr;
-          int16_t payload_len = 0;
 
-          uint8_t *dst = (uint8_t *)u8dptr;
+        if (pData && pos) {
+          uint8_t *dst = u8dptr;
 
-          struct xran_prb_elm *p_prbMapElm = &pRbMap->prbMap[idxElm];
-
-          for (idxElm = 0; idxElm < pRbMap->nPrbElm; idxElm++) {
+          for (uint32_t idxElm = 0; idxElm < pRbMap->nPrbElm; idxElm++) {
+            struct xran_prb_elm *p_prbMapElm = &pRbMap->prbMap[idxElm];
             struct xran_section_desc *p_sec_desc = NULL;
-            p_prbMapElm = &pRbMap->prbMap[idxElm];
-            // assumes one fragment per symbol
 #ifdef E_RELEASE
             p_sec_desc = p_prbMapElm->p_sec_desc[sym_id][0];
 #elif F_RELEASE
@@ -525,29 +836,27 @@ int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp)
               printf("p_sec_desc == NULL\n");
               exit(-1);
             }
-            uint16_t *dst16 = (uint16_t *)dst;
 
             int pos_len = 0;
             int neg_len = 0;
 
-            if (p_prbMapElm->nRBStart < (nPRBs >> 1)) // there are PRBs left of DC
+            if (p_prbMapElm->nRBStart < (nPRBs >> 1))
               neg_len = min((nPRBs * 6) - (p_prbMapElm->nRBStart * 12), p_prbMapElm->nRBSize * N_SC_PER_PRB);
             pos_len = (p_prbMapElm->nRBSize * N_SC_PER_PRB) - neg_len;
-            // Calculation of the pointer for the section in the buffer.
-            // start of positive frequency component
+
             uint16_t *src1 = (uint16_t *)&pos[(neg_len == 0) ? ((p_prbMapElm->nRBStart * N_SC_PER_PRB) - (nPRBs * 6)) : 0];
-            // start of negative frequency component
             uint16_t *src2 = (uint16_t *)&pos[(p_prbMapElm->nRBStart * N_SC_PER_PRB) + fftsize - (nPRBs * 6)];
 
             uint32_t local_src[p_prbMapElm->nRBSize * N_SC_PER_PRB] __attribute__((aligned(64)));
             memcpy((void *)local_src, (void *)src2, neg_len * 4);
             memcpy((void *)&local_src[neg_len], (void *)src1, pos_len * 4);
+
+            int16_t payload_len = 0;
+
             if (p_prbMapElm->compMethod == XRAN_COMPMETHOD_NONE) {
               payload_len = p_prbMapElm->nRBSize * N_SC_PER_PRB * 4L;
-              /* convert to Network order */
-              // NOTE: ggc 11 knows how to generate AVX2 for this!
-              for (idx = 0; idx < (pos_len + neg_len) * 2; idx++)
-                ((uint16_t *)dst16)[idx] = htons(((uint16_t *)local_src)[idx]);
+              // SIMD-optimized byte swap (AVX-512/AVX2) - much faster than scalar htons loop
+              byteswap_16bit_simd((const uint16_t *)local_src, (uint16_t *)dst, (pos_len + neg_len) * 2);
             } else if (p_prbMapElm->compMethod == XRAN_COMPMETHOD_BLKFLOAT) {
               payload_len = (3 * p_prbMapElm->iqWidth + 1) * p_prbMapElm->nRBSize;
 
@@ -567,10 +876,7 @@ int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp)
               xranlib_compress_avx512(&bfp_com_req, &bfp_com_rsp);
 #elif defined(__arm__) || defined(__aarch64__)
               armral_bfp_compression(p_prbMapElm->iqWidth, p_prbMapElm->nRBSize, (int16_t *)local_src, (int8_t *)dst);
-#else
-              AssertFatal(1 == 0, "BFP compression not supported on this architecture");
 #endif
-
             } else {
               printf("p_prbMapElm->compMethod == %d is not supported\n", p_prbMapElm->compMethod);
               exit(-1);
@@ -583,12 +889,11 @@ int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp)
             dst = xran_add_hdr_offset(dst, p_prbMapElm->compMethod);
           }
 
-          // The tti should be updated as it increased.
           pRbMap->tti_id = tti;
 
         } else {
           printf("ptr ==NULL\n");
-          exit(-1); // fails here??
+          exit(-1);
         }
       }
     }

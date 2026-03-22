@@ -12,14 +12,6 @@ idefix:
   IF: wwan0
   MTU: 1500
 
-raspix:
-  Host: raspix
-  AttachScript: sudo /opt/mbim_scripts/start_quectel_mbim.sh
-  DetachScript: sudo /opt/mbim_scripts/stop_quectel_mbim.sh
-  NetworkScript: ip a show dev wwan0
-  IF: wwan0
-  MTU: 1500
-
 up2:
   Host: up2
   AttachScript: sudo /opt/mbim/start_quectel_mbim.sh
@@ -84,14 +76,6 @@ oc-cn5g-20897:
   Deploy: "! scripts/oc-cn5g-deploy.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-fhi72"
   Undeploy: "! scripts/oc-cn5g-undeploy.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-fhi72"
   LogCollect: "! scripts/oc-cn5g-logcollect.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-fhi72 %%log_dir%%"
-
-oc-cn5g-00102-ho:
-  Host: groot
-  NetworkScript: echo "inet 172.21.6.111"
-  RunIperf3Server: False
-  Deploy: "! scripts/oc-cn5g-deploy.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-ho"
-  Undeploy: "! scripts/oc-cn5g-undeploy.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-ho"
-  LogCollect: "! scripts/oc-cn5g-logcollect.sh /opt/oai-cn5g-fed-develop-2025-jan oaicicd-core-for-ho %%log_dir%%"
 
 oc-cn5g-20897-aerial:
   Host: gracehopper1-oai
@@ -471,93 +455,3 @@ l2sim4g_ext_dn:
   Host: "%%current_host%%"
   NetworkScript: docker exec l2sim4g-trf-gen ip a show dev eth0
   CmdPrefix: docker exec l2sim4g-trf-gen
-
-rfsim5g_multiue1:
-  Host: "%%current_host%%"
-  NetworkScript: docker exec rfsim5g-oai-nr-ue ip a show dev oaitun_ue1
-  CmdPrefix: docker exec rfsim5g-oai-nr-ue
-  IF: oaitun_ue1
-  AttachScript: docker start rfsim5g-oai-nr-ue
-  DetachScript: docker stop rfsim5g-oai-nr-ue
-  MTU: 1500
-
-rfsim5g_multiue2:
-  Host: "%%current_host%%"
-  NetworkScript: docker exec rfsim5g-oai-nr-ue ip a show dev oaitun_ue2
-  CmdPrefix: docker exec rfsim5g-oai-nr-ue
-  IF: oaitun_ue2
-  AttachScript: true
-  DetachScript: true
-  MTU: 1500
-
-rfsim5g_multiue3:
-  Host: "%%current_host%%"
-  NetworkScript: docker exec rfsim5g-oai-nr-ue ip a show dev oaitun_ue3
-  CmdPrefix: docker exec rfsim5g-oai-nr-ue
-  IF: oaitun_ue3
-  AttachScript: "true"
-  DetachScript: "true"
-  MTU: 1500
-
-rfsim5g_multiue4:
-  Host: "%%current_host%%"
-  NetworkScript: docker exec rfsim5g-oai-nr-ue ip a show dev oaitun_ue4
-  CmdPrefix: docker exec rfsim5g-oai-nr-ue
-  IF: oaitun_ue4
-  AttachScript: "true"
-  DetachScript: "true"
-  MTU: 1500
-
-rfsim5g_multiue5:
-  Host: "%%current_host%%"
-  NetworkScript: docker exec rfsim5g-oai-nr-ue ip a show dev oaitun_ue5
-  CmdPrefix: docker exec rfsim5g-oai-nr-ue
-  IF: oaitun_ue5
-  AttachScript: "true"
-  DetachScript: "true"
-  MTU: 1500
-
-rfsim5g_multiue6:
-  Host: "%%current_host%%"
-  NetworkScript: docker exec rfsim5g-oai-nr-ue ip a show dev oaitun_ue6
-  CmdPrefix: docker exec rfsim5g-oai-nr-ue
-  IF: oaitun_ue6
-  AttachScript: "true"
-  DetachScript: "true"
-  MTU: 1500
-
-rfsim5g_multiue7:
-  Host: "%%current_host%%"
-  NetworkScript: docker exec rfsim5g-oai-nr-ue ip a show dev oaitun_ue7
-  CmdPrefix: docker exec rfsim5g-oai-nr-ue
-  IF: oaitun_ue7
-  AttachScript: "true"
-  DetachScript: "true"
-  MTU: 1500
-
-rfsim5g_multiue8:
-  Host: "%%current_host%%"
-  NetworkScript: docker exec rfsim5g-oai-nr-ue ip a show dev oaitun_ue8
-  CmdPrefix: docker exec rfsim5g-oai-nr-ue
-  IF: oaitun_ue8
-  AttachScript: "true"
-  DetachScript: "true"
-  MTU: 1500
-
-rfsim5g_multiue9:
-  Host: "%%current_host%%"
-  NetworkScript: docker exec rfsim5g-oai-nr-ue ip a show dev oaitun_ue9
-  CmdPrefix: docker exec rfsim5g-oai-nr-ue
-  IF: oaitun_ue9
-  AttachScript: "true"
-  DetachScript: "true"
-  MTU: 1500
-
-rfsim5g_multiue10:
-  Host: "%%current_host%%"
-  NetworkScript: docker exec rfsim5g-oai-nr-ue ip a show dev oaitun_ue10
-  CmdPrefix: docker exec rfsim5g-oai-nr-ue
-  IF: oaitun_ue10
-  AttachScript: "true"
-  DetachScript: "true"
-  MTU: 1500

@@ -24,6 +24,7 @@
 
 #include "common/config/config_userapi.h"
 #include "common/utils/load_module_shlib.h"
+#include "RRC/LTE/rrc_vars.h"
 #ifdef SMBV
 #include "PHY/TOOLS/smbv.h"
 unsigned short config_frames[4] = {2,9,11,13};
@@ -37,6 +38,7 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include "openair2/E2AP/RAN_FUNCTION/init_ran_func.h"
 #endif
 #include "nr-softmodem.h"
+#include "PHY/ISIP_POOL/isip_pool.h"
 #include <common/utils/assertions.h>
 #include <openair2/GNB_APP/gnb_app.h>
 #include <openair3/ocp-gtpu/gtp_itf.h>
@@ -47,6 +49,7 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "openair1/PHY/NR_THREAD_POOL/nr_thread_pool_init.h"
 #include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
 #include "NR_PHY_INTERFACE/NR_IF_Module.h"
 #include "LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
@@ -118,6 +121,7 @@ double rx_gain_off = 0.0;
 
 static int tx_max_power[MAX_NUM_CCs]; /* =  {0,0}*/;
 int chain_offset = 0;
+int emulate_rf = 0;
 int numerology = 0;
 double cpuf;
 
@@ -126,6 +130,52 @@ double cpuf;
 void pdcp_run(const protocol_ctxt_t *const ctxt_pP)
 {
   abort();
+}
+
+/*---------------------BMC: timespec helpers -----------------------------*/
+
+struct timespec min_diff_time = { .tv_sec = 0, .tv_nsec = 0 };
+struct timespec max_diff_time = { .tv_sec = 0, .tv_nsec = 0 };
+
+struct timespec clock_difftime(struct timespec start, struct timespec end) {
+  struct timespec temp;
+
+  if ((end.tv_nsec-start.tv_nsec)<0) {
+    temp.tv_sec = end.tv_sec-start.tv_sec-1;
+    temp.tv_nsec = 1000000000+end.tv_nsec-start.tv_nsec;
+  } else {
+    temp.tv_sec = end.tv_sec-start.tv_sec;
+    temp.tv_nsec = end.tv_nsec-start.tv_nsec;
+  }
+
+  return temp;
+}
+
+void print_difftimes(void)
+{
+  LOG_I(HW, "difftimes min = %lu ns ; max = %lu ns\n", min_diff_time.tv_nsec, max_diff_time.tv_nsec);
+}
+
+void update_difftimes(struct timespec start, struct timespec end) {
+  struct timespec diff_time = { .tv_sec = 0, .tv_nsec = 0 };
+  int             changed = 0;
+  diff_time = clock_difftime(start, end);
+
+  if ((min_diff_time.tv_nsec == 0) || (diff_time.tv_nsec < min_diff_time.tv_nsec)) {
+    min_diff_time.tv_nsec = diff_time.tv_nsec;
+    changed = 1;
+  }
+
+  if ((max_diff_time.tv_nsec == 0) || (diff_time.tv_nsec > max_diff_time.tv_nsec)) {
+    max_diff_time.tv_nsec = diff_time.tv_nsec;
+    changed = 1;
+  }
+
+#if 1
+
+  if (changed) print_difftimes();
+
+#endif
 }
 
 /*------------------------------------------------------------------------*/
@@ -176,6 +226,11 @@ void exit_function(const char *file, const char *function, const int line, const
       RC.ru[ru_id]->ifdevice.trx_end_func = NULL;
     }
   }
+
+  // Thread pool disabled
+
+  // Shutdown ISIP thread pool
+  isip_pool_shutdown();
 
   if (assert) {
     abort();
@@ -568,6 +623,21 @@ int main( int argc, char **argv ) {
     init_gNB();
     // Initialize L1
     RCconfig_NR_L1();
+    // Thread pool disabled - using sequential processing
+
+    // Initialize ISIP thread pool
+    if (!isip_pool_init()) {
+        LOG_W(PHY, "Failed to initialize ISIP thread pool\n");
+    } else {
+        // Run verification test
+        isip_pool_test();
+    }
+
+    // Enable L1 downlink timing measurement if command-line flag is set
+    if (get_softmodem_params()->enable_l1_timing) {
+        extern void enable_l1_timing_measurement(void);
+        enable_l1_timing_measurement();
+    }
     // Initialize Positioning Reference Signal configuration
     if(NFAPI_MODE != NFAPI_MODE_PNF && NFAPI_MODE != NFAPI_MODE_AERIAL)
       RCconfig_nr_prs();

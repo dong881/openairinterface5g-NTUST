@@ -26,26 +26,65 @@ import os
 import xml.etree.ElementTree as ET
 import json
 
+# Define the mapping of physim_test values to search patterns
+PHYSIM_PATTERN_MAPPING = {
+	'nr_ulsim': [
+		r'(Total PHY proc rx)\s+(\d+\.\d+)\s+us',  # Pattern for RX PHY processing time
+		r'(ULSCH total decoding time)\s+(\d+\.\d+)\s+us',  # Pattern for ULSCH decoding time
+	],
+	'nr_dlsim': [
+		r'(PHY proc tx)\s+(\d+\.\d+)\s+us',  # Pattern for TX PHY processing time
+		r'(DLSCH encoding time)\s+(\d+\.\d+)\s+us',  # Pattern for DLSCH encoding time
+	],
+	'ldpctest': [
+		r'(Encoding time mean):\s+(\d+\.\d+)\s+us',  # Pattern for encoding time mean
+		r'(Decoding time mean):\s+(\d+\.\d+)\s+us',  # Pattern for decoding time mean
+	],
+}
+# Define test conditions based on the simulation type
+PHYSIM_TEST_CONDITION = {
+	'nr_ulsim': 'test OK',  # For nr_ulsim, check if 'test OK' is present
+	'nr_dlsim': 'test OK',  # For nr_dlsim, check if 'test OK' is present
+	'ldpctest': None,	  # No condition for ldpctest, just process the patterns
+}
+
 class Analysis():
 
-	def _get_test_description(properties):
-		env_vars = None
-		for p in properties:
-			if p["name"] == "ENVIRONMENT":
-				env_vars = p["value"] # save for later if no custom property
-			if p["name"] == "TEST_DESCRIPTION":
-				return p["value"]
-		# if we came till here, it means there is no custom test property
-		# saved in JSON.  See if we have a description in environment variables
-		if not env_vars:
-			return "<none>"
-		for ev in env_vars:
-			name, value = ev.split("=", 1)
-			if name == "TEST_DESCRIPTION":
-				return value
-		return "<none>"
+	def analyze_physim(log, physim_test, options, threshold):
+		search_patterns = PHYSIM_PATTERN_MAPPING.get(physim_test)
+		test_condition = PHYSIM_TEST_CONDITION.get(physim_test)
+		success = False
+		msg = ''
 
-	def analyze_physim(result_junit, details_json, logPath):
+		try:
+			with open(log, 'r') as f:
+				log_content = f.read()
+		except FileNotFoundError as e:
+			msg = f'{log} file not found, exception: {e}'
+			return False, msg
+		except Exception as e:
+			msg = f'Error while parsing log file {log}: exception: {e}'
+			return False, msg
+
+		if test_condition and test_condition not in log_content:
+			msg = f"Test did not succeed, '{test_condition}' not found in log file {log}."
+			return False, msg
+
+		time1_match = re.search(search_patterns[0], log_content)
+		time2_match = re.search(search_patterns[1], log_content)
+		if not(time1_match and time2_match):
+			msg = f"Processing time not found in log file {log}."
+			return False, msg
+
+		success = float(time2_match.group(2)) < float(threshold)
+		if success:
+			msg = f'{time1_match.group(1)}: {time1_match.group(2)} us\n{time2_match.group(1)}: {time2_match.group(2)} us'
+		else:
+			msg = f'{time1_match.group(1)}: {time1_match.group(2)} us\n{time2_match.group(1)}: {time2_match.group(2)} us exceeds a limit of {threshold} us'
+
+		return success,msg
+
+	def analyze_oc_physim(result_junit, details_json, logPath):
 		try:
 			tree = ET.parse(result_junit)
 			root = tree.getroot()
@@ -77,7 +116,7 @@ class Analysis():
 		for test in root: # for each test
 			test_name = test.attrib["name"]
 			test_exec = json_test_desc[test_name]["properties"][1]["value"][0]
-			desc = Analysis._get_test_description(json_test_desc[test_name]["properties"])
+			desc = json_test_desc[test_name]["properties"][1]["value"][1]
 			# get runtime and checks
 			test_check = test.attrib["status"] == "run"
 			time = round(float(test.attrib["time"]), 1)
@@ -90,16 +129,13 @@ class Analysis():
 			with open(f'{log_dir}/{test_name}.log', 'w') as f:
 				f.write(output)
 			# prepare result and info
+			info = f"Runtime: {f'{time:.3f}'[:5]} s"
 			resultstr = 'PASS' if (test_check and time_check and output_check) else 'FAIL'
-			info = f"{test_name}.log: test {resultstr}"
-			for l in output.splitlines():
-				if l.startswith("CHECK "):
-					info += f"\n{l}"
 			if test_check:
 				if not output_check:
-					info += "\nTest log exceeds maximal allowed length 100 kB"
+					info += " Test log exceeds maximal allowed length 100 kB"
 				if not time_check:
-					info += "\nTest exceeds 150s"
+					info += " Test exceeds 150s"
 				if not (time_check and output_check):
 					nb_failed += 1 # time threshold/output length error, not counted for by ctest as of now
 			test_result[test_name] = [desc, info, resultstr]

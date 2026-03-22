@@ -445,6 +445,29 @@ int32_t nr_segmentation(unsigned char *input_buffer,
                         uint8_t BG);
 
 /**
+ * \brief Compute NR segmentation parameters without data processing
+ * Used for parallel segmentation: calculate parameters first, then process segments in parallel.
+ *
+ * \param B size of the TB in bits (after TB CRC)
+ * \param BG LDPC base graph (1 or 2)
+ * \param C pointer to write the number of segments
+ * \param K pointer to write the payload size per segment (bits)
+ * \param Zout pointer to write the lifting size per segment
+ * \param F pointer to write the number of filler bits per segment
+ * \param Kprime pointer to write K' = B'/C (bits per segment before filler)
+ * \param L pointer to write CRC length (0 if C==1, 24 if C>1)
+ * \return Kb value, or -1 on error
+ */
+int32_t nr_segmentation_params(unsigned int B,
+                               uint8_t BG,
+                               unsigned int *C,
+                               unsigned int *K,
+                               unsigned int *Zout,
+                               unsigned int *F,
+                               unsigned int *Kprime,
+                               unsigned int *L);
+
+/**
  * \brief compute parameter R for NR LDPC decoder
  * \param rvidx redundancy version index
  * \param E size of the code segment in bits

@@ -1,0 +1,74 @@
+# Standalone ISIP Test Makefile
+# Build and test ISIP integration independently
+
+CC = gcc
+CXX = g++
+CFLAGS = -Wall -Wextra -g -O2 -D_GNU_SOURCE
+CXXFLAGS = -Wall -Wextra -g -O2 -std=c++11
+
+# Paths
+ENKITS_SRC = ../../../external/enkiTS/src
+
+# Include directories
+INCLUDES = -I. -I$(ENKITS_SRC)
+
+# Source files
+ENKITS_SOURCES = $(ENKITS_SRC)/TaskScheduler.cpp $(ENKITS_SRC)/TaskScheduler_c.cpp
+C_SOURCES_LIGHT = test_standalone.c
+C_SOURCES_HEAVY = test_heavy.c
+C_SOURCES_SINGLE = test_single.c
+
+# Objects
+ENKITS_OBJECTS = $(ENKITS_SOURCES:.cpp=.o)
+C_OBJECTS_LIGHT = $(C_SOURCES_LIGHT:.c=.o)
+C_OBJECTS_HEAVY = $(C_SOURCES_HEAVY:.c=.o)
+C_OBJECTS_SINGLE = $(C_SOURCES_SINGLE:.c=.o)
+
+# Targets
+TARGET_LIGHT = test_standalone
+TARGET_HEAVY = test_heavy
+TARGET_SINGLE = test_single
+
+.PHONY: all clean test
+
+all: $(TARGET_LIGHT) $(TARGET_HEAVY) $(TARGET_SINGLE)
+
+$(TARGET_LIGHT): $(ENKITS_OBJECTS) $(C_OBJECTS_LIGHT)
+	$(CXX) -o $@ $^ -lpthread -lm
+
+$(TARGET_HEAVY): $(ENKITS_OBJECTS) $(C_OBJECTS_HEAVY)
+	$(CXX) -o $@ $^ -lpthread -lm
+
+$(TARGET_SINGLE): $(C_OBJECTS_SINGLE)
+	$(CC) -o $@ $^ -lm
+
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+
+%.o: %.c
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+clean:
+	rm -f $(TARGET_LIGHT) $(TARGET_HEAVY) $(TARGET_SINGLE) $(ENKITS_OBJECTS) $(C_OBJECTS_LIGHT) $(C_OBJECTS_HEAVY) $(C_OBJECTS_SINGLE)
+
+test: $(TARGET_LIGHT)
+	@echo "Running light standalone ISIP test..."
+	./$(TARGET_LIGHT)
+
+test-heavy: $(TARGET_HEAVY)
+	@echo "Running heavy computational ISIP test..."
+	./$(TARGET_HEAVY)
+
+test-single: $(TARGET_SINGLE)
+	@echo "Running single-threaded baseline test..."
+	./$(TARGET_SINGLE)
+
+benchmark: $(TARGET_SINGLE) $(TARGET_HEAVY)
+	@echo "=== Performance Comparison ==="
+	@echo "1. Single-threaded baseline:"
+	@./$(TARGET_SINGLE)
+	@echo ""
+	@echo "2. ISIP 8-thread parallel:"
+	@./$(TARGET_HEAVY)
+
+.PHONY: test test-heavy test-single benchmark

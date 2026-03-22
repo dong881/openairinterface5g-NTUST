@@ -106,8 +106,6 @@ void nr_rrc_ue_decode_NR_SBCCH_SL_BCH_Message(NR_UE_RRC_INST_t *rrc,
                                               const sdu_size_t pdu_len,
                                               const uint16_t rx_slss_id);
 
-void nr_rrc_set_mac_queue(instance_t instance, notifiedFIFO_t *mac_input_nf);
-
 /** @}*/
 #endif
 

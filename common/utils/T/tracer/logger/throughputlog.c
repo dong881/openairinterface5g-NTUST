@@ -13,14 +13,13 @@ struct throughputlog {
   struct logger common;
   void *database;
   int tick_frame_arg;
-  int tick_tick_arg;
+  int tick_subframe_arg;
   int data_frame_arg;
-  int data_tick_arg;
+  int data_subframe_arg;
   int data_arg;
   int last_tick_frame;
-  int last_tick_tick;
-  int ticks_per_frame;
-  unsigned long *bits;
+  int last_tick_subframe;
+  unsigned long bits[1000];
   unsigned long total;
   int insert_point;
   char *tick_event_name;
@@ -33,16 +32,16 @@ static void _event(void *p, event e)
 {
   struct throughputlog *l = p;
   int frame;
-  int tick;
+  int subframe;
   unsigned long value;
 
   if (l->common.filter != NULL && filter_eval(l->common.filter, e) == 0)
     return;
 
   frame = e.e[l->data_frame_arg].i;
-  tick = e.e[l->data_tick_arg].i;
+  subframe = e.e[l->data_subframe_arg].i;
 
-  if (frame != l->last_tick_frame || tick != l->last_tick_tick) {
+  if (frame != l->last_tick_frame || subframe != l->last_tick_subframe) {
     printf("WARNING: %s:%d: data comes without previous tick!\n",
            __FILE__, __LINE__);
     return;
@@ -63,34 +62,28 @@ static void _tick_event(void *p, event e)
   struct throughputlog *l = p;
   int i;
   int frame;
-  int tick;
+  int subframe;
 
   if (l->tick_filter != NULL && filter_eval(l->tick_filter, e) == 0)
     return;
 
   frame = e.e[l->tick_frame_arg].i;
-  tick = e.e[l->tick_tick_arg].i;
+  subframe = e.e[l->tick_subframe_arg].i;
 
   for (i = 0; i < l->common.vsize; i++)
-    l->common.v[i]->append(l->common.v[i], frame, tick, (double)l->total);
+    l->common.v[i]->append(l->common.v[i], frame, subframe, (double)l->total);
 
-  while (l->last_tick_frame != frame || l->last_tick_tick != tick) {
-    l->insert_point = (l->insert_point + 1) % (100 * l->ticks_per_frame);
-    l->total -= l->bits[l->insert_point];
-    l->bits[l->insert_point] = 0;
-    l->last_tick_tick++;
-    if (l->last_tick_tick == l->ticks_per_frame) {
-      l->last_tick_tick = 0;
-      l->last_tick_frame++;
-      l->last_tick_frame %= 1024;
-    }
-  }
+  l->insert_point = (l->insert_point + 1) % 1000;
+  l->total -= l->bits[l->insert_point];
+  l->bits[l->insert_point] = 0;
 
+  l->last_tick_frame = frame;
+  l->last_tick_subframe = subframe;
 }
 
 logger *new_throughputlog(event_handler *h, void *database,
-    char *tick_event_name, char *frame_varname, char *tick_varname,
-    char *event_name, char *data_varname, int ticks_per_frame)
+    char *tick_event_name, char *frame_varname, char *subframe_varname,
+    char *event_name, char *data_varname)
 {
   struct throughputlog *ret;
   int event_id;
@@ -113,21 +106,21 @@ logger *new_throughputlog(event_handler *h, void *database,
 
   f = get_format(database, event_id);
 
-  /* look for frame and tick */
+  /* look for frame and subframe */
   ret->tick_frame_arg = -1;
-  ret->tick_tick_arg = -1;
+  ret->tick_subframe_arg = -1;
   for (i = 0; i < f.count; i++) {
     if (!strcmp(f.name[i], frame_varname)) ret->tick_frame_arg = i;
-    if (!strcmp(f.name[i], tick_varname)) ret->tick_tick_arg = i;
+    if (!strcmp(f.name[i], subframe_varname)) ret->tick_subframe_arg = i;
   }
   if (ret->tick_frame_arg == -1) {
     printf("%s:%d: frame argument '%s' not found in event '%s'\n",
         __FILE__, __LINE__, frame_varname, event_name);
     abort();
   }
-  if (ret->tick_tick_arg == -1) {
-    printf("%s:%d: tick argument '%s' not found in event '%s'\n",
-        __FILE__, __LINE__, tick_varname, event_name);
+  if (ret->tick_subframe_arg == -1) {
+    printf("%s:%d: subframe argument '%s' not found in event '%s'\n",
+        __FILE__, __LINE__, subframe_varname, event_name);
     abort();
   }
   if (strcmp(f.type[ret->tick_frame_arg], "int") != 0) {
@@ -135,9 +128,9 @@ logger *new_throughputlog(event_handler *h, void *database,
         __FILE__, __LINE__, frame_varname);
     abort();
   }
-  if (strcmp(f.type[ret->tick_tick_arg], "int") != 0) {
+  if (strcmp(f.type[ret->tick_subframe_arg], "int") != 0) {
     printf("%s:%d: argument '%s' has wrong type (should be 'int')\n",
-        __FILE__, __LINE__, tick_varname);
+        __FILE__, __LINE__, subframe_varname);
     abort();
   }
 
@@ -148,13 +141,13 @@ logger *new_throughputlog(event_handler *h, void *database,
 
   f = get_format(database, event_id);
 
-  /* look for frame, tick and data args */
+  /* look for frame, subframe and data args */
   ret->data_frame_arg = -1;
-  ret->data_tick_arg = -1;
+  ret->data_subframe_arg = -1;
   ret->data_arg = -1;
   for (i = 0; i < f.count; i++) {
     if (!strcmp(f.name[i], frame_varname)) ret->data_frame_arg = i;
-    if (!strcmp(f.name[i], tick_varname)) ret->data_tick_arg = i;
+    if (!strcmp(f.name[i], subframe_varname)) ret->data_subframe_arg = i;
     if (!strcmp(f.name[i], data_varname)) ret->data_arg = i;
   }
   if (ret->data_frame_arg == -1) {
@@ -162,9 +155,9 @@ logger *new_throughputlog(event_handler *h, void *database,
         __FILE__, __LINE__, frame_varname, event_name);
     abort();
   }
-  if (ret->data_tick_arg == -1) {
-    printf("%s:%d: tick argument '%s' not found in event '%s'\n",
-        __FILE__, __LINE__, tick_varname, event_name);
+  if (ret->data_subframe_arg == -1) {
+    printf("%s:%d: subframe argument '%s' not found in event '%s'\n",
+        __FILE__, __LINE__, subframe_varname, event_name);
     abort();
   }
   if (ret->data_arg == -1) {
@@ -177,9 +170,9 @@ logger *new_throughputlog(event_handler *h, void *database,
         __FILE__, __LINE__, frame_varname);
     abort();
   }
-  if (strcmp(f.type[ret->data_tick_arg], "int") != 0) {
+  if (strcmp(f.type[ret->data_subframe_arg], "int") != 0) {
     printf("%s:%d: argument '%s' has wrong type (should be 'int')\n",
-        __FILE__, __LINE__, tick_varname);
+        __FILE__, __LINE__, subframe_varname);
     abort();
   }
   if (strcmp(f.type[ret->data_arg], "int") != 0 &&
@@ -189,10 +182,6 @@ logger *new_throughputlog(event_handler *h, void *database,
         __FILE__, __LINE__, data_varname);
     abort();
   }
-
-  ret->ticks_per_frame = ticks_per_frame;
-  ret->bits = calloc(100 * ticks_per_frame, sizeof(unsigned long));
-  if (ret->bits == NULL) abort();
 
   return ret;
 }

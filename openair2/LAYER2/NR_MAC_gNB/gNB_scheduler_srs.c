@@ -462,14 +462,8 @@ static void nr_configure_srs(gNB_MAC_INST *nrmac,
   srs_pdu->srs_parameters_v4.iq_representation = 1;
   srs_pdu->srs_parameters_v4.prg_size = 1;
   srs_pdu->srs_parameters_v4.num_total_ue_antennas = 1 << srs_pdu->num_ant_ports;
-  /* For srs usage: codebook, this is a bitmask of the antenna ports that should be used for data.
-  * num_ant_ports num_total_ue_antennas sampled_ue_antennas
-  *             0                     1                   1
-  *             1                     2                   3
-  *             2                     4                  15 */
-  srs_pdu->srs_parameters_v4.sampled_ue_antennas = (2 << srs_pdu->num_ant_ports) - 1;
   if (srs_resource_set->usage == NR_SRS_ResourceSet__usage_beamManagement) {
-    srs_pdu->beamforming.trp_scheme = 0;
+    // srs_pdu->beamforming.trp_scheme = 0;
     srs_pdu->beamforming.num_prgs = m_SRS[srs_pdu->config_index];
     srs_pdu->beamforming.prg_size = srs_pdu->srs_parameters_v4.srs_bandwidth_size;
   }
@@ -533,9 +527,10 @@ void nr_schedule_srs(int module_id, frame_t frame, int slot)
 
   UE_iterator(UE_info->connected_ue_list, UE) {
     const int CC_id = 0;
+    NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
     NR_UE_UL_BWP_t *current_BWP = &UE->current_UL_BWP;
 
-    if (!nr_mac_ue_is_active(UE) && !get_softmodem_params()->phy_test) {
+    if ((sched_ctrl->ul_failure && !get_softmodem_params()->phy_test) || nr_timer_is_active(&sched_ctrl->transm_interrupt)) {
       continue;
     }
 

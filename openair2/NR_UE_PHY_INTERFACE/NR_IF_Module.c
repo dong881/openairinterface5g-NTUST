@@ -1190,7 +1190,7 @@ void update_harq_status(NR_UE_MAC_INST_t *mac, uint8_t harq_pid, uint8_t ack_nac
   if (current_harq->active) {
     LOG_D(PHY,"Updating harq_status for harq_id %d, ack/nak %d\n", harq_pid, current_harq->ack);
     // we can prepare feedback for MSG4 in advance
-    if (mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION || mac->ra.ra_state == nrRA_WAIT_MSGB)
+    if (mac->ra.ra_state == nrRA_WAIT_CONTENTION_RESOLUTION)
       prepare_msg4_msgb_feedback(mac, harq_pid, ack_nack);
     else {
       current_harq->ack = ack_nack;
@@ -1312,7 +1312,7 @@ static uint32_t nr_ue_dl_processing(NR_UE_MAC_INST_t *mac, nr_downlink_indicatio
             // resume RAR response window timer if MSG2 decoding failed
             nr_timer_suspension(&mac->ra.response_window_timer);
           } else {
-            LOG_I(PHY, "[UE %d] RAR-Msg2 decoded\n", mac->ue_id);
+            LOG_I(PHY, "RAR-Msg2 decoded\n");
           }
           ret_mask |= (handle_dlsch(mac, dl_info, i)) << FAPI_NR_RX_PDU_TYPE_RAR;
           break;

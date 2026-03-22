@@ -155,30 +155,6 @@ typedef struct nr_redcap_config {
   uint8_t intraFreqReselectionRedCap_r17;
 } nr_redcap_config_t;
 
-typedef struct {
-int dl_FreqDensity0_0;
-int dl_FreqDensity1_0;
-int dl_TimeDensity0_0;
-int dl_TimeDensity1_0;
-int dl_TimeDensity2_0;
-int dl_EpreRatio_0;
-int dl_ReOffset_0;
-int ul_FreqDensity0_0;
-int ul_FreqDensity1_0;
-int ul_TimeDensity0_0;
-int ul_TimeDensity1_0;
-int ul_TimeDensity2_0;
-int ul_ReOffset_0;
-int ul_MaxPorts_0;
-int ul_Power_0;
-} nr_ptrs_config_t;
-
-typedef struct {
-  int id;
-  int scs;
-  int location_and_bw;
-} nr_bwp_config_t;
-
 typedef struct nr_mac_config_t {
   int sib1_tda;
   nr_pdsch_AntennaPorts_t pdsch_AntennaPorts;
@@ -196,16 +172,11 @@ typedef struct nr_mac_config_t {
   nr_mac_timers_t timer_config;
   int num_dlharq;
   int num_ulharq;
-  // BWP information
-  int num_additional_bwps;
-  int first_active_bwp;
-  nr_bwp_config_t bwp_config[4];
   /// beamforming weight matrix size
   int nb_bfw[2];
   int32_t *bw_list;
   int num_agg_level_candidates[NUM_PDCCH_AGG_LEVELS];
   nr_redcap_config_t *redcap;
-  nr_ptrs_config_t *ptrs;
   bool do_SINR;
 } nr_mac_config_t;
 
@@ -292,6 +263,8 @@ typedef struct {
   NR_BCCH_DL_SCH_Message_t *sib1;
   seq_arr_t *du_SIBs;
   NR_ServingCellConfigCommon_t *ServingCellConfigCommon;
+  /// pre-configured ServingCellConfig that is default for every UE
+  NR_ServingCellConfig_t *pre_ServingCellConfig;
   /// Outgoing MIB PDU for PHY
   uint8_t MIB_pdu[3];
   /// Outgoing BCCH pdu for PHY
@@ -301,7 +274,7 @@ typedef struct {
   uint8_t other_sib_bcch_pdu[2][NR_MAX_SIB_LENGTH / 8];
   int other_sib_bcch_length[2];
   /// VRB map for common channels
-  uint16_t vrb_map[MAX_NUM_BEAM_PERIODS][275];
+  uint16_t vrb_map[MAX_NUM_BEAM_PERIODS][375];
   /// VRB map for common channels and PUSCH, dynamically allocated because
   /// length depends on number of slots and RBs
   uint16_t *vrb_map_UL[MAX_NUM_BEAM_PERIODS];
@@ -548,7 +521,8 @@ typedef struct RSRP_report {
   uint8_t nr_reports;
   uint8_t resource_id[MAX_NR_OF_REPORTED_RS];
   int RSRP[MAX_NR_OF_REPORTED_RS];
-  int SINRx10[MAX_NR_OF_REPORTED_RS];
+  // SINR index according to tables 10.1.16.1-1, 10.1.16.1-2
+  int SINR_index[MAX_NR_OF_REPORTED_RS];
 } RSRP_report_t;
 
 struct CSI_Report {
@@ -720,8 +694,6 @@ typedef struct NR_mac_stats {
   uint32_t pucch0_DTX;
   int cumul_rsrp;
   uint8_t num_rsrp_meas;
-  int cumul_sinrx10;
-  uint8_t num_sinr_meas;
   char srs_stats[50]; // Statistics may differ depending on SRS usage
   int pusch_snrx10;
   int deltaMCS;

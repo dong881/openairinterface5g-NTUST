@@ -36,7 +36,6 @@
 #include "PHY/CODING/nrPolar_tools/nr_polar_dci_defs.h"
 #include "PHY/phy_extern.h"
 #include "PHY/CODING/coding_extern.h"
-#include "PHY/nr_phy_common/inc/nr_phy_common.h"
 #include "PHY/sse_intrin.h"
 #include "common/utils/nr/nr_common.h"
 #include <openair1/PHY/TOOLS/phy_scope_interface.h>
@@ -196,6 +195,20 @@ static void nr_pdcch_llr(uint32_t sz, c16_t *rxF, c16_t *llr)
     LOG_DDD("llr logs: rb=%d i=%d rxF:%d,%d => pdcch_llr:%d,%d\n", i / 18, i, rxF->r, rxF->i, llr->r, llr->i);
     rxF++;
   }
+}
+
+//compute average channel_level on each (TX,RX) antenna pair
+static int32_t nr_pdcch_channel_level(int nb_re, int arraySz, c16_t dl_ch_estimates_ext[][arraySz], int nb_antennas_rx)
+{
+  int32_t avgs = 0;
+  for (int aarx = 0; aarx < nb_antennas_rx; aarx++) {
+    simde__m128i *dl_ch128 = (simde__m128i *)&dl_ch_estimates_ext[aarx];
+    // compute average level
+    // if nb_re is not %4, some samples are missed inside simde_mm_average, so let's discard it 
+    int32_t tmp = simde_mm_average(dl_ch128, nb_re & ~3, 0, nb_re & ~3);
+    avgs = cmax(avgs, tmp);
+  }
+  return avgs;
 }
 
 // This function will extract the mapped DM-RS PDCCH REs as per 38.211 Section 7.4.1.3.2 (Mapping to physical resources)
@@ -359,13 +372,9 @@ void nr_rx_pdcch(PHY_VARS_NR_UE *ue,
                                 rel15->coreset.frequency_domain_resource,
                                 rel15->BWPStart);
 
-    LOG_D(NR_PHY_DCI, "in channel level function (dl_ch_estimates_ext -> dl_ch_estimates_ext)\n");
+    LOG_D(NR_PHY_DCI, "in nr_pdcch_channel_level(dl_ch_estimates_ext -> dl_ch_estimates_ext)\n");
     // compute channel level based on ofdm symbol 0
-    int avg[antRx];
-    nr_channel_level(0, arraySz, pdcch_dl_ch_estimates_ext, antRx, 1, avg, n_rb);
-    int avgs = avg[0];
-    for (int i = 1; i < antRx; i++)
-      avgs = cmax(avgs, avg[i]);
+    int32_t avgs = nr_pdcch_channel_level(n_rb, arraySz, pdcch_dl_ch_estimates_ext, antRx);
     uint8_t log2_maxh = (log2_approx(avgs) / 2) + 5; //+antRx;
 
 #ifdef UE_DEBUG_TRACE

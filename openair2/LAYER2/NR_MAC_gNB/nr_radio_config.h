@@ -89,6 +89,7 @@ NR_SIB19_r17_t *get_SIB19_NR(const NR_ServingCellConfigCommon_t *scc);
 
 NR_CellGroupConfig_t *get_initial_cellGroupConfig(int uid,
                                                   const NR_ServingCellConfigCommon_t *scc,
+                                                  const NR_ServingCellConfig_t *servingcellconfigdedicated,
                                                   const nr_mac_config_t *configuration,
                                                   const nr_rlc_configuration_t *default_rlc_config);
 void update_cellGroupConfig(NR_CellGroupConfig_t *cellGroupConfig,
@@ -104,6 +105,7 @@ NR_CellGroupConfig_t *decode_cellGroupConfig(const uint8_t *buffer, int max_buff
  * configuration, but it will also overwrite the ServingCellConfig passed in
  * parameter servingcellconfigdedicated! */
 NR_CellGroupConfig_t *get_default_secondaryCellGroup(const NR_ServingCellConfigCommon_t *servingcellconfigcommon,
+                                                     const NR_ServingCellConfig_t *servingcellconfigdedicated,
                                                      const NR_UE_NR_Capability_t *uecap,
                                                      int scg_id,
                                                      int servCellIndex,
@@ -121,13 +123,7 @@ NR_RLC_BearerConfig_t *get_DRB_RLC_BearerConfig(long lcChannelId,
                                                 NR_RLC_Config_PR rlc_conf,
                                                 long priority,
                                                 const nr_rlc_configuration_t *default_rlc_config);
-NR_CellGroupConfig_t * update_cellGroupConfig_for_BWP_switch(NR_CellGroupConfig_t *cellGroupConfig,
-                                                             const nr_mac_config_t *configuration,
-                                                             const NR_UE_NR_Capability_t *uecap,
-                                                             const NR_ServingCellConfigCommon_t *scc,
-                                                             int uid,
-                                                             int old_bwp,
-                                                             int new_bwp);
+
 NR_MeasurementTimingConfiguration_t *get_nr_mtc(uint8_t *buf, uint32_t len);
 measgap_config_t create_measgap_config(const NR_MeasurementTimingConfiguration_t *mtc, int scs, int min_rxtxtime);
 int encode_measgap_config(const measgap_config_t *c, uint8_t *buf);

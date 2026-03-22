@@ -320,15 +320,15 @@ frequency_range_t get_freq_range_from_arfcn(uint32_t arfcn);
 frequency_range_t get_freq_range_from_band(uint16_t band);
 
 /**
- * @brief Calculates the scaling factor for the ratio of PUSCH/PDSCH EPRE to DMRS EPRE.
+ * @brief Calculates the scaling factor for the ratio of PUSCH EPRE to DMRS EPRE.
  *
  * @param num_cdm_groups_no_data The number of CDM groups without data.
- * @param is_type2 true if calculating for DMRS configuration type 2
- * @return The calculated beta scaling factor for the ratio of PUSCH/PDSCH EPRE to DMRS EPRE.
+ * @param dmrs_type The DMRS type.
+ * @return The calculated beta scaling factor for the ratio of PUSCH EPRE to DMRS EPRE.
  *
- * @note The values are the same for PUSCH and PDSCH and are derived from TS 38.214 Table 6.2.2-1./4.1-1
+ * @note The values are derived from TS 38.214 Table 6.2.2-1.
  */
-float get_beta_dmrs(int num_cdm_groups_no_data, bool is_type2);
+float get_beta_dmrs_pusch(int num_cdm_groups_no_data, pusch_dmrs_type_t dmrs_type);
 
 #define CEILIDIV(a,b) ((a+b-1)/b)
 #define ROUNDIDIV(a,b) (((a<<1)+b)/(b<<1))

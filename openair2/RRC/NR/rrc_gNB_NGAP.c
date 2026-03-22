@@ -209,8 +209,7 @@ void rrc_gNB_send_NGAP_NAS_FIRST_REQ(gNB_RRC_INST *rrc, gNB_RRC_UE_t *UE, NR_RRC
   }
   int selected_plmn_identity = rrcSetupComplete->selectedPLMN_Identity - 1; // Convert 1-based PLMN Identity IE to 0-based index
   req->plmn = rrc->configuration.plmn[selected_plmn_identity]; // Select from the stored list
-  plmn_id_t *p = &req->plmn;
-  LOG_I(NGAP, "Selected PLMN in the NG Initial UE Message: MCC=%03d MNC=%0*d\n", p->mcc, p->mnc_digit_length, p->mnc);
+  LOG_I(NGAP, "Selected PLMN in the NG Initial UE Message: MCC %u, MNC %u\n", req->plmn.mcc, req->plmn.mnc);
 
   /* 5G-S-TMSI */
   if (UE->Initialue_identity_5g_s_TMSI.presence) {
@@ -1262,29 +1261,25 @@ int rrc_gNB_process_NGAP_PDUSESSION_RELEASE_COMMAND(MessageDef *msg_p, instance_
 
 int rrc_gNB_process_PAGING_IND(MessageDef *msg_p, instance_t instance)
 {
-  ngap_paging_ind_t *msg = &NGAP_PAGING_IND(msg_p);
-  for (uint16_t tai_size = 0; tai_size < msg->tai_size; tai_size++) {
-    plmn_id_t *p = &msg->plmn_identity[tai_size];
-    LOG_I(NR_RRC,
-          "[gNB %ld] TAI List for Paging: MCC=%03d, MNC=%0*d, TAC=%d\n",
-          instance,
-          p->mcc,
-          p->mnc_digit_length,
-          p->mnc,
-          msg->tac[tai_size]);
+  for (uint16_t tai_size = 0; tai_size < NGAP_PAGING_IND(msg_p).tai_size; tai_size++) {
+    LOG_I(NR_RRC,"[gNB %ld] In NGAP_PAGING_IND: MCC %d, MNC %d, TAC %d\n", instance, NGAP_PAGING_IND(msg_p).plmn_identity[tai_size].mcc,
+          NGAP_PAGING_IND(msg_p).plmn_identity[tai_size].mnc, NGAP_PAGING_IND(msg_p).tac[tai_size]);
     gNB_RrcConfigurationReq *req = &RC.nrrrc[instance]->configuration;
     for (uint8_t j = 0; j < req->num_plmn; j++) {
-      plmn_id_t *req_plmn = &req->plmn[j];
-      if (req_plmn->mcc == p->mcc && req_plmn->mnc == p->mnc && req->tac == msg->tac[tai_size]) {
+      plmn_id_t *plmn = &req->plmn[j];
+      if (plmn->mcc == NGAP_PAGING_IND(msg_p).plmn_identity[tai_size].mcc
+          && plmn->mnc == NGAP_PAGING_IND(msg_p).plmn_identity[tai_size].mnc && req->tac == NGAP_PAGING_IND(msg_p).tac[tai_size]) {
         for (uint8_t CC_id = 0; CC_id < MAX_NUM_CCs; CC_id++) {
           AssertFatal(false, "to be implemented properly\n");
           if (NODE_IS_CU(RC.nrrrc[instance]->node_type)) {
             MessageDef *m = itti_alloc_new_message(TASK_RRC_GNB, 0, F1AP_PAGING_IND);
-            F1AP_PAGING_IND(m).plmn = *req_plmn;
+            F1AP_PAGING_IND(m).plmn.mcc = RC.nrrrc[j]->configuration.plmn[0].mcc;
+            F1AP_PAGING_IND(m).plmn.mnc = RC.nrrrc[j]->configuration.plmn[0].mnc;
+            F1AP_PAGING_IND(m).plmn.mnc_digit_length = RC.nrrrc[j]->configuration.plmn[0].mnc_digit_length;
             F1AP_PAGING_IND (m).nr_cellid        = RC.nrrrc[j]->nr_cellid;
-            F1AP_PAGING_IND(m).ueidentityindexvalue = (uint16_t)(msg->ue_paging_identity.s_tmsi.m_tmsi % 1024);
-            F1AP_PAGING_IND(m).fiveg_s_tmsi = msg->ue_paging_identity.s_tmsi.m_tmsi;
-            F1AP_PAGING_IND(m).paging_drx = msg->paging_drx;
+            F1AP_PAGING_IND (m).ueidentityindexvalue = (uint16_t)(NGAP_PAGING_IND(msg_p).ue_paging_identity.s_tmsi.m_tmsi%1024);
+            F1AP_PAGING_IND (m).fiveg_s_tmsi = NGAP_PAGING_IND(msg_p).ue_paging_identity.s_tmsi.m_tmsi;
+            F1AP_PAGING_IND (m).paging_drx = NGAP_PAGING_IND(msg_p).paging_drx;
             LOG_E(F1AP, "ueidentityindexvalue %u fiveg_s_tmsi %ld paging_drx %u\n", F1AP_PAGING_IND (m).ueidentityindexvalue, F1AP_PAGING_IND (m).fiveg_s_tmsi, F1AP_PAGING_IND (m).paging_drx);
             itti_send_msg_to_task(TASK_CU_F1, instance, m);
           } else {

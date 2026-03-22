@@ -31,6 +31,8 @@
 #include "conversions.h"
 #include "ngap_common.h"
 
+int asn1_xer_print = 0;
+
 void encode_ngap_cause(NGAP_Cause_t *out, const ngap_cause_t *in)
 {
   switch (in->type) {

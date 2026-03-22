@@ -1219,7 +1219,7 @@ typedef struct
 
 typedef struct
 {
-  uint8_t trp_scheme;         // This field shall be set to 0, to identify that this table is used.
+  // uint8_t trp_scheme;         // This field shall be set to 0, to identify that this table is used. Not part of FAPI 10.02, thus removed
   uint16_t num_prgs;          // Number of PRGs spanning this allocation. Value : 1->275
   uint16_t prg_size;          // Size in RBs of a precoding resource block group (PRG) – to which the same digital beamforming gets applied. Value: 1->275
   uint8_t dig_bf_interface;   // Number of logical antenna ports (parallel streams) resulting from the Rx combining. Value: 0->255

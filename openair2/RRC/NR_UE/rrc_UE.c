@@ -72,7 +72,7 @@
 #include "nr_nas_msg.h"
 #include "openair2/SDAP/nr_sdap/nr_sdap_entity.h"
 
-static NR_UE_RRC_INST_t *NR_UE_rrc_inst[MAX_NUM_NR_UE_INST] = {0};
+static NR_UE_RRC_INST_t *NR_UE_rrc_inst;
 /* NAS Attach request with IMSI */
 static const char nr_nas_attach_req_imsi_dummy_NSA_case[] = {
     0x07,
@@ -149,29 +149,9 @@ static void nr_rrc_ue_process_masterCellGroup(NR_UE_RRC_INST_t *rrc,
 
 static void nr_rrc_ue_process_measConfig(rrcPerNB_t *rrc, NR_MeasConfig_t *const measConfig, NR_UE_Timers_Constants_t *timers);
 
-/**
- * @brief Sends an RRC message to the connected UE MAC instance.
- *
- * @param rrc UE RRC instance structure
- * @param msg RRC message to be sent to MAC
- */
-static void nr_rrc_send_msg_to_mac(NR_UE_RRC_INST_t *rrc, nr_mac_rrc_message_t *msg)
+NR_UE_RRC_INST_t* get_NR_UE_rrc_inst(int instance)
 {
-  AssertFatal(rrc->mac_input_nf != NULL, "MAC input NF is NULL for UE %ld\n", rrc->ue_id);
-  notifiedFIFO_elt_t *nf_msg = newNotifiedFIFO_elt(sizeof(nr_mac_rrc_message_t), 0, NULL, NULL);
-  nr_mac_rrc_message_t *rrc_msg = NotifiedFifoData(nf_msg);
-  memcpy(rrc_msg, msg, sizeof(nr_mac_rrc_message_t));
-  pushNotifiedFIFO(rrc->mac_input_nf, nf_msg);
-}
-
-NR_UE_RRC_INST_t *get_NR_UE_rrc_inst(int instance)
-{
-  AssertFatal(instance >= 0 && instance < MAX_NUM_NR_UE_INST, "RRC instance %d out of bounds\n", instance);
-  NR_UE_RRC_INST_t *rrc = NR_UE_rrc_inst[instance];
-  if (rrc == NULL)
-    return NULL;
-  AssertFatal(rrc->ue_id == instance, "RRC ID %d doesn't match with input %d\n", (int)rrc->ue_id, instance);
-  return rrc;
+  return &NR_UE_rrc_inst[instance];
 }
 
 static NR_RB_status_t get_DRB_status(const NR_UE_RRC_INST_t *rrc, NR_DRB_Identity_t drb_id)
@@ -301,6 +281,7 @@ static void nr_rrc_process_ntnconfig(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *S
 
 static void nr_decode_SI(NR_UE_RRC_SI_INFO *SI_info, NR_SystemInformation_t *si, NR_UE_RRC_INST_t *rrc, int frame)
 {
+  instance_t ue_id = rrc->ue_id;
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_RRC_UE_DECODE_SI, VCD_FUNCTION_IN);
 
   // Dump contents
@@ -384,12 +365,10 @@ static void nr_decode_SI(NR_UE_RRC_SI_INFO *SI_info, NR_SystemInformation_t *si,
   }
 
   if (sib19) {
-    nr_mac_rrc_message_t rrc_msg = {0};
-    rrc_msg.payload_type = NR_MAC_RRC_CONFIG_OTHER_SIB;
-    nr_mac_rrc_config_other_sib_t *sib19_msg = &rrc_msg.payload.config_other_sib;
-    asn_copy(&asn_DEF_NR_SIB19_r17, (void **)&sib19_msg->sib19, sib19);
-    sib19_msg->can_start_ra = rrc->is_NTN_UE;
-    nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
+    MessageDef *msg = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_MAC_RRC_CONFIG_OTHER_SIB);
+    asn_copy(&asn_DEF_NR_SIB19_r17, (void **)&NR_MAC_RRC_CONFIG_OTHER_SIB(msg).sib19, sib19);
+    NR_MAC_RRC_CONFIG_OTHER_SIB(msg).can_start_ra = rrc->is_NTN_UE;
+    itti_send_msg_to_task(TASK_MAC_UE, ue_id, msg);
   }
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_RRC_UE_DECODE_SI, VCD_FUNCTION_OUT);
 }
@@ -523,13 +502,10 @@ static void nr_rrc_process_sib1(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *SI_inf
   nr_rrc_set_sib1_timers_and_constants(&rrc->timers_and_constants, sib1);
   // RRC storage of SIB1 timers and constants (eg needed in re-establishment)
   UPDATE_IE(rrc->timers_and_constants.sib1_TimersAndConstants, sib1->ue_TimersAndConstants, NR_UE_TimersAndConstants_t);
-
-  nr_mac_rrc_message_t rrc_msg = {0};
-  rrc_msg.payload_type = NR_MAC_RRC_CONFIG_SIB1;
-  nr_mac_rrc_config_sib1_t *config_sib1 = &rrc_msg.payload.config_sib1;
-  config_sib1->sib1 = sib1;
-  config_sib1->can_start_ra = !rrc->is_NTN_UE;
-  nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
+  MessageDef *msg = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_MAC_RRC_CONFIG_SIB1);
+  NR_MAC_RRC_CONFIG_SIB1(msg).sib1 = sib1;
+  NR_MAC_RRC_CONFIG_SIB1(msg).can_start_ra = !rrc->is_NTN_UE;
+  itti_send_msg_to_task(TASK_MAC_UE, rrc->ue_id, msg);
 }
 
 static void nr_rrc_process_reconfiguration_v1530(NR_UE_RRC_INST_t *rrc, NR_RRCReconfiguration_v1530_IEs_t *rec_1530, int gNB_index)
@@ -668,12 +644,12 @@ static void nr_rrc_ue_process_rrcReconfiguration(NR_UE_RRC_INST_t *rrc, int gNB_
         nr_rrc_cellgroup_configuration(rrc, cellGroupConfig, gNB_index);
 
         AssertFatal(!IS_SA_MODE(get_softmodem_params()), "secondaryCellGroup only used in NSA for now\n");
-        nr_mac_rrc_message_t rrc_msg = {0};
-        rrc_msg.payload_type = NR_MAC_RRC_CONFIG_CG;
-        nr_mac_rrc_config_cg_t *config_cg = &rrc_msg.payload.config_cg;
-        config_cg->cellGroupConfig = cellGroupConfig;
-        config_cg->UE_NR_Capability = rrc->UECap.UE_NR_Capability;
-        nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
+        MessageDef *msg = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_MAC_RRC_CONFIG_CG);
+        // cellGroupConfig will be managed by MAC
+        NR_MAC_RRC_CONFIG_CG(msg).cellGroupConfig = cellGroupConfig;
+        // UE_NR_Capability remain a race condition between this rrc thread and mac thread
+        NR_MAC_RRC_CONFIG_CG(msg).UE_NR_Capability = rrc->UECap.UE_NR_Capability;
+        itti_send_msg_to_task(TASK_MAC_UE, rrc->ue_id, msg);
       }
       if (ie->measConfig) {
         LOG_I(NR_RRC, "RRCReconfiguration includes Measurement Configuration\n");
@@ -755,63 +731,67 @@ static bool verify_ue_cap(NR_UE_NR_Capability_t *UE_NR_Capability, int nb_antenn
   return true;
 }
 
-NR_UE_RRC_INST_t* nr_rrc_init_ue(char* uecap_file, int instance_id, int num_ant_tx)
+NR_UE_RRC_INST_t* nr_rrc_init_ue(char* uecap_file, int nb_inst, int num_ant_tx)
 {
-  AssertFatal(instance_id < MAX_NUM_NR_UE_INST, "RRC instance %d out of bounds\n", instance_id);
-  AssertFatal(NR_UE_rrc_inst[instance_id] == NULL, "RRC instance %d already initialized\n", instance_id);
-  NR_UE_rrc_inst[instance_id] = calloc_or_fail(1, sizeof(NR_UE_RRC_INST_t));
-  NR_UE_RRC_INST_t *rrc = NR_UE_rrc_inst[instance_id];
-  rrc->ue_id = instance_id;
-  // fill UE-NR-Capability @ UE-CapabilityRAT-Container here.
-  rrc->selected_plmn_identity = 1;
-  rrc->ra_trigger = RA_NOT_RUNNING;
-  rrc->dl_bwp_id = 0;
-  rrc->ul_bwp_id = 0;
-  rrc->as_security_activated = false;
-  rrc->detach_after_release = false;
-  rrc->reconfig_after_reestab = false;
-  /* 5G-S-TMSI */
-  rrc->fiveG_S_TMSI = UINT64_MAX;
-  rrc->access_barred = false;
+  NR_UE_rrc_inst = (NR_UE_RRC_INST_t *)calloc(nb_inst, sizeof(NR_UE_RRC_INST_t));
+  AssertFatal(NR_UE_rrc_inst, "Couldn't allocate %d instances of RRC module\n", nb_inst);
 
-  FILE *f = NULL;
-  if (uecap_file)
-    f = fopen(uecap_file, "r");
-  if (f) {
-    char UE_NR_Capability_xer[65536];
-    size_t size = fread(UE_NR_Capability_xer, 1, sizeof UE_NR_Capability_xer, f);
-    if (size == 0 || size == sizeof UE_NR_Capability_xer) {
-      LOG_E(NR_RRC, "UE Capabilities XER file %s is too large (%ld)\n", uecap_file, size);
-    } else {
-      asn_dec_rval_t dec_rval =
-          xer_decode(0, &asn_DEF_NR_UE_NR_Capability, (void *)&rrc->UECap.UE_NR_Capability, UE_NR_Capability_xer, size);
-      assert(dec_rval.code == RC_OK);
+  for(int nr_ue = 0; nr_ue < nb_inst; nr_ue++) {
+    NR_UE_RRC_INST_t *rrc = &NR_UE_rrc_inst[nr_ue];
+    rrc->ue_id = nr_ue;
+    // fill UE-NR-Capability @ UE-CapabilityRAT-Container here.
+    rrc->selected_plmn_identity = 1;
+    rrc->ra_trigger = RA_NOT_RUNNING;
+    rrc->dl_bwp_id = 0;
+    rrc->ul_bwp_id = 0;
+    rrc->as_security_activated = false;
+    rrc->detach_after_release = false;
+    rrc->reconfig_after_reestab = false;
+    /* 5G-S-TMSI */
+    rrc->fiveG_S_TMSI = UINT64_MAX;
+    rrc->access_barred = false;
+
+    FILE *f = NULL;
+    if (uecap_file)
+      f = fopen(uecap_file, "r");
+    if (f) {
+      char UE_NR_Capability_xer[65536];
+      size_t size = fread(UE_NR_Capability_xer, 1, sizeof UE_NR_Capability_xer, f);
+      if (size == 0 || size == sizeof UE_NR_Capability_xer) {
+        LOG_E(NR_RRC, "UE Capabilities XER file %s is too large (%ld)\n", uecap_file, size);
+      }
+      else {
+        asn_dec_rval_t dec_rval =
+            xer_decode(0, &asn_DEF_NR_UE_NR_Capability, (void *)&rrc->UECap.UE_NR_Capability, UE_NR_Capability_xer, size);
+        assert(dec_rval.code == RC_OK);
+      }
+      fclose(f);
+      /* Verify consistency of num PHY antennas vs UE Capabilities */
+      verify_ue_cap(rrc->UECap.UE_NR_Capability, num_ant_tx);
     }
-    fclose(f);
-    /* Verify consistency of num PHY antennas vs UE Capabilities */
-    verify_ue_cap(rrc->UECap.UE_NR_Capability, num_ant_tx);
+
+    memset(&rrc->timers_and_constants, 0, sizeof(rrc->timers_and_constants));
+    set_default_timers_and_constants(&rrc->timers_and_constants);
+
+    for (int j = 0; j < NR_NUM_SRB; j++)
+      rrc->Srb[j] = RB_NOT_PRESENT;
+    for (int j = 1; j <= MAX_DRBS_PER_UE; j++)
+      set_DRB_status(rrc, j, RB_NOT_PRESENT);
+    // SRB0 activated by default
+    rrc->Srb[0] = RB_ESTABLISHED;
+    for (int j = 0; j < NR_MAX_NUM_LCID; j++)
+      rrc->active_RLC_entity[j] = false;
+
+    for (int i = 0; i < NB_CNX_UE; i++) {
+      rrcPerNB_t *ptr = &rrc->perNB[i];
+      ptr->SInfo = (NR_UE_RRC_SI_INFO){0};
+      init_SI_timers(&ptr->SInfo);
+    }
+
+    init_sidelink(rrc);
   }
 
-  memset(&rrc->timers_and_constants, 0, sizeof(rrc->timers_and_constants));
-  set_default_timers_and_constants(&rrc->timers_and_constants);
-
-  for (int j = 0; j < NR_NUM_SRB; j++)
-    rrc->Srb[j] = RB_NOT_PRESENT;
-  for (int j = 1; j <= MAX_DRBS_PER_UE; j++)
-    set_DRB_status(rrc, j, RB_NOT_PRESENT);
-  // SRB0 activated by default
-  rrc->Srb[0] = RB_ESTABLISHED;
-  for (int j = 0; j < NR_MAX_NUM_LCID; j++)
-    rrc->active_RLC_entity[j] = false;
-
-  for (int i = 0; i < NB_CNX_UE; i++) {
-    rrcPerNB_t *ptr = &rrc->perNB[i];
-    ptr->SInfo = (NR_UE_RRC_SI_INFO){0};
-    init_SI_timers(&ptr->SInfo);
-  }
-
-  init_sidelink(rrc);
-  return rrc;
+  return NR_UE_rrc_inst;
 }
 
 bool check_si_validity(NR_UE_RRC_SI_INFO *SI_info, int si_type)
@@ -993,13 +973,12 @@ static void nr_rrc_ue_decode_NR_BCCH_BCH_Message(NR_UE_RRC_INST_t *rrc,
       SI_info->sib_pending = true;
   }
   if (bcch_message->message.present == NR_BCCH_BCH_MessageType_PR_mib) {
-    nr_mac_rrc_message_t rrc_msg = {0};
-    rrc_msg.payload_type = NR_MAC_RRC_CONFIG_MIB;
-    nr_mac_rrc_config_mib_t *config_mib = &rrc_msg.payload.config_mib;
-    config_mib->bcch = bcch_message;
-    config_mib->get_sib = get_sib;
-    config_mib->access_barred = barred;
-    nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
+    MessageDef *msg = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_MAC_RRC_CONFIG_MIB);
+    // mac will manage the pointer
+    NR_MAC_RRC_CONFIG_MIB(msg).bcch = bcch_message;
+    NR_MAC_RRC_CONFIG_MIB(msg).get_sib = get_sib;
+    NR_MAC_RRC_CONFIG_MIB(msg).access_barred = barred;
+    itti_send_msg_to_task(TASK_MAC_UE, rrc->ue_id, msg);
   } else {
     LOG_E(NR_RRC, "RRC-received BCCH message is not a MIB\n");
     ASN_STRUCT_FREE(asn_DEF_NR_BCCH_BCH_Message, bcch_message);
@@ -1057,11 +1036,10 @@ static void nr_rrc_handle_msg3_indication(NR_UE_RRC_INST_t *rrc, rnti_t rnti)
       nr_rlc_reconfigure_entity(rrc->ue_id, lc_id, NULL);
       // resume SRB1
       rrc->Srb[srb_id] = RB_ESTABLISHED;
-      nr_mac_rrc_message_t rrc_msg = {0};
-      rrc_msg.payload_type = NR_MAC_RRC_RESUME_RB;
-      rrc_msg.payload.resume_rb.is_srb = true;
-      rrc_msg.payload.resume_rb.rb_id = 1;
-      nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
+      MessageDef *msg = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_MAC_RRC_RESUME_RB);
+      NR_MAC_RRC_RESUME_RB(msg).is_srb = true;
+      NR_MAC_RRC_RESUME_RB(msg).rb_id = 1;
+      itti_send_msg_to_task(TASK_MAC_UE, rrc->ue_id, msg);
       break;
     case DURING_HANDOVER:
       AssertFatal(1==0, "ra_trigger not implemented yet!\n");
@@ -1282,12 +1260,10 @@ static void nr_rrc_ue_process_masterCellGroup(NR_UE_RRC_INST_t *rrc,
   nr_rrc_cellgroup_configuration(rrc, cellGroupConfig, gNB_index);
 
   LOG_D(RRC, "Sending CellGroupConfig to MAC the pointer will be managed by mac\n");
-  nr_mac_rrc_message_t rrc_msg = {0};
-  rrc_msg.payload_type = NR_MAC_RRC_CONFIG_CG;
-  nr_mac_rrc_config_cg_t *mac_msg = &rrc_msg.payload.config_cg;
-  mac_msg->cellGroupConfig = cellGroupConfig;
-  mac_msg->UE_NR_Capability = rrc->UECap.UE_NR_Capability;
-  nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
+  MessageDef *msg = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_MAC_RRC_CONFIG_CG);
+  NR_MAC_RRC_CONFIG_CG(msg).cellGroupConfig = cellGroupConfig;
+  NR_MAC_RRC_CONFIG_CG(msg).UE_NR_Capability = rrc->UECap.UE_NR_Capability;
+  itti_send_msg_to_task(TASK_MAC_UE, rrc->ue_id, msg);
 }
 
 static void rrc_ue_generate_RRCSetupComplete(const NR_UE_RRC_INST_t *rrc, const uint8_t Transaction_id)
@@ -1369,10 +1345,9 @@ static void nr_rrc_rrcsetup_fallback(NR_UE_RRC_INST_t *rrc)
   // default MAC Cell Group configuration and CCCH configuration
   // TODO to be completed
   NR_UE_MAC_reset_cause_t cause = RRC_SETUP_REESTAB_RESUME;
-  nr_mac_rrc_message_t rrc_msg = {0};
-  rrc_msg.payload_type = NR_MAC_RRC_CONFIG_RESET;
-  rrc_msg.payload.config_reset.cause = cause;
-  nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
+  MessageDef *msg = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_MAC_RRC_CONFIG_RESET);
+  NR_MAC_RRC_CONFIG_RESET(msg).cause = cause;
+  itti_send_msg_to_task(TASK_MAC_UE, rrc->ue_id, msg);
 
   // indicate to upper layers fallback of the RRC connection
   // TODO
@@ -1436,10 +1411,9 @@ static void nr_rrc_process_rrcreject(NR_UE_RRC_INST_t *rrc, const NR_RRCReject_t
 
   // reset MAC and release the default MAC Cell Group configuration
   NR_UE_MAC_reset_cause_t cause = REJECT;
-  nr_mac_rrc_message_t rrc_msg = {0};
-  rrc_msg.payload_type = NR_MAC_RRC_CONFIG_RESET;
-  rrc_msg.payload.config_reset.cause = cause;
-  nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
+  MessageDef *msg = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_MAC_RRC_CONFIG_RESET);
+  NR_MAC_RRC_CONFIG_RESET(msg).cause = cause;
+  itti_send_msg_to_task(TASK_MAC_UE, rrc->ue_id, msg);
 
   // if waitTime is configured in the RRCReject: start timer T302, with the timer value set to the waitTime
   NR_RejectWaitTime_t *waitTime = NULL;
@@ -2147,20 +2121,18 @@ static int nr_rrc_ue_decode_dcch(NR_UE_RRC_INST_t *rrc,
             // resume SRB2 and DRBs that are suspended
             if (rrc->Srb[2] == RB_SUSPENDED) {
               rrc->Srb[2] = RB_ESTABLISHED;
-              nr_mac_rrc_message_t rrc_msg = {0};
-              rrc_msg.payload_type = NR_MAC_RRC_RESUME_RB;
-              rrc_msg.payload.resume_rb.is_srb = true;
-              rrc_msg.payload.resume_rb.rb_id = 2;
-              nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
+              MessageDef *msg = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_MAC_RRC_RESUME_RB);
+              NR_MAC_RRC_RESUME_RB(msg).is_srb = true;
+              NR_MAC_RRC_RESUME_RB(msg).rb_id = 2;
+              itti_send_msg_to_task(TASK_MAC_UE, rrc->ue_id, msg);
             }
             for (int i = 1; i <= MAX_DRBS_PER_UE; i++) {
               if (get_DRB_status(rrc, i) == RB_SUSPENDED) {
                 set_DRB_status(rrc, i, RB_ESTABLISHED);
-                nr_mac_rrc_message_t rrc_msg = {0};
-                rrc_msg.payload_type = NR_MAC_RRC_RESUME_RB;
-                rrc_msg.payload.resume_rb.is_srb = true;
-                rrc_msg.payload.resume_rb.rb_id = i;
-                nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
+                MessageDef *msg = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_MAC_RRC_RESUME_RB);
+                NR_MAC_RRC_RESUME_RB(msg).is_srb = false;
+                NR_MAC_RRC_RESUME_RB(msg).rb_id = i;
+                itti_send_msg_to_task(TASK_MAC_UE, rrc->ue_id, msg);
               }
             }
             rrc->reconfig_after_reestab = false;
@@ -2274,7 +2246,7 @@ void *rrc_nrue(void *notUsed)
   instance_t instance = ITTI_MSG_DESTINATION_INSTANCE(msg_p);
   LOG_D(NR_RRC, "[UE %ld] Received %s\n", instance, ITTI_MSG_NAME(msg_p));
 
-  NR_UE_RRC_INST_t *rrc = get_NR_UE_rrc_inst(instance);
+  NR_UE_RRC_INST_t *rrc = &NR_UE_rrc_inst[instance];
   AssertFatal(instance == rrc->ue_id, "Instance %ld received from ITTI doesn't matach with UE-ID %ld\n", instance, rrc->ue_id);
 
   switch (ITTI_MSG_ID(msg_p)) {
@@ -2363,11 +2335,11 @@ void *rrc_nrue(void *notUsed)
 
   case NR_RRC_DCCH_DATA_IND:
     nr_rrc_ue_decode_dcch(rrc,
-                          NR_RRC_DCCH_DATA_IND(msg_p).dcch_index,
-                          NR_RRC_DCCH_DATA_IND(msg_p).sdu_p,
-                          NR_RRC_DCCH_DATA_IND(msg_p).sdu_size,
-                          NR_RRC_DCCH_DATA_IND(msg_p).gNB_index,
-                          &NR_RRC_DCCH_DATA_IND(msg_p).msg_integrity);
+			  NR_RRC_DCCH_DATA_IND(msg_p).dcch_index,
+			  NR_RRC_DCCH_DATA_IND(msg_p).sdu_p,
+			  NR_RRC_DCCH_DATA_IND(msg_p).sdu_size,
+			  NR_RRC_DCCH_DATA_IND(msg_p).gNB_index,
+			  &NR_RRC_DCCH_DATA_IND(msg_p).msg_integrity);
     /* this is allocated by itti_malloc in PDCP task (deliver_sdu_srb)
        then passed to the RRC task and freed after use */
     free(NR_RRC_DCCH_DATA_IND(msg_p).sdu_p);
@@ -2539,10 +2511,9 @@ static void nr_rrc_initiate_rrcReestablishment(NR_UE_RRC_INST_t *rrc, NR_Reestab
   // reset MAC
   // release spCellConfig, if configured
   // perform cell selection in accordance with the cell selection process
-  nr_mac_rrc_message_t rrc_msg = {0};
-  rrc_msg.payload_type = NR_MAC_RRC_CONFIG_RESET;
-  rrc_msg.payload.config_reset.cause = RE_ESTABLISHMENT;
-  nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
+  MessageDef *msg = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_MAC_RRC_CONFIG_RESET);
+  NR_MAC_RRC_CONFIG_RESET(msg).cause = RE_ESTABLISHMENT;
+  itti_send_msg_to_task(TASK_MAC_UE, rrc->ue_id, msg);
 }
 
 static void nr_rrc_ue_generate_rrcReestablishmentComplete(const NR_UE_RRC_INST_t *rrc,
@@ -2570,7 +2541,7 @@ void *recv_msgs_from_lte_ue(void *args_p)
       LOG_E(NR_RRC, "%s: Received truncated message %d\n", __func__, recvLen);
       continue;
     }
-    process_lte_nsa_msg(get_NR_UE_rrc_inst(0), &msg, recvLen);
+    process_lte_nsa_msg(NR_UE_rrc_inst, &msg, recvLen);
   }
   return NULL;
 }
@@ -2708,8 +2679,8 @@ static void process_lte_nsa_msg(NR_UE_RRC_INST_t *rrc, nsa_msg_t *msg, int msg_l
 
       uint8_t *nr_RadioBearer_buffer = msg_buffer + offsetof(struct msg, buffer);
       uint8_t *nr_SecondaryCellGroup_buffer = nr_RadioBearer_buffer + nr_RadioBearer_size;
-      process_nsa_message(get_NR_UE_rrc_inst(0), nr_SecondaryCellGroupConfig_r15, nr_SecondaryCellGroup_buffer, nr_SecondaryCellGroup_size);
-      process_nsa_message(get_NR_UE_rrc_inst(0), nr_RadioBearerConfigX_r15, nr_RadioBearer_buffer, nr_RadioBearer_size);
+      process_nsa_message(NR_UE_rrc_inst, nr_SecondaryCellGroupConfig_r15, nr_SecondaryCellGroup_buffer, nr_SecondaryCellGroup_size);
+      process_nsa_message(NR_UE_rrc_inst, nr_RadioBearerConfigX_r15, nr_RadioBearer_buffer, nr_RadioBearer_size);
       LOG_I(NR_RRC, "Calling do_NR_RRCReconfigurationComplete. t_id %ld \n", t_id);
       uint8_t buffer[NR_RRC_BUF_SIZE];
       size_t size = do_NR_RRCReconfigurationComplete_for_nsa(buffer, sizeof(buffer), t_id);
@@ -2915,10 +2886,9 @@ void nr_rrc_going_to_IDLE(NR_UE_RRC_INST_t *rrc,
 
   // reset MAC
   NR_UE_MAC_reset_cause_t cause = (rrc->nrRrcState == RRC_STATE_DETACH_NR) ? DETACH : GO_TO_IDLE;
-  nr_mac_rrc_message_t rrc_msg = {0};
-  rrc_msg.payload_type = NR_MAC_RRC_CONFIG_RESET;
-  rrc_msg.payload.config_reset.cause = cause;
-  nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
+  MessageDef *msg = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_MAC_RRC_CONFIG_RESET);
+  NR_MAC_RRC_CONFIG_RESET(msg).cause = cause;
+  itti_send_msg_to_task(TASK_MAC_UE, rrc->ue_id, msg);
 
   // enter RRC_IDLE
   LOG_I(NR_RRC, "RRC moved into IDLE state\n");
@@ -2947,11 +2917,9 @@ void handle_t300_expiry(NR_UE_RRC_INST_t *rrc)
 
   // reset MAC, release the MAC configuration
   NR_UE_MAC_reset_cause_t cause = T300_EXPIRY;
-  nr_mac_rrc_message_t rrc_msg = {0};
-  rrc_msg.payload_type = NR_MAC_RRC_CONFIG_RESET;
-  rrc_msg.payload.config_reset.cause = cause;
-  nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
-
+  MessageDef *msg = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_MAC_RRC_CONFIG_RESET);
+  NR_MAC_RRC_CONFIG_RESET(msg).cause = cause;
+  itti_send_msg_to_task(TASK_MAC_UE, rrc->ue_id, msg);
   // TODO handle connEstFailureControl
   // TODO inform upper layers about the failure to establish the RRC connection
 }
@@ -2967,17 +2935,16 @@ void handle_t430_expiry(NR_UE_RRC_INST_t *rrc)
   }
   // Indicate MAC that UL SYNC is LOST
   NR_UE_MAC_reset_cause_t cause = UL_SYNC_LOST_T430_EXPIRED;
-  nr_mac_rrc_message_t rrc_msg = {0};
-  rrc_msg.payload_type = NR_MAC_RRC_CONFIG_RESET;
-  rrc_msg.payload.config_reset.cause = cause;
-  nr_rrc_send_msg_to_mac(rrc, &rrc_msg);
+  MessageDef *msg = itti_alloc_new_message(TASK_RRC_NRUE, 0, NR_MAC_RRC_CONFIG_RESET);
+  NR_MAC_RRC_CONFIG_RESET(msg).cause = cause;
+  itti_send_msg_to_task(TASK_MAC_UE, rrc->ue_id, msg);
 }
 
 //This calls the sidelink preconf message after RRC, MAC instances are created.
 void start_sidelink(int instance)
 {
 
-  NR_UE_RRC_INST_t *rrc = get_NR_UE_rrc_inst(instance);
+  NR_UE_RRC_INST_t *rrc = &NR_UE_rrc_inst[instance];
 
   if (get_softmodem_params()->sl_mode == 2) {
 
@@ -2985,10 +2952,4 @@ void start_sidelink(int instance)
     rrc_ue_process_sidelink_Preconfiguration(rrc, get_softmodem_params()->sync_ref);
 
   }
-}
-
-void nr_rrc_set_mac_queue(instance_t instance, notifiedFIFO_t *mac_input_nf)
-{
-  NR_UE_RRC_INST_t *rrc = get_NR_UE_rrc_inst(instance);
-  rrc->mac_input_nf = mac_input_nf;
 }

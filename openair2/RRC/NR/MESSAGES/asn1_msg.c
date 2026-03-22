@@ -995,32 +995,22 @@ static NR_MeasIdToAddMod_t *get_MeasId(NR_MeasId_t measId, NR_ReportConfigId_t r
 NR_MeasConfig_t *get_MeasConfig(const NR_MeasTiming_t *mt,
                                 int band,
                                 int scs,
-                                int nr_pci,
                                 NR_ReportConfigToAddMod_t *rc_PER,
                                 NR_ReportConfigToAddMod_t *rc_A2,
                                 seq_arr_t *rc_A3_seq,
                                 seq_arr_t *neigh_seq)
 {
-  DevAssert(mt != NULL && mt->frequencyAndTiming != NULL);
-  const struct NR_MeasTiming__frequencyAndTiming *ft = mt->frequencyAndTiming;
-
   NR_MeasConfig_t *mc = calloc_or_fail(1, sizeof(*mc));
   mc->measObjectToAddModList = calloc_or_fail(1, sizeof(*mc->measObjectToAddModList));
   mc->reportConfigToAddModList = calloc_or_fail(1, sizeof(*mc->reportConfigToAddModList));
   mc->measIdToAddModList = calloc_or_fail(1, sizeof(*mc->measIdToAddModList));
 
-  // Report Configuration: A reporting configuration defines the reporting criteria. The reporting criteria are classified as event
-  // triggered reporting, periodic reporting, CGI reporting or SFTD reporting.
-
-  // Periodic report
   if (rc_PER)
     asn1cSeqAdd(&mc->reportConfigToAddModList->list, rc_PER);
 
-  // Event A2
   if (rc_A2)
     asn1cSeqAdd(&mc->reportConfigToAddModList->list, rc_A2);
 
-  // Event A3
   if (rc_A3_seq) {
     for (int i = 0; i < rc_A3_seq->size; i++) {
       NR_ReportConfigToAddMod_t *rc_A3 = (NR_ReportConfigToAddMod_t *)seq_arr_at(rc_A3_seq, i);
@@ -1028,69 +1018,50 @@ NR_MeasConfig_t *get_MeasConfig(const NR_MeasTiming_t *mt,
     }
   }
 
+  DevAssert(mt != NULL && mt->frequencyAndTiming != NULL);
+  const struct NR_MeasTiming__frequencyAndTiming *ft = mt->frequencyAndTiming;
+
   // Measurement Objects: Specifies what is to be measured. For NR and inter-RAT E-UTRA measurements, this may include
   // cell-specific offsets, blacklisted cells to be ignored and whitelisted cells to consider for measurements.
-
-  // Serving cell
   NR_MeasObjectToAddMod_t *mo1 = get_MeasObject(ft, band, ft->carrierFreq, 1);
-  NR_MeasObjectNR_t *monr1 = mo1->measObject.choice.measObjectNR;
-  monr1->cellsToAddModList = calloc_or_fail(1, sizeof(*monr1->cellsToAddModList));
-  NR_CellsToAddMod_t *cell = calloc_or_fail(1, sizeof(*cell));
-  cell->physCellId = nr_pci;
-  ASN_SEQUENCE_ADD(&monr1->cellsToAddModList->list, cell);
+  if (neigh_seq) {
+    NR_MeasObjectNR_t *monr1 = mo1->measObject.choice.measObjectNR;
+    if (monr1->cellsToAddModList == NULL)
+      monr1->cellsToAddModList = calloc_or_fail(1, sizeof(*monr1->cellsToAddModList));
+    FOR_EACH_SEQ_ARR(nr_neighbour_cell_t *, n, neigh_seq) {
+      NR_CellsToAddMod_t *cell = calloc_or_fail(1, sizeof(*cell));
+      cell->physCellId = n->physicalCellId;
+      ASN_SEQUENCE_ADD(&monr1->cellsToAddModList->list, cell);
+    }
+  }
   asn1cSeqAdd(&mc->measObjectToAddModList->list, mo1);
 
-  // Neighbour cells
+  // Preparation of measId
+  uint8_t reportIdx = 0;
+  for (; reportIdx < mc->reportConfigToAddModList->list.count; reportIdx++) {
+    const NR_ReportConfigId_t reportId = mc->reportConfigToAddModList->list.array[reportIdx]->reportConfigId;
+    NR_MeasIdToAddMod_t *measid = get_MeasId(reportIdx + 1, reportId, 1);
+    asn1cSeqAdd(&mc->measIdToAddModList->list, measid);
+  }
+
+  // Preparation of measId for neighbour cells for periodic report
   if (neigh_seq) {
     int mo_id = 2;
     FOR_EACH_SEQ_ARR(nr_neighbour_cell_t *, neigh_cell, neigh_seq) {
-      NR_MeasObjectToAddMod_t *mo_neighbour = get_MeasObject(ft,  neigh_cell->band, neigh_cell->absoluteFrequencySSB, mo_id);
+      NR_MeasObjectToAddMod_t *mo_neighbour = get_MeasObject(ft, band, neigh_cell->absoluteFrequencySSB, mo_id);
       NR_MeasObjectNR_t *monr = mo_neighbour->measObject.choice.measObjectNR;
       monr->cellsToAddModList = calloc_or_fail(1, sizeof(*monr->cellsToAddModList));
       NR_CellsToAddMod_t *cell = calloc_or_fail(1, sizeof(*cell));
       cell->physCellId = neigh_cell->physicalCellId;
       ASN_SEQUENCE_ADD(&monr->cellsToAddModList->list, cell);
       asn1cSeqAdd(&mc->measObjectToAddModList->list, mo_neighbour);
+      NR_MeasIdToAddMod_t *measid = get_MeasId(reportIdx + 1, rc_PER->reportConfigId, mo_id);
+      asn1cSeqAdd(&mc->measIdToAddModList->list, measid);
+      reportIdx++;
       mo_id++;
     }
   }
 
-  // Measurement identities: A list of measurement identities where each measurement identity links one measurement object with one
-  // reporting configuration. By configuring multiple measurement identities, it is possible to link more than one measurement
-  // object to the same reporting configuration, as well as to link more than one reporting configuration to the same measurement
-  // object.
-
-  // MeasId for Periodic report
-  int meas_idx = 0;
-  if (rc_PER) {
-    for (; meas_idx < mc->measObjectToAddModList->list.count; meas_idx++) {
-      const NR_MeasObjectId_t measObjectId = mc->measObjectToAddModList->list.array[meas_idx]->measObjectId;
-      NR_MeasIdToAddMod_t *measid = get_MeasId(meas_idx + 1, rc_PER->reportConfigId, measObjectId);
-      asn1cSeqAdd(&mc->measIdToAddModList->list, measid);
-    }
-  }
-
-  // MeasId for Event A2
-  if (rc_A2) {
-    NR_MeasIdToAddMod_t *measid_A2 = get_MeasId(meas_idx + 1, rc_A2->reportConfigId, 1);
-    meas_idx++;
-    asn1cSeqAdd(&mc->measIdToAddModList->list, measid_A2);
-  }
-
-  // MeasId for Event A3
-  if (neigh_seq) {
-    int i = 0;
-    FOR_EACH_SEQ_ARR(nr_neighbour_cell_t *, neigh_cell, neigh_seq) {
-      NR_ReportConfigId_t reportConfigId = neigh_cell->physicalCellId == -1 ? 3 : i + 4;
-      NR_MeasIdToAddMod_t *measid_A3 = get_MeasId(meas_idx + 1, reportConfigId, i + 2);
-      meas_idx++;
-      asn1cSeqAdd(&mc->measIdToAddModList->list, measid_A3);
-      i++;
-    }
-  }
-
-  // Quantity configurations: The quantity configuration defines the measurement filtering configuration used for measurement event
-  // evaluation and related reporting, and for periodical reporting of that measurement.
   mc->quantityConfig = calloc_or_fail(1, sizeof(*mc->quantityConfig));
   mc->quantityConfig->quantityConfigNR_List = calloc_or_fail(1, sizeof(*mc->quantityConfig->quantityConfigNR_List));
   NR_QuantityConfigNR_t *qcnr = calloc_or_fail(1, sizeof(*qcnr));

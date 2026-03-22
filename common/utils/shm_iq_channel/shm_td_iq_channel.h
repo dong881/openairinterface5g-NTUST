@@ -118,27 +118,16 @@ void shm_td_iq_channel_produce_samples(ShmTDIQChannel *channel, uint64_t num_sam
  * @brief Wait until sample at the specified timestamp is available
  *
  * @param channel The ShmTDIQChannel structure.
- * @param timestamp The timestamp for which to wait.
- * @param timeout_uS The timeout in microseconds to wait for the sample. 0 means wait indefinitely.
- *
- * @return 0 if the sample is available, 1 if timed out
  */
-int shm_td_iq_channel_wait(ShmTDIQChannel *channel, uint64_t timestamp, uint64_t timeout_uS);
+void shm_td_iq_channel_wait(ShmTDIQChannel *channel, uint64_t timestamp);
 
 /**
- * @brief Aborts the IQ channel causing the wait to return immediately
+ * @brief Checks if the IQ channel is connected.
  *
  * @param channel The ShmTDIQChannel structure.
+ * @return True if the channel is connected, false otherwise.
  */
-void shm_td_iq_channel_abort(ShmTDIQChannel *channel);
-
-/**
- * @brief Checks if the IQ channel is aborted.
- *
- * @param channel The ShmTDIQChannel structure.
- * @return True if the channel is aborted, false otherwise.
- */
-bool shm_td_iq_channel_is_aborted(const ShmTDIQChannel *channel);
+bool shm_td_iq_channel_is_connected(const ShmTDIQChannel *channel);
 
 /**
  * @brief Destroys the shared memory IQ channel.

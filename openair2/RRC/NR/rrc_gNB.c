@@ -544,12 +544,12 @@ static NR_ReportConfigToAddMod_t *prepare_a2_event_report(const nr_a2_event_t *a
   return rc_A2;
 }
 
-static NR_ReportConfigToAddMod_t *prepare_a3_event_report(const nr_a3_event_t *a3_event, NR_ReportConfigId_t reportConfigId)
+static NR_ReportConfigToAddMod_t *prepare_a3_event_report(const nr_a3_event_t *a3_event)
 {
   NR_ReportConfigToAddMod_t *rc_A3 = calloc(1, sizeof(*rc_A3));
   // 3 is default A3 Report Config ID. So cellId(0) specific Report Config ID
   // starts from 4
-  rc_A3->reportConfigId = reportConfigId;
+  rc_A3->reportConfigId = a3_event->pci == -1 ? 3 : a3_event->pci + 4;
   rc_A3->reportConfig.present = NR_ReportConfigToAddMod__reportConfig_PR_reportConfigNR;
   NR_EventTriggerConfig_t *etrc_A3 = calloc(1, sizeof(*etrc_A3));
   etrc_A3->eventId.present = NR_EventTriggerConfig__eventId_PR_eventA3;
@@ -593,7 +593,6 @@ NR_MeasConfig_t *nr_rrc_get_measconfig(const gNB_RRC_INST *rrc, uint64_t nr_cell
   NR_ReportConfigToAddMod_t *rc_PER = NULL;
   NR_ReportConfigToAddMod_t *rc_A2 = NULL;
   seq_arr_t *rc_A3_seq = NULL;
-  seq_arr_t *neigh_seq = NULL;
   if (du->mtc != NULL) {
     int scs = get_ssb_scs(cell_info);
     int band = get_dl_band(cell_info);
@@ -610,30 +609,24 @@ NR_MeasConfig_t *nr_rrc_get_measconfig(const gNB_RRC_INST *rrc, uint64_t nr_cell
          If default one added once as a report, no need to add it again && duplication.
       */
       rc_A3_seq = malloc(sizeof(seq_arr_t));
-      neigh_seq = malloc(sizeof(seq_arr_t));
       seq_arr_init(rc_A3_seq, sizeof(NR_ReportConfigToAddMod_t));
-      seq_arr_init(neigh_seq, sizeof(nr_neighbour_cell_t));
-      LOG_D(NR_RRC, "Preparing A3 Event Measurement Configuration!\n");
-      bool default_a3_added = false; // To ensure that the default configuration is only added once
+      LOG_D(NR_RRC, "HO LOG: Preparing A3 Event Measurement Configuration!\n");
+      bool is_default_a3_added = false;
       for (int i = 0; i < neighbour_cells->size; i++) {
         nr_neighbour_cell_t *neighbourCell = (nr_neighbour_cell_t *)seq_arr_at(neighbour_cells, i);
-        if (default_a3_added && neighbourCell->physicalCellId == -1)
-          continue;
-        seq_arr_push_back(neigh_seq, neighbourCell, sizeof(nr_neighbour_cell_t));
         const nr_a3_event_t *a3Event = get_a3_configuration((gNB_RRC_INST *)rrc, neighbourCell->physicalCellId);
-        if (a3Event) {
-          NR_ReportConfigId_t reportConfigId = neighbourCell->physicalCellId == -1 ? 3 : i + 4;
-          seq_arr_push_back(rc_A3_seq, prepare_a3_event_report(a3Event, reportConfigId), sizeof(NR_ReportConfigToAddMod_t));
-          if (neighbourCell->physicalCellId == -1)
-            default_a3_added = true;
-        }
+        if (!a3Event || is_default_a3_added)
+          continue;
+        if (a3Event->pci == -1)
+          is_default_a3_added = true;
+        seq_arr_push_back(rc_A3_seq, prepare_a3_event_report(a3Event), sizeof(NR_ReportConfigToAddMod_t));
       }
     }
     if (rrc->measurementConfiguration.per_event)
       rc_PER = prepare_periodic_event_report(rrc->measurementConfiguration.per_event);
     if (rrc->measurementConfiguration.a2_event)
       rc_A2 = prepare_a2_event_report(rrc->measurementConfiguration.a2_event);
-    return get_MeasConfig(mt, band, scs, cell_info->nr_pci, rc_PER, rc_A2, rc_A3_seq, neigh_seq);
+    return get_MeasConfig(mt, band, scs, rc_PER, rc_A2, rc_A3_seq, neighbour_cells);
   }
   return NULL;
 }
@@ -2312,19 +2305,13 @@ static void rrc_CU_process_ue_context_modification_response(MessageDef *msg_p, i
         uper_decode_complete(NULL, &asn_DEF_NR_CellGroupConfig, (void **)&cellGroupConfig, (uint8_t *)cgc->buf, cgc->len);
     AssertFatal(dec_rval.code == RC_OK && dec_rval.consumed > 0, "Cell group config decode error\n");
 
-    /* hack for interoperability with srsRAN: ignore cell group config if empty */
-    /* cell group config is empty if buffer length is 2 and content is all 0 */
-    bool cgc_is_empty = cgc->len == 2 && cgc->buf[0] == 0 && cgc->buf[1] == 0;
-    if (!cgc_is_empty) {
-      if (UE->masterCellGroup) {
-        ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->masterCellGroup);
-        LOG_I(RRC, "UE %04x replacing existing CellGroupConfig with new one received from DU\n", UE->rnti);
-      }
-      UE->masterCellGroup = cellGroupConfig;
-      rrc_gNB_generate_dedicatedRRCReconfiguration(rrc, UE);
-    } else {
-      LOG_W(NR_RRC, "hack: UE %d: ignore empty CellGroupConfig in UEContextModificationResponse\n", UE->rrc_ue_id);
+    if (UE->masterCellGroup) {
+      ASN_STRUCT_FREE(asn_DEF_NR_CellGroupConfig, UE->masterCellGroup);
+      LOG_I(RRC, "UE %04x replacing existing CellGroupConfig with new one received from DU\n", UE->rnti);
     }
+    UE->masterCellGroup = cellGroupConfig;
+
+    rrc_gNB_generate_dedicatedRRCReconfiguration(rrc, UE);
   }
 
   // Reconfiguration should have been sent to the UE, so it will attempt the
