@@ -76,21 +76,6 @@ extern UL_RCC_IND_t  UL_RCC_INFO;
 
 static volatile int nr_start_resp_received = 0;
 
-nfapi_vnf_config_t * get_config()
-{
-  return config;
-}
-vnf_p7_t *get_p7_vnf()
-{
-  vnf_info *vnf = config->user_data;
-  return (vnf_p7_t *)vnf->p7_vnfs->config;
-}
-
-nfapi_vnf_p7_config_t *get_p7_vnf_config()
-{
-  return &get_p7_vnf()->_public;
-}
-
 int vnf_pack_vendor_extension_tlv(void *ve, uint8_t **ppWritePackedMsg, uint8_t *end, nfapi_p4_p5_codec_config_t *codec) {
   //NFAPI_TRACE(NFAPI_TRACE_INFO, "vnf_pack_vendor_extension_tlv\n");
   nfapi_tl_t *tlv = (nfapi_tl_t *)ve;
@@ -1040,8 +1025,8 @@ int trigger_scheduler(nfapi_nr_slot_indication_scf_t *slot_ind)
    * messages from queue into which messages have been copied.
    * TODO we should have different callbacks for received messages and call
    * into the scheduler separately for each message instead of one big one. */
-  NR_UL_IND_t ul_ind = {.frame = ind->sfn, .slot = ind->slot, };
-  ifi->NR_UL_indication(&ul_ind);
+  NR_UL_IND_t ind = {.frame = slot_ind->sfn, .slot = slot_ind->slot, };
+  NR_UL_indication(&ind);
 
   return 1;
 }
@@ -1196,6 +1181,15 @@ void *vnf_timing_thread(void *arg) {
   return NULL;
 }
 #endif
+
+int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
+{
+  LOG_D(MAC, "VNF SFN/Slot %d.%d \n", ind->sfn, ind->slot);
+
+  trigger_scheduler(ind);
+
+  return 1;
+}
 
 int phy_nr_srs_indication(nfapi_nr_srs_indication_t *ind)
 {
@@ -1934,15 +1928,15 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   vnf->p7_vnfs[0].config = nfapi_vnf_p7_config_create();
 #ifndef ENABLE_AERIAL
   NFAPI_TRACE(NFAPI_TRACE_INFO,
-              "[VNF] %s() vnf.p7_vnfs[0].config:%p VNF ADDRESS:%s:%d\n",
+              "[VNF] %s() vnf->p7_vnfs[0].config:%p VNF ADDRESS:%s:%d\n",
               __FUNCTION__,
-              vnf.p7_vnfs[0].config,
+              vnf->p7_vnfs[0].config,
               params.my_addr,
               params.my_portc);
-  strcpy(vnf.p7_vnfs[0].local_addr, params.my_addr);
-  vnf.p7_vnfs[0].local_port = params.my_portd;
+  strcpy(vnf->p7_vnfs[0].local_addr, params.my_addr);
+  vnf->p7_vnfs[0].local_port = params.my_portd;
 #endif
-  vnf.p7_vnfs[0].mac = (mac_t *)malloc(sizeof(mac_t));
+  vnf->p7_vnfs[0].mac = (mac_t *)malloc(sizeof(mac_t));
   nfapi_vnf_config_t *config = nfapi_vnf_config_create();
   config->malloc = malloc;
   config->free = free;
