@@ -51,16 +51,6 @@
 static void nr_fill_indication(PHY_VARS_gNB *gNB,
                                int frame,
                                int slot_rx,
-                               int UE_id,
-                               uint8_t harq_pid,
-                               uint8_t crc_flag,
-                               int dtx_flag,
-                               nfapi_nr_crc_t *crc,
-                               nfapi_nr_rx_data_pdu_t *pdu);
-
-static void nr_fill_indication(PHY_VARS_gNB *gNB,
-                               int frame,
-                               int slot_rx,
                                int ULSCH_id,
                                uint8_t harq_pid,
                                uint8_t crc_flag,
@@ -371,15 +361,13 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
 
     // Start async DMRS precompute
     isip_pool_dmrs_precompute_async(dmrs_params, dmrs_precompute_count);
-    LOG_D(PHY, "Started async DMRS precompute for %d PDSCHs in frame %d.%d
-", dmrs_precompute_count, frame, slot);
+    LOG_D(PHY, "Started async DMRS precompute for %d PDSCHs in frame %d.%d\n", dmrs_precompute_count, frame, slot);
   }
 
   // 2. PDSCH Encoding Phase (runs in parallel with async memory clear and DMRS precompute)
   if (slot_timing_enabled) clock_gettime(CLOCK_MONOTONIC, &t_func_start);
   if (num_pdsch > 0) {
-    LOG_D(PHY, "PDSCH encoding phase started (%d) in frame %d.%d
-",
+    LOG_D(PHY, "PDSCH encoding phase started (%d) in frame %d.%d\n",
           num_pdsch, frame, slot);
     nr_pdsch_encoding_phase(gNB, num_pdsch, gNB->dlsch, frame, slot);
   }
@@ -402,8 +390,7 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
                                      dmrs_params[i].num_precomputed);
     }
     nr_dlsch_dmrs_precompute_enable();
-    LOG_D(PHY, "DMRS precompute completed for %d PDSCHs
-", dmrs_precompute_count);
+    LOG_D(PHY, "DMRS precompute completed for %d PDSCHs\n", dmrs_precompute_count);
   }
   if (slot_timing_enabled) {
     clock_gettime(CLOCK_MONOTONIC, &t_func_end);
@@ -421,8 +408,7 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
       if( (((frame*fp->slots_per_frame + slot) - (prs_config->PRSResourceSetPeriod[1] + prs_config->PRSResourceOffset)+prs_config->PRSResourceSetPeriod[0])%prs_config->PRSResourceSetPeriod[0]) == i*prs_config->PRSResourceTimeGap )
       {
         int slot_prs = (slot - i * prs_config->PRSResourceTimeGap + fp->slots_per_frame) % fp->slots_per_frame;
-        LOG_D(PHY,"gNB_TX: frame %d, slot %d, slot_prs %d, PRS Resource ID %d
-",frame, slot, slot_prs, rsc_id);
+        LOG_D(PHY, "gNB_TX: frame %d, slot %d, slot_prs %d, PRS Resource ID %d\n", frame, slot, slot_prs, rsc_id);
         nr_generate_prs(slot_prs, &gNB->common_vars.txdataF[0][0][txdataF_offset], AMP, prs_config, cfg, fp);
       }
     }
@@ -468,8 +454,7 @@ void phy_procedures_gNB_TX(PHY_VARS_gNB *gNB,
   // 6. PDSCH Codeword Phase (scrambling, modulation, layer mapping, RE mapping)
   if (num_pdsch > 0) {
     VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_GENERATE_DLSCH,1);
-    LOG_D(PHY, "PDSCH codeword phase started (%d) in frame %d.%d
-", num_pdsch, frame, slot);
+    LOG_D(PHY, "PDSCH codeword phase started (%d) in frame %d.%d\n", num_pdsch, frame, slot);
     if (slot_timing_enabled) clock_gettime(CLOCK_MONOTONIC, &t_func_start);
 
     nr_pdsch_codeword_phase(gNB, num_pdsch, gNB->dlsch, frame, slot);
