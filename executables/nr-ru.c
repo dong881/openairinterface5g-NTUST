@@ -1032,7 +1032,7 @@ static void async_ru_tx_task_func(uint32_t start, uint32_t end, uint32_t threadN
 
   // For O-RAN: feptx_prec and feptx_ofdm are NULL, skip them
   // Only call fh_south_out which does the actual fronthaul transmission
-  if (!emulate_rf) {
+  if (!IS_SOFTMODEM_RFSIM) {
     if ((ru->fh_north_asynch_in == NULL) && (ru->fh_south_out)) {
       ru->fh_south_out(ru, frame_tx, slot_tx, info->timestamp_tx);
     }
@@ -1040,7 +1040,7 @@ static void async_ru_tx_task_func(uint32_t start, uint32_t end, uint32_t threadN
       ru->fh_north_out(ru);
     }
   }
-  // Note: emulate_rf file logging is skipped in async mode (only used for debugging)
+  // Note: IS_SOFTMODEM_RFSIM file logging is skipped in async mode (only used for debugging)
 }
 
 /**
@@ -1073,9 +1073,9 @@ void ru_tx_func_async(void *param) {
 
   RU_t *ru = info->ru;
 
-  // For non-O-RAN (feptx_prec/ofdm present), emulate_rf, or ISIP unavailable: use sync
+  // For non-O-RAN (feptx_prec/ofdm present), IS_SOFTMODEM_RFSIM, or ISIP unavailable: use sync
   void *scheduler = isip_pool_get_scheduler();
-  if (!scheduler || ru->feptx_prec || ru->feptx_ofdm || emulate_rf) {
+  if (!scheduler || ru->feptx_prec || ru->feptx_ofdm || IS_SOFTMODEM_RFSIM) {
     // Need sync processing for these cases
     ru_tx_func(param);
     return;

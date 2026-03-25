@@ -120,8 +120,6 @@ static void tx_func(processingData_L1tx_t *info)
     current_slot_timing.slot_indication_ns = timespec_diff_ns_timing(&t_slot_ind_start, &t_slot_ind_end);
   }
 
-  gNB->msgDataTx->timestamp_tx = info->timestamp_tx;
-  info = gNB->msgDataTx;
   info->gNB = gNB;
 
   // At this point, MAC scheduler just ran, including scheduling
@@ -137,9 +135,7 @@ static void tx_func(processingData_L1tx_t *info)
   res->key = slot_rx;
   pushNotifiedFIFO(&gNB->resp_L1, res);
 
-  int tx_slot_type = nr_slot_select(cfg, frame_tx, slot_tx);
   // TODO check for analog_beam_list is a workaround while no beam API for beam
-  // selection is implemented
   if (tx_slot_type == NR_DOWNLINK_SLOT || tx_slot_type == NR_MIXED_SLOT || get_softmodem_params()->continuous_tx || IS_SOFTMODEM_RFSIM
     || cfg->analog_beamforming_ve.analog_beam_list) {
     // Phase 2: PHY Processing
