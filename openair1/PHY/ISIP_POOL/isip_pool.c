@@ -45,18 +45,21 @@ static const int ISIP_CORES[10] = {6, 8, 9, 10, 11, 13, 14, 15, 16, 17};
  * Thread start callback for core binding
  * Called by enkiTS when each worker thread starts
  */
+static int isip_worker_index = 0;
+
 static void isip_thread_start(uint32_t threadNum) {
-    if (threadNum < 10) {
+    int idx = __atomic_fetch_add(&isip_worker_index, 1, __ATOMIC_SEQ_CST);
+    if (idx < 10) {
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
-        CPU_SET(ISIP_CORES[threadNum], &cpuset);
+        CPU_SET(ISIP_CORES[idx], &cpuset);
 
         if (pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) == 0) {
-            LOG_I(PHY, "[ISIP thread pool] Thread %d pinned to core %d\n",
-                  threadNum, ISIP_CORES[threadNum]);
+            LOG_I(PHY, "[ISIP thread pool] Worker idx %d (threadNum %u) pinned to core %d\n",
+                  idx, threadNum, ISIP_CORES[idx]);
         } else {
-            LOG_E(PHY, "[ISIP thread pool] Failed to pin thread %d to core %d\n",
-                  threadNum, ISIP_CORES[threadNum]);
+            LOG_E(PHY, "[ISIP thread pool] Failed to pin worker idx %d (threadNum %u) to core %d\n",
+                  idx, threadNum, ISIP_CORES[idx]);
         }
     }
 }
