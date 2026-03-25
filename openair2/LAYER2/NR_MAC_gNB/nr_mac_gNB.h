@@ -308,7 +308,7 @@ typedef struct {
   uint8_t other_sib_bcch_pdu[2][NR_MAX_SIB_LENGTH / 8];
   int other_sib_bcch_length[2];
   /// VRB map for common channels
-  uint16_t vrb_map[MAX_NUM_BEAM_PERIODS][275];
+  uint16_t vrb_map[MAX_NUM_BEAM_PERIODS][375];
   /// VRB map for common channels and PUSCH, dynamically allocated because
   /// length depends on number of slots and RBs
   uint16_t *vrb_map_UL[MAX_NUM_BEAM_PERIODS];

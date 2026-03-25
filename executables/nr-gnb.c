@@ -57,6 +57,7 @@
 #include "PHY/impl_defs_nr.h"
 #include "SCHED_NR/phy_frame_config_nr.h"
 #include "SCHED_NR/sched_nr.h"
+#include "SCHED_NR/nr_slot_timing.h"
 #include "assertions.h"
 #include "common/ran_context.h"
 #include "common/utils/LOG/log.h"
@@ -83,7 +84,16 @@ static void tx_func(processingData_L1tx_t *info)
   NR_IF_Module_t *ifi = gNB->if_inst;
   nfapi_nr_config_request_scf_t *cfg = &gNB->gNB_config;
 
+  // Start complete slot timing measurement
+  SLOT_TIMING_START(frame_tx, slot_tx);
+  int tx_slot_type = nr_slot_select(cfg, frame_tx, slot_tx);
+  current_slot_timing.slot_type = tx_slot_type;
+
   T(T_GNB_PHY_DL_TICK, T_INT(gNB->Mod_id), T_INT(frame_tx), T_INT(slot_tx));
+
+  // Wait for previous slot's async RU TX to complete before starting new slot
+  // This ensures the previous slot's fronthaul transmission is done
+  ru_tx_wait();
 
   if (slot_rx == 0) {
     reset_active_stats(gNB, frame_rx);
@@ -93,6 +103,10 @@ static void tx_func(processingData_L1tx_t *info)
   clear_slot_beamid(gNB, slot_tx);
 
   nfapi_nr_slot_indication_scf_t ind = {.sfn = frame_tx, .slot = slot_tx};
+
+  // Phase 1: MAC Scheduling
+  struct timespec t_slot_ind_start, t_slot_ind_end;
+  if (slot_timing_enabled) clock_gettime(CLOCK_MONOTONIC, &t_slot_ind_start);
   start_meas(&gNB->slot_indication_stats);
   // this variable is very big (multiple MB), so we put it into static storage
   // to not overflow the stack while still having it in local (function) scope
@@ -101,6 +115,13 @@ static void tx_func(processingData_L1tx_t *info)
   ifi->NR_slot_indication(&ind, &sched_response);
   stop_meas(&gNB->slot_indication_stats);
 
+  if (slot_timing_enabled) {
+    clock_gettime(CLOCK_MONOTONIC, &t_slot_ind_end);
+    current_slot_timing.slot_indication_ns = timespec_diff_ns_timing(&t_slot_ind_start, &t_slot_ind_end);
+  }
+
+  gNB->msgDataTx->timestamp_tx = info->timestamp_tx;
+  info = gNB->msgDataTx;
   info->gNB = gNB;
 
   // At this point, MAC scheduler just ran, including scheduling
@@ -119,8 +140,12 @@ static void tx_func(processingData_L1tx_t *info)
   int tx_slot_type = nr_slot_select(cfg, frame_tx, slot_tx);
   // TODO check for analog_beam_list is a workaround while no beam API for beam
   // selection is implemented
-  if (tx_slot_type == NR_DOWNLINK_SLOT || tx_slot_type == NR_MIXED_SLOT || get_softmodem_params()->continuous_tx || IS_SOFTMODEM_RFSIM 
+  if (tx_slot_type == NR_DOWNLINK_SLOT || tx_slot_type == NR_MIXED_SLOT || get_softmodem_params()->continuous_tx || IS_SOFTMODEM_RFSIM
     || cfg->analog_beamforming_ve.analog_beam_list) {
+    // Phase 2: PHY Processing
+    struct timespec t_phy_start, t_phy_end;
+    if (slot_timing_enabled) clock_gettime(CLOCK_MONOTONIC, &t_phy_start);
+
     start_meas(&info->gNB->phy_proc_tx);
     phy_procedures_gNB_TX(info->gNB,
                           &sched_response.DL_req,
@@ -130,16 +155,41 @@ static void tx_func(processingData_L1tx_t *info)
                           slot_tx,
                           1);
 
+    if (slot_timing_enabled) {
+      clock_gettime(CLOCK_MONOTONIC, &t_phy_end);
+      current_slot_timing.phy_proc_total_ns = timespec_diff_ns_timing(&t_phy_start, &t_phy_end);
+    }
+
+    // Phase 3: RU Processing
     PHY_VARS_gNB *gNB = info->gNB;
     processingData_RU_t syncMsgRU;
     syncMsgRU.frame_tx = frame_tx;
     syncMsgRU.slot_tx = slot_tx;
     syncMsgRU.ru = gNB->RU_list[0];
     syncMsgRU.timestamp_tx = info->timestamp_tx;
-    LOG_D(PHY, "gNB: %d.%d : calling RU TX function\n", syncMsgRU.frame_tx, syncMsgRU.slot_tx);
-    ru_tx_func((void *)&syncMsgRU);
+
+    struct timespec t_ru_start, t_ru_end;
+    if (slot_timing_enabled) clock_gettime(CLOCK_MONOTONIC, &t_ru_start);
+
+    LOG_D(PHY, "gNB: %d.%d : calling RU TX function (async)\n", syncMsgRU.frame_tx, syncMsgRU.slot_tx);
+
+    // Use async RU TX - returns immediately, allowing next slot to start
+    // The actual RU processing runs in background via ISIP pool
+    // ru_tx_wait() at start of next tx_func() ensures completion
+    ru_tx_func_async((void *)&syncMsgRU);
+
+    if (slot_timing_enabled) {
+      clock_gettime(CLOCK_MONOTONIC, &t_ru_end);
+      // Note: This timing now only measures task submission, not actual RU TX
+      current_slot_timing.ru_tx_total_ns = timespec_diff_ns_timing(&t_ru_start, &t_ru_end);
+    }
+
     stop_meas(&info->gNB->phy_proc_tx);
   }
+
+  // End slot timing and write to CSV
+  SLOT_TIMING_END();
+
 }
 
 void *L1_rx_thread(void *arg) 

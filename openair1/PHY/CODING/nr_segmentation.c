@@ -174,7 +174,102 @@ else
   return Kb;
 }
 
+// Parameter-only calculation for parallel segmentation
+int32_t nr_segmentation_params(unsigned int B,
+                               uint8_t BG,
+                               unsigned int *C,
+                               unsigned int *K,
+                               unsigned int *Zout,
+                               unsigned int *F,
+                               unsigned int *Kprime_out,
+                               unsigned int *L_out)
+{
+  unsigned int L, Bprime, Z, Kcb, Kb, Kprime;
 
+  if (BG == 1)
+    Kcb = 8448;
+  else
+    Kcb = 3840;
+
+  if (B <= Kcb) {
+    L = 0;
+    *C = 1;
+    Bprime = B;
+  } else {
+    L = 24;
+    *C = B / (Kcb - L);
+
+    if ((Kcb - L) * (*C) < B)
+      *C = *C + 1;
+
+    Bprime = B + ((*C) * L);
+  }
+
+  // Find K+
+  Kprime = Bprime / (*C);
+
+  if (BG == 1)
+    Kb = 22;
+  else {
+    if (B > 640) {
+      Kb = 10;
+    } else if (B > 560) {
+      Kb = 9;
+    } else if (B > 192) {
+      Kb = 8;
+    } else {
+      Kb = 6;
+    }
+  }
+
+  if ((Kprime % Kb) > 0)
+    Z = (Kprime / Kb) + 1;
+  else
+    Z = (Kprime / Kb);
+
+  if (Z <= 2) {
+    *K = 2;
+  } else if (Z <= 16) {
+    *K = Z;
+  } else if (Z <= 32) {
+    *K = (Z >> 1) << 1;
+    if (*K < Z)
+      *K = *K + 2;
+  } else if (Z <= 64) {
+    *K = (Z >> 2) << 2;
+    if (*K < Z)
+      *K = *K + 4;
+  } else if (Z <= 128) {
+    *K = (Z >> 3) << 3;
+    if (*K < Z)
+      *K = *K + 8;
+  } else if (Z <= 256) {
+    *K = (Z >> 4) << 4;
+    if (*K < Z)
+      *K = *K + 16;
+  } else if (Z <= 384) {
+    *K = (Z >> 5) << 5;
+    if (*K < Z)
+      *K = *K + 32;
+  } else {
+    return -1;
+  }
+
+  *Zout = *K;
+
+  if (BG == 1)
+    *K = *K * 22;
+  else
+    *K = *K * 10;
+
+  *F = ((*K) - Kprime);
+
+  // Output additional parameters needed for parallel processing
+  *Kprime_out = Kprime;
+  *L_out = L;
+
+  return Kb;
+}
 
 #ifdef MAIN
 main()

@@ -381,6 +381,13 @@ static int add_dev(uint8_t dev_id, bool is_t2, uint32_t num_harq_codeblock)
   active_dev.num_harq_codeblock = num_harq_codeblock;
   active_dev.harq_buffers = malloc(sizeof(struct rte_bbdev_op_data) * active_dev.num_harq_codeblock);
 
+  // Initialize HARQ buffers with minimum size for ACC100 hardware validation
+  for (uint32_t i = 0; i < active_dev.num_harq_codeblock; i++) {
+    active_dev.harq_buffers[i].data = NULL;
+    active_dev.harq_buffers[i].length = 64;  // Minimum 64 bytes for ACC100
+    active_dev.harq_buffers[i].offset = 0;
+  }
+
   // is device T2?
   active_dev.is_t2 = is_t2;
 
@@ -654,13 +661,23 @@ static void set_ldpc_dec_op(struct rte_bbdev_dec_op **ops,
       if (active_dev.support_internal_harq_memory) {
         // retrieve corresponding HARQ output information from previous iteration, especially the length
         ops[j]->ldpc_dec.harq_combined_input = active_dev.harq_buffers[pruned_segment_offset];
+        // Ensure minimum buffer size for ACC100 hardware validation (64 bytes minimum)
+        if (ops[j]->ldpc_dec.harq_combined_input.length < 64) {
+          ops[j]->ldpc_dec.harq_combined_input.length = 64;
+        }
         // Note: When using INTERNAL_HARQ memory, the "offset" is used to point to a particular address
         // within the BBDEV's onboard memory, and the address should be multiples of 32K.
         harq_outputs[j].offset = harq_combined_offset;
+        harq_outputs[j].length = RTE_MAX(harq_outputs[j].length, 64);
         ops[j]->ldpc_dec.harq_combined_output = harq_outputs[j];
       } else {
         // retrieve corresponding HARQ buffers from previous iteration
         ops[j]->ldpc_dec.harq_combined_input = active_dev.harq_buffers[pruned_segment_offset];
+        // Ensure minimum buffer size for ACC100 hardware validation (64 bytes minimum)
+        if (ops[j]->ldpc_dec.harq_combined_input.length < 64) {
+          ops[j]->ldpc_dec.harq_combined_input.length = 64;
+        }
+        harq_outputs[j].length = RTE_MAX(harq_outputs[j].length, 64);
         ops[j]->ldpc_dec.harq_combined_output = harq_outputs[j];
       }
       ops[j]->ldpc_dec.hard_output = outputs[j];
@@ -690,6 +707,22 @@ static void set_ldpc_enc_op(struct rte_bbdev_enc_op **ops,
                                                                                 : (50 * nrLDPC_slot_encoding_parameters->TBs[h].Z);
       if (nrLDPC_slot_encoding_parameters->TBs[h].tbslbrm != 0) {
         uint32_t Nref = 3 * nrLDPC_slot_encoding_parameters->TBs[h].tbslbrm / (2 * nrLDPC_slot_encoding_parameters->TBs[h].C);
+        // Ensure Ncb >= K (circular buffer must hold at least the information block)
+        // K = 22*Z for BG1, K = 10*Z for BG2
+        uint32_t K = (nrLDPC_slot_encoding_parameters->TBs[h].BG == 1)
+                         ? (22 * nrLDPC_slot_encoding_parameters->TBs[h].Z)
+                         : (10 * nrLDPC_slot_encoding_parameters->TBs[h].Z);
+        if (Nref < K) {
+          LOG_W(PHY,
+                "[ISIP thread pool] AAL LBRM: Nref (%u) < K (%u), tbslbrm=%u, C=%u, Z=%u, BG=%u - clamping Nref to K\n",
+                Nref,
+                K,
+                nrLDPC_slot_encoding_parameters->TBs[h].tbslbrm,
+                nrLDPC_slot_encoding_parameters->TBs[h].C,
+                nrLDPC_slot_encoding_parameters->TBs[h].Z,
+                nrLDPC_slot_encoding_parameters->TBs[h].BG);
+          Nref = K;
+        }
         ops[j]->ldpc_enc.n_cb = min(ops[j]->ldpc_enc.n_cb, Nref);
       }
       ops[j]->ldpc_enc.rv_index = nrLDPC_slot_encoding_parameters->TBs[h].rv_index;

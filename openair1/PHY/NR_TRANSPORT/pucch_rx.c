@@ -153,6 +153,63 @@ static const int16_t idft12_im[12][12] = {
   {0,-11585,-20066,-23170,-20066,-11585,0,11585,20066,23170,20066,11585}
 };
 //************************************************************************//
+
+// void nr_decode_pucch0(PHY_VARS_gNB *gNB,
+//                       c16_t **rxdataF,
+//                       int frame,
+//                       int slot,
+//                       nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_pdu,
+//                       nfapi_nr_pucch_pdu_t *pucch_pdu)
+// {
+//   // ================== [ START DEMON MODIFICATION ] ==================
+// // This block bypasses all signal processing and forges a perfect UCI result.
+// // The goal is to maximize Downlink performance for testing by providing ideal feedback.
+
+// // 1. 填寫通用的 "完美" 資訊
+// uci_pdu->pduBitmap = pucch_pdu->sr_flag | ((pucch_pdu->bit_len_harq > 0) << 1);
+// uci_pdu->pucch_format = 0;         // 這個函式處理的就是 Format 0
+// uci_pdu->rnti = pucch_pdu->rnti;
+// uci_pdu->ul_cqi = 255;             // 回報最強的上行 CQI
+// uci_pdu->timing_advance = 0xffff;  // 維持無效值
+// uci_pdu->rssi = 0;                 // 回報一個高的 RSSI (0 is max in this scale)
+
+// // 2. 處理 HARQ 回饋：永遠回報「高可信度的 ACK」
+// if (pucch_pdu->bit_len_harq > 0) {
+//     // 關鍵！設定可信度為 "Good" (0=good, 1=bad)，這樣 MAC 層才會採信我們的假數據
+//     uci_pdu->harq.harq_confidence_level = 0; 
+
+//     uci_pdu->harq.num_harq = pucch_pdu->bit_len_harq;
+    
+//     // 無論是 1-bit 還是 2-bit HARQ，全部都回報 ACK (value 0)
+//     if (pucch_pdu->bit_len_harq >= 1) {
+//         uci_pdu->harq.harq_list[0].harq_value = 0; // ACK
+//     }
+//     if (pucch_pdu->bit_len_harq == 2) {
+//         uci_pdu->harq.harq_list[1].harq_value = 0; // ACK
+//     }
+// }
+
+// // 3. 處理排程請求 (SR)：永遠回報「不需要」
+// // 對於純 DL 測試，我們不希望 UE 請求任何 UL 資源來干擾調度
+// if (pucch_pdu->sr_flag == 1) {
+//     uci_pdu->sr.sr_confidence_level = 0; // Good confidence
+//     uci_pdu->sr.sr_indication = 0;       // 0 = 沒有 SR 請求
+// }
+
+// // 4. 打印一條日誌，確認我們的魔改已生效
+// // LOG_E(PHY, "[DEMON MOD] RNTI %x: Bypassed PUCCH0 decode. Faked perfect ACK & No SR.\n", pucch_pdu->rnti);
+
+// // 5. 立即返回，跳過所有後續的真實信號處理
+// return;
+
+// // =================== [ END DEMON MODIFICATION ] ===================
+
+// }
+
+
+
+//************************************************************************//
+
 void nr_decode_pucch0(PHY_VARS_gNB *gNB,
                       c16_t **rxdataF,
                       int frame,

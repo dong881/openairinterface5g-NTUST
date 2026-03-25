@@ -37,6 +37,18 @@
 
 void nr_generate_pdsch(PHY_VARS_gNB *gNB, int n_dlsch, NR_gNB_DLSCH_t *dlsch_array, int frame, int slot);
 
+// Split PDSCH processing for async memory clear overlap
+// Phase 1: Encoding only (CRC, LDPC, rate matching) - can run in parallel with memory clear
+int nr_pdsch_encoding_phase(PHY_VARS_gNB *gNB, int n_dlsch, NR_gNB_DLSCH_t *dlsch_array, int frame, int slot);
+// Phase 2: Codeword processing (scrambling, modulation, layer mapping, RE mapping) - needs clear txdataF
+void nr_pdsch_codeword_phase(PHY_VARS_gNB *gNB, int n_dlsch, NR_gNB_DLSCH_t *dlsch_array, int frame, int slot);
+
+// DMRS precompute buffer management (for async DMRS computation)
+void nr_dlsch_dmrs_precompute_reset(void);
+c16_t* nr_dlsch_dmrs_get_buffer(int pdsch_idx, int *stride);
+void nr_dlsch_dmrs_set_precomputed(int pdsch_idx, int *symbol_indices, int *l_prime, int num_precomputed);
+void nr_dlsch_dmrs_precompute_enable(void);
+
 int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
                       int n_dlsch,
                       NR_gNB_DLSCH_t *dlsch_array,

@@ -50,6 +50,12 @@ typedef struct ru_info_s {
   /// number of concurrent analog beams in period
   int num_beams_period;
 
+  // Direct access to PHY txdataF (bypasses txdataF_BF copy)
+  // txdataF[beam][antenna][sample] - frequency domain samples from PHY
+  int32_t ***txdataF;        // Pointer to gNB->common_vars.txdataF
+  int txdataF_offset;        // Offset for current slot: slot * samples_per_slot_wCP
+  int num_beams;             // Number of beams
+  int samples_per_slot;      // samples_per_slot_wCP
   // Needed for Prach
   c16_t (*prach_buf)[NB_ANTENNAS_RX][NR_PRACH_SEQ_LEN_L];
 } ru_info_t;
@@ -60,7 +66,12 @@ typedef struct ru_info_s {
  * @param frame output of the frame which has been read.
  * @param slot output of the slot which has been read. */
 int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot);
-/** @brief Writes TX data (PDSCH) of given slot. */
+/** @brief Writes TX data (PDSCH) of given slot.
+ * This is now async - returns immediately while processing continues in background. */
 int xran_fh_tx_send_slot(ru_info_t *ru, int frame, int slot, uint64_t timestamp);
+
+/** @brief Wait for any in-progress async fh_south_out to complete.
+ * Safe to call even if no operation is in progress. */
+void xran_fh_tx_wait(void);
 
 #endif /* _ORAN_ISOLATE_H_ */

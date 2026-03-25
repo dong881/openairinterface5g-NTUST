@@ -37,6 +37,7 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include "openair2/E2AP/RAN_FUNCTION/init_ran_func.h"
 #endif
 #include "nr-softmodem.h"
+#include "PHY/ISIP_POOL/isip_pool.h"
 #include <common/utils/assertions.h>
 #include <openair2/GNB_APP/gnb_app.h>
 #include <openair3/ocp-gtpu/gtp_itf.h>
@@ -47,6 +48,7 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "openair1/PHY/NR_THREAD_POOL/nr_thread_pool_init.h"
 #include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
 #include "NR_PHY_INTERFACE/NR_IF_Module.h"
 #include "LAYER2/NR_MAC_gNB/nr_mac_gNB.h"
@@ -176,6 +178,11 @@ void exit_function(const char *file, const char *function, const int line, const
       RC.ru[ru_id]->ifdevice.trx_end_func = NULL;
     }
   }
+
+  // Thread pool disabled
+
+  // Shutdown ISIP thread pool
+  isip_pool_shutdown();
 
   if (assert) {
     abort();
@@ -567,6 +574,21 @@ int main( int argc, char **argv ) {
     init_gNB();
     // Initialize L1
     RCconfig_NR_L1();
+    // Thread pool disabled - using sequential processing
+
+    // Initialize ISIP thread pool
+    if (!isip_pool_init()) {
+        LOG_W(PHY, "Failed to initialize ISIP thread pool\n");
+    } else {
+        // Run verification test
+        isip_pool_test();
+    }
+
+    // Enable L1 downlink timing measurement if command-line flag is set
+    if (get_softmodem_params()->enable_l1_timing) {
+        extern void enable_l1_timing_measurement(void);
+        enable_l1_timing_measurement();
+    }
     // Initialize Positioning Reference Signal configuration
     if(NFAPI_MODE != NFAPI_MODE_PNF && NFAPI_MODE != NFAPI_MODE_AERIAL)
       RCconfig_nr_prs();

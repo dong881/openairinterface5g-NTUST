@@ -1165,7 +1165,9 @@ int nr_acknack_scheduling(gNB_MAC_INST *mac,
 
   for (int f = 0; f < fb_size; f++) {
     // can't schedule ACKNACK before minimum feedback time
-    if((pdsch_to_harq_feedback[f] + NTN_gNB_Koffset) < minfbtime)
+    // Add extra margin for CSI-RS symbol conflicts in TDD
+    int extra_margin = mac->radio_config.do_CSIRS ? 1 : 0;
+    if((pdsch_to_harq_feedback[f] + NTN_gNB_Koffset) < (minfbtime + extra_margin))
       continue;
     const int pucch_slot = (slot + pdsch_to_harq_feedback[f] + NTN_gNB_Koffset) % n_slots_frame;
     // check if the slot is UL

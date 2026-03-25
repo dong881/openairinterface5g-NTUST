@@ -32,7 +32,9 @@
 #include "PHY/NR_TRANSPORT/nr_transport_proto.h"
 #include "PHY/NR_TRANSPORT/nr_transport_common_proto.h"
 #include "PHY/NR_TRANSPORT/nr_dlsch.h"
+#include "PHY/ISIP_POOL/isip_pool.h"  // For parallel segmentation
 #include "SCHED_NR/sched_nr.h"
+#include "SCHED_NR/nr_slot_timing.h"
 #include "common/utils/LOG/vcd_signal_dumper.h"
 #include "common/utils/LOG/log.h"
 #include "common/utils/nr/nr_common.h"
@@ -120,11 +122,27 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
 {
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_gNB_DLSCH_ENCODING, VCD_FUNCTION_IN);
 
+  // Timing for encoding breakdown
+  struct timespec t_crc_start, t_crc_end, t_seg_start, t_seg_end, t_ldpc_start, t_ldpc_end;
+  long crc_time_ns = 0, seg_time_ns = 0, ldpc_total_ns = 0;
+
   nrLDPC_TB_encoding_parameters_t TBs[n_dlsch];
   memset(TBs, 0, sizeof(TBs));
 
-  int num_segments = 0;
+  // OPTIMIZED: Use fixed-size array to avoid VLA and merge loops
+  // Max segments = MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * NR_MAX_NB_LAYERS * max_pdsch_per_slot
+  #define MAX_SEGMENTS_PER_SLOT (MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * NR_MAX_NB_LAYERS * 8)
+  nrLDPC_segment_encoding_parameters_t segments[MAX_SEGMENTS_PER_SLOT];
+  memset(segments, 0, sizeof(segments));
 
+  int num_segments = 0;
+  size_t segments_offset = 0;
+  size_t dlsch_offset = 0;
+
+  // Start CRC+Seg timing
+  if (slot_timing_enabled) clock_gettime(CLOCK_MONOTONIC, &t_crc_start);
+
+  // MERGED LOOP: CRC + Segmentation + LDPC param setup in ONE pass
   for (int i = 0; i < n_dlsch; i++) {
     NR_gNB_DLSCH_t *dlsch = &dlsch_array[i];
 
@@ -162,26 +180,22 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
     int max_bytes = MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * rel15->nrOfLayers * 1056;
     int B;
     if (A > NR_MAX_PDSCH_TBS) {
-      // Add 24-bit crc (polynomial A) to payload
+      // Add 24-bit crc (polynomial A) to payload (in-place on harq->pdu)
       crc = crc24a(a, A) >> 8;
       a[A >> 3] = ((uint8_t *)&crc)[2];
       a[1 + (A >> 3)] = ((uint8_t *)&crc)[1];
       a[2 + (A >> 3)] = ((uint8_t *)&crc)[0];
-      // printf("CRC %x (A %d)\n",crc,A);
-      // printf("a0 %d a1 %d a2 %d\n", a[A>>3], a[1+(A>>3)], a[2+(A>>3)]);
       B = A + 24;
       AssertFatal((A / 8) + 4 <= max_bytes, "A %d is too big (A/8+4 = %d > %d)\n", A, (A / 8) + 4, max_bytes);
-      memcpy(dlsch->b, a, (A / 8) + 4); // why is this +4 if the CRC is only 3 bytes?
+      // NOTE: Copy to dlsch->b is deferred to sequential fallback or handled by ISIP directly
     } else {
-      // Add 16-bit crc (polynomial A) to payload
+      // Add 16-bit crc (polynomial A) to payload (in-place on harq->pdu)
       crc = crc16(a, A) >> 16;
       a[A >> 3] = ((uint8_t *)&crc)[1];
       a[1 + (A >> 3)] = ((uint8_t *)&crc)[0];
-      // printf("CRC %x (A %d)\n",crc,A);
-      // printf("a0 %d a1 %d \n", a[A>>3], a[1+(A>>3)]);
       B = A + 16;
       AssertFatal((A / 8) + 3 <= max_bytes, "A %d is too big (A/8+3 = %d > %d)\n", A, (A / 8) + 3, max_bytes);
-      memcpy(dlsch->b, a, (A / 8) + 3); // using 3 bytes to mimic the case of 24 bit crc
+      // NOTE: Copy to dlsch->b is deferred to sequential fallback or handled by ISIP directly
     }
 
     nrLDPC_TB_encoding_parameters_t *TB_parameters = &TBs[i];
@@ -190,47 +204,69 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
     TB_parameters->harq_unique_pid = i;
     TB_parameters->BG = rel15->maintenance_parms_v3.ldpcBaseGraph;
     TB_parameters->A = A;
+
+    // End CRC timing, start segmentation timing (first TB only)
+    if (slot_timing_enabled && i == 0) {
+      clock_gettime(CLOCK_MONOTONIC, &t_crc_end);
+      clock_gettime(CLOCK_MONOTONIC, &t_seg_start);
+    }
+
     start_meas(dlsch_segmentation_stats);
-    TB_parameters->Kb = nr_segmentation(dlsch->b,
-                                        dlsch->c,
-                                        B,
-                                        &TB_parameters->C,
-                                        &TB_parameters->K,
-                                        &TB_parameters->Z,
-                                        &TB_parameters->F,
-                                        TB_parameters->BG);
+
+    // Segmentation: direct from pdu, skip dlsch->b
+    if (isip_pool_segmentation_enabled()) {
+      unsigned int Kprime, L;
+      int32_t Kb_result = nr_segmentation_params(B,
+                                                  TB_parameters->BG,
+                                                  &TB_parameters->C,
+                                                  &TB_parameters->K,
+                                                  &TB_parameters->Z,
+                                                  &TB_parameters->F,
+                                                  &Kprime,
+                                                  &L);
+
+      if (Kb_result < 0) {
+        LOG_E(PHY, "nr_segmentation_params failed for B=%d\n", B);
+        return (-1);
+      }
+      TB_parameters->Kb = (uint32_t)Kb_result;
+
+      isip_seg_params_t seg_params = {
+        .input = a,
+        .outputs = dlsch->c,
+        .C = TB_parameters->C,
+        .K = TB_parameters->K,
+        .Kprime = Kprime,
+        .Z = TB_parameters->Z,
+        .F = TB_parameters->F,
+        .L = L,
+        .completed = 0
+      };
+      isip_pool_segmentation_parallel(&seg_params);
+    } else {
+      // Fallback: Copy to dlsch->b and use sequential segmentation
+      if (A > NR_MAX_PDSCH_TBS) {
+        memcpy(dlsch->b, a, (A / 8) + 4);
+      } else {
+        memcpy(dlsch->b, a, (A / 8) + 3);
+      }
+      TB_parameters->Kb = nr_segmentation(dlsch->b,
+                                          dlsch->c,
+                                          B,
+                                          &TB_parameters->C,
+                                          &TB_parameters->K,
+                                          &TB_parameters->Z,
+                                          &TB_parameters->F,
+                                          TB_parameters->BG);
+    }
+
     stop_meas(dlsch_segmentation_stats);
 
     if (TB_parameters->C > MAX_NUM_NR_DLSCH_SEGMENTS_PER_LAYER * rel15->nrOfLayers) {
       LOG_E(PHY, "nr_segmentation.c: too many segments %d, B %d\n", TB_parameters->C, B);
       return (-1);
     }
-    num_segments += TB_parameters->C;
-  }
-
-  nrLDPC_segment_encoding_parameters_t segments[num_segments];
-  memset(segments, 0, sizeof(segments));
-  size_t segments_offset = 0;
-  size_t dlsch_offset = 0;
-
-  for (int i = 0; i < n_dlsch; i++) {
-    NR_gNB_DLSCH_t *dlsch = &dlsch_array[i];
-    const nfapi_nr_dl_tti_pdsch_pdu_rel15_t *rel15 = &dlsch->pdsch_pdu->pdsch_pdu_rel15;
-
-    nrLDPC_TB_encoding_parameters_t *TB_parameters = &TBs[i];
-
-#ifdef DEBUG_DLSCH_CODING
-    for (int r = 0; r < TB_parameters->C; r++) {
-      LOG_D(PHY, "Encoder: B %d F %d \n", dlsch->B, TB_parameters->F);
-      LOG_D(PHY, "start ldpc encoder segment %d/%d\n", r, TB_parameters->C);
-      LOG_D(PHY, "input %d %d %d %d %d \n", dlsch->c[r][0], dlsch->c[r][1], dlsch->c[r][2], dlsch->c[r][3], dlsch->c[r][4]);
-      for (int cnt = 0; cnt < 22 * (TB_parameters->Z) / 8; cnt++) {
-        LOG_D(PHY, "%d ", dlsch->c[r][cnt]);
-      }
-      LOG_D(PHY, "\n");
-    }
-#endif
-
+    // IMMEDIATELY setup LDPC params after segmentation (merged from second loop)
     TB_parameters->nb_rb = rel15->rbSize;
     TB_parameters->Qm = rel15->qamModOrder[0];
     TB_parameters->mcs = rel15->mcsIndex[0];
@@ -248,10 +284,10 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
                                 rel15->nrOfLayers);
 
     TB_parameters->tbslbrm = rel15->maintenance_parms_v3.tbSizeLbrmBytes;
-
     TB_parameters->output = &output[dlsch_offset >> 3];
     TB_parameters->segments = &segments[segments_offset];
 
+    // Setup segment parameters IMMEDIATELY after segmentation
     for (int r = 0; r < TB_parameters->C; r++) {
       nrLDPC_segment_encoding_parameters_t *segment_parameters = &TB_parameters->segments[r];
       segment_parameters->c = dlsch->c[r];
@@ -263,13 +299,23 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
     }
 
     segments_offset += TB_parameters->C;
+    num_segments += TB_parameters->C;
 
-    /* output and its parts for each dlsch should be aligned on 64 bytes (or 8 * 64 bits)
-     * => dlsch_offset should remain a multiple of 8 * 64 with enough offset to fit each dlsch
-     */
     const size_t dlsch_size = rel15->rbSize * NR_SYMBOLS_PER_SLOT * NR_NB_SC_PER_RB * rel15->qamModOrder[0] * rel15->nrOfLayers;
     dlsch_offset += ceil_mod(dlsch_size, 8 * 64);
   }
+
+  // End segmentation timing
+  if (slot_timing_enabled) {
+    clock_gettime(CLOCK_MONOTONIC, &t_seg_end);
+    crc_time_ns = (t_crc_end.tv_sec - t_crc_start.tv_sec) * 1000000000L +
+                  (t_crc_end.tv_nsec - t_crc_start.tv_nsec);
+    seg_time_ns = (t_seg_end.tv_sec - t_seg_start.tv_sec) * 1000000000L +
+                  (t_seg_end.tv_nsec - t_seg_start.tv_nsec);
+  }
+
+  // Start LDPC+RM+Interleave timing (ACC100 does all three in hardware)
+  if (slot_timing_enabled) clock_gettime(CLOCK_MONOTONIC, &t_ldpc_start);
 
   nrLDPC_slot_encoding_parameters_t slot_parameters = {.frame = frame,
                                                        .slot = slot,
@@ -280,16 +326,35 @@ int nr_dlsch_encoding(PHY_VARS_gNB *gNB,
                                                        .tparity = tparity,
                                                        .toutput = toutput,
                                                        .TBs = TBs};
+
   gNB->nrLDPC_coding_interface.nrLDPC_coding_encoder(&slot_parameters);
 
+  // End LDPC+RM+Interleave timing
+  if (slot_timing_enabled) {
+    clock_gettime(CLOCK_MONOTONIC, &t_ldpc_end);
+    ldpc_total_ns = (t_ldpc_end.tv_sec - t_ldpc_start.tv_sec) * 1000000000L +
+                    (t_ldpc_end.tv_nsec - t_ldpc_start.tv_nsec);
+  }
+
+  // Merge per-segment stats for legacy time_stats (used by OAI stats printout)
   for (int i = 0; i < n_dlsch; i++) {
     nrLDPC_TB_encoding_parameters_t *TB_parameters = &TBs[i];
     for (int r = 0; r < TB_parameters->C; r++) {
       nrLDPC_segment_encoding_parameters_t *segment_parameters = &TB_parameters->segments[r];
       merge_meas(dlsch_interleaving_stats, &segment_parameters->ts_interleave);
       merge_meas(dlsch_rate_matching_stats, &segment_parameters->ts_rate_match);
-      // merge_meas(, &segment_parameters->ts_ldpc_encode);
     }
+  }
+
+  // Update slot timing with encoding breakdown
+  // Note: For ACC100, LDPC+RM+Interleave are all done in hardware (ldpc_total_ns)
+  //       For software encoder, per-segment stats would be available but we use wall-clock time
+  if (slot_timing_enabled) {
+    current_slot_timing.encoding_crc_ns = crc_time_ns;
+    current_slot_timing.encoding_segmentation_ns = seg_time_ns;
+    current_slot_timing.encoding_ldpc_ns = ldpc_total_ns;  // Combined LDPC+RM+Interleave for ACC100
+    current_slot_timing.encoding_rate_match_ns = 0;         // Included in ldpc_total_ns for ACC100
+    current_slot_timing.encoding_interleave_ns = 0;         // Included in ldpc_total_ns for ACC100
   }
 
   VCD_SIGNAL_DUMPER_DUMP_FUNCTION_BY_NAME(VCD_SIGNAL_DUMPER_FUNCTIONS_gNB_DLSCH_ENCODING, VCD_FUNCTION_OUT);

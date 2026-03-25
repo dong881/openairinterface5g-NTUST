@@ -272,15 +272,22 @@ void oran_fh_if4p5_south_in(RU_t *ru, int *frame, int *slot)
 void oran_fh_if4p5_south_out(RU_t *ru, int frame, int slot, uint64_t timestamp)
 {
   start_meas(&ru->tx_fhaul);
+  // Direct txdataF access - bypasses feptx_prec memcpy for better performance
+  PHY_VARS_gNB *gNB = ru->gNB_list[0];
+  NR_DL_FRAME_PARMS *fp = ru->nr_frame_parms;
+
   ru_info_t ru_info = {
       .nb_rx = ru->nb_rx * ru->num_beams_period,
       .nb_tx = ru->nb_tx * ru->num_beams_period,
       .txdataF_BF = ru->common.txdataF_BF,
       .beam_id = ru->common.beam_id,
       .num_beams_period = ru->num_beams_period,
+      
+      .txdataF = (int32_t ***)gNB->common_vars.txdataF,
+      .txdataF_offset = slot * fp->samples_per_slot_wCP,
+      .num_beams = ru->num_beams_period,
+      .samples_per_slot = fp->samples_per_slot_wCP,
   };
-
-  // printf("south_out:\tframe=%d\tslot=%d\ttimestamp=%ld\n",frame,slot,timestamp);
 
   int ret = xran_fh_tx_send_slot(&ru_info, frame, slot, timestamp);
   if (ret != 0) {

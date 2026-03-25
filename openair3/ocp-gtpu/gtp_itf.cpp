@@ -583,13 +583,16 @@ static int udpServerSocket(openAddr_s addr)
   }
 
   int sendbuff = 1000 * 1000 * 10;
+  int recvbuff = 1000 * 1000 * 64;  // 64MB receive buffer for high throughput DL
   AssertFatal(0 == setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &sendbuff, sizeof(sendbuff)), "");
-  LOG_D(GTPU,
-        "[%d] Created listener for paquets to: %s:%s, send buffer size: %d\n",
+  AssertFatal(0 == setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, &recvbuff, sizeof(recvbuff)), "");
+  LOG_I(GTPU,
+        "[%d] Created listener for paquets to: %s:%s, send buffer: %d, recv buffer: %d\n",
         sockfd,
         addr.originHost,
         addr.originService,
-        sendbuff);
+        sendbuff,
+        recvbuff);
   return sockfd;
 }
 

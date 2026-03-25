@@ -342,7 +342,7 @@ static int set_ideal_period(bool is_csi)
   const int nb_slots_per_period = fs->numb_slots_period;
   const int n_ul_slots_per_period = get_ul_slots_per_period(fs); // full UL + mixed with UL symbols
   // 2 reports per UE (RSRP and RI-PMI-CQI)
-  return is_csi ? MAX_MOBILES_PER_GNB * 2 * nb_slots_per_period / n_ul_slots_per_period : nb_slots_per_period * MAX_MOBILES_PER_GNB;
+  return is_csi ? MAX_MOBILES_PER_GNB * 8 * nb_slots_per_period / n_ul_slots_per_period : nb_slots_per_period * MAX_MOBILES_PER_GNB;
 }
 
 static void set_csirs_periodicity(NR_NZP_CSI_RS_Resource_t *nzpcsi0,
@@ -455,7 +455,7 @@ static void config_csirs(const NR_ServingCellConfigCommon_t *servingcellconfigco
       default:
         AssertFatal(1==0,"Number of ports not yet supported\n");
     }
-    resourceMapping.firstOFDMSymbolInTimeDomain = 13;  // last symbol of slot
+    resourceMapping.firstOFDMSymbolInTimeDomain = 11;  // last symbol of slot
     resourceMapping.firstOFDMSymbolInTimeDomain2 = NULL;
     resourceMapping.density.present = NR_CSI_RS_ResourceMapping__density_PR_one;
     resourceMapping.density.choice.one = (NULL_t)0;
