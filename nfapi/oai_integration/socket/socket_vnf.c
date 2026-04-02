@@ -84,8 +84,9 @@ bool vnf_nr_send_p7_msg(vnf_p7_t *vnf_p7, nfapi_nr_p7_message_header_t *header)
   if (p7_connection) {
     int send_result = 0;
     uint8_t buffer[1024 * 1024 * 3];
+    uint16_t sequence_number = __atomic_fetch_add(&p7_connection->sequence_number, 1, __ATOMIC_RELAXED);
 
-    header->m_segment_sequence = NFAPI_NR_P7_SET_MSS(0, 0, p7_connection->sequence_number);
+    header->m_segment_sequence = NFAPI_NR_P7_SET_MSS(0, 0, sequence_number);
 
     int len = vnf_p7->_public.pack_func(header, buffer, sizeof(buffer), &vnf_p7->_public.codec_config);
 
@@ -129,7 +130,7 @@ bool vnf_nr_send_p7_msg(vnf_p7_t *vnf_p7, nfapi_nr_p7_message_header_t *header)
         uint8_t *buf_ptr = &tx_buffer[4];
         uint8_t *buf_ptr_end = &tx_buffer[10];
         push32(segment_size, (&buf_ptr), buf_ptr_end);
-        header->m_segment_sequence = NFAPI_NR_P7_SET_MSS((!last), segment, p7_connection->sequence_number);
+        header->m_segment_sequence = NFAPI_NR_P7_SET_MSS((!last), segment, sequence_number);
         push16(header->m_segment_sequence, (&buf_ptr), buf_ptr_end);
 
         memcpy(&tx_buffer[NFAPI_NR_P7_HEADER_LENGTH], &buffer[0] + offset, size);
@@ -152,7 +153,6 @@ bool vnf_nr_send_p7_msg(vnf_p7_t *vnf_p7, nfapi_nr_p7_message_header_t *header)
       nfapi_nr_p7_update_transmit_timestamp(buffer, time);
       send_result = socket_send_p7_msg(vnf_p7->socket, &(p7_connection->remote_addr), &buffer[0], len);
     }
-    p7_connection->sequence_number++;
     return send_result == 0;
   } else {
     NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() cannot find p7 connection info for phy_id:%d\n", __FUNCTION__, header->phy_id);

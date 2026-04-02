@@ -99,6 +99,9 @@ typedef struct nfapi_vnf_p7_connection_info {
 	/* Dynamic Timing Adjustment State */
 	int32_t convergence_count;
 	int32_t global_max_late;
+	int32_t estimated_mean_late;      // Jacobson/Karels estimated mean delay
+	int32_t estimated_jitter_var;     // Jacobson/Karels estimated jitter variance
+	uint32_t last_adjustment_time_hr; // Time of last adjustment (for Dead Time / RTT masking)
 
 	uint32_t previous_t1;
 	uint32_t previous_t2;
@@ -114,8 +117,13 @@ typedef struct nfapi_vnf_p7_connection_info {
 	struct timespec next_slot_time;
 	uint32_t slot_duration_us;
 	uint8_t running;
+	
+	/* Timing Jump tracking to avoid stale compensation */
+	int32_t last_sfnslot_jump;
+
 	pthread_t thread;
 	pthread_mutex_t mutex;
+	pthread_cond_t  initial_timinginfo_cond;
 	int socket;
 	struct sockaddr_in local_addr;
 	struct sockaddr_in remote_addr;

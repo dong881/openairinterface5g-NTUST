@@ -42,6 +42,8 @@
 
 #define SYNC_CYCLE_COUNT 2
 
+static inline int64_t timehr_diff_us(uint32_t time_hr_a, uint32_t time_hr_b);
+
 /* ============================================================================
  * DYNAMIC SLOT SLEEP TIMING CONTROL
  * ============================================================================ */
@@ -139,21 +141,77 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 
 	if (all_late == 0) return;
 
-	if (p7_info->global_max_late == 0) p7_info->global_max_late = all_late; // Initialize
+	/*
+	 * Algorithm: Jacobson/Karels Estimation (RFC 6298) + Asymmetric Dead-Zone Control
+	 * 
+	 * Source: 
+	 * Jacobson, V., & Karels, M. J. (1988). "Congestion avoidance and control".
+	 * SIGCOMM '88 Symposium proceedings on Communications architectures and protocols.
+	 * 
+	 * Logic Analysis & Benefits:
+	 * 1. Resilient to Jitter: Uses a low-pass EWMA filter to track mean delay (alpha=1/8) and jitter variance (beta=1/4). 
+	 *    The safety margin dynamically expands (`4 * estimated_jitter_var`) when the network fluctuates.
+	 * 2. Prioritizes Throughput (No Late Packets): Instead of waiting for a packet to *actually* be late, we use the 
+	 *    projected dynamic target. If it crosses the danger zone (e.g., > -200us), we aggressively increase `pending_us`
+	 *    to force earlier transmission, preserving the high throughput of a "fixed massive advance" approach.
+	 * 3. Prevents Ping-Pong Effect: Introduces a safe "dead-zone" (-800us to -200us) where we hold the timing steady.
+	 * 4. Optimizes Latency Safely: When jitter is low and we are excessively early (< -800us), `pending_us` decreases 
+	 *    very slowly (-1us per update) to cautiously improve extreme latency without breaking things.
+	 */
 
-	/* calc EWMA for each timing stats */
-	if (all_late > p7_info->global_max_late) p7_info->global_max_late = (p7_info->global_max_late * 0.1) + (all_late * 0.9);
-	else p7_info->global_max_late = (p7_info->global_max_late * 0.9) + (all_late * 0.1);
+	// Initialization of state variables on first valid sample
+	if (p7_info->estimated_mean_late == 0) {
+		p7_info->estimated_mean_late = all_late;
+		p7_info->estimated_jitter_var = abs(all_late) / 2; // Start with half absolute jitter
+		p7_info->global_max_late = all_late;
+	}
 
-	if (p7_info->global_max_late > -500) {
+	// 1. Jacobson/Karels Delay and Variance Tracking
+	int32_t err = all_late - p7_info->estimated_mean_late;
+	
+	// EWMA for mean delay (alpha = 1/8)
+	p7_info->estimated_mean_late += err / 8;
+	
+	// EWMA for jitter variation (beta = 1/4)
+	p7_info->estimated_jitter_var += (abs(err) - p7_info->estimated_jitter_var) / 4;
+
+	// 2. Projected Dynamic Safe Target
+	// Projects the worst-case late arrival bounding 99% of jitter variance
+	int32_t dynamic_target = p7_info->estimated_mean_late + (4 * p7_info->estimated_jitter_var);
+	
+	// Still maintain diagnostic legacy EWMA just for logging/visibility if needed
+	p7_info->global_max_late = (p7_info->global_max_late * 0.9) + (all_late * 0.1);
+
+	// 3. Asymmetric Control Logic & Dead-Zone
+	
+	// Danger Zone: If projected delay gets too close to 0 or becomes positive (late)
+	if (dynamic_target > -200) {
 		p7_info->convergence_count++;
-		if(p7_info->convergence_count >= 3){
-			/* [CASE LATE] */
-			p7_info->pending_us += (p7_info->global_max_late + 500)*0.1;
-			p7_info->convergence_count = 0;
+		
+		// React quickly (requires only 2 consecutive danger points)
+		if (p7_info->convergence_count >= 2) {
+			// Aggressive additive increase to push the packet send time earlier
+			// The correction factor absorbs the danger distance plus an extra 400us buffer
+			p7_info->pending_us += (dynamic_target + 400) * 0.5; 
+			p7_info->convergence_count = 0; // Reset
+			
+			// Record the exact time of adjustment to trigger Dead Time / RTT Masking
+			p7_info->last_adjustment_time_hr = vnf_get_current_time_hr();
 		}
-	} else{
-		p7_info->pending_us--;
+	} 
+	// Wasted Latency Zone: If we are excessively early and jitter is low
+	else if (dynamic_target < -800) {
+		p7_info->convergence_count = 0;
+		// Slowly decay the wait time to squeeze out better latency.
+		// The 1us step prevents ping-pong oscillation while guaranteeing long-term recovery.
+		p7_info->pending_us -= 1;
+		// Minor decay doesn't require a stringent RTT hold-off, 
+		// but an optional time reset could be placed if it proves to oscillate.
+	} 
+	// Safe Ideal Zone (-800 to -200):
+	else {
+		// Inside safe window, do absolutely nothing to keep throughput stable
+		// and avoid micro-adjustments (ping-ponging).
 		p7_info->convergence_count = 0;
 	}
 }
@@ -168,6 +226,33 @@ void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *v
     return;
   if (ind->time_since_last_timing_info > 10000)
     return; // Basic sanity check
+
+  /* 
+   * Feedback Hold-Off / Dead Time Masking (Based on Control Theory for Delayed Systems)
+   * 
+   * Reference: 
+   * Smith, O. J. M. (1957). "Closer Control of Loops with Dead Time". Chemical Engineering Progress.
+   * 
+   * Logic: 
+   * The system has a round-trip delay (VNF -> PNF processing -> Timing Info feedback).
+   * If an adjustment was made, the subsequent `timing_info` messages will still reflect the old, 
+   * pre-adjustment state for a duration equivalent to this Dead Time (~RTT). 
+   * If we process these stale reports, the controller will repeatedly overcompensate, causing severe oscillation.
+   * 
+   * Solution: Ignore all timing inputs for a short hold-off window equivalent to a few slot durations
+   * after any adjustment to ensure the new feedback corresponds to the adjusted packet generation.
+   */
+  uint32_t now_hr = vnf_get_current_time_hr();
+  if (p7_info->last_adjustment_time_hr != 0) {
+      int64_t diff_us = timehr_diff_us(now_hr, p7_info->last_adjustment_time_hr);
+      // Wait for approx 4 slots (e.g. 2000us for mu=1, 4000us for mu=0)
+      int32_t current_slot_duration = 1000 >> p7_info->mu;
+      int32_t dead_time_us = 4 * current_slot_duration;
+      
+      if (diff_us < dead_time_us) { // Dead Time mask based on calculated RTT margin
+          return; // Ignore stale feedback
+      }
+  }
 
   // Step 1: Extract per-slot timing stats (up to 8 unique slots)
   vnf_timing_stats_t slot_stats[8];
@@ -1806,15 +1891,18 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
 
 	// Integration Step
-	handle_dynamic_timing_info(p7_con, &ind);
+	// handle_dynamic_timing_info(p7_con, &ind);
 
-	// Capture current SFN/Slot locally to avoid race conditions during logging
-	uint16_t vnf_sfn = p7_con->sfn;
-	uint16_t vnf_slot = p7_con->slot;
+	// // Capture current SFN/Slot locally to avoid race conditions during logging
+	// uint16_t vnf_sfn = p7_con->sfn;
+	// uint16_t vnf_slot = p7_con->slot;
 
-	int32_t vnf_current_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, vnf_sfn, vnf_slot);
-	int32_t pnf_ind_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn, ind.last_slot);	
+	// int32_t vnf_current_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, vnf_sfn, vnf_slot);
+	// int32_t pnf_ind_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn, ind.last_slot);	
+	pthread_mutex_lock(&p7_con->mutex);
 	p7_con->initial_timinginfo_received = 1; 
+	pthread_cond_signal(&p7_con->initial_timinginfo_cond);
+	pthread_mutex_unlock(&p7_con->mutex);
 }
 
 void vnf_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)

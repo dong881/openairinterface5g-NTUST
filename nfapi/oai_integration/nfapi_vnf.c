@@ -27,6 +27,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <time.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -905,9 +906,97 @@ int oai_nfapi_ul_tti_req(nfapi_nr_ul_tti_request_t *ul_tti_req);
 int oai_nfapi_tx_data_req(nfapi_nr_tx_data_request_t* tx_data_req);
 int oai_nfapi_ul_dci_req(nfapi_nr_ul_dci_request_t* ul_dci_req);
 
+typedef enum {
+  SLOT_TX_JOB_DL,
+  SLOT_TX_JOB_UL_TTI,
+  SLOT_TX_JOB_TX_DATA,
+  SLOT_TX_JOB_UL_DCI,
+} slot_tx_job_type_t;
+
+typedef struct {
+  slot_tx_job_type_t type;
+  void *req;
+  int retval;
+  bool dropped;
+  bool deadline_enabled;
+  struct timespec deadline;
+} slot_tx_job_t;
+
+static pthread_once_t g_slot_tx_cfg_once = PTHREAD_ONCE_INIT;
+static int g_slot_tx_parallel = 0;
+static uint32_t g_slot_tx_deadline_us = 0;
+
+static void init_slot_tx_cfg(void)
+{
+  const char *parallel = getenv("OAI_VNF_SLOT_TX_PARALLEL");
+  const char *deadline_us = getenv("OAI_VNF_SLOT_TX_DEADLINE_US");
+
+  g_slot_tx_parallel = (parallel && atoi(parallel) != 0) ? 1 : 0;
+  g_slot_tx_deadline_us = (deadline_us && atoi(deadline_us) > 0) ? (uint32_t)atoi(deadline_us) : 0;
+
+  LOG_I(NFAPI_VNF,
+        "Slot TX mode: parallel=%d deadline_us=%u (env: OAI_VNF_SLOT_TX_PARALLEL, OAI_VNF_SLOT_TX_DEADLINE_US)\n",
+        g_slot_tx_parallel,
+        g_slot_tx_deadline_us);
+}
+
+static bool is_deadline_expired(const struct timespec *deadline)
+{
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  if (now.tv_sec > deadline->tv_sec)
+    return true;
+  if (now.tv_sec == deadline->tv_sec && now.tv_nsec >= deadline->tv_nsec)
+    return true;
+  return false;
+}
+
+static void set_deadline_from_now(struct timespec *deadline, uint32_t add_us)
+{
+  clock_gettime(CLOCK_MONOTONIC, deadline);
+  deadline->tv_nsec += (long)add_us * 1000L;
+  if (deadline->tv_nsec >= 1000000000L) {
+    deadline->tv_sec += deadline->tv_nsec / 1000000000L;
+    deadline->tv_nsec %= 1000000000L;
+  }
+}
+
+static void *slot_tx_job_thread(void *arg)
+{
+  slot_tx_job_t *job = (slot_tx_job_t *)arg;
+
+  if (job->deadline_enabled && is_deadline_expired(&job->deadline)) {
+    job->dropped = true;
+    job->retval = 1;
+    return NULL;
+  }
+
+  switch (job->type) {
+    case SLOT_TX_JOB_DL:
+      job->retval = oai_nfapi_dl_tti_req((nfapi_nr_dl_tti_request_t *)job->req);
+      break;
+    case SLOT_TX_JOB_UL_TTI:
+      job->retval = oai_nfapi_ul_tti_req((nfapi_nr_ul_tti_request_t *)job->req);
+      break;
+    case SLOT_TX_JOB_TX_DATA:
+      job->retval = oai_nfapi_tx_data_req((nfapi_nr_tx_data_request_t *)job->req);
+      break;
+    case SLOT_TX_JOB_UL_DCI:
+      job->retval = oai_nfapi_ul_dci_req((nfapi_nr_ul_dci_request_t *)job->req);
+      break;
+    default:
+      job->retval = 0;
+      break;
+  }
+
+  return NULL;
+}
+
 int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
 {
   LOG_D(MAC, "VNF SFN/Slot %d.%d \n", ind->sfn, ind->slot);
+
+  pthread_once(&g_slot_tx_cfg_once, init_slot_tx_cfg);
 
   // this variable is very big (multiple MB), so we put it into static storage
   // to not overflow the stack while still having it in local (function) scope
@@ -938,17 +1027,94 @@ int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
       oai_fapi_send_end_request(0, ind->sfn, ind->slot);
     }
 #else
-  if (sched_response.DL_req.dl_tti_request_body.nPDUs > 0)
-    oai_nfapi_dl_tti_req(&sched_response.DL_req);
+  if (!g_slot_tx_parallel) {
+    if (sched_response.DL_req.dl_tti_request_body.nPDUs > 0)
+      oai_nfapi_dl_tti_req(&sched_response.DL_req);
 
-  if (sched_response.UL_tti_req.n_pdus > 0)
-    oai_nfapi_ul_tti_req(&sched_response.UL_tti_req);
+    if (sched_response.UL_tti_req.n_pdus > 0)
+      oai_nfapi_ul_tti_req(&sched_response.UL_tti_req);
 
-  if (sched_response.TX_req.Number_of_PDUs > 0)
-    oai_nfapi_tx_data_req(&sched_response.TX_req);
+    if (sched_response.TX_req.Number_of_PDUs > 0)
+      oai_nfapi_tx_data_req(&sched_response.TX_req);
 
-  if (sched_response.UL_dci_req.numPdus > 0)
-    oai_nfapi_ul_dci_req(&sched_response.UL_dci_req);
+    if (sched_response.UL_dci_req.numPdus > 0)
+      oai_nfapi_ul_dci_req(&sched_response.UL_dci_req);
+  } else {
+    slot_tx_job_t jobs[4] = {0};
+    pthread_t threads[4] = {0};
+    bool created[4] = {false, false, false, false};
+    int job_count = 0;
+
+    struct timespec deadline = {0};
+    bool deadline_enabled = (g_slot_tx_deadline_us > 0);
+    if (deadline_enabled) {
+      set_deadline_from_now(&deadline, g_slot_tx_deadline_us);
+    }
+
+    if (sched_response.DL_req.dl_tti_request_body.nPDUs > 0) {
+      jobs[job_count] = (slot_tx_job_t){
+          .type = SLOT_TX_JOB_DL,
+          .req = &sched_response.DL_req,
+          .deadline_enabled = deadline_enabled,
+          .deadline = deadline,
+      };
+      if (pthread_create(&threads[job_count], NULL, slot_tx_job_thread, &jobs[job_count]) == 0)
+        created[job_count] = true;
+      else
+        slot_tx_job_thread(&jobs[job_count]);
+      job_count++;
+    }
+
+    if (sched_response.UL_tti_req.n_pdus > 0) {
+      jobs[job_count] = (slot_tx_job_t){
+          .type = SLOT_TX_JOB_UL_TTI,
+          .req = &sched_response.UL_tti_req,
+          .deadline_enabled = deadline_enabled,
+          .deadline = deadline,
+      };
+      if (pthread_create(&threads[job_count], NULL, slot_tx_job_thread, &jobs[job_count]) == 0)
+        created[job_count] = true;
+      else
+        slot_tx_job_thread(&jobs[job_count]);
+      job_count++;
+    }
+
+    if (sched_response.TX_req.Number_of_PDUs > 0) {
+      jobs[job_count] = (slot_tx_job_t){
+          .type = SLOT_TX_JOB_TX_DATA,
+          .req = &sched_response.TX_req,
+          .deadline_enabled = deadline_enabled,
+          .deadline = deadline,
+      };
+      if (pthread_create(&threads[job_count], NULL, slot_tx_job_thread, &jobs[job_count]) == 0)
+        created[job_count] = true;
+      else
+        slot_tx_job_thread(&jobs[job_count]);
+      job_count++;
+    }
+
+    if (sched_response.UL_dci_req.numPdus > 0) {
+      jobs[job_count] = (slot_tx_job_t){
+          .type = SLOT_TX_JOB_UL_DCI,
+          .req = &sched_response.UL_dci_req,
+          .deadline_enabled = deadline_enabled,
+          .deadline = deadline,
+      };
+      if (pthread_create(&threads[job_count], NULL, slot_tx_job_thread, &jobs[job_count]) == 0)
+        created[job_count] = true;
+      else
+        slot_tx_job_thread(&jobs[job_count]);
+      job_count++;
+    }
+
+    for (int i = 0; i < job_count; ++i) {
+      if (created[i])
+        pthread_join(threads[i], NULL);
+      if (jobs[i].dropped) {
+        LOG_W(NFAPI_VNF, "Dropped late P7 TX job type=%d due to deadline expiry\n", jobs[i].type);
+      }
+    }
+  }
 #endif
 
   /* the below works because the function behind the callback collects
@@ -960,7 +1126,6 @@ int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
 
   return 1;
 }
-#include <time.h>
 #ifndef ENABLE_WLS
 // VNF Autonomous Timing Module
 void timespec_add_us(struct timespec *t, long us) {
@@ -1016,17 +1181,21 @@ void *vnf_timing_thread(void *arg) {
     }
     usleep(1000000);
     LOG_I(NFAPI_VNF, "Waiting for gNB or NFAPI NR configuration... mu:%d start_resp:%d\n", mu, nr_start_resp_received);
-  }    
-  while (!p7_info->initial_timinginfo_received) {
-    usleep(1000);
   }
+  
+  pthread_mutex_lock(&p7_info->mutex);
+  while (!p7_info->initial_timinginfo_received) {
+    pthread_cond_wait(&p7_info->initial_timinginfo_cond, &p7_info->mutex);
+  }
+  pthread_mutex_unlock(&p7_info->mutex);
+
   p7_info->mu = mu;
   p7_info->slot_duration_us = 1000 >> p7_info->mu; // 1ms / 2^mu
   p7_info->sfn = 0;
   p7_info->slot = 0;
   p7_info->running = 1;
   p7_info->thread = pthread_self();
-  pthread_mutex_init(&p7_info->mutex, NULL);
+  // mutex & cond are initialized when p7 connection is added
   p7_sync_init(p7_info);
   clock_gettime(CLOCK_MONOTONIC, &p7_info->next_slot_time);
   vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
@@ -1045,21 +1214,23 @@ void *vnf_timing_thread(void *arg) {
     int32_t duration_us = p7_info->us_adjustment + p7_info->slot_duration_us;
     p7_info->us_adjustment = 0;
     int32_t behind_us = process_us - duration_us;
-    if (behind_us >= (int32_t)p7_info->slot_duration_us){
-      sfnslot_dec = (sfnslot_dec - 1 + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
-      /*skip behind_us late slots */
+    if (behind_us >= (int32_t)p7_info->slot_duration_us) {
+      /* The delay (scheduling + pack + sendto) is too large. Drop/Skip slots and reset baseline to NOW to prevent cascading backlog. */
       int skip_slots = process_us / p7_info->slot_duration_us;
       int remaining_sleep_us = process_us % p7_info->slot_duration_us;
-      sfnslot_dec = (sfnslot_dec + skip_slots + 1 + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
-      clock_gettime(CLOCK_MONOTONIC, &now);
+      sfnslot_dec = (sfnslot_dec + skip_slots) % MAX_SFNSLOTDEC;
+      
+      // Update global max/jump state (lock-free operation using atomic, if variables allow) to prevent stale timing info from compensating out-of-date P7 sync
+      __atomic_store_n(&p7_info->last_sfnslot_jump, sfnslot_dec, __ATOMIC_RELAXED);
+
+      clock_gettime(CLOCK_MONOTONIC, &now); 
       p7_info->next_slot_time = now;
       timespec_add_us(&p7_info->next_slot_time, p7_info->slot_duration_us - remaining_sleep_us);
       pthread_mutex_unlock(&p7_info->mutex);
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
     } else if (behind_us > 0) {
       p7_info->pending_us += behind_us;
-      clock_gettime(CLOCK_MONOTONIC, &now);
-      p7_info->next_slot_time = now;
+      timespec_add_us(&p7_info->next_slot_time, process_us); // Keep phase locked strictly
       pthread_mutex_unlock(&p7_info->mutex);
     } else {
       int remaining_us = duration_us - process_us;
@@ -1091,16 +1262,19 @@ void *vnf_timing_thread(void *arg) {
     // Step 3: Update Global State & Send Sync if needed
     p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec);
     p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
+    int slot_ahead = 2 << p7_info->mu;
+    int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, (sfnslot_dec + slot_ahead) % MAX_SFNSLOTDEC);
+    int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec + slot_ahead) % MAX_SFNSLOTDEC);
 
-    if (p7_info->sync_slot_counter++ >= p7_info->sync_period_slots) {
+    if (!p7_info->sync_locked && p7_info->sync_slot_counter++ >= p7_info->sync_period_slots) {
       p7_info->sync_slot_counter = 0;
       vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
     }
 
     // Step 4: Send Slot Indication (Core Work)
     nfapi_nr_slot_indication_scf_t ind = {0};
-    ind.sfn = p7_info->sfn;
-    ind.slot = p7_info->slot;
+    ind.sfn = ind_sfn;
+    ind.slot = ind_slot;
     ind.header.phy_id = p7_info->phy_id;
     phy_nr_slot_indication(&ind);
 
