@@ -1242,9 +1242,9 @@ void *vnf_timing_thread(void *arg) {
         timespec_add_us(&p7_info->next_slot_time, -repay_amount);
       } 
       else if (p7_info->pending_us < 0) {
-        int32_t repay_amount = (p7_info->pending_us < -250) ? 250 : p7_info->pending_us;
-        p7_info->pending_us += repay_amount;
-        timespec_add_us(&p7_info->next_slot_time, repay_amount);
+        int32_t repay_amount = (p7_info->pending_us < -250) ? -250 : p7_info->pending_us;
+        p7_info->pending_us -= repay_amount;
+        timespec_add_us(&p7_info->next_slot_time, -repay_amount);
       }
       pthread_mutex_unlock(&p7_info->mutex);
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
@@ -1262,7 +1262,7 @@ void *vnf_timing_thread(void *arg) {
     // Step 3: Update Global State & Send Sync if needed
     p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec);
     p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
-    int slot_ahead = 2 << p7_info->mu;
+    int slot_ahead = 1;//2 << p7_info->mu;
     int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, (sfnslot_dec + slot_ahead) % MAX_SFNSLOTDEC);
     int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec + slot_ahead) % MAX_SFNSLOTDEC);
 
@@ -2065,7 +2065,7 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   vnf_info *vnf = calloc(1, sizeof(vnf_info));
   memset(vnf->p7_vnfs, 0, sizeof(vnf->p7_vnfs));
   /* [Setting nfapi delay management] */
-  vnf->p7_vnfs[0].timing_window = 2200;
+  vnf->p7_vnfs[0].timing_window = 3500;
   vnf->p7_vnfs[0].dl_tti_timing_offset = 0;
   vnf->p7_vnfs[0].ul_tti_timing_offset = 0;
   vnf->p7_vnfs[0].ul_dci_timing_offset = 0;
