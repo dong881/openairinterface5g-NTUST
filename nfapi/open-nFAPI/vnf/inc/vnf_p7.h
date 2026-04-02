@@ -98,7 +98,6 @@ typedef struct nfapi_vnf_p7_connection_info {
 
 	/* Dynamic Timing Adjustment State */
 	int32_t convergence_count;
-	int32_t global_max_late;
 	int32_t estimated_mean_late;      // Jacobson/Karels estimated mean delay
 	int32_t estimated_jitter_var;     // Jacobson/Karels estimated jitter variance
 	uint32_t last_adjustment_time_hr; // Time of last adjustment (for Dead Time / RTT masking)
@@ -111,6 +110,9 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int sfn_sf;
 	int sfn;
 	int slot;
+	
+	/* User Configurable Variables */
+	int32_t slot_ahead;
   int mu; // some 5G slot calculations need the numerology to know the number
           // of slots
 
@@ -140,6 +142,7 @@ typedef struct nfapi_vnf_p7_connection_info {
     struct {
       uint32_t abs_slot;      // Absolute slot number (sfn * slots_per_frame + slot)
       int32_t max_late;       // Max observed late value
+      int32_t max_early;      // Max observed early value (negative)
     } slot_history[SLOT_ARRAY_SIZE];
 
     /* Time Borrowing (forward prevention of late slots) */
@@ -191,7 +194,8 @@ void vnf_p7_release_pdu(vnf_p7_t* vnf_p7, void* pdu);
 
 /* Timing Statistics Structure - Simplified */
 typedef struct {
-  int32_t max;            // Maximum timing value (us) - worst late
+  int32_t worst_late;
+  int32_t worst_early;
   uint32_t packet_slot;   // Computed packet slot index in SLOT_ARRAY_SIZE
 } vnf_timing_stats_t;
 

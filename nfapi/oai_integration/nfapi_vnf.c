@@ -1220,6 +1220,14 @@ void *vnf_timing_thread(void *arg) {
       int remaining_sleep_us = process_us % p7_info->slot_duration_us;
       sfnslot_dec = (sfnslot_dec + skip_slots) % MAX_SFNSLOTDEC;
       
+      // CRITICAL FIX: If we skip a slot logically, we must deduct its time value from pending_us!
+      // Otherwise, the skipped slot generates a packet with a future SFN immediately, satisfying the "earlier" request.
+      if (p7_info->pending_us > 0) {
+        int32_t jump_amount_us = skip_slots * p7_info->slot_duration_us;
+        p7_info->pending_us -= jump_amount_us;
+        if (p7_info->pending_us < 0) p7_info->pending_us = 0; // Cap to 0
+      }
+
       // Update global max/jump state (lock-free operation using atomic, if variables allow) to prevent stale timing info from compensating out-of-date P7 sync
       __atomic_store_n(&p7_info->last_sfnslot_jump, sfnslot_dec, __ATOMIC_RELAXED);
 
@@ -1253,7 +1261,7 @@ void *vnf_timing_thread(void *arg) {
 
     // Step 2: Apply any pending slot adjustment to the CURRENT slot index
     pthread_mutex_lock(&p7_info->mutex);
-    if (!p7_info->sync_locked && p7_info->slot_adjustment != 0) {
+    if (p7_info->slot_adjustment != 0) {
       sfnslot_dec = (sfnslot_dec + p7_info->slot_adjustment + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
       p7_info->slot_adjustment = 0;
     }
@@ -1262,7 +1270,11 @@ void *vnf_timing_thread(void *arg) {
     // Step 3: Update Global State & Send Sync if needed
     p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec);
     p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
-    int slot_ahead = 1;//2 << p7_info->mu;
+    
+    // Read the user-defined slot_ahead parameter (0 or 1 etc.)
+    int slot_ahead = 0; // You can change this to 0! The dynamic sync will compensate.
+    p7_info->slot_ahead = slot_ahead;
+
     int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, (sfnslot_dec + slot_ahead) % MAX_SFNSLOTDEC);
     int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec + slot_ahead) % MAX_SFNSLOTDEC);
 

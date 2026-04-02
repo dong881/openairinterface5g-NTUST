@@ -63,14 +63,18 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
                                vnf_timing_stats_t *out_stats,
                                int max_stats)
 {
-  // 4 timing data points: (dl_tti, tx_data, ul_tti, ul_dci) × (delay only)
+  // 8 timing data points: (dl_tti, tx_data, ul_tti, ul_dci) x (latest_delay & earliest_arrival)
   struct {
     int32_t value;
-  } raw_data[4] = {
+  } raw_data[8] = {
     {ind->dl_tti_latest_delay},
     {ind->tx_data_latest_delay},
     {ind->ul_tti_latest_delay},
-    {ind->ul_dci_latest_delay}
+    {ind->ul_dci_latest_delay},
+    {ind->dl_tti_earliest_arrival},
+    {ind->tx_data_earliest_arrival},
+    {ind->ul_tti_earliest_arrival},
+    {ind->ul_dci_earliest_arrival}
   };
 
   int count = 0;
@@ -82,10 +86,10 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
   uint32_t current_slot_dec = (base_slot_dec + 1) % max_slot_dec;
 
   // Expanded valid range to prevent blinding the feedback loop when margin is extremely large
-  const int32_t TIMING_VALUE_MIN = -20000;
+  const int32_t TIMING_VALUE_MIN = -150000;
   const int32_t TIMING_VALUE_MAX = 5000;
 
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 8; i++) {
     if (raw_data[i].value == 0)
       continue; // Skip zero values
 
@@ -104,12 +108,20 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
     // --- History Aggregation Logic ---
     if (p7_info->slot_history[ps].abs_slot == true_abs_slot) {
         // MATCH: Merge with existing history for this slot
-        if (raw_data[i].value > p7_info->slot_history[ps].max_late)
-            p7_info->slot_history[ps].max_late = raw_data[i].value;
+        if (raw_data[i].value > 0) {
+            if (raw_data[i].value > p7_info->slot_history[ps].max_late)
+                p7_info->slot_history[ps].max_late = raw_data[i].value;
+        } else {
+            if (raw_data[i].value < p7_info->slot_history[ps].max_early)
+                p7_info->slot_history[ps].max_early = raw_data[i].value;
+        }
     } else {
         // MISMATCH: New slot detected, reset history
         p7_info->slot_history[ps].abs_slot = true_abs_slot;
-        p7_info->slot_history[ps].max_late = raw_data[i].value;
+        p7_info->slot_history[ps].max_late = 0;
+        p7_info->slot_history[ps].max_early = 0;
+        if (raw_data[i].value > 0) p7_info->slot_history[ps].max_late = raw_data[i].value;
+        else p7_info->slot_history[ps].max_early = raw_data[i].value;
     }
 
     // --- Prepare Output Stats (merged values) ---
@@ -125,11 +137,13 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 
     if (found >= 0) {
       // Update existing entry in this batch with latest from history
-      out_stats[found].max = p7_info->slot_history[ps].max_late;
+      out_stats[found].worst_late = p7_info->slot_history[ps].max_late;
+      out_stats[found].worst_early = p7_info->slot_history[ps].max_early;
     } else if (count < max_stats) {
       // New entry in this batch
       out_stats[count].packet_slot = ps;
-      out_stats[count].max = p7_info->slot_history[ps].max_late;
+      out_stats[count].worst_late = p7_info->slot_history[ps].max_late;
+      out_stats[count].worst_early = p7_info->slot_history[ps].max_early;
       count++;
     }
   }
@@ -138,93 +152,40 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
 {
-	int32_t all_late = stats->max;
+        int32_t worst_late = stats->worst_late;
+        int32_t worst_early = stats->worst_early;
 
-	if (all_late == 0) return;
+        if (worst_late == 0 && worst_early == 0) return;
 
-	/*
-	 * Algorithm: Jacobson/Karels Estimation (RFC 6298) + Asymmetric Dead-Zone Control
-	 * 
-	 * Source: 
-	 * Jacobson, V., & Karels, M. J. (1988). "Congestion avoidance and control".
-	 * SIGCOMM '88 Symposium proceedings on Communications architectures and protocols.
-	 * 
-	 * Logic Analysis & Benefits:
-	 * 1. Resilient to Jitter: Uses a low-pass EWMA filter to track mean delay (alpha=1/8) and jitter variance (beta=1/4). 
-	 *    The safety margin dynamically expands (`4 * estimated_jitter_var`) when the network fluctuates.
-	 * 2. Prioritizes Throughput (No Late Packets): Instead of waiting for a packet to *actually* be late, we use the 
-	 *    projected dynamic target. If it crosses the danger zone (e.g., > -200us), we aggressively increase `pending_us`
-	 *    to force earlier transmission, preserving the high throughput of a "fixed massive advance" approach.
-	 * 3. Prevents Ping-Pong Effect: Introduces a safe "dead-zone" (-800us to -200us) where we hold the timing steady.
-	 * 4. Optimizes Latency Safely: When jitter is low and we are excessively early (< -800us), `pending_us` decreases 
-	 *    very slowly (-1us per update) to cautiously improve extreme latency without breaking things.
-	 */
+        // Prioritize resolving excessive LATE violations, since this drops packets
+        if (worst_late != 0 && worst_late > -200) {
+                p7_info->convergence_count++;
 
-	// Initialization of state variables on first valid sample
-	if (p7_info->estimated_mean_late == 0) {
-		p7_info->estimated_mean_late = all_late << 3; // Scaled by 8 for precision
-		p7_info->estimated_jitter_var = abs(all_late) << 2; // Scaled by 4
-		p7_info->global_max_late = all_late;
-	}
+                // React quickly (requires only 2 consecutive danger points)
+                if (p7_info->convergence_count >= 2) {
+                        // Aggressive additive increase to push the packet send time earlier
+                        p7_info->pending_us += (worst_late + 400) * 0.5; 
+                        p7_info->convergence_count = 0; // Reset
 
-	// 1. Jacobson/Karels Delay and Variance Tracking with Full Precision (avoiding integer truncation)
-	int32_t mean = p7_info->estimated_mean_late >> 3;
-	int32_t err = all_late - mean;
-	
-	// EWMA for mean delay (alpha = 1/8) -> effectively += err
-	p7_info->estimated_mean_late += err;
-	
-	// EWMA for jitter variation (beta = 1/4)
-	p7_info->estimated_jitter_var += abs(err) - (p7_info->estimated_jitter_var >> 2);
-
-	int32_t jitter = p7_info->estimated_jitter_var >> 2;
-
-	// 2. Projected Dynamic Safe Target
-	// Projects the worst-case late arrival bounding 99% of jitter variance
-	int32_t dynamic_target = mean + (4 * jitter);
-	
-	// Still maintain diagnostic legacy EWMA just for logging/visibility if needed
-	p7_info->global_max_late = (p7_info->global_max_late * 0.9) + (all_late * 0.1);
-
-	// 3. Asymmetric Control Logic & Dead-Zone
-	
-	// Danger Zone (LATE): If projected delay gets too close to 0 or becomes positive
-	if (dynamic_target > -200) {
-		p7_info->convergence_count++;
-		
-		// React quickly (requires only 2 consecutive danger points)
-		if (p7_info->convergence_count >= 2) {
-			// Aggressive additive increase to push the packet send time earlier
-			p7_info->pending_us += (dynamic_target + 400) * 0.5; 
-			p7_info->convergence_count = 0; // Reset
-			
-			// Record the exact time of adjustment to trigger Dead Time / RTT Masking
-			p7_info->last_adjustment_time_hr = vnf_get_current_time_hr();
-		}
-	} 
-	// Danger Zone (TOO EARLY): If we hit the upper bound of the window (e.g. < -2500)
-	// This happens when the PNF logging complains "too early by X us"
-	else if (dynamic_target < -2500) {
-		p7_info->convergence_count = 0;
-		// Fast pullback to prevent the packets from falling out of the window completely
-		// e.g. If dynamic_target is -3200, it pulls it back towards -1500 aggressively
-		p7_info->pending_us -= ((-dynamic_target) - 1500) * 0.2; 
-		p7_info->last_adjustment_time_hr = vnf_get_current_time_hr(); // Masking required for fast fallback
-	}
-	// Wasted Latency Zone: If we are excessively early but safely within the window
-	else if (dynamic_target < -800) {
-		p7_info->convergence_count = 0;
-		// Slowly decay the wait time to squeeze out better latency.
-		// The 1us step prevents ping-pong oscillation while guaranteeing long-term recovery.
-		p7_info->pending_us -= 1;
-		// Minor decay doesn't require a stringent RTT hold-off
-	} 
-	// Safe Ideal Zone (-800 to -200):
-	else {
-		// Inside safe window, do absolutely nothing to keep throughput stable
-		// and avoid micro-adjustments (ping-ponging).
-		p7_info->convergence_count = 0;
-	}
+                        p7_info->last_adjustment_time_hr = vnf_get_current_time_hr();
+                }
+        } 
+        // Danger Zone (TOO EARLY)
+        else if (worst_early != 0 && worst_early < -2500) {
+                p7_info->convergence_count = 0;
+                p7_info->pending_us -= ((-worst_early) - 1500) * 0.2; 
+                p7_info->last_adjustment_time_hr = vnf_get_current_time_hr();
+        }
+        // Wasted Latency Zone
+        else if (worst_early != 0 && worst_early < -800) {
+                // If we are safely inside the window (late is good, but early is unnecessarily early)
+                if (worst_late == 0 || worst_late < -400) {
+                        p7_info->convergence_count = 0;
+                        p7_info->pending_us -= 1;
+                }
+        } else {
+                p7_info->convergence_count = 0;
+        }
 }
 
 // Main Dynamic Timing Handler
@@ -1800,7 +1761,7 @@ void vnf_handle_nr_rach_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf
 }
 
 void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
-{	
+{
 	uint32_t now_time_hr = vnf_get_current_time_hr();
 	if (pRecvMsg == NULL || vnf_p7  == NULL)
 	{
@@ -1819,24 +1780,46 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "PHY instance not found for phy_id:%d\n", ind.header.phy_id);
 		return;
 	}
-	int32_t t4 = calculate_nr_t4(now_time_hr, p7_info->mu, p7_info->sfn, p7_info->slot, vnf_p7->slot_start_time_hr);
-	// Calculate offset using int64_t for proper handling of large values
-	// formula: offset = ((t2 - t1) - (t4 - t3)) / 2
-	// Positive offset means VNF clock is BEHIND PNF (VNF needs to speed up / reduce delay)
-	// Negative offset means VNF clock is AHEAD of PNF (VNF needs to slow down / add delay)
-	int32_t offset = (int32_t)( ((int64_t)ind.t2 - (int64_t)ind.t1 - ((int64_t)t4 - (int64_t)ind.t3)) / 2 );
-	int32_t owd = (int32_t)( ((int64_t)t4 - (int64_t)ind.t1 - ((int64_t)ind.t3 - (int64_t)ind.t2)) / 2 );
-	
-	// Check if sync has converged (offset within ±10) - once locked, permanently stop adjusting
+	uint32_t t4 = calculate_nr_t4(now_time_hr, p7_info->mu, p7_info->sfn, p7_info->slot, vnf_p7->slot_start_time_hr);
+	/*
+	* IEEE 1588 (PTP) Time Synchronization Algorithm
+	* 
+	* T1 = VNF Transmit Time (t1)    |   T2 = PNF Receive Time (t2)
+	* T3 = PNF Transmit Time (t3)    |   T4 = VNF Receive Time (t4)
+	*
+	* Assuming symmetric network delay:
+	* T2 - T1 = Delay + Offset
+	* T4 - T3 = Delay - Offset
+	* Offset = ((T2 - T1) - (T4 - T3)) / 2
+	*/
+	int64_t diff1 = (int64_t)ind.t2 - (int64_t)ind.t1;
+	int64_t diff2 = (int64_t)t4 - (int64_t)ind.t3;
+	int64_t wrap_us = 10240000LL;
+	int64_t half_wrap = 5120000LL;
+	// 10.24s Wrap-around protection (nFAPI timestamps are constrained by 1024 SFN loop)
+	while (diff1 > half_wrap) diff1 -= wrap_us;
+	while (diff1 < -half_wrap) diff1 += wrap_us;
+	while (diff2 > half_wrap) diff2 -= wrap_us;
+	while (diff2 < -half_wrap) diff2 += wrap_us;
+	int32_t offset = (int32_t)((diff1 - diff2) / 2);
+	int32_t owd = (int32_t)((diff1 + diff2) / 2);
+	// Positive offset implies VNF is BEHIND PNF (VNF Master time = PNF Slave time - Offset)
+	// VNF MUST INCREASE speed (reduce sleep time) to catch up -> requires pending_us to be POSITIVE
+	// Negative offset implies VNF is AHEAD of PNF
+	// VNF MUST DECREASE speed (increase sleep time) to fall back -> requires pending_us to be NEGATIVE
+
+	int32_t target_shift_us = TARGET_MARGIN_INITIAL + (p7_info->slot_ahead * p7_info->slot_duration_us);
+	int32_t total_correction = offset + target_shift_us;
+
 	pthread_mutex_lock(&p7_info->mutex);
 	if (!p7_info->sync_locked) {
-		int32_t total_correction = offset + TARGET_MARGIN_INITIAL;
 		if (total_correction >= -MARGIN_TOLERANCE_US && total_correction <= MARGIN_TOLERANCE_US) {
 			p7_info->sync_locked = 1;
 		} else {
-			// Apply entire correction safely via pending_us 
-			// AVOIDING slot_adjustment which abruptly skips SFN grid and ruins t1/t4 coordinate differences for subsequent syncs!
-			p7_info->pending_us -= total_correction;
+			int32_t s_adj = total_correction / p7_info->slot_duration_us;
+			int32_t p_adj = total_correction % p7_info->slot_duration_us;
+			p7_info->slot_adjustment += s_adj;
+			p7_info->pending_us += p_adj;
 			p7_info->sync_locked = 1; // Lock it immediately. Let handle_dynamic_timing_info take over fine-tuning seamlessly!
 			p7_info->last_adjustment_time_hr = vnf_get_current_time_hr(); // Mask stale timing info
 		}
