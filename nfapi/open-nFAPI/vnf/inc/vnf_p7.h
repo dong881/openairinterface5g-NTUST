@@ -28,7 +28,7 @@
  * ============================================================================ */
 /* Dynamic Target Margin (adaptive to avoid late packets) */
 #define MARGIN_TOLERANCE_US     200    // Deadband zone: +/- MARGIN_TOLERANCE_US us
-#define TARGET_MARGIN_INITIAL   1500   // Maximum safety buffer (user request: catch all late)
+#define TARGET_MARGIN_INITIAL   0   // Maximum safety buffer (user request: catch all late)
 #define SLOT_ARRAY_SIZE         20    // TDD cycle slot count (Reduced to 20 for faster convergence)
 
 typedef struct {

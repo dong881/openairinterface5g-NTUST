@@ -1926,7 +1926,7 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
 
 	// Integration Step
-	handle_dynamic_timing_info(p7_con, &ind);
+	// handle_dynamic_timing_info(p7_con, &ind);
 
 	// // Capture current SFN/Slot locally to avoid race conditions during logging
 	// uint16_t vnf_sfn = p7_con->sfn;

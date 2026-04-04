@@ -1274,7 +1274,7 @@ void *vnf_timing_thread(void *arg) {
     p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
     
     // Read the user-defined slot_ahead parameter (0 or 1 etc.)
-    int slot_ahead = 0; // You can change this to 0! The dynamic sync will compensate.
+    int slot_ahead = 6; // You can change this to 0! The dynamic sync will compensate.
     int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, (sfnslot_dec + slot_ahead) % MAX_SFNSLOTDEC);
     int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec + slot_ahead) % MAX_SFNSLOTDEC);
 
