@@ -1213,6 +1213,9 @@ void *vnf_timing_thread(void *arg) {
 
   struct timespec now;
   while (p7_info->running) {
+    struct timespec loop_start_slot_time = p7_info->next_slot_time;
+    int skip_slots = 0;
+    
     // Step 1: Wait for scheduled time OR detect behind-schedule and feed back deficit
     clock_gettime(CLOCK_MONOTONIC, &now);
     pthread_mutex_lock(&p7_info->mutex);
@@ -1235,7 +1238,7 @@ void *vnf_timing_thread(void *arg) {
     int32_t behind_us = process_us - duration_us;
     if (behind_us >= (int32_t)p7_info->slot_duration_us) {
       /* The delay (scheduling + pack + sendto) is too large. Drop/Skip slots and reset baseline to NOW to prevent cascading backlog. */
-      int skip_slots = process_us / p7_info->slot_duration_us;
+      skip_slots = process_us / p7_info->slot_duration_us;
       int remaining_sleep_us = process_us % p7_info->slot_duration_us;
       sfnslot_dec = (sfnslot_dec + skip_slots) % MAX_SFNSLOTDEC;
       
@@ -1312,6 +1315,15 @@ void *vnf_timing_thread(void *arg) {
     // Step 5: Advance to Next Slot
     sfnslot_dec = (sfnslot_dec + 1) % MAX_SFNSLOTDEC;
 
+    // Track exact physical phase shifted this loop
+    if (p7_info->sync_locked) {
+        int64_t added_us = ((int64_t)p7_info->next_slot_time.tv_sec - loop_start_slot_time.tv_sec) * 1000000LL + 
+                           (p7_info->next_slot_time.tv_nsec - loop_start_slot_time.tv_nsec) / 1000;
+        int64_t nominal_us = p7_info->slot_duration_us * (1 + skip_slots);
+        int64_t physical_advance_this_loop = nominal_us - added_us;
+        
+        p7_info->total_advanced_us += physical_advance_this_loop;
+    }
   }
   return NULL;
 }
@@ -2097,7 +2109,7 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   memset(vnf->p7_vnfs, 0, sizeof(vnf->p7_vnfs));
   /* [Setting nfapi delay management] */
   const char *timing_window_env = getenv("TIMING_WINDOW");
-  vnf->p7_vnfs[0].timing_window = timing_window_env ? atoi(timing_window_env) : 5000;
+  vnf->p7_vnfs[0].timing_window = timing_window_env ? atoi(timing_window_env) : 6000;
   LOG_I(NFAPI_VNF, "[DYNAMIC TIMING PRINT] TIMING_WINDOW Config: %u\n", vnf->p7_vnfs[0].timing_window);
 
   vnf->p7_vnfs[0].dl_tti_timing_offset = 0;

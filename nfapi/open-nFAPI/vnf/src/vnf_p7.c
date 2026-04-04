@@ -196,7 +196,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 
 	// Fetch dynamic timing window
 	nfapi_vnf_config_t *config = get_config();
-	int32_t timing_window_us = (config != NULL && config->timing_window > 0) ? (int32_t)config->timing_window : 5000;
+	int32_t timing_window_us = (int32_t)config->timing_window;
 
 	// Absolute constraint limits:
 	// Prevent runaway advance utilizing actual measurements (EWMA smoothed) instead of hardcodes.
@@ -261,18 +261,20 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 
 	// Apply shift with Absolute Cumulative Boundary Cap (Anti-Windup)
 	if (shift != 0) {
-		int32_t proposed_advance_us = p7_info->total_advanced_us + shift;
+		// Prevent Integral Windup AND Track Organic Drift:
+		// total_advanced_us is physically tracked inside vnf_timing_thread (measuring true sleep times).
+		// pending_us is the banked early-shift constraint that will be executed in the future.
+		// Both must be summed to find the absolute worst-case early projection limit.
+		int32_t projected_advance_us = p7_info->total_advanced_us + p7_info->pending_us + shift;
 		
-		// Prevent Integral Windup: `pending_us` is consumed temporally, so we MUST bound the 
-		// cumulative absolute advance (total_advanced_us) rather than the instantaneous queue state.
-		if (proposed_advance_us > ABSOLUTE_MAX_ADVANCE_US) {
-			shift = ABSOLUTE_MAX_ADVANCE_US - p7_info->total_advanced_us;
-			proposed_advance_us = ABSOLUTE_MAX_ADVANCE_US;
+		if (projected_advance_us > ABSOLUTE_MAX_ADVANCE_US) {
+			shift = ABSOLUTE_MAX_ADVANCE_US - (p7_info->total_advanced_us + p7_info->pending_us);
 		}
 		
 		if (shift != 0) {
 			p7_info->pending_us += shift;
-			p7_info->total_advanced_us = proposed_advance_us; // Update the integral sum
+			// Note: We DO NOT add to total_advanced_us here. It is physically accumulated based 
+			// on actual timespec_add_us phase drifts loop-by-loop in vnf_timing_thread!
 			p7_info->last_adjustment_time_hr = vnf_get_current_time_hr();
 		}
 	}
