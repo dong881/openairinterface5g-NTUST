@@ -834,6 +834,9 @@ void cleanup_mmap_logger(void)
   }
 }
 int main( int argc, char **argv ) {
+  init_mmap_logger("pnf_timing_window");
+  
+  
   int ru_id, CC_id = 0;
   init_mmap_logger("vnf_harq_buffer");
   init_mmap_logger("vnf_harq_rtt");
