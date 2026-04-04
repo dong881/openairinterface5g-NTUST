@@ -833,13 +833,45 @@ void cleanup_mmap_logger(void)
     }
   }
 }
-int main( int argc, char **argv ) {
+
+static void init_pnf_mmap_loggers(void)
+{
   init_mmap_logger("pnf_timing_window");
-  
-  
-  int ru_id, CC_id = 0;
+  // Add PNF-only loggers here - keeps PNF changes isolated
+}
+
+static void init_vnf_mmap_loggers(void)
+{
   init_mmap_logger("vnf_harq_buffer");
   init_mmap_logger("vnf_harq_rtt");
+  // Add VNF-only loggers here - keeps VNF changes isolated
+}
+
+static void init_monolithic_mmap_loggers(void)
+{
+  // Add monolithic-only loggers here
+}
+
+static void init_mmap_logs_by_mode(void)
+{
+  nfapi_mode_t mode = NFAPI_MODE;
+  
+  // Always initialize based on mode - supports PNF, VNF, and Monolithic (Mode 0)
+  if (mode == NFAPI_MODE_PNF || mode == NFAPI_MONOLITHIC) {
+    init_pnf_mmap_loggers();
+  }
+  
+  if (mode == NFAPI_MODE_VNF || mode == NFAPI_MONOLITHIC) {
+    init_vnf_mmap_loggers();
+  }
+
+  if (mode == NFAPI_MONOLITHIC) {
+    init_monolithic_mmap_loggers();
+  }
+}
+
+int main( int argc, char **argv ) {
+  int ru_id, CC_id = 0;
   start_background_system();
 
   ///static configuration for NR at the moment
@@ -856,6 +888,9 @@ int main( int argc, char **argv ) {
   logInit();
   lock_memory_to_ram();
   get_options(uniqCfg);
+
+  // Initialize mode-specific loggers after configuration is parsed
+  init_mmap_logs_by_mode();
 
   if (!has_cap_sys_nice())
     LOG_W(UTIL,
