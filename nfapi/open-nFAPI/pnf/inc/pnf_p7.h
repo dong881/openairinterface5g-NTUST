@@ -171,6 +171,12 @@ typedef struct pnf_p7_s {
 	uint64_t ts_epoch_base;
 	uint32_t last_ts_32;
 
+	// Anti-Jitter Phase-Locked Loop (PLL) state
+	int8_t pll_is_initialized;
+	uint16_t pll_prev_sfn;
+	uint16_t pll_prev_slot;
+	int64_t pll_prev_filtered_time_us;
+
 	// Legacy fields (kept for compatibility)
 	int32_t dl_tti_prev_transit_time_diff;
 	int32_t ul_tti_prev_transit_time_diff;

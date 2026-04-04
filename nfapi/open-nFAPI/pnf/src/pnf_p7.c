@@ -106,9 +106,12 @@ uint16_t sfnsf_subtract_sf(uint16_t sfnsf, int offset)
 
 uint32_t pnf_get_current_time_hr(void)
 {
-	struct timeval now;
-	(void)gettimeofday(&now, NULL);
-	uint32_t time_hr = TIME2TIMEHR(now);
+	struct timespec now;
+	(void)clock_gettime(CLOCK_MONOTONIC, &now);
+	struct timeval tv_now;
+	tv_now.tv_sec = now.tv_sec;
+	tv_now.tv_usec = now.tv_nsec / 1000;
+	uint32_t time_hr = TIME2TIMEHR(tv_now);
 	return time_hr;
 }
 /*===========================================================================
@@ -975,8 +978,49 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
   }
 
   // save the curren time, sfn and slot
-  // TODO useful?
-  pnf_p7->slot_start_time_hr = pnf_get_current_time_hr();
+  uint32_t current_time_hr = pnf_get_current_time_hr();
+  uint64_t current_time_us = pnf_timehr_to_us(pnf_p7, current_time_hr);
+
+  if (!pnf_p7->pll_is_initialized) {
+      pnf_p7->pll_prev_filtered_time_us = current_time_us;
+      pnf_p7->pll_prev_sfn = sfn;
+      pnf_p7->pll_prev_slot = slot;
+      pnf_p7->pll_is_initialized = 1;
+      pnf_p7->slot_start_time_hr = current_time_hr;
+  } else {
+      // Calculate expected time based on previous filtered time and slot difference
+      int32_t diff_slots = calc_slot_diff(pnf_p7, sfn, slot);
+      int64_t slot_len_us = 10000 / NFAPI_SLOTNUM(pnf_p7->mu);
+      int64_t expected_time_us = pnf_p7->pll_prev_filtered_time_us + diff_slots * slot_len_us;
+      
+      int64_t error_us = (int64_t)current_time_us - expected_time_us;
+      
+      // Handle TIME_HR wrap-around (4096s = 4096000000 us)
+      if (error_us > 2048000000LL) error_us -= 4096000000LL;
+      if (error_us < -2048000000LL) error_us += 4096000000LL;
+
+      int64_t filtered_time_us;
+      if (error_us < 0) {
+          // Woke up "earlier" than expected (fast snap to lower bound to track minimum delay envelope)
+          filtered_time_us = expected_time_us + (error_us / 2); 
+      } else {
+          // Woke up "late" (normal OS CPU jitter). Heavily filter to reject software jitter, keeping base clock steady.
+          filtered_time_us = expected_time_us + (error_us / 1000); 
+      }
+      
+      // Keep filtered_time_us wrapped within 4096s limit
+      if (filtered_time_us >= 4096000000LL) filtered_time_us -= 4096000000LL;
+      if (filtered_time_us < 0) filtered_time_us += 4096000000LL;
+
+      pnf_p7->pll_prev_filtered_time_us = filtered_time_us;
+      pnf_p7->pll_prev_sfn = sfn;
+      pnf_p7->pll_prev_slot = slot;
+      
+      // Convert back to TIME_HR 32-bit format
+      uint32_t sec = (filtered_time_us / 1000000ULL) % 4096;
+      uint32_t usec = filtered_time_us % 1000000ULL;
+      pnf_p7->slot_start_time_hr = (sec << 20) | usec;
+  }
 
   // We align the pnf_p7 sfn/slot with tx sfn/slot, and vnf is synced with pnf_p7 sfn/slot. This is so that the scheduler runs
   // slot_ahead from rx thread.
