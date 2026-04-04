@@ -1218,6 +1218,18 @@ void *vnf_timing_thread(void *arg) {
     pthread_mutex_lock(&p7_info->mutex);
     int32_t process_us = ((now.tv_sec - p7_info->next_slot_time.tv_sec) * 1000000000LL
                          + (now.tv_nsec - p7_info->next_slot_time.tv_nsec)) / 1000;
+    
+    // EWMA filter for process_us to conservatively predict processing overhead
+    // We only filter positive process times. Using a heavy decay to trust the long-term stable processing time.
+    if (process_us > 0) {
+        if (p7_info->ewma_process_us == 0) {
+            p7_info->ewma_process_us = process_us; // Initialize
+        } else {
+            // Smooth EWMA: (old * 31 + new) / 32
+            p7_info->ewma_process_us = ((p7_info->ewma_process_us * 31) + process_us) / 32;
+        }
+    }
+
     int32_t duration_us = p7_info->us_adjustment + p7_info->slot_duration_us;
     p7_info->us_adjustment = 0;
     int32_t behind_us = process_us - duration_us;

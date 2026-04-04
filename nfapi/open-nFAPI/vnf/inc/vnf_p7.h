@@ -51,6 +51,13 @@
  *     - Dynamic mode: SLOT_AHEAD == 0 => use dynamic timing and apply
  *       handle_dynamic_timing_info(); TARGET_MARGIN_INITIAL defaults to 1500.
  *
+ *   IMPORTANT USAGE NOTE (sudo):
+ *     - When running the softmodem with `sudo`, regular exported environment
+ *       variables are NOT passed to the executed process by default.
+ *     - To fix this, you must either use `sudo -E` to preserve environment,
+ *       or pass the variable inline with the command:
+ *       `sudo SLOT_AHEAD=6 TIMING_WINDOW=3000 ./nr-softmodem ...`
+ *
  *   The function fills the caller-provided pointers and keeps all
  *   timing behavior local to the caller scope, without global state.
  */
@@ -141,6 +148,9 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t estimated_mean_late;      // Jacobson/Karels estimated mean delay
 	int32_t estimated_jitter_var;     // Jacobson/Karels estimated jitter variance
 	uint32_t last_adjustment_time_hr; // Time of last adjustment (for Dead Time / RTT masking)
+        int32_t ewma_process_us;
+        int32_t ewma_owd_us;
+        int32_t total_advanced_us; // Absolute cumulative phase shift relative to initial sync
 
 	uint32_t previous_t1;
 	uint32_t previous_t2;

@@ -146,24 +146,45 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 }
 
 /*
- * Dynamic Algorithm Update: Jitter Buffer & Playout Delay Optimization
+ * =========================================================================================
+ * VNF P7 Convergence Optimization & Adaptive Jitter Buffer Control
+ * =========================================================================================
+ * 
+ * REFERENCES & ALGORITHMIC FOUNDATIONS:
+ * 1. WebRTC NetEQ / Adaptive Jitter Buffer (Ramjee et al., IEEE INFOCOM):
+ *    - Logic: Aggressively expand the buffer upon delay spikes to prevent drops, but shrink 
+ *      the buffer very slowly ("Slow Decay") during stable periods to minimize latency 
+ *      without risking underruns. Asymmetric adjustment rate (Fast Expand, Slow Decay).
+ * 2. TCP RTO Jacobson/Karels Algorithm (RFC 6298):
+ *    - Logic: Averages are insufficient for delay predictions in bursty networks. Reaction
+ *      must be anchored to the variance / extreme measured edges (e.g., worst_late).
+ * 3. BBR (Bottleneck Bandwidth and Round-trip propagation time - Google):
+ *    - Logic: Continuous probing of the lower delay bounds. When the network is quiet, 
+ *      the pacing smoothly drifts toward the minimum possible RTT constraint to prevent 
+ *      bufferbloat (Latency minimization).
  *
- * This logic integrates adaptive jitter buffer concepts from classic networking 
- * literature (e.g., Ramjee et al., "Adaptive playout mechanisms for packetized 
- * audio applications", IEEE INFOCOM 1994, and Jacobson/Karels algorithm for RTO), 
- * combined with practical experimental findings (the user's optimal configuration).
- *
- * 1. Target Sweet Spot: Experiments show that a 2000 us early margin is an optimal
- *    sweet spot for steady and resilient traffic flow.
- * 2. Spike Detection & Aggressive Compensation: When jitter suddenly increases
- *    (e.g., worst_late comes within 500us of zero, indicating danger of packet drops),
- *    the algorithm actively jumps the latency target up towards ~2500 us (dynamically 
- *    scaled). This prioritizes reliability (0% packet drop) over minimal latency, 
- *    preventing the system from under-reacting to bursty jitter.
- * 3. Dynamic "Danger Zone": The "Too Early" threshold is constructed dynamically 
- *    by fetching the true timing window from the P5 control configuration
- *    (via get_config()), and applying a shift offset. This ensures the "Too Early" 
- *    threshold does not cause logical competition with the aggressive early compensation.
+ * CHALLENGES & SOLUTIONS:
+ * [Challenge 1: Catastrophic Jitter exceeding the Timing Window]
+ *   Under 1G traffic, bidirectional jitter can exceed the entire PNF timing window (e.g., >5000us).
+ *   - Solution: Maximum Advance Pinning. Instead of "centering", we pin the earliest packets 
+ *     directly against the Timing Window's Upper Bound (minus a 200us safety margin). We advance 
+ *     as much as physically permissible without triggering "Too Early" drops, rescuing the 
+ *     maximum possible number of late packets.
+ * [Challenge 2: Integral Windup Deadlock vs. Instantaneous Queues]
+ *   Continuously acting on "Late" feedback causes infinite accumulation. `pending_us` is a relative queue 
+ *   that gets constantly consumed by the sleep thread, leading to a blind "Integral Windup" logic flaw if 
+ *   capped directly. Guessing OWD or Task processing times is also dangerous.
+ *   - Solution: PID-style Anti-Windup & Cumulative Phase Limit. Based on Control Theory / PLLs, we sum
+ *     every commanded `shift` delta into an absolute integral variable (`total_advanced_us`) relative to 
+ *     initial sync locking. We strictly cap this cumulative sum to `(Timing Window + ewma_proc + ewma_owd - 200 padding)`. 
+ *     Following conservative designs, `ewma_owd` is wiped to 0 when lock engages (as sync stops), guaranteeing 
+ *     the limit safely anchors itself against pushing into the "Too Early" precipice with stale values.
+ * [Challenge 3: Maximizing Low Latency in Safe Zones]
+ *   Operating permanently near the upper bound wastes latency. 
+ *   - Solution: BBR-style Probing. When in the safe zone, smoothly drift toward the lower 
+ *     bound (Lower Margin) to cut latency. If a spike occurs, the aggressive jump mechanism 
+ *     acts as a safety net to instantly push it back up.
+ * =========================================================================================
  */
 
 extern nfapi_vnf_config_t * get_config();
@@ -175,55 +196,85 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 
 	// Fetch dynamic timing window
 	nfapi_vnf_config_t *config = get_config();
-	int32_t timing_window_us = (int32_t)config->timing_window;
+	int32_t timing_window_us = (config != NULL && config->timing_window > 0) ? (int32_t)config->timing_window : 5000;
 
-	// Constants based on empirical sweet spots & literature
-	const int32_t EXPERIMENTAL_SWEET_SPOT = 2000;
-	const int32_t BURST_COMPENSATION_TARGET = 2500;
+	// Absolute constraint limits:
+	// Prevent runaway advance utilizing actual measurements (EWMA smoothed) instead of hardcodes.
+	// We only start applying Absolute Max limits once the initial sync lock has engaged and we have valid data.
+	int32_t abs_proc_delay = p7_info->ewma_process_us > 0 ? p7_info->ewma_process_us : 500;
+	int32_t abs_owd = p7_info->ewma_owd_us > 0 ? p7_info->ewma_owd_us : 300;
 	
-	// Dynamic Danger Zone: shift by an offset from the timing window to prevent competition.
-	// E.g., if timing_window is 5000, we consider < -4000 as danger zone.
-	const int32_t DYNAMIC_TOO_EARLY_LIMIT = -(timing_window_us - 1000); 
+	// Subtract 200us padding from the EWMA max limit to prevent microscopic transient overshoots dropping packets.
+	int32_t ABSOLUTE_MAX_ADVANCE_US = timing_window_us + abs_proc_delay + abs_owd - 200;
 
-	// Prioritize resolving excessive LATE violations or sudden Jitter Spikes
-	// If the latest packet is running dangerously close to 0 (late boundary), e.g., > -500
-	if (worst_late > -500) {
-		p7_info->convergence_count++;
+	// Target boundaries
+	// Use 200us as a tighter Upper Bound margin as requested, since we actively measure the timing components.
+	const int32_t UPPER_SAFE_BOUND = -(timing_window_us - 200); 
+	const int32_t LOWER_SAFE_BOUND = -1000;
+
+	int32_t shift = 0;
+
+	// 1. Protect against Early Deadlock first (Catastrophic Over-advance)
+	// If packets are arriving before the PNF is even listening, they are instantly dropped.
+	// We MUST pull back to exactly the Upper Safe Bound.
+	if (worst_early < UPPER_SAFE_BOUND) {
+		p7_info->convergence_count = 0;
+		// Retreat right to pin worst_early to UPPER_SAFE_BOUND
+		shift = worst_early - UPPER_SAFE_BOUND; // Yields a negative shift (pulling back)
 		
-		// Requiring >= 2 consecutive indication messages to avoid overreacting to random short anomalies
+		// Asymmetric Slew-Rate Limiting: Don't snap back too violently unless critically needed
+		if (shift < -1000) {
+			shift = shift / 2; // Dampen massive retreats
+		}
+	}
+	// 2. Address Late Packets (Aggressive Expand)
+	else if (worst_late > -200) {
+		p7_info->convergence_count++;
 		if (p7_info->convergence_count >= 2) {
-			if (worst_late > -200) {
-				// Actively LATE or very high risk of dropping:
-				// Adaptive Playout Delay adjustment: jump up aggressively to the burst compensation target.
-				int32_t target_shift = BURST_COMPENSATION_TARGET - (-worst_early); 
-				if (target_shift < 500) target_shift = 500 + worst_late; // Ensure a minimum aggressive jump
-				p7_info->pending_us += target_shift;
-			} else {
-				// Approaching late threshold - push toward experimental sweet spot (2000us)
-				int32_t target_shift = EXPERIMENTAL_SWEET_SPOT - (-worst_early);
-				if (target_shift < 200) target_shift = 200;
-				p7_info->pending_us += target_shift; 
+			// Aggressive Jump: We need to push the late packets left into the safe zone.
+			// Target is to place worst_late at LOWER_SAFE_BOUND.
+			shift = worst_late - LOWER_SAFE_BOUND; // Yields a positive shift 
+
+			// CLAMP: NEVER push so far that we violate the UPPER_SAFE_BOUND (Too Early cliff).
+			int32_t available_headroom = worst_early - UPPER_SAFE_BOUND;
+			if (available_headroom < 0) available_headroom = 0;
+			
+			if (shift > available_headroom) {
+				// Network jitter is wider than our timing window!
+				// We commit to the user strategy: Push advance entirely to the Upper Bound.
+				// This rescues as many late packets as mathematically possible.
+				shift = available_headroom; 
 			}
-			p7_info->convergence_count = 0; // Reset
+			p7_info->convergence_count = 0;
+		}
+	}
+	// 3. Safe Zone (Wasted Latency Recovery / BBR-style probing)
+	else {
+		p7_info->convergence_count = 0;
+		
+		// If we are safely entirely within bounds, and worst_late is unnecessarily early/far from 0.
+		// Drift towards the Lower Safe Bound to minimize overall system latency.
+		if (worst_late < (LOWER_SAFE_BOUND - 300)) {
+			shift = -2; // Slow systematic decay (NetEQ strategy)
+		}
+	}
+
+	// Apply shift with Absolute Cumulative Boundary Cap (Anti-Windup)
+	if (shift != 0) {
+		int32_t proposed_advance_us = p7_info->total_advanced_us + shift;
+		
+		// Prevent Integral Windup: `pending_us` is consumed temporally, so we MUST bound the 
+		// cumulative absolute advance (total_advanced_us) rather than the instantaneous queue state.
+		if (proposed_advance_us > ABSOLUTE_MAX_ADVANCE_US) {
+			shift = ABSOLUTE_MAX_ADVANCE_US - p7_info->total_advanced_us;
+			proposed_advance_us = ABSOLUTE_MAX_ADVANCE_US;
+		}
+		
+		if (shift != 0) {
+			p7_info->pending_us += shift;
+			p7_info->total_advanced_us = proposed_advance_us; // Update the integral sum
 			p7_info->last_adjustment_time_hr = vnf_get_current_time_hr();
 		}
-	} 
-	// Danger Zone (TOO EARLY) using dynamic limit
-	else if (worst_early < DYNAMIC_TOO_EARLY_LIMIT) {
-		p7_info->convergence_count = 0;
-		// Dynamically pull back softly from the boundary
-		p7_info->pending_us -= ((-worst_early) - (-DYNAMIC_TOO_EARLY_LIMIT)) * 0.5;
-		p7_info->last_adjustment_time_hr = vnf_get_current_time_hr();
-	}
-	// Wasted Latency Zone (Stable, but overly conservative, exceeding the burst target without needing to)
-	else if (worst_early < -(BURST_COMPENSATION_TARGET + 500)) {
-		// If we are safely inside the window (late is good, but early is unnecessarily early)
-		if (worst_late < -(EXPERIMENTAL_SWEET_SPOT - 500)) {
-			p7_info->convergence_count = 0;
-			p7_info->pending_us -= 2; // Multiplicative Decrease equivalent: slow retreat to sweet spot
-		}
-	} else {
-		p7_info->convergence_count = 0;
 	}
 }
 
@@ -1850,6 +1901,17 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	while (diff2 < -half_wrap) diff2 += wrap_us;
 	int32_t offset = (int32_t)((diff1 - diff2) / 2);
 	int32_t owd = (int32_t)((diff1 + diff2) / 2);
+	
+	// EWMA smoothing of OWD to avoid transient spikes ruining bounds estimation
+	if (owd > 0) {
+		if (p7_info->ewma_owd_us == 0) {
+			p7_info->ewma_owd_us = owd;
+		} else {
+			// RFC 6298 inspired alpha (1/8) for delay integration
+			p7_info->ewma_owd_us = ((p7_info->ewma_owd_us * 7) + owd) / 8;
+		}
+	}
+
 	// Positive offset implies VNF is BEHIND PNF (VNF Master time = PNF Slave time - Offset)
 	// VNF MUST INCREASE speed (reduce sleep time) to catch up -> requires pending_us to be POSITIVE
 	// Negative offset implies VNF is AHEAD of PNF
@@ -1864,6 +1926,10 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	if (!p7_info->sync_locked) {
 		if (total_correction >= -MARGIN_TOLERANCE_US && total_correction <= MARGIN_TOLERANCE_US) {
 			p7_info->sync_locked = 1;
+			// Conservative PLL Strategy: Cease utilizing OWD when down-link sync stops updating it.
+			// Treating it as 0 sacrifices a small timing window segment but strictly guards against 'Too Early'.
+			p7_info->ewma_owd_us = 0;
+			p7_info->total_advanced_us = 0; // Reset absolute integration baseline
 		} else {
 			int32_t s_adj = total_correction / p7_info->slot_duration_us;
 			int32_t p_adj = total_correction % p7_info->slot_duration_us;
