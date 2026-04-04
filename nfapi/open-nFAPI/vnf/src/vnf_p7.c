@@ -152,40 +152,44 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
 {
-        int32_t worst_late = stats->worst_late;
-        int32_t worst_early = stats->worst_early;
+	int32_t worst_late = stats->worst_late;
+	int32_t worst_early = stats->worst_early;
 
-        if (worst_late == 0 && worst_early == 0) return;
+	if (worst_late == 0 && worst_early == 0) return;
 
-        // Prioritize resolving excessive LATE violations, since this drops packets
-        if (worst_late != 0 && worst_late > -200) {
-                p7_info->convergence_count++;
-
-                // React quickly (requires only 2 consecutive danger points)
-                if (p7_info->convergence_count >= 2) {
-                        // Aggressive additive increase to push the packet send time earlier
-                        p7_info->pending_us += (worst_late + 400) * 0.5; 
-                        p7_info->convergence_count = 0; // Reset
-
-                        p7_info->last_adjustment_time_hr = vnf_get_current_time_hr();
-                }
-        } 
-        // Danger Zone (TOO EARLY)
-        else if (worst_early != 0 && worst_early < -2500) {
-                p7_info->convergence_count = 0;
-                p7_info->pending_us -= ((-worst_early) - 1500) * 0.2; 
-                p7_info->last_adjustment_time_hr = vnf_get_current_time_hr();
-        }
-        // Wasted Latency Zone
-        else if (worst_early != 0 && worst_early < -800) {
-                // If we are safely inside the window (late is good, but early is unnecessarily early)
-                if (worst_late == 0 || worst_late < -400) {
-                        p7_info->convergence_count = 0;
-                        p7_info->pending_us -= 1;
-                }
-        } else {
-                p7_info->convergence_count = 0;
-        }
+	// Prioritize resolving excessive LATE violations, since this drops packets
+	if (worst_late != 0 && worst_late > -200) {
+		p7_info->convergence_count++;
+		
+		// Requiring >= 2 consecutive indication messages to avoid overreacting to random network jitter
+		if (p7_info->convergence_count >= 2) {
+			if (worst_late > 0) {
+				// Actively LATE. Move forward conservatively to avoid massive overshoot into TOO EARLY.
+				p7_info->pending_us += (worst_late > 400 ? 400 : worst_late) + 200;
+			} else {
+				// Approaching late threshold
+				p7_info->pending_us += 200; 
+			}
+			p7_info->convergence_count = 0; // Reset
+			p7_info->last_adjustment_time_hr = vnf_get_current_time_hr();
+		}
+	} 
+	// Danger Zone (TOO EARLY)
+	else if (worst_early != 0 && worst_early < -2500) {
+		p7_info->convergence_count = 0;
+		p7_info->pending_us -= ((-worst_early) - 1500) * 0.5; // Pull back harder
+		p7_info->last_adjustment_time_hr = vnf_get_current_time_hr();
+	}
+	// Wasted Latency Zone
+	else if (worst_early != 0 && worst_early < -800) {
+		// If we are safely inside the window (late is good, but early is unnecessarily early)
+		if (worst_late == 0 || worst_late < -400) {
+			p7_info->convergence_count = 0;
+			p7_info->pending_us -= 2;
+		}
+	} else {
+		p7_info->convergence_count = 0;
+	}
 }
 
 // Main Dynamic Timing Handler
@@ -218,8 +222,7 @@ void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *v
   if (p7_info->last_adjustment_time_hr != 0) {
       int64_t diff_us = timehr_diff_us(now_hr, p7_info->last_adjustment_time_hr);
       // Wait for approx 4 slots (e.g. 2000us for mu=1, 4000us for mu=0)
-      int32_t current_slot_duration = 1000 >> p7_info->mu;
-      int32_t dead_time_us = 4 * current_slot_duration;
+      int32_t dead_time_us = 4 * p7_info->slot_duration_us; // Conservative hold-off window
       
       if (diff_us < dead_time_us) { // Dead Time mask based on calculated RTT margin
           return; // Ignore stale feedback
@@ -230,9 +233,18 @@ void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *v
   vnf_timing_stats_t slot_stats[8];
   int num_slots = vnf_p7_extract_timing_info(ind, p7_info, slot_stats, 8);
 
-  // Step 2: Process each unique slot
-  for (int i = 0; i < num_slots; i++) {
-    vnf_p7_convergence_optimization(p7_info, &slot_stats[i]);
+  // Step 2: Aggregate all slots into a single event to prevent loop amplification
+  // If the network delayed a batch of slots, evaluating them in a loop would trigger 
+  // convergence tracking multiple times and instantly bypass filtering.
+  if (num_slots > 0) {
+      vnf_timing_stats_t agg_stats = slot_stats[0];
+      for (int i = 1; i < num_slots; i++) {
+          if (slot_stats[i].worst_late > agg_stats.worst_late) 
+              agg_stats.worst_late = slot_stats[i].worst_late;
+          if (slot_stats[i].worst_early < agg_stats.worst_early) 
+              agg_stats.worst_early = slot_stats[i].worst_early;
+      }
+      vnf_p7_convergence_optimization(p7_info, &agg_stats);
   }
 }
 
@@ -1808,8 +1820,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	// Negative offset implies VNF is AHEAD of PNF
 	// VNF MUST DECREASE speed (increase sleep time) to fall back -> requires pending_us to be NEGATIVE
 
-	int32_t target_shift_us = TARGET_MARGIN_INITIAL + (p7_info->slot_ahead * p7_info->slot_duration_us);
-	int32_t total_correction = offset + target_shift_us;
+	int32_t total_correction = offset + TARGET_MARGIN_INITIAL;
 
 	pthread_mutex_lock(&p7_info->mutex);
 	if (!p7_info->sync_locked) {
@@ -1820,7 +1831,6 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 			int32_t p_adj = total_correction % p7_info->slot_duration_us;
 			p7_info->slot_adjustment += s_adj;
 			p7_info->pending_us += p_adj;
-			p7_info->sync_locked = 1; // Lock it immediately. Let handle_dynamic_timing_info take over fine-tuning seamlessly!
 			p7_info->last_adjustment_time_hr = vnf_get_current_time_hr(); // Mask stale timing info
 		}
 	}
@@ -1890,7 +1900,11 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	// int32_t vnf_current_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, vnf_sfn, vnf_slot);
 	// int32_t pnf_ind_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn, ind.last_slot);	
 	pthread_mutex_lock(&p7_con->mutex);
-	p7_con->initial_timinginfo_received = 1; 
+	if (!p7_con->initial_timinginfo_received) {
+		p7_con->sfn = ind.last_sfn;
+		p7_con->slot = ind.last_slot;
+		p7_con->initial_timinginfo_received = 1;
+	}
 	pthread_cond_signal(&p7_con->initial_timinginfo_cond);
 	pthread_mutex_unlock(&p7_con->mutex);
 }

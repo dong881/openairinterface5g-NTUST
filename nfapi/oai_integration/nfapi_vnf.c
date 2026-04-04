@@ -1191,8 +1191,10 @@ void *vnf_timing_thread(void *arg) {
 
   p7_info->mu = mu;
   p7_info->slot_duration_us = 1000 >> p7_info->mu; // 1ms / 2^mu
-  p7_info->sfn = 0;
-  p7_info->slot = 0;
+  NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Timing thread initialized with mu=%d, slot_duration=%dus\n",
+              p7_info->mu, p7_info->slot_duration_us);
+  // SFN and slot are initialized dynamically from PNF's initial_timinginfo!
+  // Removed hardcoded p7_info->sfn = 0; p7_info->slot = 0;
   p7_info->running = 1;
   p7_info->thread = pthread_self();
   // mutex & cond are initialized when p7 connection is added
@@ -1273,8 +1275,6 @@ void *vnf_timing_thread(void *arg) {
     
     // Read the user-defined slot_ahead parameter (0 or 1 etc.)
     int slot_ahead = 0; // You can change this to 0! The dynamic sync will compensate.
-    p7_info->slot_ahead = slot_ahead;
-
     int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, (sfnslot_dec + slot_ahead) % MAX_SFNSLOTDEC);
     int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec + slot_ahead) % MAX_SFNSLOTDEC);
 
@@ -2077,7 +2077,7 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   vnf_info *vnf = calloc(1, sizeof(vnf_info));
   memset(vnf->p7_vnfs, 0, sizeof(vnf->p7_vnfs));
   /* [Setting nfapi delay management] */
-  vnf->p7_vnfs[0].timing_window = 3500;
+  vnf->p7_vnfs[0].timing_window = 5000;
   vnf->p7_vnfs[0].dl_tti_timing_offset = 0;
   vnf->p7_vnfs[0].ul_tti_timing_offset = 0;
   vnf->p7_vnfs[0].ul_dci_timing_offset = 0;

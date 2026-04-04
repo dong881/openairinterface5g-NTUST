@@ -28,7 +28,7 @@
  * ============================================================================ */
 /* Dynamic Target Margin (adaptive to avoid late packets) */
 #define MARGIN_TOLERANCE_US     200    // Deadband zone: +/- MARGIN_TOLERANCE_US us
-#define TARGET_MARGIN_INITIAL   500   // Maximum safety buffer (user request: catch all late)
+#define TARGET_MARGIN_INITIAL   1500   // Maximum safety buffer (user request: catch all late)
 #define SLOT_ARRAY_SIZE         20    // TDD cycle slot count (Reduced to 20 for faster convergence)
 
 typedef struct {
@@ -111,9 +111,7 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int sfn;
 	int slot;
 	
-	/* User Configurable Variables */
-	int32_t slot_ahead;
-  int mu; // some 5G slot calculations need the numerology to know the number
+  	int mu; // some 5G slot calculations need the numerology to know the number
           // of slots
 
 	struct timespec next_slot_time;
@@ -216,3 +214,4 @@ void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *v
 
 
 #endif // _VNF_P7_H_
+void unit_test_vnf_p7_convergence_optimization(void);
