@@ -28,8 +28,48 @@
  * ============================================================================ */
 /* Dynamic Target Margin (adaptive to avoid late packets) */
 #define MARGIN_TOLERANCE_US     200    // Deadband zone: +/- MARGIN_TOLERANCE_US us
-#define TARGET_MARGIN_INITIAL   0   // Maximum safety buffer (user request: catch all late)
 #define SLOT_ARRAY_SIZE         20    // TDD cycle slot count (Reduced to 20 for faster convergence)
+
+/*
+ * get_vnf_timing_envs():
+ *   Read runtime NFAPI timing configuration from environment variables.
+ *
+ *   SLOT_AHEAD
+ *     - If set to a positive integer, the VNF runs in fixed slot-ahead mode.
+ *     - Example: export SLOT_AHEAD=6
+ *     - In this mode, slot_ahead is taken from SLOT_AHEAD and
+ *       TARGET_MARGIN_INITIAL is forced to 0.
+ *
+ *   TARGET_MARGIN_INITIAL
+ *     - Only used when SLOT_AHEAD is unset or 0.
+ *     - Example: export TARGET_MARGIN_INITIAL=1500
+ *     - If unset in dynamic mode, the default is 1500.
+ *
+ *   General behavior:
+ *     - Fixed mode: SLOT_AHEAD > 0 => use that slot shift and skip
+ *       handle_dynamic_timing_info().
+ *     - Dynamic mode: SLOT_AHEAD == 0 => use dynamic timing and apply
+ *       handle_dynamic_timing_info(); TARGET_MARGIN_INITIAL defaults to 1500.
+ *
+ *   The function fills the caller-provided pointers and keeps all
+ *   timing behavior local to the caller scope, without global state.
+ */
+static inline void get_vnf_timing_envs(int *slot_ahead, int *target_margin_initial) {
+    const char *slot_ahead_env = getenv("SLOT_AHEAD");
+    int env_slot = slot_ahead_env ? atoi(slot_ahead_env) : 0;
+    int env_margin = 1500;
+    
+    if (env_slot > 0) {
+        env_margin = 0;
+    } else {
+        const char *margin_env = getenv("TARGET_MARGIN_INITIAL");
+        env_margin = margin_env ? atoi(margin_env) : 1500;
+        env_slot = 0;
+    }
+    
+    if (slot_ahead) *slot_ahead = env_slot;
+    if (target_margin_initial) *target_margin_initial = env_margin;
+}
 
 typedef struct {
 	uint8_t* buffer;

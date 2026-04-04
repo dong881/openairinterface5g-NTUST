@@ -1855,7 +1855,10 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	// Negative offset implies VNF is AHEAD of PNF
 	// VNF MUST DECREASE speed (increase sleep time) to fall back -> requires pending_us to be NEGATIVE
 
-	int32_t total_correction = offset + TARGET_MARGIN_INITIAL;
+    int target_margin_initial = 1500;
+    get_vnf_timing_envs(NULL, &target_margin_initial);
+
+	int32_t total_correction = offset + target_margin_initial;
 
 	pthread_mutex_lock(&p7_info->mutex);
 	if (!p7_info->sync_locked) {
@@ -1926,7 +1929,11 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
 
 	// Integration Step
-	// handle_dynamic_timing_info(p7_con, &ind);
+    int slot_ahead = 0;
+    get_vnf_timing_envs(&slot_ahead, NULL);
+    if (slot_ahead == 0) {
+        handle_dynamic_timing_info(p7_con, &ind);
+    }
 
 	// // Capture current SFN/Slot locally to avoid race conditions during logging
 	// uint16_t vnf_sfn = p7_con->sfn;

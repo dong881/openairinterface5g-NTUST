@@ -1155,6 +1155,11 @@ void *vnf_timing_thread(void *arg) {
   vnf_p7_info *p7_vnf = (vnf_p7_info *)arg;
   vnf_p7_t *vnf_p7 = (vnf_p7_t *)p7_vnf->config;
   
+  int s_ahead_env = 0;
+  int margin_env = 0;
+  get_vnf_timing_envs(&s_ahead_env, &margin_env);
+  LOG_I(NFAPI_VNF, "[DYNAMIC TIMING PRINT] Thread Start - SLOT_AHEAD: %d, TARGET_MARGIN_INITIAL: %d\n", s_ahead_env, margin_env);
+
   // Wait for configuration
   // Prefer to obtain mu (subcarrier spacing index) from the NFAPI NR config
   // (ssb_config.scs_common) which is set when handling PARAM/CONFIG responses.
@@ -1274,7 +1279,9 @@ void *vnf_timing_thread(void *arg) {
     p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
     
     // Read the user-defined slot_ahead parameter (0 or 1 etc.)
-    int slot_ahead = 6; // You can change this to 0! The dynamic sync will compensate.
+    int slot_ahead = 0;
+    get_vnf_timing_envs(&slot_ahead, NULL);
+    
     int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, (sfnslot_dec + slot_ahead) % MAX_SFNSLOTDEC);
     int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec + slot_ahead) % MAX_SFNSLOTDEC);
 
@@ -2077,7 +2084,10 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   vnf_info *vnf = calloc(1, sizeof(vnf_info));
   memset(vnf->p7_vnfs, 0, sizeof(vnf->p7_vnfs));
   /* [Setting nfapi delay management] */
-  vnf->p7_vnfs[0].timing_window = 5000;
+  const char *timing_window_env = getenv("TIMING_WINDOW");
+  vnf->p7_vnfs[0].timing_window = timing_window_env ? atoi(timing_window_env) : 5000;
+  LOG_I(NFAPI_VNF, "[DYNAMIC TIMING PRINT] TIMING_WINDOW Config: %u\n", vnf->p7_vnfs[0].timing_window);
+
   vnf->p7_vnfs[0].dl_tti_timing_offset = 0;
   vnf->p7_vnfs[0].ul_tti_timing_offset = 0;
   vnf->p7_vnfs[0].ul_dci_timing_offset = 0;
