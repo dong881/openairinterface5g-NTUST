@@ -27,6 +27,7 @@
  */
 
 #include <softmodem-common.h>
+#include "common/utils/time_meas.h"
 #include "NR_MAC_gNB/nr_mac_gNB.h"
 #include "NR_MAC_gNB/mac_proto.h"
 #include "common/ran_context.h"
@@ -392,6 +393,7 @@ static void handle_dl_harq(gNB_MAC_INST *mac, NR_UE_info_t * UE, int8_t harq_pid
   } else {
     LOG_D(PHY,"NACK for: pid %d, ue %04x\n",harq_pid, UE->rnti);
     add_tail_nr_list(&sched_ctrl->retrans_dl_harq, harq_pid);
+    harq->buffer_start_time = rdtsc_oai();
     harq->round++;
   }
 }

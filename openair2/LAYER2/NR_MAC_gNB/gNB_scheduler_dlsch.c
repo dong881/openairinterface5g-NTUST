@@ -41,6 +41,10 @@
 
 /*Softmodem params*/
 #include "executables/softmodem-common.h"
+#include "common/utils/time_meas.h"
+
+extern void log_mmap_entry(const char *log_name, long value);
+
 #include "../../../nfapi/oai_integration/vendor_ext.h"
 
 ////////////////////////////////////////////////////////
@@ -369,6 +373,13 @@ static uint32_t update_dlsch_buffer(frame_t frame, slot_t slot, NR_UE_info_t *UE
 void finish_nr_dl_harq(NR_UE_sched_ctrl_t *sched_ctrl, int harq_pid)
 {
   NR_UE_harq_t *harq = &sched_ctrl->harq_processes[harq_pid];
+
+  if (harq->rtt_start_time > 0) {
+    uint64_t end_time = rdtsc_oai();
+    long diff_us = (long)((end_time - harq->rtt_start_time) / (cpuf * 1000.0));
+    log_mmap_entry("vnf_harq_rtt", diff_us);
+    harq->rtt_start_time = 0;
+  }
 
   harq->ndi ^= 1;
   harq->round = 0;
@@ -1047,14 +1058,20 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pdsch, NR_UE
                 UE->rnti);
     remove_front_nr_list(&sched_ctrl->available_dl_harq);
     sched_pdsch->dl_harq_pid = current_harq_pid;
+    sched_ctrl->harq_processes[current_harq_pid].rtt_start_time = rdtsc_oai();
   } else {
     /* PP selected a specific HARQ process. Check whether it will be a new
      * transmission or a retransmission, and remove from the corresponding
      * list */
-    if (sched_ctrl->harq_processes[current_harq_pid].round == 0)
+    if (sched_ctrl->harq_processes[current_harq_pid].round == 0) {
       remove_nr_list(&sched_ctrl->available_dl_harq, current_harq_pid);
-    else
+      sched_ctrl->harq_processes[current_harq_pid].rtt_start_time = rdtsc_oai();
+    } else {
       remove_nr_list(&sched_ctrl->retrans_dl_harq, current_harq_pid);
+      uint64_t end_time = rdtsc_oai();
+      long diff_us = (long)((end_time - sched_ctrl->harq_processes[current_harq_pid].buffer_start_time) / (cpuf * 1000.0));
+      log_mmap_entry("vnf_harq_buffer", diff_us);
+    }
   }
 
   NR_tda_info_t *tda_info = &sched_pdsch->tda_info;

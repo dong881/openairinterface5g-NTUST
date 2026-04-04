@@ -835,6 +835,8 @@ void cleanup_mmap_logger(void)
 }
 int main( int argc, char **argv ) {
   int ru_id, CC_id = 0;
+  init_mmap_logger("vnf_harq_buffer");
+  init_mmap_logger("vnf_harq_rtt");
   start_background_system();
 
   ///static configuration for NR at the moment
