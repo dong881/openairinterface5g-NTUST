@@ -36,6 +36,7 @@
 #include <SCHED_NR/phy_frame_config_nr.h>
 
 extern int sf_ahead;
+extern void log_mmap_entry(const char *log_name, long value);
 // Used by the RFC3550 jitter calculation (defined later in this file)
 static inline int64_t timehr_diff_us(uint32_t time_hr_a, uint32_t time_hr_b);
 
@@ -685,6 +686,9 @@ static bool check_nr_p7_timing(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_t msg_
 	// Positive Value: Later than acceptable (LATE)
 	// Negative Value: Earlier than acceptable (EARLY)
 	int64_t offset = -margin;
+
+	// Log margin value for analysis
+	log_mmap_entry("pnf_timing_window", (long)margin);
 
 	// Update Latest Delay (Max Positive Offset)
 	if (offset > *latest_delay) {
