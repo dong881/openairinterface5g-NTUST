@@ -778,7 +778,25 @@ void init_mmap_logger(const char *filename)
   num_log_files++;
 }
 
-void log_mmap_entry(const char *log_name, int frame_tx, int slot_tx, const char *msg)
+/*
+ * Python Script to Parse Binary Log:
+ * 
+ * import struct
+ * import os
+ * 
+ * # Each value is stored as an 8-byte signed integer (64-bit long)
+ * filename = "logs/your_log_name.000"
+ * filesize = os.path.getsize(filename)
+ * num_elements = filesize // 8
+ * 
+ * with open(filename, "rb") as f:
+ *     # '<' stands for little-endian, 'q' stands for 64-bit signed integer (long long)
+ *     # If you recorded a tuple like (value, size) you could use '<qq'
+ *     data = struct.unpack(f"<{num_elements}q", f.read())
+ * 
+ * print(data[:10]) # Print first 10 recorded values
+ */
+void log_mmap_entry(const char *log_name, long value)
 {
   int log_id = find_log_id(log_name);
   if (log_id < 0 || !log_files[log_id].is_active)
@@ -788,27 +806,16 @@ void log_mmap_entry(const char *log_name, int frame_tx, int slot_tx, const char 
 
   pthread_spin_lock(&log->lock);
 
-  int msg_len = msg ? strlen(msg) : 0;
-  int estimated_len = 80 + msg_len;
-
-  // Check if rotation is needed
-  if ((log->current_log_size - log->log_offset) < (size_t)estimated_len) {
+  if ((log->current_log_size - log->log_offset) < sizeof(long)) {
     if (rotate_log_file(log) == -1) {
       pthread_spin_unlock(&log->lock);
       return;
     }
   }
 
-  // Fast timestamp using pre-formatted buffer
-  struct timespec ts;
-  clock_gettime(CLOCK_REALTIME, &ts);
-
-  int written = sprintf(log->log_ptr + log->log_offset,
-                        "[%ld.%09ld] %d.%d %s\n",
-                        ts.tv_sec, ts.tv_nsec, frame_tx, slot_tx, msg ? msg : "");
-
-  if (written > 0)
-    log->log_offset += written;
+  // Write raw binary data directly to eliminate string conversion overhead entirely.
+  *(long *)(log->log_ptr + log->log_offset) = value;
+  log->log_offset += sizeof(long);
 
   pthread_spin_unlock(&log->lock);
 }
