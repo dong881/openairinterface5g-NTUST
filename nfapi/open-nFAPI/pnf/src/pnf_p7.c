@@ -696,9 +696,9 @@ static bool check_nr_p7_timing(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_t msg_
 	// Update Latest Delay (Max Positive Offset)
 	// O-o-O / Wrap-around Shield: If diff_slots is beyond a physical boundary 
 	// VNF is capped at sl_ahead = 6 (rarely up to 10-15 under high jitter backlog)
-	// If it's > 40 or < -40, this is an initialized sync wrap-around bug.
+	// If it's > 40 or < -11, this is an initialized sync wrap-around bug.
 	// We log the packet but DO NOT corrupt earliest_arrival/latest_delay tracking.
-	if (diff_slots >= -40 && diff_slots <= 40) {
+	if (diff_slots >= -11 && diff_slots <= 40) {
 		if (offset > *latest_delay) {
 			*latest_delay = (int32_t)offset;
 		}
