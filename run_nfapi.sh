@@ -2,7 +2,7 @@
 #===============================================================================
 # NFAPI Universal Start Script (Enhanced Version)
 # 
-# Usage: ./run_nfapi.sh <MODE> [AUTO_STOP]
+# Usage: ./run_nfapi.sh <MODE> [SLOT_AHEAD] [AUTO_STOP]
 #===============================================================================
 # local: ~/oai_mp_f_ming/openairinterface5g
 # local-orig: ~/oai_mp_f_ming_develop_latest/openairinterface5g
@@ -14,6 +14,7 @@
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 #-------------------------------------------------------------------------------
@@ -24,7 +25,7 @@ show_help() {
     echo "NFAPI Universal Start Script"
     echo "==============================================================================="
     echo ""
-    echo "Usage: ./run_nfapi.sh <MODE> [AUTO_STOP]"
+    echo "Usage: ./run_nfapi.sh <MODE> [SLOT_AHEAD] [AUTO_STOP]"
     echo ""
     echo "MODES:"
     echo "  local         - Run VNF + PNF locally (oai_mp_f_ming path)"
@@ -42,6 +43,7 @@ show_help() {
     echo "  help          - Show this help message"
     echo ""
     echo "OPTIONS:"
+    echo "  SLOT_AHEAD    - Value passed to VNF for dynamic config (default: 8)"
     echo "  AUTO_STOP     - 0 (default): No auto-stop"
     echo "                  1: Auto-stop after 120 seconds"
     echo ""
@@ -55,10 +57,11 @@ show_help() {
 }
 
 MODE=${1:-local}
-AUTO_STOP=${2:-0}
+SLOT_AHEAD_VAL=${2:-0}
+AUTO_STOP=${3:-0}
 
 # Check for help mode first
-if [ "$MODE" = "help" ] || [ "$MODE" = "-h" ] || [ "$MODE" = "--help" ]; then
+if [ "$MODE" = "help" ]s || [ "$MODE" = "-h" ] || [ "$MODE" = "--help" ]; then
     show_help
 fi
 
@@ -148,6 +151,7 @@ start_vnf_local() {
     local build_path=$1
     local conf_file=$2
     local log_suffix=$3
+    local slot_ahead=$4
     
     cd "$build_path" || { 
         echo -e "${RED}❌ ERROR: Cannot access build directory: $build_path${NC}"
@@ -162,9 +166,9 @@ start_vnf_local() {
         rm -f "$log_file"
     fi
     
-    echo -e "${GREEN}🚀 Starting VNF...${NC}"
-    # Added numactl and new thread pool, removed gdb
-    local cmd="screen -dmS VNF_SESSION bash -c \"sudo NFAPI_TRACE_LEVEL=info numactl --cpunodebind=0 --membind=0 ./nr-softmodem -O ${conf_file} --thread-pool ${THREAD_POOL_VNF} --nfapi VNF 2>&1 | tee ${log_file}\""
+    echo -e "${GREEN}🚀 Starting VNF (SLOT_AHEAD=${slot_ahead})...${NC}"
+    # Passing SLOT_AHEAD with sudo -E
+    local cmd="screen -dmS VNF_SESSION bash -c \"sudo -E SLOT_AHEAD=${slot_ahead} NFAPI_TRACE_LEVEL=info numactl --cpunodebind=0 --membind=0 ./nr-softmodem -O ${conf_file} --thread-pool ${THREAD_POOL_VNF} --nfapi VNF 2>&1 | tee ${log_file}\""
     echo -e "${YELLOW}CMD:${NC} $cmd"
     eval "$cmd"
     
@@ -200,7 +204,6 @@ start_pnf_local() {
     fi
     
     echo -e "${GREEN}🚀 Starting PNF...${NC}"
-    # Removed gdb, applied new thread pool
     local cmd="screen -dmS PNF_SESSION bash -c \"sudo NFAPI_TRACE_LEVEL=info ./nr-softmodem -O ${conf_file} --nfapi PNF --thread-pool ${THREAD_POOL_PNF} 2>&1 | tee ${log_file}\""
     echo -e "${YELLOW}CMD:${NC} $cmd"
     eval "$cmd"
@@ -326,7 +329,6 @@ perform_rfsim_test() {
     ue_ip=$(echo "$ifconfig_output" | grep -oE 'inet ([0-9]{1,3}\.){3}[0-9]{1,3}' | head -n 1 | cut -d' ' -f2)
     
     if [ -z "$ue_ip" ]; then
-         # Fallback for ip command specific formatting if 'inet' line is different?
          ue_ip=$(echo "$ifconfig_output" | grep -oE 'inet [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 | awk '{print $2}' | cut -d'/' -f1)
     fi
 
@@ -338,7 +340,6 @@ perform_rfsim_test() {
     elapsed=0
     local ping_success=0
     while [ $elapsed -lt $timeout ]; do
-        # Ping the gNB/Network from the UE interface
         if ping -c 1 -W 1 -I oaitun_ue1 10.34.0.1 >/dev/null 2>&1; then
             ping_success=1
             break
@@ -373,6 +374,7 @@ perform_rfsim_test() {
 start_vnf_hpe() {
     local hpe_path=$1
     local is_orig=$2
+    local slot_ahead=$3
     
     echo ""
     echo -e "${YELLOW}========================================${NC}"
@@ -416,14 +418,14 @@ start_vnf_hpe() {
     ssh hpe "screen -S VNF_SESSION -X quit 2>/dev/null" || true
     
     # Step 3: Start VNF on HPE
-    echo -e "${GREEN}🚀 Starting Remote VNF on HPE...${NC}"
+    echo -e "${GREEN}🚀 Starting Remote VNF on HPE (SLOT_AHEAD=${slot_ahead})...${NC}"
     local log_file="~/gNB-logs/nfapi-VNF-open5gs-${DATE_TAG}-${log_suffix}.log"
     
     # Clean old log
     ssh hpe "rm -f $log_file" || true
     
-    # Start VNF in screen session (Updated with numactl and new parameters)
-    local start_cmd="screen -dmS VNF_SESSION bash -c 'cd $build_path && sudo NFAPI_TRACE_LEVEL=info numactl --cpunodebind=0 --membind=0 ./nr-softmodem -O ${conf_file} --thread-pool ${THREAD_POOL_VNF} --nfapi VNF 2>&1 | tee ${log_file}'"
+    # Start VNF in screen session with passed SLOT_AHEAD parameter
+    local start_cmd="screen -dmS VNF_SESSION bash -c 'cd $build_path && sudo -E SLOT_AHEAD=${slot_ahead} NFAPI_TRACE_LEVEL=info numactl --cpunodebind=0 --membind=0 ./nr-softmodem -O ${conf_file} --thread-pool ${THREAD_POOL_VNF} --nfapi VNF 2>&1 | tee ${log_file}'"
     echo -e "${YELLOW}CMD:${NC} ssh hpe \"$start_cmd\""
     
     if ssh hpe "$start_cmd"; then
@@ -484,7 +486,7 @@ handle_auto_stop() {
     if [ "$AUTO_STOP" -eq 1 ]; then
         echo "Auto-stop enabled. Will stop after 120 seconds..."
         sleep 120
-        local cmd="$(dirname "$0")/stop_nfapi.sh \"$stop_mode\""
+        local cmd="$(dirname "$0")/stop_nfapi_all.sh \"$stop_mode\""
         echo -e "${YELLOW}CMD:${NC} $cmd"
         eval "$cmd"
         echo "Auto-stop completed."
@@ -495,7 +497,7 @@ handle_auto_stop() {
 # Main execution
 #-------------------------------------------------------------------------------
 echo "========================================"
-echo -e "NFAPI Start Script | Mode: ${CYAN}$MODE${NC} | Auto-stop: ${CYAN}$AUTO_STOP${NC}"
+echo -e "NFAPI Start Script | Mode: ${CYAN}$MODE${NC} | SLOT_AHEAD: ${CYAN}$SLOT_AHEAD_VAL${NC} | Auto-stop: ${CYAN}$AUTO_STOP${NC}"
 echo "========================================"
 
 case "$MODE" in
@@ -510,7 +512,7 @@ case "$MODE" in
         compile_project "$BUILD_PATH" "Local VNF/PNF"
         
         # Step 2: Start VNF
-        start_vnf_local "$BUILD_PATH" "$CONF_VNF" "ming-develop"
+        start_vnf_local "$BUILD_PATH" "$CONF_VNF" "ming-develop" "$SLOT_AHEAD_VAL"
         wait_for_vnf_ready_local 60
         
         # Step 3: Start PNF
@@ -529,7 +531,7 @@ case "$MODE" in
         compile_project "$BUILD_PATH" "Local VNF/PNF (Original)"
         
         # Step 2: Start VNF
-        start_vnf_local "$BUILD_PATH" "$CONF_VNF" "orig-develop"
+        start_vnf_local "$BUILD_PATH" "$CONF_VNF" "orig-develop" "$SLOT_AHEAD_VAL"
         wait_for_vnf_ready_local 60
         
         # Step 3: Start PNF
@@ -544,7 +546,7 @@ case "$MODE" in
         stop_sessions PNF_SESSION
         
         # Step 1: Build and start remote VNF on HPE (blocking build with logs)
-        start_vnf_hpe "$PATH_HPE" 0
+        start_vnf_hpe "$PATH_HPE" 0 "$SLOT_AHEAD_VAL"
         wait_for_vnf_ready_remote "split" 120
         
         # Step 2: Build local PNF (show logs)
@@ -563,7 +565,7 @@ case "$MODE" in
         stop_sessions PNF_SESSION
         
         # Step 1: Build and start remote VNF on HPE (blocking build with logs)
-        start_vnf_hpe "$PATH_HPE_ORIG" 1
+        start_vnf_hpe "$PATH_HPE_ORIG" 1 "$SLOT_AHEAD_VAL"
         wait_for_vnf_ready_remote "split-orig" 120
         
         # Step 2: Build local PNF (show logs)
@@ -584,7 +586,7 @@ case "$MODE" in
         
         # Build then start
         compile_project "$BUILD_PATH" "Local VNF"
-        start_vnf_local "$BUILD_PATH" "$CONF_VNF" "ming-develop"
+        start_vnf_local "$BUILD_PATH" "$CONF_VNF" "ming-develop" "$SLOT_AHEAD_VAL"
         handle_auto_stop "vnf"
         ;;
     vnf-orig)
@@ -593,7 +595,7 @@ case "$MODE" in
         
         # Build then start
         compile_project "$BUILD_PATH" "Local VNF (Original)"
-        start_vnf_local "$BUILD_PATH" "$CONF_VNF" "orig-develop"
+        start_vnf_local "$BUILD_PATH" "$CONF_VNF" "orig-develop" "$SLOT_AHEAD_VAL"
         handle_auto_stop "vnf"
         ;;
     
