@@ -228,24 +228,56 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     int32_t ABSOLUTE_MAX_ADVANCE_US = timing_window_us;
     p7_info->absolute_max_advance_us = ABSOLUTE_MAX_ADVANCE_US;
 
-    // Calculate ideal total advance (Process Delay + Jitter + Margin)
-    // We add a safety margin (e.g. 200us) to ensure we don't cut it exactly on the edge
-    int32_t ideal_total_advance = BASE_PROCESS_DELAY_US + raw_jitter + 200;
-    if (ideal_total_advance > ABSOLUTE_MAX_ADVANCE_US) {
-        ideal_total_advance = ABSOLUTE_MAX_ADVANCE_US;
-    }
-
-    // 2. Safely apply changes accounting for unresolved pending_us
     int32_t current_total_advanced_us = __atomic_load_n(&p7_info->total_advanced_us, __ATOMIC_SEQ_CST);
     int32_t current_pending_us = __atomic_load_n(&p7_info->pending_us, __ATOMIC_SEQ_CST);
     int32_t current_logical_advance = current_total_advanced_us + current_pending_us;
 
-    // Shift is the delta to reach the ideal target
-    int32_t shift_us = ideal_total_advance - current_logical_advance;
+    // 1. 先預留一個超大的空間（假設 1500 us），加上目前的 Jitter，做為我們想維持的初步目標
+    // 這樣可以保證在遇到最糟 Jitter + Process Delay 時，都還有 1500us 的緩衝防止 Too Late
+    int32_t TARGET_MARGIN_US = 1500;
+    int32_t ideal_total_advance = BASE_PROCESS_DELAY_US + raw_jitter + TARGET_MARGIN_US;
+
+    int32_t worst_late = stats->worst_late;
+    int32_t shift_us = 0;
+
+    // 4. 定義判斷 Too Late 的 Upper/Lower Bound 緩衝區
+    // Too Late 危險區：如果距離 Deadline (0) 小於 500us，代表快遲到了
+    if (worst_late > -500) {
+        // 2. 先應對第一波的 Late：立刻大幅度拉升提前量，把距離撐開回安全水位
+        shift_us = worst_late + TARGET_MARGIN_US;
+        
+        // 如果理論安全水位比這個還大，就跳到理論水位以確保充足
+        int32_t ideal_shift = ideal_total_advance - current_logical_advance;
+        if (ideal_shift > shift_us) {
+            shift_us = ideal_shift;
+        }
+    } 
+    // 太過安全/提早區：如果距離 Deadline 過遠（超過 Target Margin + 500us），代表空間太空曠
+    else if (worst_late < -(TARGET_MARGIN_US + 500)) {
+        // 3. 決定慢慢下降，往 Timing Window 的 Lower Bound 靠攏 (Slow Decay)
+        // 為了避免剛退就撞到突發 Late，一次只退非常少量
+        int32_t excess_slack = -worst_late - TARGET_MARGIN_US;
+        shift_us = -(excess_slack / 50); // 每一輪按比例緩降
+        
+        // 限制退讓的最高速度，確保平滑下降
+        if (shift_us < -15) shift_us = -15;
+        if (shift_us > -2) shift_us = -2;
+    } 
+    else {
+        // 身處安全區間內（平穩），暫不進行大幅變動
+        shift_us = 0;
+    }
+
+    // 將算出的 shift 套用，並確保不超過硬體物理極限 (ABSOLUTE_MAX_ADVANCE_US)
+    int32_t new_logical_advance = current_logical_advance + shift_us;
+    if (new_logical_advance > ABSOLUTE_MAX_ADVANCE_US) {
+        new_logical_advance = ABSOLUTE_MAX_ADVANCE_US;
+        shift_us = new_logical_advance - current_logical_advance;
+    }
 
     // 3. User Requested Simplification: Only print 1. Current Jitter, 2. Total Advance
     NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Convergence: Jitter = %u us, Target Total Advance = %d us (Current_Adv:%d, Pending:%d->%d)\n", 
-                raw_jitter, ideal_total_advance, current_total_advanced_us, current_pending_us, current_pending_us + shift_us);
+                raw_jitter, new_logical_advance, current_total_advanced_us, current_pending_us, current_pending_us + shift_us);
 
     // Apply the delta to pending_us so sleep thread consumes it incrementally
     if (shift_us != 0) {
