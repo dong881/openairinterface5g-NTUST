@@ -226,11 +226,14 @@ void pnf_update_jitter(pnf_p7_t* pnf_p7,
 
 	// If timestamps go backwards (re-ordering or discontinuity), re-initialize.
 	// This prevents spuriously treating small backwards steps as a wrap-around.
-	if (delta_r_us < 0 || delta_s_us < 0) {
-		*prev_transit_us = 0;
-		*jitter_us = 0.0;
-		return;
-	}
+    // CRITICAL FIX: If the time between packets is too large (e.g., > 1 second),
+    // the Tx Timestamp will have wrapped (10.24s SFN boundary).
+    // Computing Jitter over such a huge idle gap is meaningless and causes 640,000us spikes. 
+    if (delta_r_us < 0 || delta_s_us < 0 || delta_r_us > 1000000) {
+            *prev_transit_us = 0;
+            *jitter_init = 0; // Restart tracking
+            return;
+    }
 
 	int64_t d = delta_r_us - delta_s_us;
 	if (d < 0) d = -d;
