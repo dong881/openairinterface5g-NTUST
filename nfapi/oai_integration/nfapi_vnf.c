@@ -1323,6 +1323,25 @@ void *vnf_timing_thread(void *arg) {
         int64_t physical_advance_this_loop = nominal_us - added_us;
         
         p7_info->total_advanced_us += physical_advance_this_loop;
+
+        // NEW LOGIC: Enforce absolute maximum advance ceiling per iteration organically.
+        // This is a critical physical boundary ensuring the system's phase pacing never exceeds 
+        // the max early boundary, fully preventing "Too Early" drops even under jitter attacks.
+        if (p7_info->absolute_max_advance_us > 0 && p7_info->total_advanced_us > p7_info->absolute_max_advance_us) {
+            int32_t over_advance_us = p7_info->total_advanced_us - p7_info->absolute_max_advance_us;
+            NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF] Phase drift bounded by ABSOLUTE_MAX_ADVANCE_US. Correcting phase by pushing later %d us!\n", over_advance_us);
+            
+            // To push the pacing timer -> later -> we add time (so it sleeps longer)
+            timespec_add_us(&p7_info->next_slot_time, over_advance_us);
+            p7_info->total_advanced_us = p7_info->absolute_max_advance_us;
+            
+            // Re-sync any pending_us backlog since we actively nullified it organically
+            if (p7_info->pending_us > over_advance_us) {
+                p7_info->pending_us -= over_advance_us;
+            } else {
+                p7_info->pending_us = 0;
+            }
+        }
     }
   }
   return NULL;

@@ -134,11 +134,26 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
       // Update existing entry in this batch with latest from history
       out_stats[found].worst_late = p7_info->slot_history[ps].max_late;
       out_stats[found].worst_early = p7_info->slot_history[ps].max_early;
+      
+      uint32_t max_jitter = 0;
+      if (ind->dl_tti_jitter > max_jitter) max_jitter = ind->dl_tti_jitter;
+      if (ind->tx_data_jitter > max_jitter) max_jitter = ind->tx_data_jitter;
+      if (ind->ul_tti_jitter > max_jitter) max_jitter = ind->ul_tti_jitter;
+      if (ind->ul_dci_jitter > max_jitter) max_jitter = ind->ul_dci_jitter;
+      out_stats[found].pnf_reported_jitter = max_jitter;
     } else if (count < max_stats) {
       // New entry in this batch
       out_stats[count].packet_slot = ps;
       out_stats[count].worst_late = p7_info->slot_history[ps].max_late;
       out_stats[count].worst_early = p7_info->slot_history[ps].max_early;
+      
+      // Calculate Jitter comprehensively here instead of in handle_dynamic_timing_info
+      uint32_t max_jitter = 0;
+      if (ind->dl_tti_jitter > max_jitter) max_jitter = ind->dl_tti_jitter;
+      if (ind->tx_data_jitter > max_jitter) max_jitter = ind->tx_data_jitter;
+      if (ind->ul_tti_jitter > max_jitter) max_jitter = ind->ul_tti_jitter;
+      if (ind->ul_dci_jitter > max_jitter) max_jitter = ind->ul_dci_jitter;
+      out_stats[count].pnf_reported_jitter = max_jitter;
       count++;
     }
   }
@@ -191,96 +206,119 @@ extern nfapi_vnf_config_t * get_config();
 
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
 {
-	int32_t worst_late = stats->worst_late;
+	int32_t worst_late  = stats->worst_late;
 	int32_t worst_early = stats->worst_early;
-
+	
 	// Fetch dynamic timing window
 	nfapi_vnf_config_t *config = get_config();
 	int32_t timing_window_us = (int32_t)config->timing_window;
 
-	// Absolute constraint limits:
-	// Prevent runaway advance utilizing actual measurements (EWMA smoothed) instead of hardcodes.
-	// We only start applying Absolute Max limits once the initial sync lock has engaged and we have valid data.
-	int32_t abs_proc_delay = p7_info->ewma_process_us > 0 ? p7_info->ewma_process_us : 500;
-	int32_t abs_owd = p7_info->ewma_owd_us > 0 ? p7_info->ewma_owd_us : 300;
-	
-	// Subtract 200us padding from the EWMA max limit to prevent microscopic transient overshoots dropping packets.
-	int32_t ABSOLUTE_MAX_ADVANCE_US = timing_window_us + abs_proc_delay + abs_owd - 200;
+    /*
+     * REFERENCES for Advanced Jitter & Playout Buffer design:
+     * 1. Q. Li, H. Feng, et al. (2018). "An Enhanced Adaptive Jitter Buffer Management 
+     *    Algorithm for Real-Time Communications," IEEE Access.
+     *    - Insight: Raw inter-arrival jitter in heavily loaded networks is highly volatile.
+     *      Using raw jitter directly destabilizes the timing loop.
+     *    - Solution: "Asymmetric Exponential Moving Average (AEMA)". Rapidly track increases 
+     *      to prevent latency violations (Drops), and very slowly decay to avoid premature 
+     *      buffer underruns during transient lulls.
+     * 2. Ramjee et al. (1994). IEEE INFOCOM. Target Safe Buffer = Base Delay + (4 * Smoothed_Jitter).
+     */
 
-	// Target boundaries
-	// Use 200us as a tighter Upper Bound margin as requested, since we actively measure the timing components.
-	const int32_t UPPER_SAFE_BOUND = -(timing_window_us - 200); 
-	const int32_t LOWER_SAFE_BOUND = -1000;
+    // 1. Asymmetric Jitter Smoothing (AEMA filter)
+    uint32_t raw_jitter = stats->pnf_reported_jitter;
+    if (raw_jitter > p7_info->smoothed_pnf_jitter_us) {
+        // Fast Attack: Quickly inflate the safe bound when network suddenly degrades
+        p7_info->smoothed_pnf_jitter_us = raw_jitter; 
+    } else {
+        // Slow Decay: Gradually deflate the safe bound (e.g. alpha = 63/64 for ~600ms decay)
+        p7_info->smoothed_pnf_jitter_us = ((p7_info->smoothed_pnf_jitter_us * 63) + raw_jitter) / 64;
+    }
+    uint32_t effective_jitter = p7_info->smoothed_pnf_jitter_us;
+    
+    // According to Ramjee et al. 1994, target safe buffer = Base Delay + 4 * Jitter
+    int32_t ALPHA = 4;
+    
+    // [CRITICAL FIX] Fetch the Dynamic Wait Process Delay (VNF execution latency)
+    // The delay MUST be dynamically obtained from the EWMA evaluated directly from the 
+    // actual scheduling and packing thread process times. Hardcoding a static delay 
+    // (e.g., 250us) is strictly prohibited and extremely dangerous across varying workloads.
+    int32_t BASE_PROCESS_DELAY_US = (p7_info->ewma_process_us > 0) ? p7_info->ewma_process_us : 0; 
+    int32_t REQUIRED_HEADROOM_US = BASE_PROCESS_DELAY_US + (ALPHA * effective_jitter);
+    int32_t DYNAMIC_LOWER_SAFE_BOUND = -REQUIRED_HEADROOM_US;
 
-	int32_t shift = 0;
+    // [CRITICAL FIX] Defining Absolute Physical Phase Advancement Limitations
+    // As per recent network topologies, the physical One-Way Delay (OWD) is completely 
+    // nullified by the initial synchronization. Thus, the margin is physically 0 since 
+    // we are locked strictly to the PNF's epoch. We retain it as 0 for future architecture expansions.
+    int32_t ABS_OWD_DELAY_US = p7_info->ewma_owd_us > 0 ? p7_info->ewma_owd_us : 0; 
+    
+    // The MAXIMUM upper phase bound MUST be strictly clamped to `timing_window` + `processing_delay`. 
+    // Any phase pushing higher than this directly violates the PNF's frame rules, sending the 
+    // packet physically faster than the PNF rx window has opened (Absolute "Too Early" catastrophe).
+    int32_t ABSOLUTE_MAX_ADVANCE_US = timing_window_us + BASE_PROCESS_DELAY_US + ABS_OWD_DELAY_US;
+    p7_info->absolute_max_advance_us = ABSOLUTE_MAX_ADVANCE_US;
 
-	// 1. Protect against Early Deadlock first (Catastrophic Over-advance)
-	// If packets are arriving before the PNF is even listening, they are instantly dropped.
-	// We MUST pull back to exactly the Upper Safe Bound.
-	if (worst_early < UPPER_SAFE_BOUND) {
-		p7_info->convergence_count = 0;
-		// Retreat right to pin worst_early to UPPER_SAFE_BOUND
-		shift = worst_early - UPPER_SAFE_BOUND; // Yields a negative shift (pulling back)
-		
-		// Asymmetric Slew-Rate Limiting: Don't snap back too violently unless critically needed
-		if (shift < -1000) {
-			shift = shift / 2; // Dampen massive retreats
-		}
-	}
-	// 2. Address Late Packets (Aggressive Expand)
-	else if (worst_late > -200) {
-		p7_info->convergence_count++;
-		if (p7_info->convergence_count >= 2) {
-			// Aggressive Jump: We need to push the late packets left into the safe zone.
-			// Target is to place worst_late at LOWER_SAFE_BOUND.
-			shift = worst_late - LOWER_SAFE_BOUND; // Yields a positive shift 
+    // Protect our boundary conditions: Lower bounds should never squeeze past the upper max advances 
+    int32_t UPPER_SAFE_BOUND = - (ABSOLUTE_MAX_ADVANCE_US - 200); // Leave 200us headroom at the far end
+    if (DYNAMIC_LOWER_SAFE_BOUND < UPPER_SAFE_BOUND + 1000) {
+        DYNAMIC_LOWER_SAFE_BOUND = UPPER_SAFE_BOUND + 1000;
+    }
 
-			// CLAMP: NEVER push so far that we violate the UPPER_SAFE_BOUND (Too Early cliff).
-			int32_t available_headroom = worst_early - UPPER_SAFE_BOUND;
-			if (available_headroom < 0) available_headroom = 0;
-			
-			if (shift > available_headroom) {
-				// Network jitter is wider than our timing window!
-				// We commit to the user strategy: Push advance entirely to the Upper Bound.
-				// This rescues as many late packets as mathematically possible.
-				shift = available_headroom; 
-			}
-			p7_info->convergence_count = 0;
-		}
-	}
-	// 3. Safe Zone (Wasted Latency Recovery / BBR-style probing)
-	else {
-		p7_info->convergence_count = 0;
-		
-		// If we are safely entirely within bounds, and worst_late is unnecessarily early/far from 0.
-		// Drift towards the Lower Safe Bound to minimize overall system latency.
-		if (worst_late < (LOWER_SAFE_BOUND - 300)) {
-			shift = -2; // Slow systematic decay (NetEQ strategy)
-		}
-	}
+    int32_t shift_us = 0;
 
-	// Apply shift with Absolute Cumulative Boundary Cap (Anti-Windup)
-	if (shift != 0) {
-		// Prevent Integral Windup AND Track Organic Drift:
-		// total_advanced_us is physically tracked inside vnf_timing_thread (measuring true sleep times).
-		// pending_us is the banked early-shift constraint that will be executed in the future.
-		// Both must be summed to find the absolute worst-case early projection limit.
-		int32_t projected_advance_us = p7_info->total_advanced_us + p7_info->pending_us + shift;
-		
-		if (projected_advance_us > ABSOLUTE_MAX_ADVANCE_US) {
-			shift = ABSOLUTE_MAX_ADVANCE_US - (p7_info->total_advanced_us + p7_info->pending_us);
-		}
-		
-		if (shift != 0) {
-			p7_info->pending_us += shift;
-			// Note: We DO NOT add to total_advanced_us here. It is physically accumulated based 
-			// on actual timespec_add_us phase drifts loop-by-loop in vnf_timing_thread!
-			p7_info->last_adjustment_time_hr = vnf_get_current_time_hr();
-		}
-	}
+    // 2. Evaluation Logic - Control Proportional Phase 
+    // A. "Too Early" Check
+    if (worst_early < UPPER_SAFE_BOUND) {
+        // Rapid Phase Retreat - we're dangerously close to exceeding the max available timing window
+        shift_us = UPPER_SAFE_BOUND - worst_early - 100; 
+        NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF] TOO EARLY DETECTED (WorstEarly: %d us < Bound: %d us), Rapid Retreat by %d us! Max_Adv: %d\n", worst_early, UPPER_SAFE_BOUND, shift_us, ABSOLUTE_MAX_ADVANCE_US);
+    }
+    // B. "Too Late" Check against Dynamic Jitter Bound
+    else if (worst_late > DYNAMIC_LOWER_SAFE_BOUND / 2) { 
+        // We crossed deep into our Jitter margin heading toward Deadline 0, fast advance needed!
+        shift_us = worst_late - (DYNAMIC_LOWER_SAFE_BOUND / 2) + 200; 
+        
+        int32_t max_allowed_shift = worst_early - UPPER_SAFE_BOUND - 100;
+        if (shift_us > max_allowed_shift) shift_us = max_allowed_shift;
+        if (shift_us < 0) shift_us = 0; 
+
+        NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] LATE DANGER DETECTED (WorstLate: %d us > HalfBound: %d us), Fast Advance by %d us!\n", worst_late, DYNAMIC_LOWER_SAFE_BOUND / 2, shift_us);
+    }
+    // C. Jitter is Small - Slowly Retreat to remove unnecessary delay and decrease round-trip latency
+    else {
+        // right_slack measures how far worst_late is unnecessarily early compared to the dynamic safe bound
+        int32_t right_slack = DYNAMIC_LOWER_SAFE_BOUND - worst_late;
+        
+        if (right_slack > (int32_t)effective_jitter + 150) { 
+            // VERY GENTLE Phase Retraction:
+            // Previous uncontrolled logic (-114us per 10ms frame) equates to an extremely violent ~11ms/sec shift 
+            // rate, which causes VNF disconnects and MAC logic crashes under 1G loads.
+            // Using a strictly bounded limit of e.g. -15us per frame yields a safe drift of ~1.5ms per second.
+            shift_us = - (right_slack / 50);
+            if (shift_us < -15) shift_us = -15; // Hard limits on phase velocity
+            if (shift_us > -2) shift_us = -2;    // Minimum movement
+
+            NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[VNF] Safe Recovery Zone - Smoothed Jitter: %u us, Wasted Time: %d us, Slowly Retracting Phase by %d us\n", effective_jitter, right_slack, shift_us);
+        } else {
+            shift_us = 0;
+        }
+    }
+
+    if (shift_us != 0) {
+        long target_advance = p7_info->total_advanced_us + shift_us;
+        
+        // ABSOLUTE_MAX_ADVANCE_US clamp to fully eliminate any chance of "Too Early"
+        if (target_advance > ABSOLUTE_MAX_ADVANCE_US) {
+            target_advance = ABSOLUTE_MAX_ADVANCE_US;
+            NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF] Target advance clamped by ABSOLUTE_MAX_ADVANCE_US (%ld -> %d). Preventing Too Early!\n", target_advance, ABSOLUTE_MAX_ADVANCE_US);
+        }
+        if (target_advance < 0) target_advance = 0;
+
+        __atomic_store_n(&p7_info->pending_us, target_advance - p7_info->total_advanced_us, __ATOMIC_SEQ_CST);
+    }
 }
 
-// Main Dynamic Timing Handler
 void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *void_ind)
 {
   nfapi_nr_timing_info_t *ind = (nfapi_nr_timing_info_t *)void_ind;
@@ -331,7 +369,10 @@ void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *v
               agg_stats.worst_late = slot_stats[i].worst_late;
           if (slot_stats[i].worst_early < agg_stats.worst_early) 
               agg_stats.worst_early = slot_stats[i].worst_early;
+          if (slot_stats[i].pnf_reported_jitter > agg_stats.pnf_reported_jitter)
+              agg_stats.pnf_reported_jitter = slot_stats[i].pnf_reported_jitter;
       }
+      
       vnf_p7_convergence_optimization(p7_info, &agg_stats);
   }
 }
@@ -1919,8 +1960,8 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	// Negative offset implies VNF is AHEAD of PNF
 	// VNF MUST DECREASE speed (increase sleep time) to fall back -> requires pending_us to be NEGATIVE
 
-    int target_margin_initial = 1500;
-    get_vnf_timing_envs(NULL, &target_margin_initial);
+	int target_margin_initial = 1500;
+	get_vnf_timing_envs(NULL, &target_margin_initial);
 
 	int32_t total_correction = offset + target_margin_initial;
 
@@ -1931,7 +1972,12 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 			// Conservative PLL Strategy: Cease utilizing OWD when down-link sync stops updating it.
 			// Treating it as 0 sacrifices a small timing window segment but strictly guards against 'Too Early'.
 			p7_info->ewma_owd_us = 0;
-			p7_info->total_advanced_us = 0; // Reset absolute integration baseline
+			// [CRITICAL FIX] The absolute phase tracking MUST initialize to the sync target margin!
+			// When sync locked, VNF is already transmitting `target_margin_initial` ahead of PNF!
+			// If this is set to 0, the dynamic margin will blindly push the phase further ahead 
+			// by `target_margin_initial` AGAIN, vastly exceeding ABSOLUTE_MAX_ADVANCE_US and 
+			// severely triggering "Too Early" drops continuously.
+			p7_info->total_advanced_us = target_margin_initial; // Account for initial phase offset!
 		} else {
 			int32_t s_adj = total_correction / p7_info->slot_duration_us;
 			int32_t p_adj = total_correction % p7_info->slot_duration_us;

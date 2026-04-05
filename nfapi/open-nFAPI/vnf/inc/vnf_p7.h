@@ -148,9 +148,11 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t estimated_mean_late;      // Jacobson/Karels estimated mean delay
 	int32_t estimated_jitter_var;     // Jacobson/Karels estimated jitter variance
 	uint32_t last_adjustment_time_hr; // Time of last adjustment (for Dead Time / RTT masking)
-        int32_t ewma_process_us;
-        int32_t ewma_owd_us;
-        int32_t total_advanced_us; // Absolute cumulative phase shift relative to initial sync
+	int32_t ewma_process_us;
+	int32_t ewma_owd_us;
+	int32_t total_advanced_us; // Absolute cumulative phase shift relative to initial sync
+    int32_t absolute_max_advance_us;
+    uint32_t smoothed_pnf_jitter_us;
 
 	uint32_t previous_t1;
 	uint32_t previous_t2;
@@ -245,6 +247,7 @@ typedef struct {
   int32_t worst_late;
   int32_t worst_early;
   uint32_t packet_slot;   // Computed packet slot index in SLOT_ARRAY_SIZE
+  uint32_t pnf_reported_jitter; // Maximum jitter reported by PNF across message types
 } vnf_timing_stats_t;
 
 /* Function Declaration */
