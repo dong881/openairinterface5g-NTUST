@@ -4,17 +4,17 @@
 
 ### 1(a) 最後輸出資料夾
 - `logs/`
-- 這個資料夾位於執行 softmodem 時的當前工作目錄
-- 並不會建立更深的子資料夾，所有 log 檔案都直接放在 `logs/` 下
+- 這個資料夾在 softmodem 執行時建立於執行目錄下
+- 不會建立更深的子資料夾，所有 log 檔案都直接放於 `logs/`
 
 ### 1(b) 檔案名稱
-- `logs/<log_name>.<split_index>`
-- `split_index` 以三位數格式填補，例如 `000`, `001`, `002`
-- 例如：`logs/pnf_timing_window.000`, `logs/vnf_harq_rtt.000`
+- 格式：`logs/<log_name>.<split_index>`
+- `split_index` 以三位數格式填補：`000`, `001`, `002`
+- 範例：`logs/pnf_timing_window.000`、`logs/vnf_harq_rtt.000`
 
 ### 1(c) 產生模式
-- `PNF` mode 產生：`pnf_timing_window`
-- `VNF` mode 產生：
+- `PNF` mode 會產生：`pnf_timing_window`
+- `VNF` mode 會產生：
   - `vnf_harq_buffer`
   - `vnf_harq_rtt`
   - `vnf_rlc_runtime`
@@ -22,49 +22,123 @@
   - `vnf_rlc_avg_to_tx`
   - `vnf_advance_time`
   - `vnf_pnf_latency`
-- `MONOLITHIC` mode 同時可能產生上述 PNF 與 VNF 的 log
+- `MONOLITHIC` mode 可能同時產生上述 PNF 與 VNF log
 
-> 本手冊中之「VNF mode」可對應到實際程式中的 VNF mode。
+> 這裡的 `VNF mode` 即程式中對應的 VNF 執行模式。
 
-## 2. Log 檔案內容說明
+## 2. 內容與數值拆分細節
 
-### 2(a) 基本檔案格式
-- 每個 log split 檔案都是二進位檔
-- 檔案內容由一連串 `8 bytes` 的 signed 64-bit 值組成
-- 無額外檔頭、無分隔符，純粹連續寫入
-- 若檔案超過大小限制，會自動分割到下一個 `.001`、`.002`
+### 2(a) 二進位記錄格式
+- 每筆記錄固定佔用 8 bytes
+- 檔案內是連續寫入的 signed 64-bit integer
+- 無 header、無分隔符
+- 若寫入大小超過當前 split，會自動 rollover 到下一個 `.###`
 
-### 2(b) 各 log 檔案簡述
+### 2(b) 兩種資料型態
 
-| log 名稱 | 模式 | 內容重點 |
-|---|---|---|
-| `pnf_timing_window` | PNF | 儲存 PNF 時序窗口檢查結果，且該筆值包含 SFN/Slot 與對應 payload |
-| `vnf_harq_buffer` | VNF | 儲存 VNF HARQ buffer 相關延遲量測值 |
-| `vnf_harq_rtt` | VNF | 儲存 VNF HARQ round-trip delay 量測值 |
-| `vnf_rlc_runtime` | VNF | 儲存 VNF RLC 執行時間量測值 |
-| `vnf_rlc_hol_delay` | VNF | 儲存 VNF RLC head-of-line delay 量測值 |
-| `vnf_rlc_avg_to_tx` | VNF | 儲存 VNF RLC 平均送出準備時間量測值 |
-| `vnf_advance_time` | VNF | 儲存 VNF slot 送出時的 advance time 量測值，包含 SFN/Slot 資訊 |
-| `vnf_pnf_latency` | VNF | 儲存 VNF 與 PNF 之間 latency 量測值，包含 SFN/Slot 資訊 |
-
-### 2(c) 何時使用哪個 log
-- 若要分析 PNF 端時序窗口，可檢查 `pnf_timing_window`
-- 若要分析 VNF 端的延遲或緩衝行為，可檢查 `vnf_*` 系列
-- 若執行 monolithic 型態，可同時保留 PNF 與 VNF 資料
-
-## 3. 解析重點與注意事項
-
-### 3(a) 何時拆解成 SFN/Slot
-- 只有下列 log 需要進一步拆解成 SFN / Slot 與 payload：
+#### 2(b).1. Packed log（含 SFN/Slot）
+- 適用 log：
   - `pnf_timing_window`
   - `vnf_advance_time`
   - `vnf_pnf_latency`
-- 其餘 log 皆可直接視為單一的 signed 64-bit 量測值
+- 這三個 log 的一筆記錄包含：
+  1. `SFN`
+  2. `Slot`
+  3. `payload`
 
-### 3(b) 讀檔時的基本判斷邏輯
-- 開啟 `logs/<name>.<idx>`，以 `'<{count}q'` 解析成 signed 64-bit 值
-- 若 log 屬於上述三個編碼型 log，再進行 SFN/Slot 拆解
-- 其餘 log 直接視為單一量測值，不拆解 SFN/Slot
+#### 2(b).2. Raw log（單一值）
+- 適用 log：
+  - `vnf_harq_buffer`
+  - `vnf_harq_rtt`
+  - `vnf_rlc_runtime`
+  - `vnf_rlc_hol_delay`
+  - `vnf_rlc_avg_to_tx`
+- 這些 log 只儲存一個 signed 64-bit 量測值
 
-### 3(c) 檔案位置與讀取方式
-- 讀取時需要檢查所有 `logs/<name>.*` 檔案
+### 2(c) Packed log 的欄位分配
+- 64-bit layout：
+  - `bits 63..48`：SFN（16 bits allocated）
+  - `bits 47..32`：Slot（16 bits allocated）
+  - `bits 31..0`：payload（32 bits signed）
+
+### 2(d) 實際需要的位寬
+- SFN 範圍：`0..1023` → 10 bits
+- Slot 範圍：`0..(10 << mu) - 1`
+  - mu 最大通常是 5，最大 slot = 319 → 9 bits
+- 真正必要位寬：`10 + 9 = 19 bits`
+- 現行實作配置：`16 + 16 = 32 bits`
+- 因此現有設計預留了 `13 bits` 額外空間
+
+### 2(e) 十進制存儲比較
+- 如果改成 ASCII text，記錄例如 `1023 319 -50000\n` 會需要約 16~20 bytes
+- 這比目前固定 8 bytes 二進位格式更浪費空間
+- 如果改成十進制位置打包，仍需約 17~19 digits，等價於 57~63 bits
+- 結論：
+  - 目前 64-bit binary 範例最省空間
+  - 十進制編碼不會使空間更省
+  - 要擴充 payload bit，應重構欄位配置，而非改成十進制
+
+### 2(f) 可擴充的 payload bit
+- 當前 64-bit 分配：`16 + 16 + 32 = 64 bits`
+- 若將 SFN/Slot 壓縮到實際位寬：
+  - SFN 用 10 bits
+  - Slot 用 9 bits
+- 剩餘可給 payload：`64 - 19 = 45 bits`
+- 意味著：payload 從 32-bit 可以擴到 45-bit
+- 這表示 Signed payload 的範圍可從 `±2.1e9` 擴到 `±8.8e13`
+
+## 3. 各 log 的數值意義與範圍
+
+| log 名稱 | 代表意義 | 估計範圍 | 單位 | 解析方式 |
+|---|---|---|---|---|
+| `pnf_timing_window` | PNF 時序窗口檢查 margin | 典型 `-50k..+400k` | μs | packed log |
+| `vnf_advance_time` | VNF slot send advance time | 典型 `0..20k` | μs | packed log |
+| `vnf_pnf_latency` | VNF 到 PNF latency | 典型 `0..20k` | μs | packed log |
+| `vnf_harq_buffer` | HARQ buffer 等待延遲 | 典型 `0..20k` | μs | raw log |
+| `vnf_harq_rtt` | HARQ round-trip delay | 典型 `0..20k` | μs | raw log |
+| `vnf_rlc_runtime` | RLC 執行時間 | 典型 `0..20k` | μs | raw log |
+| `vnf_rlc_hol_delay` | RLC HOL delay | 典型 `0..20k` | μs | raw log |
+| `vnf_rlc_avg_to_tx` | RLC 平均到 transmit 時間 | 典型 `0..20k` | μs | raw log |
+
+> 以上範圍為程式邏輯推估的典型值；特殊狀況下仍可能超出。
+
+## 4. 解析條件
+
+### 4(a) 是否拆成 SFN/Slot
+- 若 `log_name` 為：
+  - `pnf_timing_window`
+  - `vnf_advance_time`
+  - `vnf_pnf_latency`
+  → 必須拆成 SFN/Slot/payload
+- 否則 → 當作單一 signed 64-bit 量測值
+
+### 4(b) Packed log 拆分公式
+- `raw_value` = signed 64-bit
+- `sfn = (raw_value >> 48) & 0xFFFF`
+- `slot = (raw_value >> 32) & 0xFFFF`
+- `payload = (int32_t)(raw_value & 0xFFFFFFFF)`
+
+### 4(c) 建議輸出欄位
+- `log_name`
+- `split_file`
+- `entry_index`
+- `raw_value`
+- `is_packed`
+- `sfn`
+- `slot`
+- `signed_payload`
+- `payload_us`
+
+## 5. 使用方式
+
+1. 掃描 `logs/<name>.*`
+2. 將所有 split 檔案讀為 signed 64-bit values
+3. 對 packed log 進行 SFN/Slot 解碼
+4. 對 raw log 直接做 microsecond 統計
+5. 如果需要時間軸排序，優先用 `sfn`/`slot`
+
+## 6. 結論
+- 這組 log 使用固定 8 bytes binary，是最省空間的方案
+- 純十進制存儲無法比 binary 更省
+- 若要讓 `Value` 佔更多 bits，應先調整 SFN/Slot 的位寬分配
+- 現行 SFN/Slot 可壓縮到 19 bits，payload 最多可擴到 45 bits
