@@ -292,6 +292,7 @@ static mac_rlc_status_resp_t _nr_rlc_status_ind(nr_rlc_ue_t *ue, frame_t frame, 
 
   if (rb != NULL) {
     nr_rlc_entity_buffer_status_t buf_stat;
+    nr_rlc_statistics_t rlc_stats;
     rb->set_time(rb, get_nr_rlc_current_time());
     /* 38.321 deals with BSR values up to 81338368 bytes, after what it
      * reports '> 81338368' (table 6.1.3.1-2). Passing 100000000 is thus
@@ -300,6 +301,9 @@ static mac_rlc_status_resp_t _nr_rlc_status_ind(nr_rlc_ue_t *ue, frame_t frame, 
     // Fix me: temproary reduction meanwhile cpu cost of this computation is optimized
     buf_stat = rb->buffer_status(rb, 1000 * 1000);
     ret.bytes_in_buffer = buf_stat.status_size + buf_stat.retx_size + buf_stat.tx_size;
+    rb->get_stats(rb, &rlc_stats);
+    log_mmap_entry("vnf_rlc_hol_delay", (long)rlc_stats.txsdu_wt_us);
+    log_mmap_entry("vnf_rlc_avg_to_tx", (long)rlc_stats.txsdu_avg_time_to_tx);
   } else {
     if (!(frame % 128) || channel_idP == 0) //to suppress this warning message
       LOG_W(RLC, "Radio Bearer (channel ID %d) is NULL for UE %d\n", channel_idP, ue->ue_id);
