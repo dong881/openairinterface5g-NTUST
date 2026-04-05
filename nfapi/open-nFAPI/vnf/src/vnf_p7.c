@@ -255,7 +255,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         }
     }
 
-    int32_t node_to_node_latency = timing_window_us + worst_late - reference_total_advanced_us;
+    int32_t node_to_node_latency = reference_total_advanced_us + worst_late;
     log_mmap_entry("vnf_pnf_latency", (long)node_to_node_latency);
 
     // Update EWMA Base Delay to the Node-to-Node latency
@@ -312,21 +312,23 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         // Critical Fix: Late Storm Evacuation (User Command)
         // When 1G traffic pushes the CPU/Network to the brink, we cannot simply "sleep less" 
         // to catch up—there is no idle time left to borrow! The packets physically pile up.
-        // Therefore, if we suffer a severe delay, we command the main thread to physically
-        // skip generating an entire Slot (e.g. 500us/1000us) and instantly teleport the clock forward.
+        // Therefore, if we suffer a severe delay, we command the main thread to logically
+        // skip generating an entire Slot (e.g. 500us/1000us) and instantly teleport the logical clock forward.
         // This drops 1 slot but rescues the remaining 10,000 slots from a cascading late storm.
-        NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF] LATE STORM EVACUATION! (WorstLate: %d us > HalfBound: %d us). Commanding explicit slot skip to clear backpressure!\n",
-                     worst_late, DYNAMIC_LOWER_SAFE_BOUND / 2);
+        
+        if (shift_us >= (int32_t)p7_info->slot_duration_us) {
+            NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF] LATE STORM EVACUATION! (WorstLate: %d us > HalfBound: %d us). Commanding explicit slot skip to clear backpressure!\n",
+                         worst_late, DYNAMIC_LOWER_SAFE_BOUND / 2);
             
-        // Apply the skip directly to pending_us, which tells the main loop to skip slots IMMEDIATELY
-        long slot_skip_us = p7_info->slot_duration_us;
-        __atomic_store_n(&p7_info->pending_us, p7_info->pending_us + slot_skip_us, __ATOMIC_SEQ_CST);
-        
-        // Set an atomic flag to notify the slot thread to skip SFN/Slot indices
-        __atomic_store_n(&p7_info->slot_adjustment, 1, __ATOMIC_SEQ_CST);
-        adjustment_issued = true;
-        
-        // We still apply the advance shift_us!
+            // Set an atomic flag to notify the slot thread to skip SFN/Slot indices
+            __atomic_store_n(&p7_info->slot_adjustment, 1, __ATOMIC_SEQ_CST);
+            adjustment_issued = true;
+            
+            // Since we logically skipped a slot, we instantly gained slot_duration_us of phase advance.
+            // Deduct it from shift_us so we don't accidentally ALSO physically sprint causing a 2x overshoot.
+            shift_us -= p7_info->slot_duration_us;
+            if (shift_us < 0) shift_us = 0;
+        }
     }
     // C. Jitter is Small - Slowly Retreat to remove unnecessary delay and decrease round-trip latency
     else {
