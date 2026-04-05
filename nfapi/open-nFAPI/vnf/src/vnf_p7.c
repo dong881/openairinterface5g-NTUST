@@ -251,15 +251,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     uint32_t raw_jitter = stats->pnf_reported_jitter;
     p7_info->smoothed_pnf_jitter_us = raw_jitter;
     
-    int32_t ABS_OWD_DELAY_US = p7_info->ewma_owd_us;
-    int32_t node_to_node_latency = p7_info->ewma_process_us;
-    
-    // Update EWMA Base Delay
-    p7_info->ewma_process_us = ((p7_info->ewma_process_us * 63) + node_to_node_latency) / 64;
-    int32_t BASE_PROCESS_DELAY_US = p7_info->ewma_process_us;
-    
     // The ABSOLUTE_MAX_ADVANCE_US is our hard physical ceiling.
-    // Exceeding this boundary strictly results in "Too Early" packet rejections by the PNF.
     int32_t ABSOLUTE_MAX_ADVANCE_US = timing_window_us;
     p7_info->absolute_max_advance_us = ABSOLUTE_MAX_ADVANCE_US;
 
@@ -267,58 +259,84 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     int32_t current_pending_us = __atomic_load_n(&p7_info->pending_us, __ATOMIC_SEQ_CST);
     int32_t current_logical_advance = current_total_advanced_us + current_pending_us;
 
-    // 'worst_late': Arrival offset of the tightest packet relative to the Deadline (0us).
-    // Positive means Arrived Late; Negative means Arrived Early (Safe).
+    // 'worst_late': Arrival offset relative to the Deadline (0us).
+    // Positive means Arrived Late; Negative means Arrived Early.
     int32_t worst_late = stats->worst_late;
-    int32_t shift_us = 0;
+    int32_t add_sleep_us = 0;
 
-    // --- ALGORITHM PARAMETERS ---
-    // 1. PANIC_CUSHION_US: The massive buffer we instantly inject on the first sign of latency danger.
-    int32_t PANIC_CUSHION_US = 1500;
+    // 1. Calculate the Actual Transit and Processing Wait Time
+    // By merging the applied VNF Advance with the PNF's Relative Arrival Time (worst_late),
+    // we extract the pure End-to-End time required to bridge the two components.
+    // (If we advance 4000us, and it arrives 1000us early (-1000), transit = 3000us)
+    int32_t actual_transit_us = current_total_advanced_us + worst_late;
     
-    // 2. TARGET_IDLE_MARGIN_US: The tight baseline limit we slowly aim for when traffic is stable.
-    int32_t TARGET_IDLE_MARGIN_US = 500 + (int32_t)raw_jitter;
-
-    // 3. DANGER_ZONE: Packets arriving dangerously close to Deadline (e.g., > -500us).
-    int32_t DANGER_ZONE_US = -500;
-
-    // 4. IDLE_ZONE: Packets arriving with too much unnecessary slack space.
-    int32_t IDLE_ZONE_US = -(TARGET_IDLE_MARGIN_US + 200);
-
-    if (worst_late > DANGER_ZONE_US) {
-        // [Proposed Method 1]: Fast Expand / Panic Jump
-        // Jump the target back by the worst offset PLUS the massive PANIC cushion and jitter baseline
-        shift_us = worst_late + PANIC_CUSHION_US + (int32_t)raw_jitter; 
-    } 
-    else if (worst_late < IDLE_ZONE_US) {
-        // [Proposed Method 2]: Slow Decay
-        // We have too much idle buffer space. Slowly drift down towards TARGET_IDLE_MARGIN_US
-        int32_t excess_slack = -worst_late - TARGET_IDLE_MARGIN_US;
-        shift_us = -(excess_slack / 50); // Decay proportionally mapping to a very small descent per frame
-        
-        // Safety bounds for descent to prevent dropping directly into a spike
-        if (shift_us < -15) shift_us = -15;
-        if (shift_us > -2) shift_us = -2;
-    } 
-    else {
-        // Equilibrium Zone: Safe buffer maintained, do nothing
-        shift_us = 0;
+    // Filter out logically impossible metrics mapping (e.g. startup glitches mapping negative)
+    if (actual_transit_us < 0) {
+        actual_transit_us = 0;
     }
 
-    // Apply the computed differential and clamp absolutely against hardware bounds
-    int32_t new_logical_advance = current_logical_advance + shift_us;
+    // 2. Track Base Transit Delay via EWMA (Exponential Weighted Moving Average)
+    int32_t EWMA_PROCESS_DELAY_US = p7_info->ewma_process_us;
+    if (EWMA_PROCESS_DELAY_US <= 0 || EWMA_PROCESS_DELAY_US > ABSOLUTE_MAX_ADVANCE_US) {
+        EWMA_PROCESS_DELAY_US = actual_transit_us; // Initial boundary lock
+    } else {
+        // 63:1 slow fading EWMA tracking to isolate absolute baseline transit delay
+        EWMA_PROCESS_DELAY_US = ((EWMA_PROCESS_DELAY_US * 63) + actual_transit_us) / 64; 
+    }
+    p7_info->ewma_process_us = EWMA_PROCESS_DELAY_US;
+
+    // 3. Compute the Required Shift (Dynamic Jitter Control & Stabilization)
+    int32_t PANIC_CUSHION_US = 800; // Extra room added ONLY when panic expanding
+    int32_t JITTER_REGION_US = (int32_t)raw_jitter; // Safety padding
+
+    // The ABSOLUTE Target we actively track and stabilize around:
+    int32_t target_advance_us = EWMA_PROCESS_DELAY_US + JITTER_REGION_US;
+
+    // 4. Adjust the working Advance Target dynamically using Asymmetric Jitter
+    if (worst_late > -500) {
+        // [Fast Expand]: Arriving dangerously late (e.g. less than 500us margin)
+        // Immediately override the target with what we PROVE we just needed + cushion.
+        target_advance_us += PANIC_CUSHION_US;
+        add_sleep_us = target_advance_us - current_logical_advance;
+    } 
+    else if (current_logical_advance > target_advance_us + 100) {
+        // [Slow Decay]: We sit vastly higher than our proven Transit + Margin constraint.
+        // We gently drift down by converting the slacked excess into a small negative shift.
+        int32_t excess_slack = current_logical_advance - target_advance_us;
+        add_sleep_us = -(excess_slack / 50);
+        
+        // Bounded descent to prevent rapidly dropping directly back into a latency spike
+        if (add_sleep_us < -15) add_sleep_us = -15;
+        if (add_sleep_us > -2) add_sleep_us = -2;
+    } 
+    else if (current_logical_advance < target_advance_us) {
+        // [Steady Up]: Our current baseline is slightly drifting upwards. Nudge it softly.
+        add_sleep_us = target_advance_us - current_logical_advance;
+        if (add_sleep_us > 50) add_sleep_us = 50; 
+    }
+    else {
+        // [Equilibrium]: We are in the pocket. Hold position.
+        add_sleep_us = 0;
+    }
+
+    // Apply the absolute shift computed above and clamp to physical max limits
+    int32_t new_logical_advance = current_logical_advance + add_sleep_us;
     if (new_logical_advance > ABSOLUTE_MAX_ADVANCE_US) {
         new_logical_advance = ABSOLUTE_MAX_ADVANCE_US;
-        shift_us = new_logical_advance - current_logical_advance;
+        add_sleep_us = new_logical_advance - current_logical_advance;
     }
 
-    // 3. User Requested Simplification: Only print 1. Current Jitter, 2. Total Advance
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Convergence: Jitter = %u us, Target Total Advance = %d us (Current_Adv:%d, Pending:%d->%d)\n", 
-                raw_jitter, new_logical_advance, current_total_advanced_us, current_pending_us, current_pending_us + shift_us);
+    // Advanced Statistical Console Feedback
+	NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Network Stats: Actual Transit = %d us, Stable EWMA Baseline = %d us, Target %d us", 
+                actual_transit_us, EWMA_PROCESS_DELAY_US, target_advance_us);
+    
+    // Core Timing Loop Feedback
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Convergence: Jitter = %u us, Arrival Offset(worst) = %d us (Current_Adv:%d, Pending:%d->%d)", 
+                raw_jitter, worst_late, current_total_advanced_us, current_pending_us, current_pending_us + add_sleep_us);
 
-    // Apply the delta to pending_us so sleep thread consumes it incrementally
-    if (shift_us != 0) {
-        __atomic_store_n(&p7_info->pending_us, current_pending_us + shift_us, __ATOMIC_SEQ_CST);
+    // Push the final delta to the sleep thread asynchronously
+    if (add_sleep_us != 0) {
+        __atomic_store_n(&p7_info->pending_us, current_pending_us + add_sleep_us, __ATOMIC_SEQ_CST);
         
         __atomic_store_n(&p7_info->last_adjustment_time_hr, vnf_get_current_time_hr(), __ATOMIC_SEQ_CST);
         __atomic_store_n(&p7_info->last_total_advanced_us, current_total_advanced_us, __ATOMIC_SEQ_CST);
