@@ -127,6 +127,12 @@ mapping * log_option_names_ptr(void)
   return log_options;
 }
 
+void __attribute__((weak)) log_mmap_entry(const char *log_name, long value)
+{
+  (void)log_name;
+  (void)value;
+}
+
 /* .log_format = 0x13 uncolored standard messages
  * .log_format = 0x93 colored standard messages */
 /* keep white space in first position; switching it to 0 allows colors to be disabled*/
