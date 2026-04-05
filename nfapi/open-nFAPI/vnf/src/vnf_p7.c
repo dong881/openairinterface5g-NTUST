@@ -327,11 +327,10 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     }
 
     // Advanced Statistical Console Feedback
-	NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Network Stats: Actual Transit = %d us, Stable EWMA Baseline = %d us, Target %d us", 
-                actual_transit_us, EWMA_PROCESS_DELAY_US, target_advance_us);
-    
+	NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[VNF] Timing Window: %d us, Target Advance: %d us, Current Logical Advance: %d us, EWMA Process Delay: %d us, PNF Reported Jitter: %d us", 
+				timing_window_us, target_advance_us, current_logical_advance, EWMA_PROCESS_DELAY_US, raw_jitter);
     // Core Timing Loop Feedback
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Convergence: Jitter = %u us, Arrival Offset(worst) = %d us (Current_Adv:%d, Pending:%d->%d)", 
+    NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[VNF] Convergence: Jitter = %u us, Arrival Offset(worst) = %d us (Current_Adv:%d, Pending:%d->%d)", 
                 raw_jitter, worst_late, current_total_advanced_us, current_pending_us, current_pending_us + add_sleep_us);
 
     // Push the final delta to the sleep thread asynchronously
