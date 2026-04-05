@@ -1258,10 +1258,10 @@ void *vnf_timing_thread(void *arg) {
       timespec_add_us(&p7_info->next_slot_time, p7_info->slot_duration_us - remaining_sleep_us);
       pthread_mutex_unlock(&p7_info->mutex);
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
+      pthread_mutex_lock(&p7_info->mutex); // re-lock for the check
     } else if (behind_us > 0) {
       p7_info->pending_us += behind_us;
       timespec_add_us(&p7_info->next_slot_time, process_us); // Keep phase locked strictly
-      pthread_mutex_unlock(&p7_info->mutex);
     } else {
       int remaining_us = duration_us - process_us;
       timespec_add_us(&p7_info->next_slot_time, duration_us);
@@ -1276,7 +1276,47 @@ void *vnf_timing_thread(void *arg) {
         p7_info->pending_us -= repay_amount;
         timespec_add_us(&p7_info->next_slot_time, -repay_amount);
       }
-      pthread_mutex_unlock(&p7_info->mutex);
+    }
+
+    // --- STEP 1.5: ABSOLUTE PHASE BOUNDARY ENFORCEMENT ---
+    // User requested putting the bounds *before* we send the phy_nr_slot_indication!
+    // This allows the timeout/timer to organically prevent out-of-bounds early packets
+    // without "shooting out the storm, then noticing we are wrong".
+    // 
+    // Challenge addressed here:
+    // Slot workloads differ (DL TTI and TxData require much more CPU time than others). To
+    // prevent overall jitter, we historically buffered a large margin. But for "light" slots,
+    // applying the same margin means they arrive *too early*. The boundary must be
+    // rigidly enforced right before dispatch to clamp this structural variance.
+    if (p7_info->sync_locked) {
+        int64_t added_us = ((int64_t)p7_info->next_slot_time.tv_sec - loop_start_slot_time.tv_sec) * 1000000LL + 
+                           (p7_info->next_slot_time.tv_nsec - loop_start_slot_time.tv_nsec) / 1000;
+        int64_t nominal_us = p7_info->slot_duration_us * (1 + skip_slots);
+        int64_t physical_advance_this_loop = nominal_us - added_us;
+        
+        p7_info->total_advanced_us += physical_advance_this_loop;
+
+        if (p7_info->absolute_max_advance_us > 0 && p7_info->total_advanced_us > p7_info->absolute_max_advance_us) {
+            int32_t over_advance_us = p7_info->total_advanced_us - p7_info->absolute_max_advance_us;
+            NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF] Slot %d.%d Phase drift bounded by ABSOLUTE_MAX_ADVANCE_US. Correcting phase before dispatch by sleeping later %d us!\n", 
+                         p7_info->sfn, p7_info->slot, over_advance_us);
+            
+            timespec_add_us(&p7_info->next_slot_time, over_advance_us);
+            p7_info->total_advanced_us = p7_info->absolute_max_advance_us;
+            
+            if (p7_info->pending_us > over_advance_us) {
+                p7_info->pending_us -= over_advance_us;
+            } else {
+                p7_info->pending_us = 0;
+            }
+        }
+    }
+    
+    pthread_mutex_unlock(&p7_info->mutex);
+
+    // Now execute actual sleep if we had remaining time (or added over_advance_us)
+    if (behind_us <= 0 || (p7_info->sync_locked && p7_info->absolute_max_advance_us > 0 && p7_info->total_advanced_us == p7_info->absolute_max_advance_us)) {
+      // Re-sleep to respect newly added 'over_advance_us' buffer or original duration block sleep
       clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
     }
     vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
@@ -1300,7 +1340,7 @@ void *vnf_timing_thread(void *arg) {
     int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, (sfnslot_dec + slot_ahead) % MAX_SFNSLOTDEC);
     int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec + slot_ahead) % MAX_SFNSLOTDEC);
 
-    if (!p7_info->sync_locked && p7_info->sync_slot_counter++ >= p7_info->sync_period_slots) {
+    if (p7_info->sync_slot_counter++ >= p7_info->sync_period_slots) {
       p7_info->sync_slot_counter = 0;
       vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
     }
@@ -1310,39 +1350,13 @@ void *vnf_timing_thread(void *arg) {
     ind.sfn = ind_sfn;
     ind.slot = ind_slot;
     ind.header.phy_id = p7_info->phy_id;
+    // Log the current physical total advance corresponding to this generated slot packet.
+    log_mmap_entry("vnf_advance_time", (long)p7_info->total_advanced_us );
     phy_nr_slot_indication(&ind);
 
     // Step 5: Advance to Next Slot
     sfnslot_dec = (sfnslot_dec + 1) % MAX_SFNSLOTDEC;
 
-    // Track exact physical phase shifted this loop
-    if (p7_info->sync_locked) {
-        int64_t added_us = ((int64_t)p7_info->next_slot_time.tv_sec - loop_start_slot_time.tv_sec) * 1000000LL + 
-                           (p7_info->next_slot_time.tv_nsec - loop_start_slot_time.tv_nsec) / 1000;
-        int64_t nominal_us = p7_info->slot_duration_us * (1 + skip_slots);
-        int64_t physical_advance_this_loop = nominal_us - added_us;
-        
-        p7_info->total_advanced_us += physical_advance_this_loop;
-
-        // NEW LOGIC: Enforce absolute maximum advance ceiling per iteration organically.
-        // This is a critical physical boundary ensuring the system's phase pacing never exceeds 
-        // the max early boundary, fully preventing "Too Early" drops even under jitter attacks.
-        if (p7_info->absolute_max_advance_us > 0 && p7_info->total_advanced_us > p7_info->absolute_max_advance_us) {
-            int32_t over_advance_us = p7_info->total_advanced_us - p7_info->absolute_max_advance_us;
-            NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF] Phase drift bounded by ABSOLUTE_MAX_ADVANCE_US. Correcting phase by pushing later %d us!\n", over_advance_us);
-            
-            // To push the pacing timer -> later -> we add time (so it sleeps longer)
-            timespec_add_us(&p7_info->next_slot_time, over_advance_us);
-            p7_info->total_advanced_us = p7_info->absolute_max_advance_us;
-            
-            // Re-sync any pending_us backlog since we actively nullified it organically
-            if (p7_info->pending_us > over_advance_us) {
-                p7_info->pending_us -= over_advance_us;
-            } else {
-                p7_info->pending_us = 0;
-            }
-        }
-    }
   }
   return NULL;
 }
@@ -2137,7 +2151,7 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   vnf->p7_vnfs[0].tx_data_timing_offset = 0;
   vnf->p7_vnfs[0].periodic_timing_enabled = 1;
   vnf->p7_vnfs[0].aperiodic_timing_enabled = 0;
-  vnf->p7_vnfs[0].periodic_timing_period = 9;
+  vnf->p7_vnfs[0].periodic_timing_period = 3;
   vnf->p7_vnfs[0].config = nfapi_vnf_p7_config_create();
 #ifndef ENABLE_AERIAL
   NFAPI_TRACE(NFAPI_TRACE_INFO,

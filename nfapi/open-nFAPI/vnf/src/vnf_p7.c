@@ -36,6 +36,8 @@
 #endif
 #include "nr_fapi_p7_utils.h"
 
+extern void log_mmap_entry(const char *log_name, long value);
+
 #ifdef NDEBUG
 #  warning assert is disabled
 #endif
@@ -85,9 +87,12 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
   uint32_t base_slot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot);
   uint32_t current_slot_dec = (base_slot_dec + 1) % max_slot_dec;
 
-  // Expanded valid range to prevent blinding the feedback loop when margin is extremely large
+  // Expand the valid range to include the configured timing window plus a slot margin.
+  // This prevents discarding legitimate too-early / too-late reports when timing_window is > 5ms.
+  nfapi_vnf_config_t *config = get_config();
+  int32_t timing_window_us = (config != NULL && config->timing_window > 0) ? (int32_t)config->timing_window : 5000;
   const int32_t TIMING_VALUE_MIN = -150000;
-  const int32_t TIMING_VALUE_MAX = 5000;
+  const int32_t TIMING_VALUE_MAX = timing_window_us + (int32_t)slot_duration_us * 2 + 2000;
 
   for (int i = 0; i < 8; i++) {
     if (raw_data[i].value == 0)
@@ -239,11 +244,32 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     // According to Ramjee et al. 1994, target safe buffer = Base Delay + 4 * Jitter
     int32_t ALPHA = 4;
     
-    // [CRITICAL FIX] Fetch the Dynamic Wait Process Delay (VNF execution latency)
-    // The delay MUST be dynamically obtained from the EWMA evaluated directly from the 
-    // actual scheduling and packing thread process times. Hardcoding a static delay 
-    // (e.g., 250us) is strictly prohibited and extremely dangerous across varying workloads.
-    int32_t BASE_PROCESS_DELAY_US = (p7_info->ewma_process_us > 0) ? p7_info->ewma_process_us : 0; 
+    // [Node-to-Node] VNF-to-PNF latency sample
+    // Only worst-case latency is recorded for the VNF-PNF path.
+    int32_t current_total_advanced_us = __atomic_load_n(&p7_info->total_advanced_us, __ATOMIC_SEQ_CST);
+    int32_t reference_total_advanced_us = current_total_advanced_us;
+    uint32_t now_hr = vnf_get_current_time_hr();
+    if (p7_info->last_adjustment_time_hr != 0) {
+        int64_t diff_us = timehr_diff_us(now_hr, p7_info->last_adjustment_time_hr);
+        if (diff_us >= 0 && diff_us <= 4LL * (int64_t)p7_info->slot_duration_us) {
+            reference_total_advanced_us = __atomic_load_n(&p7_info->last_total_advanced_us, __ATOMIC_SEQ_CST);
+        }
+    }
+
+    int32_t node_to_node_latency = reference_total_advanced_us + worst_late;
+    log_mmap_entry("vnf-pnf-latency", (long)node_to_node_latency);
+
+    // Update EWMA Base Delay to the Node-to-Node latency
+    // (VNF CPU execution + Network Transit + Queueing)
+    if (p7_info->ewma_process_us == 0) {
+        p7_info->ewma_process_us = node_to_node_latency;
+    } else {
+        p7_info->ewma_process_us = ((p7_info->ewma_process_us * 63) + node_to_node_latency) / 64;
+    }
+
+    // The 'BASE_PROCESS_DELAY_US' is now a true representation of exactly how 
+    // many microseconds a packet takes from early scheduler dispatch to PNF reception window.
+    int32_t BASE_PROCESS_DELAY_US = p7_info->ewma_process_us; 
     int32_t REQUIRED_HEADROOM_US = BASE_PROCESS_DELAY_US + (ALPHA * effective_jitter);
     int32_t DYNAMIC_LOWER_SAFE_BOUND = -REQUIRED_HEADROOM_US;
 
@@ -266,6 +292,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     }
 
     int32_t shift_us = 0;
+    bool adjustment_issued = false;
 
     // 2. Evaluation Logic - Control Proportional Phase 
     // A. "Too Early" Check
@@ -282,8 +309,25 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         int32_t max_allowed_shift = worst_early - UPPER_SAFE_BOUND - 100;
         if (shift_us > max_allowed_shift) shift_us = max_allowed_shift;
         if (shift_us < 0) shift_us = 0; 
-
-        NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] LATE DANGER DETECTED (WorstLate: %d us > HalfBound: %d us), Fast Advance by %d us!\n", worst_late, DYNAMIC_LOWER_SAFE_BOUND / 2, shift_us);
+        
+        // Critical Fix: Late Storm Evacuation (User Command)
+        // When 1G traffic pushes the CPU/Network to the brink, we cannot simply "sleep less" 
+        // to catch up—there is no idle time left to borrow! The packets physically pile up.
+        // Therefore, if we suffer a severe delay, we command the main thread to physically
+        // skip generating an entire Slot (e.g. 500us/1000us) and instantly teleport the clock forward.
+        // This drops 1 slot but rescues the remaining 10,000 slots from a cascading late storm.
+        NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF] LATE STORM EVACUATION! (WorstLate: %d us > HalfBound: %d us). Commanding explicit slot skip to clear backpressure!\n",
+                     worst_late, DYNAMIC_LOWER_SAFE_BOUND / 2);
+            
+        // Apply the skip directly to pending_us, which tells the main loop to skip slots IMMEDIATELY
+        long slot_skip_us = p7_info->slot_duration_us;
+        __atomic_store_n(&p7_info->pending_us, p7_info->pending_us + slot_skip_us, __ATOMIC_SEQ_CST);
+        
+        // Set an atomic flag to notify the slot thread to skip SFN/Slot indices
+        __atomic_store_n(&p7_info->slot_adjustment, 1, __ATOMIC_SEQ_CST);
+        adjustment_issued = true;
+        
+        // We still apply the advance shift_us!
     }
     // C. Jitter is Small - Slowly Retreat to remove unnecessary delay and decrease round-trip latency
     else {
@@ -316,6 +360,12 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         if (target_advance < 0) target_advance = 0;
 
         __atomic_store_n(&p7_info->pending_us, target_advance - p7_info->total_advanced_us, __ATOMIC_SEQ_CST);
+        adjustment_issued = true;
+    }
+
+    if (adjustment_issued) {
+        __atomic_store_n(&p7_info->last_adjustment_time_hr, vnf_get_current_time_hr(), __ATOMIC_SEQ_CST);
+        __atomic_store_n(&p7_info->last_total_advanced_us, current_total_advanced_us, __ATOMIC_SEQ_CST);
     }
 }
 
@@ -329,6 +379,10 @@ void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *v
   if (ind->time_since_last_timing_info > 10000)
     return; // Basic sanity check
 
+  // Sanity Clamp: If 'earliest_arrival' is absurdly negative (e.g. -140000), drop it entirely.
+  // This happens during initial SFN/Slot wraps or severe out-of-order packets where the
+  // PNF reports a wrap difference backwards. Applying this throws the VNF violently back.
+  // Sanity Drop replaced by PNF physical offset bounds [-40, 40]
   /* 
    * Feedback Hold-Off / Dead Time Masking (Based on Control Theory for Delayed Systems)
    * 
@@ -1984,6 +2038,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 			p7_info->slot_adjustment += s_adj;
 			p7_info->pending_us += p_adj;
 			p7_info->last_adjustment_time_hr = vnf_get_current_time_hr(); // Mask stale timing info
+			p7_info->last_total_advanced_us = p7_info->total_advanced_us;
 		}
 	}
 	pthread_mutex_unlock(&p7_info->mutex);

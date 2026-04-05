@@ -151,6 +151,7 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t ewma_process_us;
 	int32_t ewma_owd_us;
 	int32_t total_advanced_us; // Absolute cumulative phase shift relative to initial sync
+	int32_t last_total_advanced_us; // Reference total advance measured at last adjustment
     int32_t absolute_max_advance_us;
     uint32_t smoothed_pnf_jitter_us;
 

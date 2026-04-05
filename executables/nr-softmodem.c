@@ -844,7 +844,9 @@ static void init_vnf_mmap_loggers(void)
 {
   init_mmap_logger("vnf_harq_buffer");
   init_mmap_logger("vnf_harq_rtt");
-  // Add VNF-only loggers here - keeps VNF changes isolated
+  // Track continuous VNF-PNF latency measurements and advance timing
+  init_mmap_logger("vnf_advance_time");
+  init_mmap_logger("vnf-pnf-latency");
 }
 
 static void init_monolithic_mmap_loggers(void)
