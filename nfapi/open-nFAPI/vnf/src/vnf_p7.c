@@ -208,15 +208,49 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
  * =========================================================================================
  */
 
+/*
+ * =========================================================================================
+ * VNF P7 Convergence Optimization & Adaptive Jitter Buffer Control
+ * =========================================================================================
+ * 
+ * REFERENCES:
+ * 1. WebRTC NetEQ / Adaptive Jitter Buffer (Ramjee et al., IEEE INFOCOM 1994):
+ *    - Logic: Asymmetric adjustment rate. Fast expand the buffer upon delay spikes to prevent 
+ *      packet drops (too late), but shrink the buffer very slowly ("Slow Decay") during stable 
+ *      periods to minimize idle latency and drift towards the lower bound constraint.
+ * 2. TCP RTO Jacobson/Karels Algorithm (RFC 6298):
+ *    - Logic: Variance tracking. Reaction must be anchored to the extreme measured 
+ *      edges (worst arrival time offset) rather than simple averages in bursty networks.
+ *
+ * CHALLENGES & PROPOSED METHODS:
+ * [Challenge 1: Burst Traffic Inducing "Too Late" Packet Drops]
+ *   - Problem: When jitter is low, VNF naturally minimizes the advance buffer. However, an 
+ *     instantaneous traffic burst (e.g., UE RACH or large UL grants) causes severe queuing delay. 
+ *     If we don't react preemptively, subsequent packets will arrive strictly after the Deadline 
+ *     (0us) and be heavily dropped.
+ *   - Proposed Method (Fast Expand): Establish a Danger Zone (e.g., arrival within 500us of Deadline). 
+ *     When the `worst_late` offset enters this danger zone, we execute an immediate panic jump: 
+ *     we force the total advance backward by `worst_late` PLUS a massive `PANIC_CUSHION_US` (1500us) 
+ *     plus current Jitter. This instantly creates a vast safety net for the rest of the incoming burst.
+ *
+ * [Challenge 2: Wasting Latency in Idle/Stable Conditions]
+ *   - Problem: If the system permanently holds 1500us of advance after a burst, E2E latency permanently 
+ *     suffers even when the network is quiet and Jitter is near zero.
+ *   - Proposed Method (Slow Decay): Once the burst subsides and the `worst_late` offset reveals excessive 
+ *     slack (arriving far earlier than necessary), we slowly decay the advance down toward a tight 
+ *     baseline minimum `TARGET_IDLE_MARGIN_US` (e.g., 500us + Jitter). By incrementally stepping down 
+ *     (-15us max per step), we gradually drift toward minimizing latency without colliding into new spikes.
+ * =========================================================================================
+ */
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
 {
     // Fetch dynamic timing window
     nfapi_vnf_config_t *config = get_config();
     int32_t timing_window_us = (int32_t)config->timing_window;
 
-    // 1. Calculate ideal total advance based squarely on Jitter + Process Delay
     uint32_t raw_jitter = stats->pnf_reported_jitter;
     p7_info->smoothed_pnf_jitter_us = raw_jitter;
+    
     int32_t ABS_OWD_DELAY_US = p7_info->ewma_owd_us;
     int32_t node_to_node_latency = p7_info->ewma_process_us;
     
@@ -224,7 +258,8 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     p7_info->ewma_process_us = ((p7_info->ewma_process_us * 63) + node_to_node_latency) / 64;
     int32_t BASE_PROCESS_DELAY_US = p7_info->ewma_process_us;
     
-    // The ABSOLUTE_MAX_ADVANCE_US is our hard physical ceiling
+    // The ABSOLUTE_MAX_ADVANCE_US is our hard physical ceiling.
+    // Exceeding this boundary strictly results in "Too Early" packet rejections by the PNF.
     int32_t ABSOLUTE_MAX_ADVANCE_US = timing_window_us;
     p7_info->absolute_max_advance_us = ABSOLUTE_MAX_ADVANCE_US;
 
@@ -232,43 +267,45 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     int32_t current_pending_us = __atomic_load_n(&p7_info->pending_us, __ATOMIC_SEQ_CST);
     int32_t current_logical_advance = current_total_advanced_us + current_pending_us;
 
-    // 1. 先預留一個超大的空間（假設 1500 us），加上目前的 Jitter，做為我們想維持的初步目標
-    // 這樣可以保證在遇到最糟 Jitter + Process Delay 時，都還有 1500us 的緩衝防止 Too Late
-    int32_t TARGET_MARGIN_US = 1500;
-    int32_t ideal_total_advance = BASE_PROCESS_DELAY_US + raw_jitter + TARGET_MARGIN_US;
-
+    // 'worst_late': Arrival offset of the tightest packet relative to the Deadline (0us).
+    // Positive means Arrived Late; Negative means Arrived Early (Safe).
     int32_t worst_late = stats->worst_late;
     int32_t shift_us = 0;
 
-    // 4. 定義判斷 Too Late 的 Upper/Lower Bound 緩衝區
-    // Too Late 危險區：如果距離 Deadline (0) 小於 500us，代表快遲到了
-    if (worst_late > -500) {
-        // 2. 先應對第一波的 Late：立刻大幅度拉升提前量，把距離撐開回安全水位
-        shift_us = worst_late + TARGET_MARGIN_US;
-        
-        // 如果理論安全水位比這個還大，就跳到理論水位以確保充足
-        int32_t ideal_shift = ideal_total_advance - current_logical_advance;
-        if (ideal_shift > shift_us) {
-            shift_us = ideal_shift;
-        }
+    // --- ALGORITHM PARAMETERS ---
+    // 1. PANIC_CUSHION_US: The massive buffer we instantly inject on the first sign of latency danger.
+    int32_t PANIC_CUSHION_US = 1500;
+    
+    // 2. TARGET_IDLE_MARGIN_US: The tight baseline limit we slowly aim for when traffic is stable.
+    int32_t TARGET_IDLE_MARGIN_US = 500 + (int32_t)raw_jitter;
+
+    // 3. DANGER_ZONE: Packets arriving dangerously close to Deadline (e.g., > -500us).
+    int32_t DANGER_ZONE_US = -500;
+
+    // 4. IDLE_ZONE: Packets arriving with too much unnecessary slack space.
+    int32_t IDLE_ZONE_US = -(TARGET_IDLE_MARGIN_US + 200);
+
+    if (worst_late > DANGER_ZONE_US) {
+        // [Proposed Method 1]: Fast Expand / Panic Jump
+        // Jump the target back by the worst offset PLUS the massive PANIC cushion and jitter baseline
+        shift_us = worst_late + PANIC_CUSHION_US + (int32_t)raw_jitter; 
     } 
-    // 太過安全/提早區：如果距離 Deadline 過遠（超過 Target Margin + 500us），代表空間太空曠
-    else if (worst_late < -(TARGET_MARGIN_US + 500)) {
-        // 3. 決定慢慢下降，往 Timing Window 的 Lower Bound 靠攏 (Slow Decay)
-        // 為了避免剛退就撞到突發 Late，一次只退非常少量
-        int32_t excess_slack = -worst_late - TARGET_MARGIN_US;
-        shift_us = -(excess_slack / 50); // 每一輪按比例緩降
+    else if (worst_late < IDLE_ZONE_US) {
+        // [Proposed Method 2]: Slow Decay
+        // We have too much idle buffer space. Slowly drift down towards TARGET_IDLE_MARGIN_US
+        int32_t excess_slack = -worst_late - TARGET_IDLE_MARGIN_US;
+        shift_us = -(excess_slack / 50); // Decay proportionally mapping to a very small descent per frame
         
-        // 限制退讓的最高速度，確保平滑下降
+        // Safety bounds for descent to prevent dropping directly into a spike
         if (shift_us < -15) shift_us = -15;
         if (shift_us > -2) shift_us = -2;
     } 
     else {
-        // 身處安全區間內（平穩），暫不進行大幅變動
+        // Equilibrium Zone: Safe buffer maintained, do nothing
         shift_us = 0;
     }
 
-    // 將算出的 shift 套用，並確保不超過硬體物理極限 (ABSOLUTE_MAX_ADVANCE_US)
+    // Apply the computed differential and clamp absolutely against hardware bounds
     int32_t new_logical_advance = current_logical_advance + shift_us;
     if (new_logical_advance > ABSOLUTE_MAX_ADVANCE_US) {
         new_logical_advance = ABSOLUTE_MAX_ADVANCE_US;
