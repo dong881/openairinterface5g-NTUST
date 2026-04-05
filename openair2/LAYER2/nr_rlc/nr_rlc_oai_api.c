@@ -45,6 +45,8 @@
 
 #include <executables/softmodem-common.h>
 
+extern void log_mmap_entry(const char *log_name, long value);
+
 static nr_rlc_ue_manager_t *nr_rlc_ue_manager;
 
 /* TODO: handle time a bit more properly */
@@ -202,6 +204,7 @@ int nr_mac_rlc_multi_data_req(const module_id_t module_idP,
 {
   int ret = 0;
 
+  uint64_t start_time = rdtsc_oai();
   nr_rlc_manager_lock(nr_rlc_ue_manager);
   nr_rlc_ue_t *ue = nr_rlc_manager_get_ue(nr_rlc_ue_manager, ue_id);
   nr_rlc_entity_t *rb = get_rlc_entity_from_lcid(ue, channel_idP);
@@ -228,6 +231,12 @@ int nr_mac_rlc_multi_data_req(const module_id_t module_idP,
 
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
 
+  if (rb != NULL) {
+    uint64_t end_time = rdtsc_oai();
+    long diff_us = (long)((end_time - start_time) / (cpuf * 1000.0));
+    log_mmap_entry("vnf_rlc_runtime", diff_us);
+  }
+
   if (gnb_flagP)
     T(T_ENB_RLC_MAC_DL, T_INT(module_idP), T_INT(ue_id),
       T_INT(channel_idP), T_INT(ret));
@@ -245,6 +254,7 @@ tbs_size_t nr_mac_rlc_data_req(const module_id_t  module_idP,
   int ret;
   int maxsize;
 
+  uint64_t start_time = rdtsc_oai();
   nr_rlc_manager_lock(nr_rlc_ue_manager);
   nr_rlc_ue_t *ue = nr_rlc_manager_get_ue(nr_rlc_ue_manager, ue_id);
   nr_rlc_entity_t *rb = get_rlc_entity_from_lcid(ue, channel_idP);
@@ -260,6 +270,12 @@ tbs_size_t nr_mac_rlc_data_req(const module_id_t  module_idP,
   }
 
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
+
+  if (rb != NULL) {
+    uint64_t end_time = rdtsc_oai();
+    long diff_us = (long)((end_time - start_time) / (cpuf * 1000.0));
+    log_mmap_entry("vnf_rlc_runtime", diff_us);
+  }
 
   if (gnb_flagP)
     T(T_ENB_RLC_MAC_DL, T_INT(module_idP), T_INT(ue_id),
