@@ -698,7 +698,7 @@ static bool check_nr_p7_timing(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_t msg_
 	// VNF is capped at sl_ahead = 6 (rarely up to 10-15 under high jitter backlog)
 	// If it's > 40 or < -11, this is an initialized sync wrap-around bug.
 	// We log the packet but DO NOT corrupt earliest_arrival/latest_delay tracking.
-	if (diff_slots >= -5 && diff_slots <= 40) {
+	if (diff_slots >= -4 && diff_slots <= 40) {
 		if (offset > *latest_delay) {
 			*latest_delay = (int32_t)offset;
 		}
