@@ -1126,6 +1126,7 @@ int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
 
   return 1;
 }
+
 #ifndef ENABLE_WLS
 // VNF Autonomous Timing Module
 void timespec_add_us(struct timespec *t, long us) {
@@ -1266,11 +1267,15 @@ void *vnf_timing_thread(void *arg) {
     // 否則，若是我們剛剛刻意製造的 real_behind_us，我們就讓它走正常的 Burst 消化！
     
     // 計算「真正的純OS延遲」
+    int32_t pure_os_delay = process_us - (p7_info->us_adjustment + p7_info->slot_duration_us);
+    if (pure_os_delay < (int32_t)p7_info->slot_duration_us * 3) {
+        pure_os_delay -= thread_burst_debt_us;
+    }
+    
     if (thread_burst_debt_us > 0) {
         thread_burst_debt_us -= p7_info->slot_duration_us;
         if (thread_burst_debt_us < 0) thread_burst_debt_us = 0;
     }
-    int32_t pure_os_delay = process_us - (p7_info->us_adjustment + p7_info->slot_duration_us) - thread_burst_debt_us;
     // 此處不該包含剛剛人為加上去的 jump_us，如果 pure_os_delay 超過 3 slots，代表是真當機
     
     if (real_behind_us >= (int32_t)p7_info->slot_duration_us * 3 && pure_os_delay >= (int32_t)p7_info->slot_duration_us * 3) {
@@ -1404,7 +1409,6 @@ void *vnf_timing_thread(void *arg) {
   return NULL;
 }
 #endif
-
 int phy_nr_srs_indication(nfapi_nr_srs_indication_t *ind)
 {
   for (int i = 0; i < ind->number_of_pdus; ++i)

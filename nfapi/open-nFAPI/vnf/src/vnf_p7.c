@@ -255,8 +255,8 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         }
     }
 
-    int32_t node_to_node_latency = reference_total_advanced_us + worst_late;
-    log_mmap_entry("vnf-pnf-latency", (long)node_to_node_latency);
+    int32_t node_to_node_latency = timing_window_us + worst_late - reference_total_advanced_us;
+    log_mmap_entry("vnf_pnf_latency", (long)node_to_node_latency);
 
     // Update EWMA Base Delay to the Node-to-Node latency
     // (VNF CPU execution + Network Transit + Queueing)
@@ -358,7 +358,8 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         }
         if (target_advance < 0) target_advance = 0;
 
-        __atomic_store_n(&p7_info->pending_us, target_advance - p7_info->total_advanced_us, __ATOMIC_SEQ_CST);
+        long delta_us = target_advance - p7_info->total_advanced_us;
+        __atomic_store_n(&p7_info->pending_us, p7_info->pending_us + delta_us, __ATOMIC_SEQ_CST);
         adjustment_issued = true;
     }
 
