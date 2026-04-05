@@ -46,10 +46,10 @@ show_help() {
     echo "                  1: Auto-stop after 120 seconds"
     echo ""
     echo "LOG FILES:"
-    echo "  PNF Log:       \$HOME/gNB-logs/nfapi-PNF-pegatron-localcn-2025.w52-f-ming-develop.log"
-    echo "  PNF Split Log: \$HOME/gNB-logs/nfapi-PNF-Split-pegatron-localcn-2025.w52-f-ming-develop.log"
-    echo "  VNF Log:       \$HOME/gNB-logs/nfapi-VNF-pegatron-localcn-2025.w52-ming-develop.log"
-    echo "  gNB Mono Log:  \$HOME/gNB-logs/gNB-pegatron-localcn-2025.w52-ming-develop.log"
+    echo "  PNF Log:       \$HOME/gNB-logs/nfapi-PNF-pegatron-open5gs-develop-latest.log"
+    echo "  PNF Split Log: \$HOME/gNB-logs/nfapi-PNF-split-pegatron-open5gs-develop-latest.log"
+    echo "  VNF Log:       \$HOME/gNB-logs/nfapi-VNF-open5gs-develop-latest.log"
+    echo "  gNB Mono Log:  \$HOME/gNB-logs/gNB-pegatron-open5gs-develop-latest.log"
     echo "==============================================================================="
     exit 0
 }
@@ -77,7 +77,8 @@ CONF_PNF_RFSIM="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-pnf.band78.rfs
 CONF_GNB="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi72.4x4-pega.conf"
 
 # Thread pool settings
-THREAD_POOL="1,3,5,7,9,11,13,15"
+THREAD_POOL_VNF="0,2,4,6,32,34,36,38"
+THREAD_POOL_PNF="24,25,26,27,28,29,30,31"
 THREAD_POOL_GNB="1,3,5,7,9,11,13,14,15,16,17,18"
 
 # Log directory
@@ -153,7 +154,7 @@ start_vnf_local() {
         exit 1
     }
     
-    local log_file="$LOG_DIR/nfapi-VNF-pegatron-localcn-${DATE_TAG}-${log_suffix}.log"
+    local log_file="$LOG_DIR/nfapi-VNF-open5gs-${DATE_TAG}-${log_suffix}.log"
     
     # CLEANUP LOG to prevent auto-tester from reading old data
     if [ -f "$log_file" ]; then
@@ -162,7 +163,8 @@ start_vnf_local() {
     fi
     
     echo -e "${GREEN}🚀 Starting VNF...${NC}"
-    local cmd="screen -dmS VNF_SESSION bash -c \"sudo NFAPI_TRACE_LEVEL=info gdb -ex run --args ./nr-softmodem -q -O ${conf_file} --nfapi VNF 2>&1 | tee ${log_file}\""
+    # Added numactl and new thread pool, removed gdb
+    local cmd="screen -dmS VNF_SESSION bash -c \"sudo NFAPI_TRACE_LEVEL=info numactl --cpunodebind=0 --membind=0 ./nr-softmodem -O ${conf_file} --thread-pool ${THREAD_POOL_VNF} --nfapi VNF 2>&1 | tee ${log_file}\""
     echo -e "${YELLOW}CMD:${NC} $cmd"
     eval "$cmd"
     
@@ -186,9 +188,9 @@ start_pnf_local() {
     
     local log_file
     if [ "$is_split" -eq 1 ]; then
-        log_file="$LOG_DIR/nfapi-PNF-Split-pegatron-localcn-${DATE_TAG}-${log_suffix}.log"
+        log_file="$LOG_DIR/nfapi-PNF-split-pegatron-open5gs-${DATE_TAG}-${log_suffix}.log"
     else
-        log_file="$LOG_DIR/nfapi-PNF-pegatron-localcn-${DATE_TAG}-${log_suffix}.log"
+        log_file="$LOG_DIR/nfapi-PNF-pegatron-open5gs-${DATE_TAG}-${log_suffix}.log"
     fi
     
     # CLEANUP LOG to prevent auto-tester from reading old data
@@ -198,7 +200,8 @@ start_pnf_local() {
     fi
     
     echo -e "${GREEN}🚀 Starting PNF...${NC}"
-    local cmd="screen -dmS PNF_SESSION bash -c \"sudo NFAPI_TRACE_LEVEL=info gdb -ex run --args ./nr-softmodem -O ${conf_file} --thread-pool ${THREAD_POOL} --nfapi PNF 2>&1 | tee ${log_file}\""
+    # Removed gdb, applied new thread pool
+    local cmd="screen -dmS PNF_SESSION bash -c \"sudo NFAPI_TRACE_LEVEL=info ./nr-softmodem -O ${conf_file} --nfapi PNF --thread-pool ${THREAD_POOL_PNF} 2>&1 | tee ${log_file}\""
     echo -e "${YELLOW}CMD:${NC} $cmd"
     eval "$cmd"
     
@@ -219,7 +222,7 @@ start_gnb_local() {
         exit 1
     }
 
-    local log_file="$LOG_DIR/gNB-pegatron-localcn-${DATE_TAG}-${log_suffix}.log"
+    local log_file="$LOG_DIR/gNB-pegatron-open5gs-${DATE_TAG}-${log_suffix}.log"
 
     # CLEANUP LOG to prevent auto-tester from reading old data
     if [ -f "$log_file" ]; then
@@ -228,7 +231,7 @@ start_gnb_local() {
     fi
 
     echo -e "${GREEN}🚀 Starting gNB (Monolithic)...${NC}"
-    local cmd="screen -dmS GNB_SESSION bash -c \"sudo gdb -ex run --args ./nr-softmodem -O ${conf_file} --thread-pool ${THREAD_POOL_GNB} 2>&1 | tee ${log_file}\""
+    local cmd="screen -dmS GNB_SESSION bash -c \"sudo ./nr-softmodem -O ${conf_file} --thread-pool ${THREAD_POOL_GNB} 2>&1 | tee ${log_file}\""
     echo -e "${YELLOW}CMD:${NC} $cmd"
     eval "$cmd"
 
@@ -258,7 +261,7 @@ start_pnf_rfsim() {
     fi
     
     echo -e "${GREEN}🚀 Starting PNF (RFSim)...${NC}"
-    local cmd="screen -dmS PNF_SESSION bash -c \"sudo NFAPI_TRACE_LEVEL=info gdb -ex run --args ./nr-softmodem -O ${conf_file} --nfapi PNF --rfsim 2>&1 | tee ${log_file}\""
+    local cmd="screen -dmS PNF_SESSION bash -c \"sudo NFAPI_TRACE_LEVEL=info ./nr-softmodem -O ${conf_file} --nfapi PNF --rfsim 2>&1 | tee ${log_file}\""
     echo -e "${YELLOW}CMD:${NC} $cmd"
     eval "$cmd"
     
@@ -414,13 +417,13 @@ start_vnf_hpe() {
     
     # Step 3: Start VNF on HPE
     echo -e "${GREEN}🚀 Starting Remote VNF on HPE...${NC}"
-    local log_file="~/gNB-logs/nfapi-VNF-pegatron-localcn-${DATE_TAG}-${log_suffix}.log"
+    local log_file="~/gNB-logs/nfapi-VNF-open5gs-${DATE_TAG}-${log_suffix}.log"
     
     # Clean old log
     ssh hpe "rm -f $log_file" || true
     
-    # Start VNF in screen session
-    local start_cmd="screen -dmS VNF_SESSION bash -c 'cd $build_path && sudo NFAPI_TRACE_LEVEL=info gdb -ex run --args ./nr-softmodem -q -O ${conf_file} --nfapi VNF 2>&1 | tee ${log_file}'"
+    # Start VNF in screen session (Updated with numactl and new parameters)
+    local start_cmd="screen -dmS VNF_SESSION bash -c 'cd $build_path && sudo NFAPI_TRACE_LEVEL=info numactl --cpunodebind=0 --membind=0 ./nr-softmodem -O ${conf_file} --thread-pool ${THREAD_POOL_VNF} --nfapi VNF 2>&1 | tee ${log_file}'"
     echo -e "${YELLOW}CMD:${NC} ssh hpe \"$start_cmd\""
     
     if ssh hpe "$start_cmd"; then
@@ -616,9 +619,6 @@ case "$MODE" in
         handle_auto_stop "pnf"
         ;;
     
-    #---------------------------------------------------------------------------
-    # RFSim modes: Build PNF, Start PNF (rfsim), Start UE (rfsim), Test
-    #---------------------------------------------------------------------------
     #---------------------------------------------------------------------------
     # Monolithic mode: Build gNB locally, then run as single process on PNF server path
     #---------------------------------------------------------------------------

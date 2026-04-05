@@ -15,14 +15,15 @@ show_help() {
     echo "Usage: ./stop_nfapi_all.sh <MODE>"
     echo ""
     echo "MODES:"
-    echo "  local      - Stop VNF + PNF locally"
-    echo "  split      - Stop VNF on HPE + PNF locally"
-    echo "  vnf        - Stop VNF only locally"
-    echo "  pnf        - Stop PNF only locally"
-    echo "  hpe-vnf    - Stop VNF on HPE server"
-    echo "  monolithic - Stop gNB monolithic session"
-    echo "  all        - Stop all sessions (default)"
-    echo "  help       - Show this help message"
+    echo "  local / local-orig           - Stop VNF + PNF locally"
+    echo "  split / split-orig           - Stop VNF on HPE + PNF locally"
+    echo "  vnf / vnf-orig               - Stop VNF only locally"
+    echo "  pnf / pnf-orig               - Stop PNF only locally"
+    echo "  hpe-vnf                      - Stop VNF on HPE server"
+    echo "  monolithic / monolithic-orig - Stop gNB monolithic session"
+    echo "  rfsim / rfsim-orig           - Stop PNF + UE + Test tools locally"
+    echo "  all                          - Stop all sessions (default)"
+    echo "  help                         - Show this help message"
     echo "==============================================================================="
     exit 0
 }
@@ -55,6 +56,7 @@ clean_test_tools() {
     screen -S iperf_cn_server -X quit 2>/dev/null
     screen -S iperf_cn_client -X quit 2>/dev/null
     screen -S ping_cn_ue -X quit 2>/dev/null
+    screen -S IPERF_SERVER -X quit 2>/dev/null # 新增對應 start 腳本 rfsim 的 session
     
     # 確保殘留 process 被清除
     pkill -f iperf3 2>/dev/null
@@ -67,6 +69,7 @@ clean_test_tools() {
 stop_vnf_local() { stop_session_graceful VNF_SESSION; }
 stop_pnf_local() { stop_session_graceful PNF_SESSION; }
 stop_gnb_local() { stop_session_graceful GNB_SESSION; }
+stop_ue_local()  { stop_session_graceful UE_SESSION; } # 新增 UE 停止
 stop_vnf_hpe() {
     echo "Stopping VNF on HPE server..."
     # 這裡假設 hpe 是 ssh config 中設定好的 host alias
@@ -84,31 +87,36 @@ echo "========================================"
 clean_test_tools
 
 case "$MODE" in
-    local)
+    local|local-orig)
         stop_vnf_local
         stop_pnf_local
         ;;
-    split)
+    split|split-orig)
         stop_vnf_hpe
         stop_pnf_local
         ;;
-    vnf)
+    vnf|vnf-orig)
         stop_vnf_local
         ;;
-    pnf)
+    pnf|pnf-orig)
         stop_pnf_local
         ;;
     hpe-vnf)
         stop_vnf_hpe # 只停 HPE 上的
         ;;
-    monolithic)
+    monolithic|monolithic-orig)
         stop_gnb_local
+        ;;
+    rfsim|rfsim-orig)
+        stop_pnf_local
+        stop_ue_local
         ;;
     all)
         stop_vnf_hpe
         stop_vnf_local
         stop_pnf_local
         stop_gnb_local
+        stop_ue_local
         ;;
     *)
         echo "ERROR: Invalid mode '$MODE'"
