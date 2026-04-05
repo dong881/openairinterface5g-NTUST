@@ -1371,12 +1371,6 @@ void *vnf_timing_thread(void *arg) {
     pthread_mutex_lock(&p7_info->mutex);
     if (p7_info->slot_adjustment != 0) {
       sfnslot_dec = (sfnslot_dec + p7_info->slot_adjustment + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
-      
-      // FIX: Jumping the logical SFN/Slot skips physical slots.
-      // This mathematically increases our phase advance by the missed slot duration!
-      if (p7_info->sync_locked) {
-          p7_info->total_advanced_us += p7_info->slot_adjustment * p7_info->slot_duration_us;
-      }
       p7_info->slot_adjustment = 0;
     }
     pthread_mutex_unlock(&p7_info->mutex);

@@ -303,33 +303,9 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     // B. "Too Late" Check against Dynamic Jitter Bound
     else if (worst_late > DYNAMIC_LOWER_SAFE_BOUND / 2) { 
         // We crossed deep into our Jitter margin heading toward Deadline 0, fast advance needed!
-        int32_t desired_shift = worst_late - (DYNAMIC_LOWER_SAFE_BOUND / 2) + 200; 
-        
-        // Critical Fix: Late Storm Evacuation (User Command)
-        // When 1G traffic pushes the CPU/Network to the brink, we cannot simply "sleep less" 
-        // to catch up—there is no idle time left to borrow! The packets physically pile up.
-        // Therefore, if we suffer a severe delay, we command the main thread to logically
-        // skip generating an entire Slot (e.g. 500us/1000us) and instantly teleport the logical clock forward.
-        // This drops 1 slot but rescues the remaining 10,000 slots from a cascading late storm.
-        
-        // MUST BE EXECUTED FIRST: If we are in an overwhelmingly late storm (>1000us behind), 
-        // we MUST drop a slot. This emergency evacuation CANNOT be blocked by `max_allowed_shift` 
-        // (the "Too Early" clamp), otherwise the VNF completely stalls while its queue floods.
-        if (desired_shift >= (int32_t)p7_info->slot_duration_us) {
-            NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF] LATE STORM EVACUATION! (WorstLate: %d us > HalfBound: %d us). Commanding explicit slot skip to clear backpressure!\n",
-                         worst_late, DYNAMIC_LOWER_SAFE_BOUND / 2);
-            
-            // Set an atomic flag to notify the slot thread to skip SFN/Slot indices
-            __atomic_store_n(&p7_info->slot_adjustment, 1, __ATOMIC_SEQ_CST);
-            adjustment_issued = true;
-            
-            // Since we logically skipped a slot, we instantly gained slot_duration_us of phase advance.
-            // Deduct it from desired_shift so we don't accidentally ALSO physically sprint causing a 2x overshoot.
-            desired_shift -= p7_info->slot_duration_us;
-        }
+        shift_us = worst_late - (DYNAMIC_LOWER_SAFE_BOUND / 2) + 200; 
 
         // Apply Too-Early clamp only to the physical sprint phase adjustment
-        shift_us = desired_shift;
         int32_t max_allowed_shift = worst_early - UPPER_SAFE_BOUND - 100;
         if (shift_us > max_allowed_shift) shift_us = max_allowed_shift;
         if (shift_us < 0) shift_us = 0; 
