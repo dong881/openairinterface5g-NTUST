@@ -213,178 +213,118 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	int32_t worst_late  = stats->worst_late;
 	int32_t worst_early = stats->worst_early;
 	
-	// Fetch dynamic timing window
 	nfapi_vnf_config_t *config = get_config();
 	int32_t timing_window_us = (int32_t)config->timing_window;
 
-    /*
-     * REFERENCES for Advanced Jitter & Playout Buffer design:
-     * 1. Q. Li, H. Feng, et al. (2018). "An Enhanced Adaptive Jitter Buffer Management 
-     *    Algorithm for Real-Time Communications," IEEE Access.
-     *    - Insight: Raw inter-arrival jitter in heavily loaded networks is highly volatile.
-     *      Using raw jitter directly destabilizes the timing loop.
-     *    - Solution: "Asymmetric Exponential Moving Average (AEMA)". Rapidly track increases 
-     *      to prevent latency violations (Drops), and very slowly decay to avoid premature 
-     *      buffer underruns during transient lulls.
-     * 2. Ramjee et al. (1994). IEEE INFOCOM. Target Safe Buffer = Base Delay + (4 * Smoothed_Jitter).
-     */
-
-    // 1. Asymmetric Jitter Smoothing (AEMA filter)
-    uint32_t raw_jitter = stats->pnf_reported_jitter;
-    if (raw_jitter > p7_info->smoothed_pnf_jitter_us) {
-        // Fast Attack: Quickly inflate the safe bound when network suddenly degrades
-        p7_info->smoothed_pnf_jitter_us = raw_jitter; 
-    } else {
-        // Slow Decay: Gradually deflate the safe bound (e.g. alpha = 63/64 for ~600ms decay)
-        p7_info->smoothed_pnf_jitter_us = ((p7_info->smoothed_pnf_jitter_us * 63) + raw_jitter) / 64;
-    }
-    uint32_t effective_jitter = p7_info->smoothed_pnf_jitter_us;
+	// 1. Asymmetric Jitter Smoothing (AEMA filter) - 保持你原本優秀的設計
+	uint32_t raw_jitter = stats->pnf_reported_jitter;
+	if (raw_jitter > p7_info->smoothed_pnf_jitter_us) {
+		p7_info->smoothed_pnf_jitter_us = raw_jitter; // Fast Attack
+	} else {
+		p7_info->smoothed_pnf_jitter_us = ((p7_info->smoothed_pnf_jitter_us * 63) + raw_jitter) / 64; // Slow Decay
+	}
+	uint32_t effective_jitter = p7_info->smoothed_pnf_jitter_us;
     
-    // According to Ramjee et al. 1994, target safe buffer = Base Delay + 4 * Jitter
-    int32_t ALPHA = 4;
-    
-    // [Node-to-Node] VNF-to-PNF latency sample
-    // Only worst-case latency is recorded for the VNF-PNF path.
-    int32_t current_total_advanced_us = __atomic_load_n(&p7_info->total_advanced_us, __ATOMIC_SEQ_CST);
-    int32_t reference_total_advanced_us = current_total_advanced_us;
-    uint32_t now_hr = vnf_get_current_time_hr();
-    if (p7_info->last_adjustment_time_hr != 0) {
-        int64_t diff_us = timehr_diff_us(now_hr, p7_info->last_adjustment_time_hr);
-        if (diff_us >= 0 && diff_us <= 4LL * (int64_t)p7_info->slot_duration_us) {
-            reference_total_advanced_us = __atomic_load_n(&p7_info->last_total_advanced_us, __ATOMIC_SEQ_CST);
-        }
-    }
+	const int32_t ALPHA = 4; // Ramjee's Target multiplier
+	const int32_t BETA  = 3; // Spike detection threshold
+	int32_t current_total_advanced_us = __atomic_load_n(&p7_info->total_advanced_us, __ATOMIC_SEQ_CST);
+	int32_t reference_total_advanced_us = current_total_advanced_us;
+	
+	uint32_t now_hr = vnf_get_current_time_hr();
+	if (p7_info->last_adjustment_time_hr != 0) {
+		int64_t diff_us = timehr_diff_us(now_hr, p7_info->last_adjustment_time_hr);
+		if (diff_us >= 0 && diff_us <= 4LL * (int64_t)p7_info->slot_duration_us) {
+			reference_total_advanced_us = __atomic_load_n(&p7_info->last_total_advanced_us, __ATOMIC_SEQ_CST);
+		}
+	}
+	if (worst_late > 5000) {
+		NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF] Ignored absurd Jitter spike of %d us. Capped at 5000 us.\n", worst_late);
+		worst_late = 5000;
+	}
 
-    // [CRITICAL FIX] Protect against anomalous jitter spikes and clock domain drift.
-    // If the VNF thread got stalled by the OS for 20ms+, worst_late could literally be +20,000us.
-    // Putting 20,000us into EWMA instantly destroys the process_delay tracking and crashes the schedule.
-    if (worst_late > 5000) {
-        NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF] Ignored absurd Jitter spike of %d us. Capped at 5000 us.\n", worst_late);
-        worst_late = 5000;
-    }
+	int32_t min_node_to_node_latency = reference_total_advanced_us + worst_early;
+	int32_t max_node_to_node_latency = reference_total_advanced_us + worst_late;
+	if (min_node_to_node_latency < 0) min_node_to_node_latency = 0;
+	if (max_node_to_node_latency < 0) max_node_to_node_latency = 0;
+	log_mmap_entry("vnf_pnf_latency", (long)max_node_to_node_latency);
+	// ===================================================================
+	// 2. Peak Tracking (Minima and Maxima)
+	// ===================================================================
+	// Minima: 用來計算絕對不能 Too Early 的 Upper Bound (最快抵達的封包)
+	if (p7_info->long_ewma_process_us == 0 || min_node_to_node_latency < p7_info->long_ewma_process_us) {
+		p7_info->long_ewma_process_us = min_node_to_node_latency; // Fast attack (Lowest min)
+	} else {
+		p7_info->long_ewma_process_us = ((p7_info->long_ewma_process_us * 1023) + min_node_to_node_latency) / 1024; // Slow release
+	}
+	int32_t PEAK_MIN_LATENCY = p7_info->long_ewma_process_us;
 
-    // Node-to-node latency physically represents Execution + Network RTT / 2.
-    // The *minimum* latency (without jitter) is represented by worst_early (the fastest packet).
-    // The *maximum* latency (with jitter) is worst_late.
-    int32_t min_node_to_node_latency = reference_total_advanced_us + worst_early;
-    int32_t max_node_to_node_latency = reference_total_advanced_us + worst_late;
+	// Maxima: 用來判斷要提前多少才不會 Too Late (維持低延遲的緊貼下緣)
+	if (p7_info->short_ewma_process_us == 0 || max_node_to_node_latency > p7_info->short_ewma_process_us) {
+		p7_info->short_ewma_process_us = max_node_to_node_latency; // Fast attack (Highest max)
+	} else {
+		p7_info->short_ewma_process_us = ((p7_info->short_ewma_process_us * 1023) + max_node_to_node_latency) / 1024; // Slow decay
+	}
+	int32_t PEAK_MAX_LATENCY = p7_info->short_ewma_process_us;
+	
+	// 使用 PNF 回報的歷史平滑 Jitter 作為依據，避免單一 Period Range 過小造成的誤判
+	int32_t true_jitter = (int32_t)effective_jitter;
+	if (true_jitter < 50) true_jitter = 50; 
 
-    // It is mathematically impossible for this to be negative. A negative value purely 
-    // indicates that the PNF and VNF decoupled clock origins have drifted past each other,
-    // or `total_advanced_us` was erroneously pulled into negative territory earlier.
-    if (min_node_to_node_latency < 0) {
-        min_node_to_node_latency = 0;
-    }
-    if (max_node_to_node_latency < 0) {
-        max_node_to_node_latency = 0;
-    }
-    
-    log_mmap_entry("vnf_pnf_latency", (long)max_node_to_node_latency);
+	// ===================================================================
+	// 3. 計算 Ideal Target Advance (緊貼 Deadline 下緣，最小化延遲)
+	// ===================================================================
+	// 直接對齊 Peak Max + 少量緩衝 -> 保證即使遇到突然的抖動，所有的封包也都能在 deadline 上方過關。
+	// 這能有效將分佈壓在 timing window 的下緣 (靠向0)，避免太早進入並大幅降低 Latency。
+	int32_t IDEAL_TARGET_ADVANCE_US = PEAK_MAX_LATENCY + (true_jitter / 2);
 
-    // Update EWMA Base Delay to the Minimum Node-to-Node latency (Fastest packet transit)
-    // (VNF CPU execution + Network Transit + Queueing WITHOUT JITTER)
-    if (p7_info->ewma_process_us == 0) {
-        p7_info->ewma_process_us = min_node_to_node_latency;
-    } else {
-        p7_info->ewma_process_us = ((p7_info->ewma_process_us * 63) + min_node_to_node_latency) / 64;
-    }
+	// ===================================================================
+	// 4. Clamp (嚴格防止 Too Early)
+	// ===================================================================
+	// Upper Bound 的防呆必須絕對依賴 Minima。
+	// PNF 允許的最大提前量 = Timing Window + 封包真正最短傳輸/處理時間 (PEAK_MIN_LATENCY)
+	int32_t ABS_OWD_DELAY_US = p7_info->ewma_owd_us > 0 ? p7_info->ewma_owd_us : 0; 
+	int32_t ABSOLUTE_MAX_ADVANCE_US = timing_window_us + PEAK_MIN_LATENCY + ABS_OWD_DELAY_US;
+	p7_info->absolute_max_advance_us = ABSOLUTE_MAX_ADVANCE_US;
 
-    // The 'BASE_PROCESS_DELAY_US' is now a true representation of exactly how 
-    // many microseconds a packet takes from early scheduler dispatch to PNF reception window.
-    int32_t BASE_PROCESS_DELAY_US = p7_info->ewma_process_us; 
-    
-    // Instead of using BASE_PROCESS_DELAY + ALPHA * jitter, we can directly use the historically
-    // tracked 'maximum' to form our bounds.
-    int32_t TARGET_ADVANCE_LOWER_BOUND = max_node_to_node_latency + (ALPHA * effective_jitter) / 2;
-    int32_t DYNAMIC_LOWER_SAFE_BOUND = -TARGET_ADVANCE_LOWER_BOUND;
+	int32_t SAFETY_HEADROOM_US = 150; // 保留 150us 的安全空間，確保絕不觸碰物理天花板
+	int32_t MAX_ALLOWED_TARGET = ABSOLUTE_MAX_ADVANCE_US - SAFETY_HEADROOM_US;
 
-    // [CRITICAL FIX] Defining Absolute Physical Phase Advancement Limitations
-    // As per recent network topologies, the physical One-Way Delay (OWD) is completely 
-    // nullified by the initial synchronization. Thus, the margin is physically 0 since 
-    // we are locked strictly to the PNF's epoch. We retain it as 0 for future architecture expansions.
-    int32_t ABS_OWD_DELAY_US = p7_info->ewma_owd_us > 0 ? p7_info->ewma_owd_us : 0; 
-    
-    // The MAXIMUM upper phase bound MUST be strictly clamped to `timing_window` + `processing_delay`. 
-    // Any phase pushing higher than this directly violates the PNF's frame rules, sending the 
-    // packet physically faster than the PNF rx window has opened (Absolute "Too Early" catastrophe).
-    int32_t ABSOLUTE_MAX_ADVANCE_US = timing_window_us + BASE_PROCESS_DELAY_US + ABS_OWD_DELAY_US;
-    p7_info->absolute_max_advance_us = ABSOLUTE_MAX_ADVANCE_US;
+	if (IDEAL_TARGET_ADVANCE_US > MAX_ALLOWED_TARGET) {
+		IDEAL_TARGET_ADVANCE_US = MAX_ALLOWED_TARGET;
+	}
 
-    // Protect our boundary conditions: Lower bounds should never squeeze past the upper max advances 
-    int32_t UPPER_SAFE_BOUND = - (ABSOLUTE_MAX_ADVANCE_US - 800); // Leave 800us headroom at the far end
-    if (DYNAMIC_LOWER_SAFE_BOUND < UPPER_SAFE_BOUND + 1500) {
-        DYNAMIC_LOWER_SAFE_BOUND = UPPER_SAFE_BOUND + 1500;
-    }
+	// ===================================================================
+	// 5. Phase Velocity
+	// ===================================================================
+	int32_t shift_us = IDEAL_TARGET_ADVANCE_US - current_total_advanced_us;
+	bool adjustment_issued = false;
 
-    int32_t shift_us = 0;
-    bool adjustment_issued = false;
+	// Slew-Rate Limiter
+	int32_t MAX_ADVANCE_STEP = 200; // 緊急往前衝的最大步長
+	int32_t MAX_RETREAT_STEP = -15; // 慢慢往後退的最大步長
 
-    // 2. Evaluation Logic - Control Proportional Phase 
-    // A. "Too Early" Check
-    // WARNING & RATIONALE REGARDING PTP SYNCHRONIZATION AND TIME DOMAINS:
-    // In the NFAPI split, the VNF and PNF time domains are entirely independent. The VNF actively uses its 
-    // own VNF Timing Thread to schedule and send to the PNF. Thus, their raw clocks WILL drift relative to 
-    // one another if no PTP is present. However, PTP synchronization is NOT required for the data plane 
-    // to function correctly. WHY? Because this very closed-loop timing control (using nfapi_nr_timing_info) 
-    // continuously measures the effective one-way phase offset (worst_early / worst_late) and dynamically 
-    // adjusts the VNF's `target_advance_us`. This loop inherently compensates for any clock drift between 
-    // the two independent time domains. As long as this loop correctly tracks the boundaries, the drift is 
-    // transparently mitigated. The previous "Too Early" issues were caused by a sign error in the retreat 
-    // formula, not by a lack of PTP.
+	if (shift_us > MAX_ADVANCE_STEP) {
+			shift_us = MAX_ADVANCE_STEP; 
+	} else if (shift_us < MAX_RETREAT_STEP) {
+			shift_us = MAX_RETREAT_STEP;
+	}
 
-    if (worst_early < UPPER_SAFE_BOUND) {
-        // Rapid Phase Retreat - we're dangerously close to exceeding the max available timing window
-        // [CRITICAL MATH FIX]: To retreat (arrive later), shift_us MUST be negative.
-        // Previously: UPPER_SAFE_BOUND - worst_early - 300 resulted in a POSITIVE shift, pushing the packet 
-        // even earlier, slamming aggressively into the ABSOLUTE_MAX_ADVANCE_US clamp and crashing the timing!
-        // Correct fix: worst_early - UPPER_SAFE_BOUND guarantees a negative difference.
-        shift_us = worst_early - UPPER_SAFE_BOUND - 300; 
+	// Dead-zone (如果誤差小於某個極小值，例如 2us，就不要浪費 CPU 去調整)
+	if (shift_us > -2 && shift_us < 2) {
+		shift_us = 0;
+	}
 
-        NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF] TOO EARLY DETECTED (WorstEarly: %d us < Bound: %d us), Rapid Retreat by %d us! Max_Adv: %d\n", worst_early, UPPER_SAFE_BOUND, shift_us, ABSOLUTE_MAX_ADVANCE_US);
-    }
-    // B. "Too Late" Check against Dynamic Jitter Bound
-    else if (worst_late > DYNAMIC_LOWER_SAFE_BOUND / 2) { 
-        // We crossed deep into our Jitter margin heading toward Deadline 0, fast advance needed!
-        shift_us = worst_late - (DYNAMIC_LOWER_SAFE_BOUND / 2) + 200; 
-
-        // Apply Too-Early clamp only to the physical sprint phase adjustment
-        int32_t max_allowed_shift = worst_early - UPPER_SAFE_BOUND - 300;
-        if (shift_us > max_allowed_shift) shift_us = max_allowed_shift;
-        if (shift_us < 0) shift_us = 0; 
-    }
-    // C. Jitter is Small - Slowly Retreat to remove unnecessary delay and decrease round-trip latency
-    else {
-        // right_slack measures how far worst_late is unnecessarily early compared to the dynamic safe bound
-        int32_t right_slack = DYNAMIC_LOWER_SAFE_BOUND - worst_late;
+	// 套用 Shift
+	if (shift_us != 0) {
+		long final_target = current_total_advanced_us + shift_us;
         
-        if (right_slack > (int32_t)effective_jitter + 150) { 
-            // VERY GENTLE Phase Retraction:
-            // Previous uncontrolled logic (-114us per 10ms frame) equates to an extremely violent ~11ms/sec shift 
-            // rate, which causes VNF disconnects and MAC logic crashes under 1G loads.
-            // Using a strictly bounded limit of e.g. -15us per frame yields a safe drift of ~1.5ms per second.
-            shift_us = - (right_slack / 50);
-            if (shift_us < -15) shift_us = -15; // Hard limits on phase velocity
-            if (shift_us > -2) shift_us = -2;    // Minimum movement
+			// 最終的絕對防呆檢查
+			if (final_target > ABSOLUTE_MAX_ADVANCE_US) final_target = ABSOLUTE_MAX_ADVANCE_US;
+			if (final_target < 0) final_target = 0;
 
-            NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[VNF] Safe Recovery Zone - Smoothed Jitter: %u us, Wasted Time: %d us, Slowly Retracting Phase by %d us\n", effective_jitter, right_slack, shift_us);
-        } else {
-            shift_us = 0;
-        }
-    }
-
-    if (shift_us != 0) {
-        long target_advance = p7_info->total_advanced_us + shift_us;
-        
-        // ABSOLUTE_MAX_ADVANCE_US clamp to fully eliminate any chance of "Too Early"
-        if (target_advance > ABSOLUTE_MAX_ADVANCE_US) {
-            target_advance = ABSOLUTE_MAX_ADVANCE_US;
-            NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF] Target advance clamped by ABSOLUTE_MAX_ADVANCE_US (%ld -> %d). Preventing Too Early!\n", target_advance, ABSOLUTE_MAX_ADVANCE_US);
-        }
-        if (target_advance < 0) target_advance = 0;
-
-        long delta_us = target_advance - p7_info->total_advanced_us;
-        __atomic_store_n(&p7_info->pending_us, p7_info->pending_us + delta_us, __ATOMIC_SEQ_CST);
-        adjustment_issued = true;
+			long delta_us = final_target - current_total_advanced_us;
+			__atomic_store_n(&p7_info->pending_us, p7_info->pending_us + delta_us, __ATOMIC_SEQ_CST);
+			adjustment_issued = true;
     }
 
     if (adjustment_issued) {
