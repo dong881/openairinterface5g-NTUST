@@ -3928,8 +3928,8 @@ bool nr_mac_ue_is_active(const NR_UE_info_t *ue)
   return true;
 }
 
-#define UL_FAILURE_REQ_GRACE 10000
-#define UL_FAILURE_TIMEOUT 30000
+#define UL_FAILURE_REQ_GRACE 600000 /* 10 minutes grace */
+#define UL_FAILURE_TIMEOUT 3600000  /* 1 hour timeout */
 void nr_mac_trigger_ul_failure(NR_UE_sched_ctrl_t *sched_ctrl, NR_SubcarrierSpacing_t subcarrier_spacing)
 {
   if (sched_ctrl->ul_failure) {

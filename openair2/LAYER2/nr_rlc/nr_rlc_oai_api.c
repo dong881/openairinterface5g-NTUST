@@ -361,7 +361,8 @@ rlc_op_status_t nr_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
     rb->set_time(rb, get_nr_rlc_current_time());
     rb->recv_sdu(rb, (char *)sdu_pP, sdu_sizeP, muiP);
   } else {
-    LOG_E(RLC, "%s:%d:%s: fatal: SDU sent to unknown RB\n", __FILE__, __LINE__, __FUNCTION__);
+    // LOG_E(RLC, "%s:%d:%s: fatal: SDU sent to unknown RB\n", __FILE__, __LINE__, __FUNCTION__);
+    LOG_W(RLC, "SDU sent to unknown RB - dropping gracefully during Reestablishment\n");
   }
 
   nr_rlc_manager_unlock(nr_rlc_ue_manager);
