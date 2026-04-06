@@ -267,12 +267,16 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     // The *minimum* latency (without jitter) is represented by worst_early (the fastest packet).
     // The *maximum* latency (with jitter) is worst_late.
     int32_t min_node_to_node_latency = reference_total_advanced_us + worst_early;
-    
+    int32_t max_node_to_node_latency = reference_total_advanced_us + worst_late;
+
     // It is mathematically impossible for this to be negative. A negative value purely 
     // indicates that the PNF and VNF decoupled clock origins have drifted past each other,
     // or `total_advanced_us` was erroneously pulled into negative territory earlier.
     if (min_node_to_node_latency < 0) {
         min_node_to_node_latency = 0;
+    }
+    if (max_node_to_node_latency < 0) {
+        max_node_to_node_latency = 0;
     }
     
     log_mmap_entry("vnf_pnf_latency", (long)min_node_to_node_latency);
@@ -288,8 +292,11 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     // The 'BASE_PROCESS_DELAY_US' is now a true representation of exactly how 
     // many microseconds a packet takes from early scheduler dispatch to PNF reception window.
     int32_t BASE_PROCESS_DELAY_US = p7_info->ewma_process_us; 
-    int32_t REQUIRED_HEADROOM_US = BASE_PROCESS_DELAY_US + (ALPHA * effective_jitter);
-    int32_t DYNAMIC_LOWER_SAFE_BOUND = -REQUIRED_HEADROOM_US;
+    
+    // Instead of using BASE_PROCESS_DELAY + ALPHA * jitter, we can directly use the historically
+    // tracked 'maximum' to form our bounds.
+    int32_t TARGET_ADVANCE_LOWER_BOUND = max_node_to_node_latency + (ALPHA * effective_jitter) / 2;
+    int32_t DYNAMIC_LOWER_SAFE_BOUND = -TARGET_ADVANCE_LOWER_BOUND;
 
     // [CRITICAL FIX] Defining Absolute Physical Phase Advancement Limitations
     // As per recent network topologies, the physical One-Way Delay (OWD) is completely 
