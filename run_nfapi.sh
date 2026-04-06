@@ -73,7 +73,7 @@ if [ "$USE_NEW_SLIDER_HEAD" = "1" ]; then
 fi
 
 # Check for help mode first
-if [ "$MODE" = "help" ]s || [ "$MODE" = "-h" ] || [ "$MODE" = "--help" ]; then
+if [ "$MODE" = "help" ] || [ "$MODE" = "-h" ] || [ "$MODE" = "--help" ]; then
     show_help
 fi
 
@@ -91,8 +91,8 @@ CONF_PNF_SPLIT="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-pnf-split.sa.b
 CONF_PNF_RFSIM="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-pnf.band78.rfsim.conf"
 CONF_GNB="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi72.4x4-pega.conf"
 
-# Thread pool settings
-THREAD_POOL_VNF="2,4,6,8,34,36,38,40"
+# Taskset / Thread pool settings
+TASKSET_VNF="2-15,34-47"
 THREAD_POOL_PNF="24,25,26,27,28,29,30,31"
 THREAD_POOL_GNB="1,3,5,7,9,11,13,14,15,16,17,18"
 
@@ -179,8 +179,8 @@ start_vnf_local() {
     fi
     
     echo -e "${GREEN}🚀 Starting VNF (SLOT_AHEAD=${slot_ahead})...${NC}"
-    # Passing SLOT_AHEAD with sudo -E
-    local cmd="screen -dmS VNF_SESSION bash -c \"sudo -E SLOT_AHEAD=${slot_ahead} NFAPI_TRACE_LEVEL=info numactl --cpunodebind=0 --membind=0 ./nr-softmodem -O ${conf_file} --thread-pool ${THREAD_POOL_VNF} --nfapi VNF 2>&1 | tee ${log_file}\""
+    # Using taskset instead of thread-pool
+    local cmd="screen -dmS VNF_SESSION bash -c \"sudo -E SLOT_AHEAD=${slot_ahead} NFAPI_TRACE_LEVEL=info numactl --cpunodebind=0 --membind=0 taskset -c ${TASKSET_VNF} ./nr-softmodem -O ${conf_file} --nfapi VNF 2>&1 | tee ${log_file}\""
     echo -e "${YELLOW}CMD:${NC} $cmd"
     eval "$cmd"
     
@@ -436,8 +436,8 @@ start_vnf_hpe() {
     # Clean old log
     ssh hpe "rm -f $log_file" || true
     
-    # Start VNF in screen session with passed SLOT_AHEAD parameter
-    local start_cmd="screen -dmS VNF_SESSION bash -c 'cd $build_path && sudo -E SLOT_AHEAD=${slot_ahead} NFAPI_TRACE_LEVEL=info numactl --cpunodebind=0 --membind=0 ./nr-softmodem -O ${conf_file} --thread-pool ${THREAD_POOL_VNF} --nfapi VNF 2>&1 | tee ${log_file}'"
+    # Start VNF in screen session with passed SLOT_AHEAD parameter and taskset
+    local start_cmd="screen -dmS VNF_SESSION bash -c 'cd $build_path && sudo -E SLOT_AHEAD=${slot_ahead} NFAPI_TRACE_LEVEL=info numactl --cpunodebind=0 --membind=0 taskset -c ${TASKSET_VNF} ./nr-softmodem -O ${conf_file} --nfapi VNF 2>&1 | tee ${log_file}'"
     echo -e "${YELLOW}CMD:${NC} ssh hpe \"$start_cmd\""
     
     if ssh hpe "$start_cmd"; then
