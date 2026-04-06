@@ -69,6 +69,9 @@ int nr_transmission_action_indicator_stop(gNB_MAC_INST *mac, NR_UE_info_t *UE_in
 
 void clear_nr_nfapi_information(gNB_MAC_INST *gNB, int CC_idP, frame_t frameP, slot_t slotP);
 
+void clean_stale_dl_harq(gNB_MAC_INST *nrmac, NR_UE_info_t *UE, frame_t frame, slot_t slot);
+void clean_stale_ul_harq(gNB_MAC_INST *nrmac, NR_UE_info_t *UE, frame_t frame, slot_t slot);
+
 void nr_mac_update_timers(module_id_t module_id, frame_t frame, slot_t slot);
 
 void gNB_dlsch_ulsch_scheduler(module_id_t module_idP, frame_t frame_rxP, slot_t slot_rxP, NR_Sched_Rsp_t *sched_info);

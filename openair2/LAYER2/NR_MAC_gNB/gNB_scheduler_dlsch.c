@@ -701,6 +701,15 @@ static void pf_dl(gNB_MAC_INST *mac,
       if (!sch_ret) {
         LOG_D(NR_MAC, "[UE %04x][%4d.%2d] DL retransmission could not be allocated\n", UE->rnti, frame, slot);
         reset_beam_status(&mac->beam_info, frame, slot, UE->UE_beam_index, slots_per_frame, beam.new_beam);
+        
+        NR_UE_harq_t *harq = &sched_ctrl->harq_processes[harq_pid];
+        harq->round++;
+        if (harq->round >= mac->dl_bler.harq_round_max) {
+             LOG_E(NR_MAC, "[UE %04x] Aborting DL retransmission for harq_pid %d after reaching max rounds due to allocation failures\n", UE->rnti, harq_pid);
+             remove_front_nr_list(&sched_ctrl->retrans_dl_harq);
+             abort_nr_dl_harq(UE, harq_pid);
+        }
+        
         continue;
       }
       /* reduce max_num_ue once we are sure UE can be allocated, i.e., has CCE */

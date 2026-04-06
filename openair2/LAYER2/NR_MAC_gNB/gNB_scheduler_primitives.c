@@ -3658,6 +3658,9 @@ void nr_mac_update_timers(module_id_t module_id, frame_t frame, slot_t slot)
       continue;
     }
 
+    clean_stale_dl_harq(mac, UE, frame, slot);
+    clean_stale_ul_harq(mac, UE, frame, slot);
+
     if (nr_timer_tick(&sched_ctrl->transm_interrupt)) {
       /* expired */
       nr_timer_stop(&sched_ctrl->transm_interrupt);

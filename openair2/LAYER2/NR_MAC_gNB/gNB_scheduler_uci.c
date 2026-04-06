@@ -836,6 +836,33 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
     beam_switching_procedure(nrmac, UE, new_bf_index);
 }
 
+void clean_stale_dl_harq(gNB_MAC_INST *nrmac, NR_UE_info_t *UE, frame_t frame, slot_t slot)
+{
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  int8_t pid = sched_ctrl->feedback_dl_harq.head;
+  while (pid >= 0) {
+    NR_UE_harq_t *harq = &sched_ctrl->harq_processes[pid];
+    
+    int frames_past = (frame - harq->feedback_frame + 1024) % 1024;
+    
+    if (frames_past > 512) {
+      break; 
+    }
+
+    int slot_diff = frames_past * nrmac->frame_structure.numb_slots_frame + slot - harq->feedback_slot;
+    
+    if (slot_diff > 20) {
+      LOG_W(NR_MAC, "UE %04x DL HARQ pid %d (PUCCH scheduled for %d.%d) feedback timeout (%d slots past), forcing drop/retrans\n",
+            UE->rnti, pid, harq->feedback_frame, harq->feedback_slot, slot_diff);
+      remove_front_nr_list(&sched_ctrl->feedback_dl_harq);
+      handle_dl_harq(NULL, UE, pid, false, nrmac->dl_bler.harq_round_max);
+      pid = sched_ctrl->feedback_dl_harq.head;
+    } else {
+      break;
+    }
+  }
+}
+
 static NR_UE_harq_t *find_harq(frame_t frame, slot_t slot, NR_UE_info_t * UE, int harq_round_max)
 {
   /* In case of realtime problems: we can only identify a HARQ process by

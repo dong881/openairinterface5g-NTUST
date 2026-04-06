@@ -662,6 +662,42 @@ static void abort_nr_ul_harq(NR_UE_info_t *UE, int8_t harq_pid)
     sched_ctrl->sched_ul_bytes = 0;
 }
 
+void clean_stale_ul_harq(gNB_MAC_INST *nrmac, NR_UE_info_t *UE, frame_t frame, slot_t slot)
+{
+  NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+  int8_t ul_pid = sched_ctrl->feedback_ul_harq.head;
+  while (ul_pid >= 0) {
+    NR_UE_ul_harq_t *harq = &sched_ctrl->ul_harq_processes[ul_pid];
+    
+    // Check if harq->feedback_frame/slot is strictly in the past by > 20 slots
+    int frames_past = (frame - harq->feedback_frame + 1024) % 1024;
+    
+    // If it's in the future (e.g., scheduled frame >= current frame but wrapped), frames_past will be > 512
+    if (frames_past > 512) {
+      break; // It is in the future, no need to pop anything
+    }
+
+    int slot_diff = frames_past * nrmac->frame_structure.numb_slots_frame + slot - harq->feedback_slot;
+    
+    // PHY takes a few slots to decode PUSCH. A wait > 20 slots is abnormally long and implies missed CRC due to skip.
+    if (slot_diff > 20) {
+      LOG_W(NR_MAC, "UE %04x UL HARQ pid %d (scheduled for %d.%d) feedback timeout (%d slots past), forcing drop/retrans\n",
+            UE->rnti, ul_pid, harq->feedback_frame, harq->feedback_slot, slot_diff);
+      remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
+      sched_ctrl->ul_harq_processes[ul_pid].is_waiting = false;
+      if(sched_ctrl->ul_harq_processes[ul_pid].round >= nrmac->ul_bler.harq_round_max - 1) {
+        abort_nr_ul_harq(UE, ul_pid);
+      } else {
+        sched_ctrl->ul_harq_processes[ul_pid].round++;
+        add_tail_nr_list(&sched_ctrl->retrans_ul_harq, ul_pid);
+      }
+      ul_pid = sched_ctrl->feedback_ul_harq.head;
+    } else {
+      break;
+    }
+  }
+}
+
 static void handle_nr_ul_harq(gNB_MAC_INST *nrmac,
                               NR_UE_info_t *UE,
                               frame_t frame,
@@ -678,6 +714,20 @@ static void handle_nr_ul_harq(gNB_MAC_INST *nrmac,
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   int8_t harq_pid = sched_ctrl->feedback_ul_harq.head;
   LOG_D(NR_MAC, "Comparing crc harq_id vs feedback harq_pid = %d %d\n", crc_harq_id, harq_pid);
+
+  bool found_harq = false;
+  for (int id = sched_ctrl->feedback_ul_harq.head; id >= 0; id = sched_ctrl->feedback_ul_harq.next[id]) {
+    if (id == crc_harq_id) {
+      found_harq = true;
+      break;
+    }
+  }
+
+  if (!found_harq) {
+    LOG_W(NR_MAC, "Unexpected ULSCH HARQ PID %d (not in feedback list) for RNTI 0x%04x (likely dropped by stale cleaner)\n", crc_harq_id, rnti);
+    return;
+  }
+
   while (crc_harq_id != harq_pid || harq_pid < 0) {
     LOG_W(NR_MAC, "Unexpected ULSCH HARQ PID %d (have %d) for RNTI 0x%04x\n", crc_harq_id, harq_pid, rnti);
     if (harq_pid < 0)
@@ -1993,6 +2043,15 @@ static int  pf_ul(gNB_MAC_INST *nrmac,
         LOG_D(NR_MAC, "[UE %04x][%4d.%2d] UL retransmission could not be allocated\n", UE->rnti, frame, slot);
         reset_beam_status(&nrmac->beam_info, sched_frame, sched_slot, UE->UE_beam_index, slots_per_frame, beam.new_beam);
         reset_beam_status(&nrmac->beam_info, frame, slot, UE->UE_beam_index, slots_per_frame, dci_beam.new_beam);
+
+        NR_UE_ul_harq_t *ul_harq = &sched_ctrl->ul_harq_processes[ul_harq_pid];
+        ul_harq->round++;
+        if (ul_harq->round >= nrmac->ul_bler.harq_round_max) {
+             LOG_E(NR_MAC, "[UE %04x] Aborting UL retransmission for harq_pid %d after reaching max rounds due to allocation failures\n", UE->rnti, ul_harq_pid);
+             remove_front_nr_list(&sched_ctrl->retrans_ul_harq);
+             abort_nr_ul_harq(UE, ul_harq_pid);
+        }
+
         continue;
       }
       else
@@ -2384,6 +2443,7 @@ void post_process_ulsch(gNB_MAC_INST *nr_mac, post_process_pusch_t *pusch, NR_UE
     finish_nr_ul_harq(sched_ctrl, harq_id);
   } else {
     add_tail_nr_list(&sched_ctrl->feedback_ul_harq, harq_id);
+    cur_harq->feedback_frame = sched_pusch->frame;
     cur_harq->feedback_slot = sched_pusch->slot;
     cur_harq->is_waiting = true;
   }
