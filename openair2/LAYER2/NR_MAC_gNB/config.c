@@ -958,7 +958,12 @@ void nr_mac_config_scc(gNB_MAC_INST *nrmac, NR_ServingCellConfigCommon_t *scc, c
 
   const int NTN_gNB_Koffset = get_NTN_Koffset(scc);
   const int n = get_slots_per_frame_from_scs(*scc->ssbSubcarrierSpacing);
-  const int size = n << (int)ceil(log2((NTN_gNB_Koffset + 13) / n + 1)); // 13 is upper limit for max_fb_time
+  // [CRITICAL FIX] Buffer size for UL_tti_req_ahead must accommodate maximum VNF jitter scheduling distance
+  // Previous sizing was only 13 (<< ceil) giving ~30 slots under typical configurations.
+  // When 1G UDP traffic drives VNF timing advance jitter to 100+ slots, it wraps the narrow ring buffer 
+  // triggering assertion crashes like: `future UL_tti_req's frame.slot 194.4 does not match PUSCH 210.4`
+  // Raising the baseline scaling buffer window to 2048 to ensure huge look-ahead runway (survives 1+ seconds of OS stall).
+  const int size = n << (int)ceil(log2((NTN_gNB_Koffset + 2048) / n + 1));
   nrmac->vrb_map_UL_size = size;
 
   int num_beams = 1;

@@ -1340,7 +1340,14 @@ void *vnf_timing_thread(void *arg) {
         int64_t nominal_us = p7_info->slot_duration_us * (1 + skip_slots);
         int64_t physical_advance_this_loop = nominal_us - added_us;
         
+        // [CRITICAL FIX] Prevent `total_advanced_us` from ever going negative.
+        // If we slept longer than the nominal slot time (due to OS jitter/preemption), 
+        // physical_advance_this_loop becomes negative. This would drag `total_advanced_us`
+        // below zero, which mathematically breaks the VNF-PNF latency and phase equations.
         p7_info->total_advanced_us += physical_advance_this_loop;
+        if (p7_info->total_advanced_us < 0) {
+            p7_info->total_advanced_us = 0;
+        }
 
         if (p7_info->absolute_max_advance_us > 0 && p7_info->total_advanced_us > p7_info->absolute_max_advance_us) {
             int32_t over_advance_us = p7_info->total_advanced_us - p7_info->absolute_max_advance_us;

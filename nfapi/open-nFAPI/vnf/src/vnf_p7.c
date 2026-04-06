@@ -255,15 +255,34 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         }
     }
 
-    int32_t node_to_node_latency = reference_total_advanced_us + worst_late;
-    log_mmap_entry("vnf_pnf_latency", (long)node_to_node_latency);
+    // [CRITICAL FIX] Protect against anomalous jitter spikes and clock domain drift.
+    // If the VNF thread got stalled by the OS for 20ms+, worst_late could literally be +20,000us.
+    // Putting 20,000us into EWMA instantly destroys the process_delay tracking and crashes the schedule.
+    if (worst_late > 5000) {
+        NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF] Ignored absurd Jitter spike of %d us. Capped at 5000 us.\n", worst_late);
+        worst_late = 5000;
+    }
 
-    // Update EWMA Base Delay to the Node-to-Node latency
-    // (VNF CPU execution + Network Transit + Queueing)
+    // Node-to-node latency physically represents Execution + Network RTT / 2.
+    // The *minimum* latency (without jitter) is represented by worst_early (the fastest packet).
+    // The *maximum* latency (with jitter) is worst_late.
+    int32_t min_node_to_node_latency = reference_total_advanced_us + worst_early;
+    
+    // It is mathematically impossible for this to be negative. A negative value purely 
+    // indicates that the PNF and VNF decoupled clock origins have drifted past each other,
+    // or `total_advanced_us` was erroneously pulled into negative territory earlier.
+    if (min_node_to_node_latency < 0) {
+        min_node_to_node_latency = 0;
+    }
+    
+    log_mmap_entry("vnf_pnf_latency", (long)min_node_to_node_latency);
+
+    // Update EWMA Base Delay to the Minimum Node-to-Node latency (Fastest packet transit)
+    // (VNF CPU execution + Network Transit + Queueing WITHOUT JITTER)
     if (p7_info->ewma_process_us == 0) {
-        p7_info->ewma_process_us = node_to_node_latency;
+        p7_info->ewma_process_us = min_node_to_node_latency;
     } else {
-        p7_info->ewma_process_us = ((p7_info->ewma_process_us * 63) + node_to_node_latency) / 64;
+        p7_info->ewma_process_us = ((p7_info->ewma_process_us * 63) + min_node_to_node_latency) / 64;
     }
 
     // The 'BASE_PROCESS_DELAY_US' is now a true representation of exactly how 
