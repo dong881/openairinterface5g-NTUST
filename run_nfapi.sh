@@ -92,7 +92,7 @@ CONF_PNF_RFSIM="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-pnf.band78.rfs
 CONF_GNB="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi72.4x4-pega.conf"
 
 # Thread pool settings
-THREAD_POOL_VNF="0,2,4,6,32,34,36,38"
+THREAD_POOL_VNF="2,4,6,8,34,36,38,40"
 THREAD_POOL_PNF="24,25,26,27,28,29,30,31"
 THREAD_POOL_GNB="1,3,5,7,9,11,13,14,15,16,17,18"
 
