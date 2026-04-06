@@ -98,7 +98,8 @@
 | `vnf_harq_rtt` | HARQ round-trip delay | 典型 `0..20k` | μs | raw log |
 | `vnf_rlc_runtime` | RLC 執行時間 | 典型 `0..20k` | μs | raw log |
 | `vnf_rlc_hol_delay` | RLC HOL delay | 典型 `0..20k` | μs | raw log |
-| `vnf_rlc_avg_to_tx` | RLC 平均到 transmit 時間 | 典型 `0..20k` | μs | raw log |
+| `vnf_rlc_avg_to_tx` | RLC RX 亂序暫存量 (原為 avg transmit) | 典型 `0..N bytes` | Bytes | raw log |
+| `vnf_rlc_rx_ooo_wait_delay` | RLC RX 等待重傳封包造成的堵塞時間 | 典型 `0..20` | ms | raw log |
 
 > 以上範圍為程式邏輯推估的典型值；特殊狀況下仍可能超出。
 

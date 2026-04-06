@@ -303,7 +303,10 @@ static mac_rlc_status_resp_t _nr_rlc_status_ind(nr_rlc_ue_t *ue, frame_t frame, 
     ret.bytes_in_buffer = buf_stat.status_size + buf_stat.retx_size + buf_stat.tx_size;
     rb->get_stats(rb, &rlc_stats);
     log_mmap_entry("vnf_rlc_hol_delay", (long)rlc_stats.txsdu_wt_us);
-    log_mmap_entry("vnf_rlc_avg_to_tx", (long)rlc_stats.txsdu_avg_time_to_tx);
+    // Replace txsdu_avg_time_to_tx with rxbuf_occ_bytes to track MAC out-of-order / HARQ delay size
+    log_mmap_entry("vnf_rlc_avg_to_tx", (long)rlc_stats.rxbuf_occ_bytes);
+    // Log new rx out of order wait delay in ms
+    log_mmap_entry("vnf_rlc_rx_ooo_wait_delay", (long)rlc_stats.rx_ooo_wait_delay_ms);
   } else {
     if (!(frame % 128) || channel_idP == 0) //to suppress this warning message
       LOG_W(RLC, "Radio Bearer (channel ID %d) is NULL for UE %d\n", channel_idP, ue->ue_id);

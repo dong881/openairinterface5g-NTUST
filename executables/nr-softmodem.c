@@ -847,6 +847,7 @@ static void init_vnf_mmap_loggers(void)
   init_mmap_logger("vnf_rlc_runtime");
   init_mmap_logger("vnf_rlc_hol_delay");
   init_mmap_logger("vnf_rlc_avg_to_tx");
+  init_mmap_logger("vnf_rlc_rx_ooo_wait_delay");
   // Track continuous VNF-PNF latency measurements and advance timing
   init_mmap_logger("vnf_advance_time");
   init_mmap_logger("vnf_pnf_latency");

@@ -44,6 +44,8 @@ static void nr_rlc_entity_get_stats(
   nr_rlc_sdu_segment_t* sdu;
   if (entity->stats.mode == NR_RLC_AM) {
     nr_rlc_entity_am_t* am_entity = (nr_rlc_entity_am_t *) entity;
+    out->rxbuf_occ_bytes = am_entity->rx_size;
+    out->rx_ooo_wait_delay_ms = am_entity->t_reassembly_start ? (uint32_t)(am_entity->t_current - am_entity->t_reassembly_start) : 0;
     if (am_entity->retransmit_list != NULL) {
       sdu = am_entity->retransmit_list;
     } else {
@@ -51,9 +53,13 @@ static void nr_rlc_entity_get_stats(
     }
   } else if (entity->stats.mode == NR_RLC_UM) {
     nr_rlc_entity_um_t* um_entity = (nr_rlc_entity_um_t *) entity;
+    out->rxbuf_occ_bytes = um_entity->rx_size;
+    out->rx_ooo_wait_delay_ms = um_entity->t_reassembly_start ? (uint32_t)(um_entity->t_current - um_entity->t_reassembly_start) : 0;
     sdu = um_entity->tx_list;
   } else {
     nr_rlc_entity_tm_t* tm_entity = (nr_rlc_entity_tm_t *) entity;
+    out->rxbuf_occ_bytes = 0;
+    out->rx_ooo_wait_delay_ms = 0;
     sdu = tm_entity->tx_list;
   }
 

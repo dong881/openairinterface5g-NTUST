@@ -68,6 +68,7 @@ typedef struct {
   /* rxpdu_potout_ms: flag indicating the poll retransmit time out in ms - NOT IMPLEMENTED */
   /* rxpdu_sptout_ms: flag indicating status prohibit timeout in ms - NOT IMPLEMENTED */
   uint32_t rxbuf_occ_bytes;    /* (IMPLEMENTED) received bytes currently in buffer */
+  uint32_t rx_ooo_wait_delay_ms; /* (IMPLEMENTED) waiting time for missing out-of-order packets */
   uint32_t rxbuf_occ_pkts;     /* TODO: current rx buffer occupancy in terms of number of packets (average: NOT IMPLEMENTED) */
 
   /* SDU stats */
