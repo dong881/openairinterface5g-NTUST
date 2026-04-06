@@ -43,9 +43,13 @@ show_help() {
     echo "  help          - Show this help message"
     echo ""
     echo "OPTIONS:"
-    echo "  SLOT_AHEAD    - Value passed to VNF for dynamic config (default: 8)"
+    echo "  SLOT_AHEAD    - Value passed to VNF for dynamic config (default: 8 or \$SLOT_AHEAD if ENV_MODE)"
     echo "  AUTO_STOP     - 0 (default): No auto-stop"
     echo "                  1: Auto-stop after 120 seconds"
+    echo ""
+    echo "ENVIRONMENT VARIABLES (New Version / Development Mode):"
+    echo "  USE_NEW_SLIDER_HEAD=1  - Enable new slider head behavior (export mode)"
+    echo "  SLOT_AHEAD=X           - Override SLOT_AHEAD value if USE_NEW_SLIDER_HEAD=1"
     echo ""
     echo "LOG FILES:"
     echo "  PNF Log:       \$HOME/gNB-logs/nfapi-PNF-pegatron-open5gs-develop-latest.log"
@@ -59,6 +63,14 @@ show_help() {
 MODE=${1:-local}
 SLOT_AHEAD_VAL=${2:-0}
 AUTO_STOP=${3:-0}
+
+# Priority for Environment Variables in New Version Mode
+if [ "$USE_NEW_SLIDER_HEAD" = "1" ]; then
+    if [ -n "$SLOT_AHEAD" ]; then
+        echo -e "${CYAN}ℹ️ New Slider Head Mode (USE_NEW_SLIDER_HEAD=1). Overriding SLOT_AHEAD=${SLOT_AHEAD}${NC}"
+        SLOT_AHEAD_VAL=$SLOT_AHEAD
+    fi
+fi
 
 # Check for help mode first
 if [ "$MODE" = "help" ]s || [ "$MODE" = "-h" ] || [ "$MODE" = "--help" ]; then
