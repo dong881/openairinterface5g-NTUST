@@ -279,7 +279,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         max_node_to_node_latency = 0;
     }
     
-    log_mmap_entry("vnf_pnf_latency", (long)min_node_to_node_latency);
+    log_mmap_entry("vnf_pnf_latency", (long)max_node_to_node_latency);
 
     // Update EWMA Base Delay to the Minimum Node-to-Node latency (Fastest packet transit)
     // (VNF CPU execution + Network Transit + Queueing WITHOUT JITTER)
