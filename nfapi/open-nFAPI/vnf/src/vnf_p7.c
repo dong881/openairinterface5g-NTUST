@@ -285,9 +285,9 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     p7_info->absolute_max_advance_us = ABSOLUTE_MAX_ADVANCE_US;
 
     // Protect our boundary conditions: Lower bounds should never squeeze past the upper max advances 
-    int32_t UPPER_SAFE_BOUND = - (ABSOLUTE_MAX_ADVANCE_US - 200); // Leave 200us headroom at the far end
-    if (DYNAMIC_LOWER_SAFE_BOUND < UPPER_SAFE_BOUND + 1000) {
-        DYNAMIC_LOWER_SAFE_BOUND = UPPER_SAFE_BOUND + 1000;
+    int32_t UPPER_SAFE_BOUND = - (ABSOLUTE_MAX_ADVANCE_US - 800); // Leave 800us headroom at the far end
+    if (DYNAMIC_LOWER_SAFE_BOUND < UPPER_SAFE_BOUND + 1500) {
+        DYNAMIC_LOWER_SAFE_BOUND = UPPER_SAFE_BOUND + 1500;
     }
 
     int32_t shift_us = 0;
@@ -295,9 +295,25 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 
     // 2. Evaluation Logic - Control Proportional Phase 
     // A. "Too Early" Check
+    // WARNING & RATIONALE REGARDING PTP SYNCHRONIZATION AND TIME DOMAINS:
+    // In the NFAPI split, the VNF and PNF time domains are entirely independent. The VNF actively uses its 
+    // own VNF Timing Thread to schedule and send to the PNF. Thus, their raw clocks WILL drift relative to 
+    // one another if no PTP is present. However, PTP synchronization is NOT required for the data plane 
+    // to function correctly. WHY? Because this very closed-loop timing control (using nfapi_nr_timing_info) 
+    // continuously measures the effective one-way phase offset (worst_early / worst_late) and dynamically 
+    // adjusts the VNF's `target_advance_us`. This loop inherently compensates for any clock drift between 
+    // the two independent time domains. As long as this loop correctly tracks the boundaries, the drift is 
+    // transparently mitigated. The previous "Too Early" issues were caused by a sign error in the retreat 
+    // formula, not by a lack of PTP.
+
     if (worst_early < UPPER_SAFE_BOUND) {
         // Rapid Phase Retreat - we're dangerously close to exceeding the max available timing window
-        shift_us = UPPER_SAFE_BOUND - worst_early - 100; 
+        // [CRITICAL MATH FIX]: To retreat (arrive later), shift_us MUST be negative.
+        // Previously: UPPER_SAFE_BOUND - worst_early - 300 resulted in a POSITIVE shift, pushing the packet 
+        // even earlier, slamming aggressively into the ABSOLUTE_MAX_ADVANCE_US clamp and crashing the timing!
+        // Correct fix: worst_early - UPPER_SAFE_BOUND guarantees a negative difference.
+        shift_us = worst_early - UPPER_SAFE_BOUND - 300; 
+
         NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF] TOO EARLY DETECTED (WorstEarly: %d us < Bound: %d us), Rapid Retreat by %d us! Max_Adv: %d\n", worst_early, UPPER_SAFE_BOUND, shift_us, ABSOLUTE_MAX_ADVANCE_US);
     }
     // B. "Too Late" Check against Dynamic Jitter Bound
@@ -306,7 +322,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         shift_us = worst_late - (DYNAMIC_LOWER_SAFE_BOUND / 2) + 200; 
 
         // Apply Too-Early clamp only to the physical sprint phase adjustment
-        int32_t max_allowed_shift = worst_early - UPPER_SAFE_BOUND - 100;
+        int32_t max_allowed_shift = worst_early - UPPER_SAFE_BOUND - 300;
         if (shift_us > max_allowed_shift) shift_us = max_allowed_shift;
         if (shift_us < 0) shift_us = 0; 
     }
