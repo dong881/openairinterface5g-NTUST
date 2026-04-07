@@ -647,11 +647,7 @@ static int find_next_split_index(const char *base_filename)
       size_t len = strlen(base_filename);
       strncpy(base_no_ext, base_filename, len - 4);
       base_no_ext[len - 4] = '\0';
-      if (index == 0) {
-        snprintf(filepath, sizeof(filepath), "%s/%s", LOG_OUTPUT_DIR, base_filename);
-      } else {
-        snprintf(filepath, sizeof(filepath), "%s/%s.%03d.bin", LOG_OUTPUT_DIR, base_no_ext, index);
-      }
+      snprintf(filepath, sizeof(filepath), "%s/%s.%03d.bin", LOG_OUTPUT_DIR, base_no_ext, index);
     } else {
       snprintf(filepath, sizeof(filepath), "%s/%s.%03d", LOG_OUTPUT_DIR, base_filename, index);
     }
@@ -673,11 +669,7 @@ static void generate_split_filename(char *dest, size_t dest_size,
     size_t len = strlen(base_filename);
     strncpy(base_no_ext, base_filename, len - 4);
     base_no_ext[len - 4] = '\0';
-    if (split_index == 0) {
-      snprintf(dest, dest_size, "%s/%s", LOG_OUTPUT_DIR, base_filename);
-    } else {
-      snprintf(dest, dest_size, "%s/%s.%03d.bin", LOG_OUTPUT_DIR, base_no_ext, split_index);
-    }
+    snprintf(dest, dest_size, "%s/%s.%03d.bin", LOG_OUTPUT_DIR, base_no_ext, split_index);
   } else {
     snprintf(dest, dest_size, "%s/%s.%03d", LOG_OUTPUT_DIR, base_filename, split_index);
   }
