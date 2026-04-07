@@ -707,6 +707,10 @@ static bool check_nr_p7_timing(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_t msg_
 	int64_t slot_len_us = 10000 / NFAPI_SLOTNUM(pnf_p7->mu);
 
 	// Calculate margin: Time remaining until deadline
+	if (pnf_p7->slot_start_time_hr == 0) {
+		// slot_start_time_hr is uninitialized; ignore timing checks to prevent uptime logging
+		return true;
+	}
 	int64_t time_since_slot_start = timehr_diff_us(recv_time_hr, pnf_p7->slot_start_time_hr);
 	int64_t delay_to_msg_slot = diff_slots * slot_len_us;
 	int64_t margin = delay_to_msg_slot - time_since_slot_start - timing_offset;

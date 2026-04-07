@@ -237,7 +237,9 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	int32_t max_node_to_node_latency = reference_total_advanced_us + worst_late;
 	if (min_node_to_node_latency < 0) min_node_to_node_latency = 0;
 	if (max_node_to_node_latency < 0) max_node_to_node_latency = 0;
-	log_mmap_entry("vnf_pnf_latency-us.bin", (long)max_node_to_node_latency);
+	if (p7_info->sync_locked) {
+		log_mmap_entry("vnf_pnf_latency-us.bin", (long)max_node_to_node_latency);
+	}
 	// ===================================================================
 	// 2. Peak Tracking (Minima and Maxima)
 	// ===================================================================

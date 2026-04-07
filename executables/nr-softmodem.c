@@ -141,6 +141,8 @@ unsigned int build_rfdc(int dcoff_i_rxfe, int dcoff_q_rxfe) {
 #define KBLU  "\x1B[34m"
 #define RESET "\033[0m"
 
+void cleanup_mmap_logger(void);
+
 void exit_function(const char *file, const char *function, const int line, const char *s, const int assert)
 {
   int ru_id;
@@ -175,8 +177,10 @@ void exit_function(const char *file, const char *function, const int line, const
   }
 
   if (assert) {
+    cleanup_mmap_logger(); // Cleanup mmap logs before aborting
     abort();
   } else {
+    cleanup_mmap_logger(); // Cleanup mmap logs before exiting cleanly
     sleep(1); // allow nr-softmodem threads to exit first
     exit(EXIT_SUCCESS);
   }
