@@ -706,7 +706,7 @@ static bool check_nr_p7_timing(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_t msg_
 	// We log the packet but DO NOT corrupt earliest_arrival/latest_delay tracking.
 	if (diff_slots >= -4 && diff_slots <= 40) {
 		// Log margin value for analysis (packed with frame/slot in top bits)
-		log_mmap_entry("pnf_timing_window", pack_sfn_slot_value(msg_sfn, msg_slot, (int32_t)margin));
+		log_mmap_entry("pnf_timing_window-us.bin", pack_sfn_slot_value(msg_sfn, msg_slot, (int32_t)margin));
 		if (offset > *latest_delay) {
 			*latest_delay = (int32_t)offset;
 		}

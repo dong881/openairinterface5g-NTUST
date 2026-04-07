@@ -377,7 +377,7 @@ void finish_nr_dl_harq(NR_UE_sched_ctrl_t *sched_ctrl, int harq_pid)
   if (harq->rtt_start_time > 0) {
     uint64_t end_time = rdtsc_oai();
     long diff_us = (long)((end_time - harq->rtt_start_time) / (cpuf * 1000.0));
-    log_mmap_entry("vnf_harq_rtt", diff_us);
+    log_mmap_entry("vnf_harq_rtt-us.bin", diff_us);
     harq->rtt_start_time = 0;
   }
 
@@ -1079,7 +1079,7 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pdsch, NR_UE
       remove_nr_list(&sched_ctrl->retrans_dl_harq, current_harq_pid);
       uint64_t end_time = rdtsc_oai();
       long diff_us = (long)((end_time - sched_ctrl->harq_processes[current_harq_pid].buffer_start_time) / (cpuf * 1000.0));
-      log_mmap_entry("vnf_harq_buffer", diff_us);
+      log_mmap_entry("vnf_harq_buffer-us.bin", diff_us);
     }
   }
 

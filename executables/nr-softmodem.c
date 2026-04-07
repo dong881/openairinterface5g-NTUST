@@ -627,6 +627,13 @@ static void clear_log_directory(void)
   }
 }
 
+// Helper function to detect .bin extension on base filenames
+static int has_bin_extension(const char *filename)
+{
+  size_t len = strlen(filename);
+  return len > 4 && strcmp(filename + len - 4, ".bin") == 0;
+}
+
 // Helper function to find the next available split index
 static int find_next_split_index(const char *base_filename)
 {
@@ -635,7 +642,20 @@ static int find_next_split_index(const char *base_filename)
   int index = 0;
   // Find the first non-existing file index
   while (index <= MAX_SPLIT_INDEX) {
-    snprintf(filepath, sizeof(filepath), "%s/%s.%03d", LOG_OUTPUT_DIR, base_filename, index);
+    if (has_bin_extension(base_filename)) {
+      char base_no_ext[64];
+      size_t len = strlen(base_filename);
+      strncpy(base_no_ext, base_filename, len - 4);
+      base_no_ext[len - 4] = '\0';
+      if (index == 0) {
+        snprintf(filepath, sizeof(filepath), "%s/%s", LOG_OUTPUT_DIR, base_filename);
+      } else {
+        snprintf(filepath, sizeof(filepath), "%s/%s.%03d.bin", LOG_OUTPUT_DIR, base_no_ext, index);
+      }
+    } else {
+      snprintf(filepath, sizeof(filepath), "%s/%s.%03d", LOG_OUTPUT_DIR, base_filename, index);
+    }
+
     if (stat(filepath, &st) == -1) {
       break; // File doesn't exist, use this index
     }
@@ -648,7 +668,19 @@ static int find_next_split_index(const char *base_filename)
 static void generate_split_filename(char *dest, size_t dest_size,
                                     const char *base_filename, int split_index)
 {
-  snprintf(dest, dest_size, "%s/%s.%03d", LOG_OUTPUT_DIR, base_filename, split_index);
+  if (has_bin_extension(base_filename)) {
+    char base_no_ext[64];
+    size_t len = strlen(base_filename);
+    strncpy(base_no_ext, base_filename, len - 4);
+    base_no_ext[len - 4] = '\0';
+    if (split_index == 0) {
+      snprintf(dest, dest_size, "%s/%s", LOG_OUTPUT_DIR, base_filename);
+    } else {
+      snprintf(dest, dest_size, "%s/%s.%03d.bin", LOG_OUTPUT_DIR, base_no_ext, split_index);
+    }
+  } else {
+    snprintf(dest, dest_size, "%s/%s.%03d", LOG_OUTPUT_DIR, base_filename, split_index);
+  }
 }
 
 // Helper function to finalize current split file - always truncate to actual size
@@ -836,21 +868,21 @@ void cleanup_mmap_logger(void)
 
 static void init_pnf_mmap_loggers(void)
 {
-  init_mmap_logger("pnf_timing_window");
+  init_mmap_logger("pnf_timing_window-us.bin");
   // Add PNF-only loggers here - keeps PNF changes isolated
 }
 
 static void init_vnf_mmap_loggers(void)
 {
-  init_mmap_logger("vnf_harq_buffer");
-  init_mmap_logger("vnf_harq_rtt");
-  init_mmap_logger("vnf_rlc_runtime");
-  init_mmap_logger("vnf_rlc_hol_delay");
-  init_mmap_logger("vnf_rlc_avg_to_tx");
-  init_mmap_logger("vnf_rlc_rx_ooo_wait_delay");
+  init_mmap_logger("vnf_harq_buffer-us.bin");
+  init_mmap_logger("vnf_harq_rtt-us.bin");
+  init_mmap_logger("vnf_rlc_runtime-us.bin");
+  init_mmap_logger("vnf_rlc_hol_delay-us.bin");
+  init_mmap_logger("vnf_rlc_rxbuf_occ_bytes-B.bin");
+  init_mmap_logger("vnf_rlc_rx_ooo_wait_delay-ms.bin");
   // Track continuous VNF-PNF latency measurements and advance timing
-  init_mmap_logger("vnf_advance_time");
-  init_mmap_logger("vnf_pnf_latency");
+  init_mmap_logger("vnf_advance_time-us.bin");
+  init_mmap_logger("vnf_pnf_latency-us.bin");
 }
 
 static void init_monolithic_mmap_loggers(void)

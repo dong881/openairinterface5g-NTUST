@@ -1405,7 +1405,7 @@ void *vnf_timing_thread(void *arg) {
     ind.header.phy_id = p7_info->phy_id;
     // Log the current physical total advance corresponding to this generated slot packet.
     if (p7_info->sync_locked) {
-      log_mmap_entry("vnf_advance_time", pack_sfn_slot_value(p7_info->sfn, p7_info->slot, p7_info->total_advanced_us));
+      log_mmap_entry("vnf_advance_time-us.bin", pack_sfn_slot_value(p7_info->sfn, p7_info->slot, p7_info->total_advanced_us));
     }
     phy_nr_slot_indication(&ind);
 
