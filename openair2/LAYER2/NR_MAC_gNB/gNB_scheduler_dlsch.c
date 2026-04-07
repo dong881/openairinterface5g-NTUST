@@ -43,7 +43,7 @@
 #include "executables/softmodem-common.h"
 #include "common/utils/time_meas.h"
 
-extern void log_mmap_entry(const char *log_name, long value);
+extern void log_mmap_entry(const char *log_name, uint64_t value);
 
 #include "../../../nfapi/oai_integration/vendor_ext.h"
 

@@ -127,7 +127,7 @@ mapping * log_option_names_ptr(void)
   return log_options;
 }
 
-void __attribute__((weak)) log_mmap_entry(const char *log_name, long value)
+void __attribute__((weak)) log_mmap_entry(const char *log_name, uint64_t value)
 {
   (void)log_name;
   (void)value;

@@ -45,7 +45,7 @@
 
 #include <executables/softmodem-common.h>
 
-extern void log_mmap_entry(const char *log_name, long value);
+extern void log_mmap_entry(const char *log_name, uint64_t value);
 
 static nr_rlc_ue_manager_t *nr_rlc_ue_manager;
 

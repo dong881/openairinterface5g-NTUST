@@ -37,7 +37,7 @@
 #endif
 #include "nr_fapi_p7_utils.h"
 
-extern void log_mmap_entry(const char *log_name, long value);
+extern void log_mmap_entry(const char *log_name, uint64_t value);
 
 #ifdef NDEBUG
 #  warning assert is disabled
@@ -216,8 +216,8 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	nfapi_vnf_config_t *config = get_config();
 	int32_t timing_window_us = (int32_t)config->timing_window;
     
-	const int32_t ALPHA = 4; // Ramjee's Target multiplier
-	const int32_t BETA  = 3; // Spike detection threshold
+	// const int32_t ALPHA = 4; // Ramjee's Target multiplier
+	// const int32_t BETA  = 3; // Spike detection threshold
 	int32_t current_total_advanced_us = __atomic_load_n(&p7_info->total_advanced_us, __ATOMIC_SEQ_CST);
 	int32_t reference_total_advanced_us = current_total_advanced_us;
 	

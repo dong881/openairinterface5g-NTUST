@@ -820,7 +820,7 @@ void init_mmap_logger(const char *filename)
  * 
  * print(data[:10]) # Print first 10 recorded values
  */
-void log_mmap_entry(const char *log_name, long value)
+void log_mmap_entry(const char *log_name, uint64_t value)
 {
   int log_id = find_log_id(log_name);
   if (log_id < 0 || !log_files[log_id].is_active)
@@ -830,7 +830,7 @@ void log_mmap_entry(const char *log_name, long value)
 
   pthread_spin_lock(&log->lock);
 
-  if ((log->current_log_size - log->log_offset) < sizeof(long)) {
+  if ((log->current_log_size - log->log_offset) < sizeof(uint64_t)) {
     if (rotate_log_file(log) == -1) {
       pthread_spin_unlock(&log->lock);
       return;
@@ -838,8 +838,8 @@ void log_mmap_entry(const char *log_name, long value)
   }
 
   // Write raw binary data directly to eliminate string conversion overhead entirely.
-  *(long *)(log->log_ptr + log->log_offset) = value;
-  log->log_offset += sizeof(long);
+  *(uint64_t *)(log->log_ptr + log->log_offset) = value;
+  log->log_offset += sizeof(uint64_t);
 
   pthread_spin_unlock(&log->lock);
 }

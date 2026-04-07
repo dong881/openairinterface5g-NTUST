@@ -1141,12 +1141,12 @@ void timespec_add_us(struct timespec *t, long us) {
     }
 }
 
-static inline long pack_sfn_slot_value(uint16_t sfn, uint16_t slot, int32_t signed_value)
+static inline uint64_t pack_sfn_slot_value(uint16_t sfn, uint16_t slot, int32_t signed_value)
 {
     uint64_t packed = ((uint64_t)sfn << 48) |
                       ((uint64_t)slot << 32) |
                       ((uint32_t)signed_value);
-    return (long)packed;
+    return packed;
 }
 
 #define P7_SYNC_PERIOD_SLOTS_DEFAULT 3  // Send vnf_nr_sync every N slots
