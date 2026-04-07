@@ -862,6 +862,10 @@ static void init_pnf_mmap_loggers(void)
 {
   init_mmap_logger("pnf_timing_window-us.bin");
   // Add PNF-only loggers here - keeps PNF changes isolated
+  init_mmap_logger("pnf_p7_msg_age_completed-us.bin");
+  init_mmap_logger("pnf_p7_msg_age_stale-us.bin");
+  init_mmap_logger("pnf_p7_stale_seg_expected-count.bin");
+  init_mmap_logger("pnf_p7_stale_seg_received-count.bin");
 }
 
 static void init_vnf_mmap_loggers(void)

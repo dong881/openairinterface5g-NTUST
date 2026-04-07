@@ -511,6 +511,12 @@ pnf_p7_rx_message_t* pnf_p7_rx_reassembly_queue_add_segment(pnf_p7_t* pnf_p7, pn
 		// set the segement number if we have the last segment
 		if(m == 0)
 			msg->num_segments_expected = segment_number + 1;
+
+		if(msg->num_segments_received == msg->num_segments_expected)
+		{
+			long assembly_lat = timehr_diff_us(rx_hr_time, msg->rx_hr_time);
+			log_mmap_entry("pnf_p7_msg_age_completed-us.bin", assembly_lat);
+		}
 	}
 	// else add new rx message entry
 	else
@@ -531,6 +537,12 @@ pnf_p7_rx_message_t* pnf_p7_rx_reassembly_queue_add_segment(pnf_p7_t* pnf_p7, pn
 		// place the message at the head of the queue
 		msg->next = queue->msg_queue;
 		queue->msg_queue = msg;
+
+		if(msg->num_segments_received == msg->num_segments_expected)
+		{
+			long assembly_lat = timehr_diff_us(rx_hr_time, msg->rx_hr_time);
+			log_mmap_entry("pnf_p7_msg_age_completed-us.bin", assembly_lat);
+		}
 	}
 
 	return msg;
@@ -593,6 +605,11 @@ void pnf_p7_rx_reassembly_queue_remove_old_msgs(pnf_p7_t* pnf_p7, pnf_p7_rx_reas
 			}
 			
 			NFAPI_TRACE(NFAPI_TRACE_WARN, "Deleting stale reassembly message (packet rx_hr_time %u current rx_hr_time %u delta %d us)\n", iterator->rx_hr_time, rx_hr_time, delta);
+			
+			long drop_age = timehr_diff_us(rx_hr_time, iterator->rx_hr_time);
+			log_mmap_entry("pnf_p7_msg_age_stale-us.bin", drop_age);
+			log_mmap_entry("pnf_p7_stale_seg_expected-count.bin", iterator->num_segments_expected);
+			log_mmap_entry("pnf_p7_stale_seg_received-count.bin", iterator->num_segments_received);
 
 			pnf_p7_rx_message_t* to_delete = iterator;
 			iterator = iterator->next;

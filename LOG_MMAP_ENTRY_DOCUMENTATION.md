@@ -13,7 +13,12 @@
 - 範例：`logs/pnf_timing_window.000`、`logs/vnf_harq_rtt.000`
 
 ### 1(c) 產生模式
-- `PNF` mode 會產生：`pnf_timing_window`
+- `PNF` mode 會產生：
+  - `pnf_timing_window`
+  - `pnf_p7_msg_age_completed`
+  - `pnf_p7_msg_age_stale`
+  - `pnf_p7_stale_seg_expected`
+  - `pnf_p7_stale_seg_received`
 - `VNF` mode 會產生：
   - `vnf_harq_buffer`
   - `vnf_harq_rtt`
@@ -48,6 +53,10 @@
 
 #### 2(b).2. Raw log（單一值）
 - 適用 log：
+  - `pnf_p7_msg_age_completed`
+  - `pnf_p7_msg_age_stale`
+  - `pnf_p7_stale_seg_expected`
+  - `pnf_p7_stale_seg_received`
   - `vnf_harq_buffer`
   - `vnf_harq_rtt`
   - `vnf_rlc_runtime`
@@ -92,6 +101,10 @@
 | log 名稱 | 代表意義 | 估計範圍 | 單位 | 解析方式 |
 |---|---|---|---|---|
 | `pnf_timing_window` | PNF 時序窗口檢查 margin | 典型 `-50k..+400k` | μs | packed log |
+| `pnf_p7_msg_age_completed` | 成功組裝訊息的等待延遲 (last - first_seg) | 典型 `0..10k` | μs | raw log |
+| `pnf_p7_msg_age_stale` | 逾時被丟棄的 stale 訊息已經過了多久 | 典型 `10k` | μs | raw log |
+| `pnf_p7_stale_seg_expected` | stale 訊息被丟棄時預期的總段數 | 典型 `1..255` | count | raw log |
+| `pnf_p7_stale_seg_received` | stale 訊息被丟棄時已收到的段數 | 典型 `1..254` | count | raw log |
 | `vnf_advance_time` | VNF slot send advance time | 典型 `0..20k` | μs | packed log |
 | `vnf_pnf_latency` | VNF 到 PNF latency | 典型 `0..20k` | μs | packed log |
 | `vnf_harq_buffer` | HARQ buffer 等待延遲 | 典型 `0..20k` | μs | raw log |
