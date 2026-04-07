@@ -1995,7 +1995,9 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 			// If this is set to 0, the dynamic margin will blindly push the phase further ahead 
 			// by `target_margin_initial` AGAIN, vastly exceeding ABSOLUTE_MAX_ADVANCE_US and 
 			// severely triggering "Too Early" drops continuously.
-			p7_info->total_advanced_us = target_margin_initial; // Account for initial phase offset!
+			int slot_ahead = 0;
+			get_vnf_timing_envs(&slot_ahead, NULL);
+			p7_info->total_advanced_us = target_margin_initial + slot_ahead * p7_info->slot_duration_us; // Account for initial phase offset!
 		} else {
 			int32_t s_adj = total_correction / p7_info->slot_duration_us;
 			int32_t p_adj = total_correction % p7_info->slot_duration_us;
