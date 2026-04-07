@@ -45,11 +45,12 @@
 - 適用 log：
   - `pnf_timing_window`
   - `vnf_advance_time`
-  - `vnf_pnf_latency`
-- 這三個 log 的一筆記錄包含：
+- 這兩個 log 的一筆記錄包含：
   1. `SFN`
   2. `Slot`
   3. `payload`
+- 目前程式中這兩個 packed log 是由 `pack_sfn_slot_value()` 生成，接著用 `log_mmap_entry()` 直接寫入 8 bytes binary。
+- 註：`vnf_pnf_latency` 目前不是 packed log，請勿將其當成 SFN/Slot 格式解析。
 
 #### 2(b).2. Raw log（單一值）
 - 適用 log：
@@ -62,6 +63,7 @@
   - `vnf_rlc_runtime`
   - `vnf_rlc_hol_delay`
   - `vnf_rlc_avg_to_tx`
+  - `vnf_pnf_latency`
 - 這些 log 只儲存一個 signed 64-bit 量測值
 
 ### 2(c) Packed log 的欄位分配
@@ -69,6 +71,26 @@
   - `bits 63..48`：SFN（16 bits allocated）
   - `bits 47..32`：Slot（16 bits allocated）
   - `bits 31..0`：payload（32 bits signed）
+
+### 2(c).1 Python 讀取提醒
+- `pnf_timing_window-us.bin`、`vnf_advance_time-us.bin` 為 packed log；其 raw record 應先讀成 signed 64-bit 再拆欄位。
+- `vnf_pnf_latency-us.bin`、`pnf_p7_msg_age_completed-us.bin`、`pnf_p7_msg_age_stale-us.bin`、`pnf_p7_stale_seg_expected-count.bin`、`pnf_p7_stale_seg_received-count.bin` 等皆為 raw log，直接讀出 signed 64-bit integer 即可。
+- Python 讀取範例：
+
+```python
+import struct
+import ctypes
+
+with open("logs/pnf_timing_window-us.bin.000", "rb") as f:
+    while chunk := f.read(8):
+        raw_value, = struct.unpack("<q", chunk)
+        sfn = (raw_value >> 48) & 0xFFFF
+        slot = (raw_value >> 32) & 0xFFFF
+        payload = ctypes.c_int32(raw_value & 0xFFFFFFFF).value
+        print(sfn, slot, payload)
+```
+
+- 注意：payload 是 signed 32-bit，必須做符號延伸還原。不要只用 `raw_value & 0xFFFFFFFF` 當成最終結果。
 
 ### 2(d) 實際需要的位寬
 - SFN 範圍：`0..1023` → 10 bits
@@ -106,7 +128,7 @@
 | `pnf_p7_stale_seg_expected` | stale 訊息被丟棄時預期的總段數 | 典型 `1..255` | count | raw log |
 | `pnf_p7_stale_seg_received` | stale 訊息被丟棄時已收到的段數 | 典型 `1..254` | count | raw log |
 | `vnf_advance_time` | VNF slot send advance time | 典型 `0..20k` | μs | packed log |
-| `vnf_pnf_latency` | VNF 到 PNF latency | 典型 `0..20k` | μs | packed log |
+| `vnf_pnf_latency` | VNF 到 PNF latency | 典型 `0..20k` | μs | raw log |
 | `vnf_harq_buffer` | HARQ buffer 等待延遲 | 典型 `0..20k` | μs | raw log |
 | `vnf_harq_rtt` | HARQ round-trip delay | 典型 `0..20k` | μs | raw log |
 | `vnf_rlc_runtime` | RLC 執行時間 | 典型 `0..20k` | μs | raw log |
@@ -122,7 +144,6 @@
 - 若 `log_name` 為：
   - `pnf_timing_window`
   - `vnf_advance_time`
-  - `vnf_pnf_latency`
   → 必須拆成 SFN/Slot/payload
 - 否則 → 當作單一 signed 64-bit 量測值
 
@@ -131,6 +152,7 @@
 - `sfn = (raw_value >> 48) & 0xFFFF`
 - `slot = (raw_value >> 32) & 0xFFFF`
 - `payload = (int32_t)(raw_value & 0xFFFFFFFF)`
+- 注意：payload 是 signed 32-bit，必須做符號延伸還原
 
 ### 4(c) 建議輸出欄位
 - `log_name`
