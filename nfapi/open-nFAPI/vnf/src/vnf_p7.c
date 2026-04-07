@@ -215,15 +215,6 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	
 	nfapi_vnf_config_t *config = get_config();
 	int32_t timing_window_us = (int32_t)config->timing_window;
-
-	// 1. Asymmetric Jitter Smoothing (AEMA filter) - 保持你原本優秀的設計
-	uint32_t raw_jitter = stats->pnf_reported_jitter;
-	if (raw_jitter > p7_info->smoothed_pnf_jitter_us) {
-		p7_info->smoothed_pnf_jitter_us = raw_jitter; // Fast Attack
-	} else {
-		p7_info->smoothed_pnf_jitter_us = ((p7_info->smoothed_pnf_jitter_us * 63) + raw_jitter) / 64; // Slow Decay
-	}
-	uint32_t effective_jitter = p7_info->smoothed_pnf_jitter_us;
     
 	const int32_t ALPHA = 4; // Ramjee's Target multiplier
 	const int32_t BETA  = 3; // Spike detection threshold
@@ -267,15 +258,16 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	int32_t PEAK_MAX_LATENCY = p7_info->short_ewma_process_us;
 	
 	// 使用 PNF 回報的歷史平滑 Jitter 作為依據，避免單一 Period Range 過小造成的誤判
-	int32_t true_jitter = (int32_t)effective_jitter;
-	if (true_jitter < 50) true_jitter = 50; 
+	// PNF already reports smoothed jitter (RFC3550 EMA). Do not re-apply another EWMA here.
+	int32_t node_jitter = (int32_t)stats->pnf_reported_jitter;
+	if (node_jitter < 50) node_jitter = 50; 
 
 	// ===================================================================
 	// 3. 計算 Ideal Target Advance (緊貼 Deadline 下緣，最小化延遲)
 	// ===================================================================
 	// 直接對齊 Peak Max + 少量緩衝 -> 保證即使遇到突然的抖動，所有的封包也都能在 deadline 上方過關。
 	// 這能有效將分佈壓在 timing window 的下緣 (靠向0)，避免太早進入並大幅降低 Latency。
-	int32_t IDEAL_TARGET_ADVANCE_US = PEAK_MAX_LATENCY + (true_jitter / 2);
+	int32_t IDEAL_TARGET_ADVANCE_US = PEAK_MAX_LATENCY + (node_jitter);
 
 	// ===================================================================
 	// 4. Clamp (嚴格防止 Too Early)
@@ -286,9 +278,8 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	int32_t ABSOLUTE_MAX_ADVANCE_US = timing_window_us + PEAK_MIN_LATENCY + ABS_OWD_DELAY_US;
 	p7_info->absolute_max_advance_us = ABSOLUTE_MAX_ADVANCE_US;
 
-	int32_t SAFETY_HEADROOM_US = 150; // 保留 150us 的安全空間，確保絕不觸碰物理天花板
+	const int32_t SAFETY_HEADROOM_US = 150; // 保留 150us 的安全空間，確保絕不觸碰物理天花板
 	int32_t MAX_ALLOWED_TARGET = ABSOLUTE_MAX_ADVANCE_US - SAFETY_HEADROOM_US;
-
 	if (IDEAL_TARGET_ADVANCE_US > MAX_ALLOWED_TARGET) {
 		IDEAL_TARGET_ADVANCE_US = MAX_ALLOWED_TARGET;
 	}
@@ -300,13 +291,13 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	bool adjustment_issued = false;
 
 	// Slew-Rate Limiter
-	int32_t MAX_ADVANCE_STEP = 200; // 緊急往前衝的最大步長
-	int32_t MAX_RETREAT_STEP = -15; // 慢慢往後退的最大步長
+	const int32_t MAX_ADVANCE_STEP = 200; // 緊急往前衝的最大步長
+	const int32_t MAX_RETREAT_STEP = -15; // 慢慢往後退的最大步長
 
 	if (shift_us > MAX_ADVANCE_STEP) {
-			shift_us = MAX_ADVANCE_STEP; 
+		shift_us = MAX_ADVANCE_STEP; 
 	} else if (shift_us < MAX_RETREAT_STEP) {
-			shift_us = MAX_RETREAT_STEP;
+		shift_us = MAX_RETREAT_STEP;
 	}
 
 	// Dead-zone (如果誤差小於某個極小值，例如 2us，就不要浪費 CPU 去調整)
@@ -318,13 +309,16 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	if (shift_us != 0) {
 		long final_target = current_total_advanced_us + shift_us;
         
-			// 最終的絕對防呆檢查
-			if (final_target > ABSOLUTE_MAX_ADVANCE_US) final_target = ABSOLUTE_MAX_ADVANCE_US;
-			if (final_target < 0) final_target = 0;
+		// 這裡仍要保留最終防呆，避免 current_total_advanced_us 已經接近上限
+		if (final_target > ABSOLUTE_MAX_ADVANCE_US) {
+			final_target = ABSOLUTE_MAX_ADVANCE_US;
+		} else if (final_target < 0) {
+			final_target = 0;
+		}
 
-			long delta_us = final_target - current_total_advanced_us;
-			__atomic_store_n(&p7_info->pending_us, p7_info->pending_us + delta_us, __ATOMIC_SEQ_CST);
-			adjustment_issued = true;
+		long delta_us = final_target - current_total_advanced_us;
+		__atomic_store_n(&p7_info->pending_us, p7_info->pending_us + delta_us, __ATOMIC_SEQ_CST);
+		adjustment_issued = true;
     }
 
     if (adjustment_issued) {
