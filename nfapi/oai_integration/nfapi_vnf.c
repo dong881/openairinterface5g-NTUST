@@ -2207,6 +2207,7 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   vnf->p7_vnfs[0].aperiodic_timing_enabled = 0;
   vnf->p7_vnfs[0].periodic_timing_period = 3;
   vnf->p7_vnfs[0].config = nfapi_vnf_p7_config_create();
+  vnf->p7_vnfs[0].config->segment_size = 8900;
 #ifndef ENABLE_AERIAL
   NFAPI_TRACE(NFAPI_TRACE_INFO,
               "[VNF] %s() vnf->p7_vnfs[0].config:%p VNF ADDRESS:%s:%d\n",
