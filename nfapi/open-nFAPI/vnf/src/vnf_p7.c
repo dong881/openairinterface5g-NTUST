@@ -216,7 +216,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	nfapi_vnf_config_t *config = get_config();
 	int32_t timing_window_us = (int32_t)config->timing_window;
     
-	// const int32_t ALPHA = 4; // Ramjee's Target multiplier
+	const int32_t ALPHA = 3; // Ramjee's Target multiplier
 	// const int32_t BETA  = 3; // Spike detection threshold
 	int32_t current_total_advanced_us = __atomic_load_n(&p7_info->total_advanced_us, __ATOMIC_SEQ_CST);
 	int32_t reference_total_advanced_us = current_total_advanced_us;
@@ -269,7 +269,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	// ===================================================================
 	// 直接對齊 Peak Max + 少量緩衝 -> 保證即使遇到突然的抖動，所有的封包也都能在 deadline 上方過關。
 	// 這能有效將分佈壓在 timing window 的下緣 (靠向0)，避免太早進入並大幅降低 Latency。
-	int32_t IDEAL_TARGET_ADVANCE_US = PEAK_MAX_LATENCY + (node_jitter);
+	int32_t IDEAL_TARGET_ADVANCE_US = PEAK_MAX_LATENCY + ALPHA * (node_jitter);
 
 	// ===================================================================
 	// 4. Clamp (嚴格防止 Too Early)
