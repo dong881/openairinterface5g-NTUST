@@ -1169,7 +1169,7 @@ void *vnf_timing_thread(void *arg) {
   int s_ahead_env = 0;
   int margin_env = 0;
   get_vnf_timing_envs(&s_ahead_env, &margin_env);
-  LOG_I(NFAPI_VNF, "[DYNAMIC TIMING PRINT] Thread Start - SLOT_AHEAD: %d, TARGET_MARGIN_INITIAL: %d\n", s_ahead_env, margin_env);
+  LOG_I(NFAPI_VNF, "[VNF] timing env read once: SLOT_AHEAD=%d, TARGET_MARGIN_INITIAL=%d\n", s_ahead_env, margin_env);
 
   // Wait for configuration
   // Prefer to obtain mu (subcarrier spacing index) from the NFAPI NR config
@@ -1386,12 +1386,9 @@ void *vnf_timing_thread(void *arg) {
     p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec);
     p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
     
-    // Read the user-defined slot_ahead parameter (0 or 1 etc.)
-    int slot_ahead = 0;
-    get_vnf_timing_envs(&slot_ahead, NULL);
-    
-    int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, (sfnslot_dec + slot_ahead) % MAX_SFNSLOTDEC);
-    int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec + slot_ahead) % MAX_SFNSLOTDEC);
+    // Use the env value read once at thread startup
+    int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
+    int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
 
     if (p7_info->sync_slot_counter++ >= p7_info->sync_period_slots) {
       p7_info->sync_slot_counter = 0;
