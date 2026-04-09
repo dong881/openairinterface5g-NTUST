@@ -2196,16 +2196,27 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   memset(vnf->p7_vnfs, 0, sizeof(vnf->p7_vnfs));
   /* [Setting nfapi delay management] */
   const char *timing_window_env = getenv("TIMING_WINDOW");
+  const char *timing_info_mode_env = getenv("TIMING_INFO_MODE");
+  const char *timing_info_period_env = getenv("TIMING_INFO_PERIOD");
+
   vnf->p7_vnfs[0].timing_window = timing_window_env ? atoi(timing_window_env) : 7000;
-  LOG_I(NFAPI_VNF, "[DYNAMIC TIMING PRINT] TIMING_WINDOW Config: %u\n", vnf->p7_vnfs[0].timing_window);
+  uint8_t timing_info_mode = timing_info_mode_env ? (uint8_t)atoi(timing_info_mode_env) : 1;
+  vnf->p7_vnfs[0].periodic_timing_enabled = timing_info_mode & 0x1;
+  vnf->p7_vnfs[0].aperiodic_timing_enabled = (timing_info_mode >> 1) & 0x1;
+  vnf->p7_vnfs[0].periodic_timing_period = timing_info_period_env ? atoi(timing_info_period_env) : 3;
+
+  LOG_I(NFAPI_VNF,
+        "[DYNAMIC TIMING PRINT] TIMING_WINDOW=%u TIMING_INFO_MODE=%u (periodic=%u aperiodic=%u) TIMING_INFO_PERIOD=%u\n",
+        vnf->p7_vnfs[0].timing_window,
+        timing_info_mode,
+        vnf->p7_vnfs[0].periodic_timing_enabled,
+        vnf->p7_vnfs[0].aperiodic_timing_enabled,
+        vnf->p7_vnfs[0].periodic_timing_period);
 
   vnf->p7_vnfs[0].dl_tti_timing_offset = 0;
   vnf->p7_vnfs[0].ul_tti_timing_offset = 0;
   vnf->p7_vnfs[0].ul_dci_timing_offset = 0;
   vnf->p7_vnfs[0].tx_data_timing_offset = 0;
-  vnf->p7_vnfs[0].periodic_timing_enabled = 1;
-  vnf->p7_vnfs[0].aperiodic_timing_enabled = 0;
-  vnf->p7_vnfs[0].periodic_timing_period = 3;
   vnf->p7_vnfs[0].config = nfapi_vnf_p7_config_create();
   vnf->p7_vnfs[0].config->segment_size = 8900;
 #ifndef ENABLE_AERIAL
