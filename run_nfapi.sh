@@ -48,8 +48,11 @@ show_help() {
     echo "                  1: Auto-stop after 120 seconds"
     echo ""
     echo "ENVIRONMENT VARIABLES (New Version / Development Mode):"
-    echo "  USE_NEW_SLIDER_HEAD=1  - Enable new slider head behavior (export mode)"
-    echo "  SLOT_AHEAD=X           - Override SLOT_AHEAD value if USE_NEW_SLIDER_HEAD=1"
+    echo "  USE_NEW_SLIDER_HEAD=1      - Enable new slider head behavior (export mode)"
+    echo "  SLOT_AHEAD=X               - Override SLOT_AHEAD value if USE_NEW_SLIDER_HEAD=1"
+    echo "  TIMING_WINDOW=X            - Pass TIMING_WINDOW to VNF when starting with --nfapi VNF"
+    echo "  TIMING_INFO_MODE=X         - Pass TIMING_INFO_MODE to VNF when starting with --nfapi VNF"
+    echo "  TIMING_INFO_PERIOD=X       - Pass TIMING_INFO_PERIOD to VNF when starting with --nfapi VNF"
     echo ""
     echo "LOG FILES:"
     echo "  PNF Log:       \$HOME/gNB-logs/nfapi-PNF-pegatron-open5gs-develop-latest.log"
@@ -63,6 +66,9 @@ show_help() {
 MODE=${1:-local}
 SLOT_AHEAD_VAL=${2:-0}
 AUTO_STOP=${3:-0}
+TIMING_WINDOW_VAL=${TIMING_WINDOW:-}
+TIMING_INFO_MODE_VAL=${TIMING_INFO_MODE:-}
+TIMING_INFO_PERIOD_VAL=${TIMING_INFO_PERIOD:-}
 
 # Priority for Environment Variables in New Version Mode
 if [ "$USE_NEW_SLIDER_HEAD" = "1" ]; then
@@ -71,6 +77,24 @@ if [ "$USE_NEW_SLIDER_HEAD" = "1" ]; then
         SLOT_AHEAD_VAL=$SLOT_AHEAD
     fi
 fi
+
+build_vnf_env_args() {
+    local env_args=""
+    if [ -n "$SLOT_AHEAD_VAL" ]; then
+        env_args+="SLOT_AHEAD=${SLOT_AHEAD_VAL} "
+    fi
+    if [ -n "$TIMING_WINDOW_VAL" ]; then
+        env_args+="TIMING_WINDOW=${TIMING_WINDOW_VAL} "
+    fi
+    if [ -n "$TIMING_INFO_MODE_VAL" ]; then
+        env_args+="TIMING_INFO_MODE=${TIMING_INFO_MODE_VAL} "
+    fi
+    if [ -n "$TIMING_INFO_PERIOD_VAL" ]; then
+        env_args+="TIMING_INFO_PERIOD=${TIMING_INFO_PERIOD_VAL} "
+    fi
+    env_args+="NFAPI_TRACE_LEVEL=info"
+    echo "$env_args"
+}
 
 # Check for help mode first
 if [ "$MODE" = "help" ] || [ "$MODE" = "-h" ] || [ "$MODE" = "--help" ]; then
@@ -180,7 +204,8 @@ start_vnf_local() {
     
     echo -e "${GREEN}🚀 Starting VNF (SLOT_AHEAD=${slot_ahead})...${NC}"
     # Using taskset instead of thread-pool
-    local cmd="screen -dmS VNF_SESSION bash -c \"sudo -E SLOT_AHEAD=${slot_ahead} NFAPI_TRACE_LEVEL=info numactl --cpunodebind=0 --membind=0 taskset -c ${TASKSET_VNF} ./nr-softmodem -O ${conf_file} --nfapi VNF 2>&1 | tee ${log_file}\""
+    local vnf_env="$(build_vnf_env_args)"
+    local cmd="screen -dmS VNF_SESSION bash -c \"sudo -E ${vnf_env} numactl --cpunodebind=0 --membind=0 taskset -c ${TASKSET_VNF} ./nr-softmodem -O ${conf_file} --nfapi VNF 2>&1 | tee ${log_file}\""
     echo -e "${YELLOW}CMD:${NC} $cmd"
     eval "$cmd"
     
@@ -437,7 +462,21 @@ start_vnf_hpe() {
     ssh hpe "rm -f $log_file" || true
     
     # Start VNF in screen session with passed SLOT_AHEAD parameter and taskset
-    local start_cmd="screen -dmS VNF_SESSION bash -c 'cd $build_path && sudo -E SLOT_AHEAD=${slot_ahead} NFAPI_TRACE_LEVEL=info numactl --cpunodebind=0 --membind=0 taskset -c ${TASKSET_VNF} ./nr-softmodem -O ${conf_file} --nfapi VNF 2>&1 | tee ${log_file}'"
+    local vnf_env=""
+    if [ -n "$slot_ahead" ]; then
+        vnf_env+="SLOT_AHEAD=${slot_ahead} "
+    fi
+    if [ -n "$TIMING_WINDOW_VAL" ]; then
+        vnf_env+="TIMING_WINDOW=${TIMING_WINDOW_VAL} "
+    fi
+    if [ -n "$TIMING_INFO_MODE_VAL" ]; then
+        vnf_env+="TIMING_INFO_MODE=${TIMING_INFO_MODE_VAL} "
+    fi
+    if [ -n "$TIMING_INFO_PERIOD_VAL" ]; then
+        vnf_env+="TIMING_INFO_PERIOD=${TIMING_INFO_PERIOD_VAL} "
+    fi
+    vnf_env+="NFAPI_TRACE_LEVEL=info"
+    local start_cmd="screen -dmS VNF_SESSION bash -c 'cd $build_path && sudo -E ${vnf_env} numactl --cpunodebind=0 --membind=0 taskset -c ${TASKSET_VNF} ./nr-softmodem -O ${conf_file} --nfapi VNF 2>&1 | tee ${log_file}'"
     echo -e "${YELLOW}CMD:${NC} ssh hpe \"$start_cmd\""
     
     if ssh hpe "$start_cmd"; then
