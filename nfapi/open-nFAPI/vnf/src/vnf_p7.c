@@ -91,7 +91,7 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
   // Expand the valid range to include the configured timing window plus a slot margin.
   // This prevents discarding legitimate too-early / too-late reports when timing_window is > 5ms.
   nfapi_vnf_config_t *config = get_config();
-  int32_t timing_window_us = (config != NULL && config->timing_window > 0) ? (int32_t)config->timing_window : 5000;
+  int32_t timing_window_us = (int32_t)config->timing_window;
   const int32_t TIMING_VALUE_MIN = -150000;
   const int32_t TIMING_VALUE_MAX = timing_window_us + (int32_t)slot_duration_us * 2 + 2000;
 
