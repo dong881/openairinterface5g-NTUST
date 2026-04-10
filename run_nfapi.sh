@@ -116,7 +116,7 @@ CONF_PNF_RFSIM="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-pnf.band78.rfs
 CONF_GNB="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi72.4x4-pega.conf"
 
 # Taskset / Thread pool settings
-TASKSET_VNF="2-15,34-47"
+TASKSET_VNF="8-15,40-47"
 THREAD_POOL_PNF="24,25,26,27,28,29,30,31"
 THREAD_POOL_GNB="1,3,5,7,9,11,13,14,15,16,17,18"
 
@@ -205,7 +205,7 @@ start_vnf_local() {
     echo -e "${GREEN}🚀 Starting VNF (SLOT_AHEAD=${slot_ahead})...${NC}"
     # Using taskset instead of thread-pool
     local vnf_env="$(build_vnf_env_args)"
-    local cmd="screen -dmS VNF_SESSION bash -c \"sudo -E ${vnf_env} numactl --cpunodebind=0 --membind=0 taskset -c ${TASKSET_VNF} ./nr-softmodem -O ${conf_file} --nfapi VNF 2>&1 | tee ${log_file}\""
+    local cmd="screen -dmS VNF_SESSION bash -c \"sudo -E ${vnf_env} numactl --cpunodebind=1 --membind=1 taskset -c ${TASKSET_VNF} ./nr-softmodem -O ${conf_file} --nfapi VNF 2>&1 | tee ${log_file}\""
     echo -e "${YELLOW}CMD:${NC} $cmd"
     eval "$cmd"
     
@@ -400,7 +400,7 @@ perform_rfsim_test() {
     
     # Run iperf client
     echo -e "${YELLOW}🚀 Running iperf3 client test...${NC}"
-    local iperf_cmd="iperf3 -B $ue_ip -c 10.45.0.1 -t 15 -b 100M -R"
+    local iperf_cmd="taskset -c 16,17 iperf3 -B $ue_ip -c 10.45.0.1 -t 15 -b 100M -R"
     echo -e "${YELLOW}CMD:${NC} $iperf_cmd"
     eval "$iperf_cmd"
 }
@@ -476,7 +476,7 @@ start_vnf_hpe() {
         vnf_env+="TIMING_INFO_PERIOD=${TIMING_INFO_PERIOD_VAL} "
     fi
     vnf_env+="NFAPI_TRACE_LEVEL=info"
-    local start_cmd="screen -dmS VNF_SESSION bash -c 'cd $build_path && sudo -E ${vnf_env} numactl --cpunodebind=0 --membind=0 taskset -c ${TASKSET_VNF} ./nr-softmodem -O ${conf_file} --nfapi VNF 2>&1 | tee ${log_file}'"
+    local start_cmd="screen -dmS VNF_SESSION bash -c 'cd $build_path && sudo -E ${vnf_env} numactl --cpunodebind=1 --membind=1 taskset -c ${TASKSET_VNF} ./nr-softmodem -O ${conf_file} --nfapi VNF 2>&1 | tee ${log_file}'"
     echo -e "${YELLOW}CMD:${NC} ssh hpe \"$start_cmd\""
     
     if ssh hpe "$start_cmd"; then
