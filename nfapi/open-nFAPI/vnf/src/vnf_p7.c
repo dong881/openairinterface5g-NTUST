@@ -249,87 +249,66 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	}
 
 	// ===================================================================
-	// 2. Percentile-based Control (Median / 50th Pctl Sliding Window)
 	// ===================================================================
-	p7_info->delay_history[p7_info->delay_history_idx] = max_node_to_node_latency;
-	p7_info->delay_history_idx = (p7_info->delay_history_idx + 1) % 128;
-	if (p7_info->delay_history_count < 128) p7_info->delay_history_count++;
+	// 2. High-Watermark Peak Detector (The "Absolute Ceiling Matcher")
+	// ===================================================================
+	// The user correctly identified that "Target Headroom" fails if traffic 
+	// variance violently sweeps past it. Here, we completely abandon the 
+	// Median padding strategy and adopt a direct Peak Tracker. 
+	// This tracks the "absolute worst jitter" the network is currently capable of.
 
-	int32_t sorted_delays[128];
-	for (int i = 0; i < p7_info->delay_history_count; i++) {
-		sorted_delays[i] = p7_info->delay_history[i];
+	if (p7_info->short_ewma_process_us == 0) {
+		p7_info->short_ewma_process_us = max_node_to_node_latency;
 	}
-	
-	// Fast insertion sort for 128 items
-	for (int i = 1; i < p7_info->delay_history_count; i++) {
-		int32_t key = sorted_delays[i];
-		int j = i - 1;
-		while (j >= 0 && sorted_delays[j] > key) {
-			sorted_delays[j + 1] = sorted_delays[j];
-			j = j - 1;
-		}
-		sorted_delays[j + 1] = key;
-	}
-	
-	// CRITICAL CHANGE: Use 50th percentile (Median) to establish a rock-solid anchor
-	// This naturally ignores 1Gbps Bufferbloat spikes / tails.
-	int p50_idx = (p7_info->delay_history_count * 50) / 100;
-	if (p50_idx >= p7_info->delay_history_count) p50_idx = p7_info->delay_history_count - 1;
-	int32_t robust_latency = sorted_delays[p50_idx];
 
-	// EWMA smoothing of the median to create a highly stable target
-	if (p7_info->ewma_process_us == 0) p7_info->ewma_process_us = robust_latency;
-	p7_info->ewma_process_us = ((p7_info->ewma_process_us * 15) + robust_latency) / 16;
-	robust_latency = p7_info->ewma_process_us;
-
-	// ===================================================================
-	// 3. Dynamic Jitter Envelope (The "Headroom Auto-Tuner")
-	// ===================================================================
-	// Measure how far the absolute worst packet deviated from our stable median
-	int32_t current_jitter = max_node_to_node_latency - robust_latency;
-	if (current_jitter < 0) current_jitter = 0;
-
-	if (current_jitter > p7_info->estimated_jitter_var) {
-		// FAST ATTACK: Traffic hit 1G! Instantly inflate the envelope to cover the spike.
-		p7_info->estimated_jitter_var = current_jitter;
+	if (max_node_to_node_latency > p7_info->short_ewma_process_us) {
+		// FAST ATTACK: Immediately snap to the absolute peak (100th percentile)
+		// If 1Gbps traffic hits, we inflate instantly to match the huge tail!
+		p7_info->short_ewma_process_us = max_node_to_node_latency;
 	} else {
-		// SLOW DECAY: Slowly relax the envelope (e.g. 1/512 smoothing).
-		// Ensures headroom stays elevated long enough to survive random burst gaps.
-		p7_info->estimated_jitter_var = ((p7_info->estimated_jitter_var * 511) + current_jitter) / 512;
+		// ULTRA-SLOW DECAY: Decay by 1us to test if the worst-case jitter is gone.
+		// It takes ~1000 cycles (several slots) to drop 1ms. 
+		// Retains memory of extreme bursts long enough to protect trailing packets.
+		if (p7_info->short_ewma_process_us > min_node_to_node_latency) {
+			p7_info->short_ewma_process_us -= 1;
+		}
 	}
+	int32_t peak_latency_tracker = p7_info->short_ewma_process_us;
 
 	// ===================================================================
-	// 4. Absolute Guards & Clamping calculation
+	// 3. Absolute Guards & Clamping calculation
 	// ===================================================================
 	int32_t ABSOLUTE_MAX_ADVANCE_US = timing_window_us + p7_info->min_owd_us;
 	p7_info->absolute_max_advance_us = ABSOLUTE_MAX_ADVANCE_US;
 
 	// ===================================================================
-	// 5. PID Controller targeting Dynamic Smoothed Median
+	// 4. PID Controller targeting the Worst-Case Peak directly
 	// ===================================================================
-	// Base safe distance (e.g., 150us for Idle) + 1.25x the estimated max jitter
-	// This perfectly scales from zero traffic up to 1000Mbps dynamically!
-	int32_t dynamic_headroom = 150 + (p7_info->estimated_jitter_var * 5) / 4;
-	
-	// Cap headroom so we don't accidentally push into the "Too Early" ceiling
-	int32_t max_safe_headroom = (timing_window_us * 85) / 100;
-	if (dynamic_headroom > max_safe_headroom) dynamic_headroom = max_safe_headroom;
+	// The strategy: We set our Advance Target EXACTLY to the peak delay we just saw, 
+	// plus a generous static buffer (e.g., 500us). This guarantees that if the peak 
+	// repeats, it arrives exactly 500us before the deadline (saving it!). 
+	int32_t target_advance_us = peak_latency_tracker + 500; 
 
-	int32_t actual_arrival_margin = current_total_advanced_us - robust_latency;
-	int32_t error_us = dynamic_headroom - actual_arrival_margin;
+	// Limit to maximum safe distance in timing window (don't cause Too Early)
+	int32_t max_safe_target = ABSOLUTE_MAX_ADVANCE_US - 200;
+	if (target_advance_us > max_safe_target) target_advance_us = max_safe_target;
+	if (target_advance_us < 0) target_advance_us = 0;
+
+	// The Error is now simply "Where we are" vs "Where the target peak is"
+	int32_t error_us = target_advance_us - current_total_advanced_us;
 
 	p7_info->pid_integral_us += error_us;
 	int32_t pid_delta_error = error_us - p7_info->pid_prev_error_us;
 	p7_info->pid_prev_error_us = error_us;
 
-	// Anti-windup for integral
+	// Anti-windup
 	if (p7_info->pid_integral_us > 200000) p7_info->pid_integral_us = 200000;
 	if (p7_info->pid_integral_us < -200000) p7_info->pid_integral_us = -200000;
 
-	// Rebalanced PID constants (Kp heavily handles the heavy lifting when error is big)
-	float Kp = 0.25f;   // Very strong immediate reaction to Jitter spikes
-	float Ki = 0.002f;  // Slowly builds force to erase steady-state error
-	float Kd = 0.05f;   // Small brake to prevent overshoot
+	// Aggressive Proportional gain to catch flying targets instantly!
+	float Kp = 0.5f;    // Pushes VNF massive strides forward instantly when error hits
+	float Ki = 0.01f;   // Resolves the little remaining distance firmly
+	float Kd = 0.1f;    // Smoothes the approach
 
 	int32_t shift_us = (int32_t)(Kp * error_us + Ki * p7_info->pid_integral_us + Kd * pid_delta_error);
 
@@ -339,10 +318,10 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	}
 
 	// ASYMMETRIC Slew Rate: This is the secret to avoiding Late drops!
-	// Advance FAST (+500us/cycle): Sprint forward to rescue packets on sudden 1G bursts.
-	// Retreat SLOW (-15us/cycle): Gently float back down when traffic pauses, avoiding jaggy noise.
-	if (shift_us > 500) shift_us = 500;
-	if (shift_us < -15) shift_us = -15;
+	// Advance FAST (+1000us/cycle): Sprint forward to rescue packets on sudden 1G bursts.
+	// Retreat SLOW (-10us/cycle): Gently float back down when traffic pauses, avoiding jaggy noise.
+	if (shift_us > 1000) shift_us = 1000;
+	if (shift_us < -10) shift_us = -10;
 
 	if (shift_us != 0) {
 		long final_target = current_total_advanced_us + shift_us;
