@@ -282,19 +282,19 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	p7_info->absolute_max_advance_us = ABSOLUTE_MAX_ADVANCE_US;
 
 	// ===================================================================
-	// 4. PID Controller targeting the Worst-Case Peak directly
+	// 4. Emergency Rescue PID Controller
 	// ===================================================================
-	// The strategy: We set our Advance Target EXACTLY to the peak delay we just saw, 
-	// plus a generous static buffer (e.g., 500us). This guarantees that if the peak 
-	// repeats, it arrives exactly 500us before the deadline (saving it!). 
-	int32_t target_advance_us = peak_latency_tracker + 500; 
+	// The problem with standard PID is reaction time to severe sudden network drops.
+	// If a 2000us spike hits, we need to jump 2000us *instantly*, bypassing slow smoothing
+	// or slew-rate limits, to prevent 10+ consecutive packets from dying.
+	int32_t target_advance_us = peak_latency_tracker + 800; // Even wider safety margin
 
 	// Limit to maximum safe distance in timing window (don't cause Too Early)
 	int32_t max_safe_target = ABSOLUTE_MAX_ADVANCE_US - 200;
 	if (target_advance_us > max_safe_target) target_advance_us = max_safe_target;
 	if (target_advance_us < 0) target_advance_us = 0;
 
-	// The Error is now simply "Where we are" vs "Where the target peak is"
+	// Error calc
 	int32_t error_us = target_advance_us - current_total_advanced_us;
 
 	p7_info->pid_integral_us += error_us;
@@ -305,29 +305,51 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	if (p7_info->pid_integral_us > 200000) p7_info->pid_integral_us = 200000;
 	if (p7_info->pid_integral_us < -200000) p7_info->pid_integral_us = -200000;
 
-	// Aggressive Proportional gain to catch flying targets instantly!
-	float Kp = 0.5f;    // Pushes VNF massive strides forward instantly when error hits
-	float Ki = 0.01f;   // Resolves the little remaining distance firmly
-	float Kd = 0.1f;    // Smoothes the approach
+	// Calculate current real distance from deadline. 
+	// If this margin drops dangerously low (< 500us), we hit panic mode.
+	int32_t actual_arrival_margin = current_total_advanced_us - max_node_to_node_latency;
+	
+	float Kp, Ki, Kd;
+	int32_t shift_us = 0;
+	bool panic_mode = (actual_arrival_margin < 500);
 
-	int32_t shift_us = (int32_t)(Kp * error_us + Ki * p7_info->pid_integral_us + Kd * pid_delta_error);
+	if (panic_mode) {
+		// PANIC OVERRIDE: Network just died/spiked heavily. Ignore smoothing.
+		// Force the shift to exactly what's needed to reach target_advance_us immediately.
+		Kp = 1.0f; 
+		Ki = 0.0f;
+		Kd = 0.0f;
+		shift_us = error_us; // Pure 100% instantaneous jump!
+	} else {
+		// NORMAL MODE: Gently correct and hold position.
+		Kp = 0.1f;  
+		Ki = 0.005f;
+		Kd = 0.05f;
+		shift_us = (int32_t)(Kp * error_us + Ki * p7_info->pid_integral_us + Kd * pid_delta_error);
+	}
 
 	// Dead-zone
-	if (shift_us > -5 && shift_us < 5) {
+	if (!panic_mode && shift_us > -5 && shift_us < 5) {
 		shift_us = 0;
 	}
 
-	// ASYMMETRIC Slew Rate: This is the secret to avoiding Late drops!
-	// Advance FAST (+1000us/cycle): Sprint forward to rescue packets on sudden 1G bursts.
-	// Retreat SLOW (-10us/cycle): Gently float back down when traffic pauses, avoiding jaggy noise.
-	if (shift_us > 1000) shift_us = 1000;
-	if (shift_us < -10) shift_us = -10;
+	// DUAL-BAND SLEW RATE LIMITER
+	if (panic_mode) {
+		// In panic mode, allow an absolutely massive jump (up to 3500us) immediately
+		// to catch up with 1 Gbps bufferbloat in a SINGLE slot!
+		if (shift_us > 3500) shift_us = 3500;
+		if (shift_us < 0) shift_us = 0; // Never retreat when panicked!
+	} else {
+		// In normal mode, behave calmly to hold the line without inducing jitter
+		if (shift_us > 200) shift_us = 200;
+		if (shift_us < -5) shift_us = -5; // Ultra safe decay
+	}
 
 	if (shift_us != 0) {
 		long final_target = current_total_advanced_us + shift_us;
         
-		if (final_target > ABSOLUTE_MAX_ADVANCE_US - 50) { 
-			final_target = ABSOLUTE_MAX_ADVANCE_US - 50; 
+		if (final_target > max_safe_target) { 
+			final_target = max_safe_target; 
 		} else if (final_target < 0) {
 			final_target = 0;
 		}
