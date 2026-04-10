@@ -2196,7 +2196,7 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   const char *timing_info_mode_env = getenv("TIMING_INFO_MODE");
   const char *timing_info_period_env = getenv("TIMING_INFO_PERIOD");
 
-  vnf->p7_vnfs[0].timing_window = timing_window_env ? atoi(timing_window_env) : 7000;
+  vnf->p7_vnfs[0].timing_window = timing_window_env ? atoi(timing_window_env) : 4000;
   uint8_t timing_info_mode = timing_info_mode_env ? (uint8_t)atoi(timing_info_mode_env) : 1;
   vnf->p7_vnfs[0].periodic_timing_enabled = timing_info_mode & 0x1;
   vnf->p7_vnfs[0].aperiodic_timing_enabled = (timing_info_mode >> 1) & 0x1;
