@@ -249,7 +249,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	}
 
 	// ===================================================================
-	// 2. Percentile-based Control (99th Pctl Sliding Window)
+	// 2. Percentile-based Control (Median / 50th Pctl Sliding Window)
 	// ===================================================================
 	p7_info->delay_history[p7_info->delay_history_idx] = max_node_to_node_latency;
 	p7_info->delay_history_idx = (p7_info->delay_history_idx + 1) % 128;
@@ -260,7 +260,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 		sorted_delays[i] = p7_info->delay_history[i];
 	}
 	
-	// Fast insertion sort or standard bubble sort for 128 items
+	// Fast insertion sort for 128 items
 	for (int i = 1; i < p7_info->delay_history_count; i++) {
 		int32_t key = sorted_delays[i];
 		int j = i - 1;
@@ -271,25 +271,16 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 		sorted_delays[j + 1] = key;
 	}
 	
-	// Use 99th percentile for higher safety under 1Gbps heavy traffic
-	int p99_idx = (p7_info->delay_history_count * 99) / 100;
-	if (p99_idx >= p7_info->delay_history_count) p99_idx = p7_info->delay_history_count - 1;
-	int32_t p95_latency = sorted_delays[p99_idx];
+	// CRITICAL CHANGE: Use 50th percentile (Median) to establish a rock-solid anchor
+	// This naturally ignores 1Gbps Bufferbloat spikes / tails.
+	int p50_idx = (p7_info->delay_history_count * 50) / 100;
+	if (p50_idx >= p7_info->delay_history_count) p50_idx = p7_info->delay_history_count - 1;
+	int32_t robust_latency = sorted_delays[p50_idx];
 
-	// Optional Late Spike Resistance: Discard isolated spikes
-	if (max_node_to_node_latency > p95_latency + 2000) {
-		p7_info->consecutive_late_spikes++;
-		if (p7_info->consecutive_late_spikes > 10) {
-			p95_latency = max_node_to_node_latency; // Systematically worse, adapt to it
-		}
-	} else {
-		p7_info->consecutive_late_spikes = 0;
-	}
-
-	// EWMA smoothing of the target to prevent rapid jump
-	if (p7_info->ewma_process_us == 0) p7_info->ewma_process_us = p95_latency;
-	p7_info->ewma_process_us = ((p7_info->ewma_process_us * 31) + p95_latency) / 32;
-	p95_latency = p7_info->ewma_process_us;
+	// EWMA smoothing of the median to create a highly stable target
+	if (p7_info->ewma_process_us == 0) p7_info->ewma_process_us = robust_latency;
+	p7_info->ewma_process_us = ((p7_info->ewma_process_us * 15) + robust_latency) / 16;
+	robust_latency = p7_info->ewma_process_us;
 
 	// ===================================================================
 	// 3. Absolute Guards & Clamping calculation
@@ -298,10 +289,10 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	p7_info->absolute_max_advance_us = ABSOLUTE_MAX_ADVANCE_US;
 
 	// ===================================================================
-	// 4. PID Controller targeting Smoothed Arrival Margin
+	// 4. PID Controller targeting Smoothed Median
 	// ===================================================================
-	const int32_t TARGET_HEADROOM = 600; // Increased to 600us safety margin for 1Gbps jitter
-	int32_t actual_arrival_margin = current_total_advanced_us - p95_latency;
+	const int32_t TARGET_HEADROOM = 300; // Target the median to be gracefully 300us early
+	int32_t actual_arrival_margin = current_total_advanced_us - robust_latency;
 	
 	// Error = Target_Headroom - Actual_Arrival_Margin
 	int32_t error_us = TARGET_HEADROOM - actual_arrival_margin;
@@ -311,24 +302,24 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	p7_info->pid_prev_error_us = error_us;
 
 	// Anti-windup for integral
-	if (p7_info->pid_integral_us > 100000) p7_info->pid_integral_us = 100000;
-	if (p7_info->pid_integral_us < -100000) p7_info->pid_integral_us = -100000;
+	if (p7_info->pid_integral_us > 200000) p7_info->pid_integral_us = 200000;
+	if (p7_info->pid_integral_us < -200000) p7_info->pid_integral_us = -200000;
 
-	// Much gentler PID constants to enforce a heavily concentrated VNF Advance Time (high stability)
-	float Kp = 0.05f;
-	float Ki = 0.001f;
-	float Kd = 0.01f;
+	// Rebalanced PID constants
+	float Kp = 0.15f;   // Stronger immediate reaction
+	float Ki = 0.005f;  // Slowly builds force to erase steady-state error (Late Ratio)
+	float Kd = 0.05f;   // Small brake to prevent overshoot
 
 	int32_t shift_us = (int32_t)(Kp * error_us + Ki * p7_info->pid_integral_us + Kd * pid_delta_error);
 
-	// Larger dead-zone to completely freeze micro-oscillations
-	if (shift_us > -10 && shift_us < 10) {
+	// Dead-zone
+	if (shift_us > -5 && shift_us < 5) {
 		shift_us = 0;
 	}
 
-	// Severely limit slew rate: ±15us per cycle => highly stable Advance Time pole
-	if (shift_us > 15) shift_us = 15;
-	if (shift_us < -15) shift_us = -15;
+	// Relax Slew Rate: Give PID enough breathing room to actually catch up with traffic shifts
+	if (shift_us > 100) shift_us = 100;
+	if (shift_us < -100) shift_us = -100;
 
 	if (shift_us != 0) {
 		long final_target = current_total_advanced_us + shift_us;
