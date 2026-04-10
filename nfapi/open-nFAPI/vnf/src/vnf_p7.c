@@ -2006,7 +2006,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	// Negative offset implies VNF is AHEAD of PNF
 	// VNF MUST DECREASE speed (increase sleep time) to fall back -> requires pending_us to be NEGATIVE
 
-	int target_margin_initial = 1500;
+	int target_margin_initial = 0;
 	get_vnf_timing_envs(NULL, &target_margin_initial);
 
 	int32_t total_correction = offset + target_margin_initial;
