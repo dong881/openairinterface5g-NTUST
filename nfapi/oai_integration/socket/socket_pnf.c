@@ -638,7 +638,7 @@ static void pnf_nr_reassemble_nfapi_p7_message(void *pRecvMsg, int recvMsgLen, p
   // (e.g., if the sequence numbers advances sufficiently); in the branch of
   // this commit, our goal is to make the PNF work, so we content ourselves to
   // just remove very old messages.
-  pnf_p7_rx_reassembly_queue_remove_old_msgs(pnf_p7, &(pnf_p7->reassembly_queue), rx_hr_time, 10000);
+  pnf_p7_rx_reassembly_queue_remove_old_msgs(pnf_p7, &(pnf_p7->reassembly_queue), rx_hr_time, 50000);
 }
 
 static void pnf_nr_nfapi_p7_read_dispatch_message(pnf_p7_t *pnf_p7, uint32_t now_hr_time)

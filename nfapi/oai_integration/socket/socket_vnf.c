@@ -678,7 +678,7 @@ void vnf_nr_reassemble_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t *vnf_
       }
 
       // see corresponding comment in pnf_nr_handle_p7_message() [same commit]
-      vnf_p7_rx_reassembly_queue_remove_old_msgs(vnf_p7, &(phy->reassembly_queue), 10000);
+      vnf_p7_rx_reassembly_queue_remove_old_msgs(vnf_p7, &(phy->reassembly_queue), 50000);
     } else {
       NFAPI_TRACE(NFAPI_TRACE_INFO, "Unknown phy id %d\n", messageHeader.phy_id);
     }
