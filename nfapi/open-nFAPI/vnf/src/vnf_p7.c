@@ -283,19 +283,40 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	robust_latency = p7_info->ewma_process_us;
 
 	// ===================================================================
-	// 3. Absolute Guards & Clamping calculation
+	// 3. Dynamic Jitter Envelope (The "Headroom Auto-Tuner")
+	// ===================================================================
+	// Measure how far the absolute worst packet deviated from our stable median
+	int32_t current_jitter = max_node_to_node_latency - robust_latency;
+	if (current_jitter < 0) current_jitter = 0;
+
+	if (current_jitter > p7_info->estimated_jitter_var) {
+		// FAST ATTACK: Traffic hit 1G! Instantly inflate the envelope to cover the spike.
+		p7_info->estimated_jitter_var = current_jitter;
+	} else {
+		// SLOW DECAY: Slowly relax the envelope (e.g. 1/512 smoothing).
+		// Ensures headroom stays elevated long enough to survive random burst gaps.
+		p7_info->estimated_jitter_var = ((p7_info->estimated_jitter_var * 511) + current_jitter) / 512;
+	}
+
+	// ===================================================================
+	// 4. Absolute Guards & Clamping calculation
 	// ===================================================================
 	int32_t ABSOLUTE_MAX_ADVANCE_US = timing_window_us + p7_info->min_owd_us;
 	p7_info->absolute_max_advance_us = ABSOLUTE_MAX_ADVANCE_US;
 
 	// ===================================================================
-	// 4. PID Controller targeting Smoothed Median
+	// 5. PID Controller targeting Dynamic Smoothed Median
 	// ===================================================================
-	const int32_t TARGET_HEADROOM = 300; // Target the median to be gracefully 300us early
-	int32_t actual_arrival_margin = current_total_advanced_us - robust_latency;
+	// Base safe distance (e.g., 150us for Idle) + 1.25x the estimated max jitter
+	// This perfectly scales from zero traffic up to 1000Mbps dynamically!
+	int32_t dynamic_headroom = 150 + (p7_info->estimated_jitter_var * 5) / 4;
 	
-	// Error = Target_Headroom - Actual_Arrival_Margin
-	int32_t error_us = TARGET_HEADROOM - actual_arrival_margin;
+	// Cap headroom so we don't accidentally push into the "Too Early" ceiling
+	int32_t max_safe_headroom = (timing_window_us * 85) / 100;
+	if (dynamic_headroom > max_safe_headroom) dynamic_headroom = max_safe_headroom;
+
+	int32_t actual_arrival_margin = current_total_advanced_us - robust_latency;
+	int32_t error_us = dynamic_headroom - actual_arrival_margin;
 
 	p7_info->pid_integral_us += error_us;
 	int32_t pid_delta_error = error_us - p7_info->pid_prev_error_us;
@@ -305,9 +326,9 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	if (p7_info->pid_integral_us > 200000) p7_info->pid_integral_us = 200000;
 	if (p7_info->pid_integral_us < -200000) p7_info->pid_integral_us = -200000;
 
-	// Rebalanced PID constants
-	float Kp = 0.15f;   // Stronger immediate reaction
-	float Ki = 0.005f;  // Slowly builds force to erase steady-state error (Late Ratio)
+	// Rebalanced PID constants (Kp heavily handles the heavy lifting when error is big)
+	float Kp = 0.25f;   // Very strong immediate reaction to Jitter spikes
+	float Ki = 0.002f;  // Slowly builds force to erase steady-state error
 	float Kd = 0.05f;   // Small brake to prevent overshoot
 
 	int32_t shift_us = (int32_t)(Kp * error_us + Ki * p7_info->pid_integral_us + Kd * pid_delta_error);
@@ -317,9 +338,11 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 		shift_us = 0;
 	}
 
-	// Relax Slew Rate: Give PID enough breathing room to actually catch up with traffic shifts
-	if (shift_us > 100) shift_us = 100;
-	if (shift_us < -100) shift_us = -100;
+	// ASYMMETRIC Slew Rate: This is the secret to avoiding Late drops!
+	// Advance FAST (+500us/cycle): Sprint forward to rescue packets on sudden 1G bursts.
+	// Retreat SLOW (-15us/cycle): Gently float back down when traffic pauses, avoiding jaggy noise.
+	if (shift_us > 500) shift_us = 500;
+	if (shift_us < -15) shift_us = -15;
 
 	if (shift_us != 0) {
 		long final_target = current_total_advanced_us + shift_us;
