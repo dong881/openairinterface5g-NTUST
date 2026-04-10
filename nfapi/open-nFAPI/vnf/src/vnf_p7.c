@@ -259,18 +259,30 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 
 	if (p7_info->short_ewma_process_us == 0) {
 		p7_info->short_ewma_process_us = max_node_to_node_latency;
+		p7_info->peak_latency_timestamp_hr = now_hr;
 	}
 
 	if (max_node_to_node_latency > p7_info->short_ewma_process_us) {
 		// FAST ATTACK: Immediately snap to the absolute peak (100th percentile)
 		// If 1Gbps traffic hits, we inflate instantly to match the huge tail!
 		p7_info->short_ewma_process_us = max_node_to_node_latency;
+		p7_info->peak_latency_timestamp_hr = now_hr;
 	} else {
-		// ULTRA-SLOW DECAY: Decay by 1us to test if the worst-case jitter is gone.
-		// It takes ~1000 cycles (several slots) to drop 1ms. 
-		// Retains memory of extreme bursts long enough to protect trailing packets.
-		if (p7_info->short_ewma_process_us > min_node_to_node_latency) {
-			p7_info->short_ewma_process_us -= 1;
+		// SCIENTIFIC HOLD-OFF DECAY (Sliding Window Maximum approximation)
+		// The user noted that the system got "tricked" into dropping its advance time
+		// during steady traffic. A simple `-= 1` per loop decays way too fast during
+		// a burst of aperiodic timing_info reports.
+		// We now HOLD the peak for 5 full seconds. If the network doesn't hit this
+		// peak again in 5s, we then gently decay it. This prevents iperf micro-drains
+		// from falsely convincing the system the traffic burst is over!
+		int64_t time_since_peak = timehr_diff_us(now_hr, p7_info->peak_latency_timestamp_hr);
+		if (time_since_peak > 5000000LL) {
+			if (p7_info->short_ewma_process_us > min_node_to_node_latency + 10) {
+				p7_info->short_ewma_process_us -= 10;
+				// Reset the timer so it only decays 10us every 10ms-ish,
+				// not instantly plunging to zero, but not stalling forever.
+				p7_info->peak_latency_timestamp_hr = now_hr - 4990000LL;
+			}
 		}
 	}
 	int32_t peak_latency_tracker = p7_info->short_ewma_process_us;
