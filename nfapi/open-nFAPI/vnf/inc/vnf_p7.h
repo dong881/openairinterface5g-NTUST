@@ -152,6 +152,17 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t short_ewma_process_us;
 	int32_t ewma_process_us;
 	int32_t ewma_owd_us;
+
+	/* Percentile and PID State */
+	int32_t delay_history[128];
+	uint32_t delay_history_idx;
+	uint32_t delay_history_count;
+	int32_t pid_integral_us;
+	int32_t pid_prev_error_us;
+	int32_t min_owd_us;
+	uint32_t min_owd_timestamp_hr;
+	int32_t consecutive_late_spikes;
+
 	int32_t total_advanced_us; // Absolute cumulative phase shift relative to initial sync
 	int32_t last_total_advanced_us; // Reference total advance measured at last adjustment
     int32_t absolute_max_advance_us;

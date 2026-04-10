@@ -216,8 +216,6 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	nfapi_vnf_config_t *config = get_config();
 	int32_t timing_window_us = (int32_t)config->timing_window;
     
-	const int32_t ALPHA = 3; // Ramjee's Target multiplier
-	// const int32_t BETA  = 3; // Spike detection threshold
 	int32_t current_total_advanced_us = __atomic_load_n(&p7_info->total_advanced_us, __ATOMIC_SEQ_CST);
 	int32_t reference_total_advanced_us = current_total_advanced_us;
 	
@@ -228,11 +226,8 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 			reference_total_advanced_us = __atomic_load_n(&p7_info->last_total_advanced_us, __ATOMIC_SEQ_CST);
 		}
 	}
-	if (worst_late > 5000) {
-		NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF] Ignored absurd Jitter spike of %d us. Capped at 5000 us.\n", worst_late);
-		worst_late = 5000;
-	}
-
+	
+	// Current Absolute Latency
 	int32_t min_node_to_node_latency = reference_total_advanced_us + worst_early;
 	int32_t max_node_to_node_latency = reference_total_advanced_us + worst_late;
 	if (min_node_to_node_latency < 0) min_node_to_node_latency = 0;
@@ -240,91 +235,114 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	if (p7_info->sync_locked) {
 		log_mmap_entry("vnf_pnf_latency-us.bin", (long)max_node_to_node_latency);
 	}
-	// ===================================================================
-	// 2. Peak Tracking (Minima and Maxima)
-	// ===================================================================
-	// Minima: 用來計算絕對不能 Too Early 的 Upper Bound (最快抵達的封包)
-	if (p7_info->long_ewma_process_us == 0 || min_node_to_node_latency < p7_info->long_ewma_process_us) {
-		p7_info->long_ewma_process_us = min_node_to_node_latency; // Fast attack (Lowest min)
-	} else {
-		p7_info->long_ewma_process_us = ((p7_info->long_ewma_process_us * 1023) + min_node_to_node_latency) / 1024; // Slow release
-	}
-	int32_t PEAK_MIN_LATENCY = p7_info->long_ewma_process_us;
 
-	// Maxima: 用來判斷要提前多少才不會 Too Late (維持低延遲的緊貼下緣)
-	if (p7_info->short_ewma_process_us == 0 || max_node_to_node_latency > p7_info->short_ewma_process_us) {
-		p7_info->short_ewma_process_us = max_node_to_node_latency; // Fast attack (Highest max)
-	} else {
-		p7_info->short_ewma_process_us = ((p7_info->short_ewma_process_us * 1023) + max_node_to_node_latency) / 1024; // Slow decay
+	// ===================================================================
+	// 1. OWD Min-Filtering (BBR logic anchor)
+	// ===================================================================
+	if (p7_info->min_owd_us == 0 || min_node_to_node_latency < p7_info->min_owd_us) {
+		p7_info->min_owd_us = min_node_to_node_latency;
+		p7_info->min_owd_timestamp_hr = now_hr;
+	} else if (timehr_diff_us(now_hr, p7_info->min_owd_timestamp_hr) > 10000000LL) {
+		// Reset min OWD tracker every 10 seconds
+		p7_info->min_owd_us = min_node_to_node_latency;
+		p7_info->min_owd_timestamp_hr = now_hr;
 	}
-	int32_t PEAK_MAX_LATENCY = p7_info->short_ewma_process_us;
+
+	// ===================================================================
+	// 2. Percentile-based Control (99th Pctl Sliding Window)
+	// ===================================================================
+	p7_info->delay_history[p7_info->delay_history_idx] = max_node_to_node_latency;
+	p7_info->delay_history_idx = (p7_info->delay_history_idx + 1) % 128;
+	if (p7_info->delay_history_count < 128) p7_info->delay_history_count++;
+
+	int32_t sorted_delays[128];
+	for (int i = 0; i < p7_info->delay_history_count; i++) {
+		sorted_delays[i] = p7_info->delay_history[i];
+	}
 	
-	// 使用 PNF 回報的歷史平滑 Jitter 作為依據，避免單一 Period Range 過小造成的誤判
-	// PNF already reports smoothed jitter (RFC3550 EMA). Do not re-apply another EWMA here.
-	int32_t node_jitter = (int32_t)stats->pnf_reported_jitter;
-	if (node_jitter < 50) node_jitter = 50; 
+	// Fast insertion sort or standard bubble sort for 128 items
+	for (int i = 1; i < p7_info->delay_history_count; i++) {
+		int32_t key = sorted_delays[i];
+		int j = i - 1;
+		while (j >= 0 && sorted_delays[j] > key) {
+			sorted_delays[j + 1] = sorted_delays[j];
+			j = j - 1;
+		}
+		sorted_delays[j + 1] = key;
+	}
+	
+	// Use 99th percentile for higher safety under 1Gbps heavy traffic
+	int p99_idx = (p7_info->delay_history_count * 99) / 100;
+	if (p99_idx >= p7_info->delay_history_count) p99_idx = p7_info->delay_history_count - 1;
+	int32_t p95_latency = sorted_delays[p99_idx];
+
+	// Optional Late Spike Resistance: Discard isolated spikes
+	if (max_node_to_node_latency > p95_latency + 2000) {
+		p7_info->consecutive_late_spikes++;
+		if (p7_info->consecutive_late_spikes > 10) {
+			p95_latency = max_node_to_node_latency; // Systematically worse, adapt to it
+		}
+	} else {
+		p7_info->consecutive_late_spikes = 0;
+	}
+
+	// EWMA smoothing of the target to prevent rapid jump
+	if (p7_info->ewma_process_us == 0) p7_info->ewma_process_us = p95_latency;
+	p7_info->ewma_process_us = ((p7_info->ewma_process_us * 31) + p95_latency) / 32;
+	p95_latency = p7_info->ewma_process_us;
 
 	// ===================================================================
-	// 3. 計算 Ideal Target Advance (緊貼 Deadline 下緣，最小化延遲)
+	// 3. Absolute Guards & Clamping calculation
 	// ===================================================================
-	// 直接對齊 Peak Max + 少量緩衝 -> 保證即使遇到突然的抖動，所有的封包也都能在 deadline 上方過關。
-	// 這能有效將分佈壓在 timing window 的下緣 (靠向0)，避免太早進入並大幅降低 Latency。
-	int32_t IDEAL_TARGET_ADVANCE_US = PEAK_MAX_LATENCY + ALPHA * (node_jitter);
-
-	// ===================================================================
-	// 4. Clamp (嚴格防止 Too Early)
-	// ===================================================================
-	// Upper Bound 的防呆必須絕對依賴 Minima。
-	// PNF 允許的最大提前量 = Timing Window + 封包真正最短傳輸/處理時間 (PEAK_MIN_LATENCY)
-	int32_t ABS_OWD_DELAY_US = p7_info->ewma_owd_us > 0 ? p7_info->ewma_owd_us : 0; 
-	int32_t ABSOLUTE_MAX_ADVANCE_US = timing_window_us + PEAK_MIN_LATENCY + ABS_OWD_DELAY_US;
+	int32_t ABSOLUTE_MAX_ADVANCE_US = timing_window_us + p7_info->min_owd_us;
 	p7_info->absolute_max_advance_us = ABSOLUTE_MAX_ADVANCE_US;
 
-	const int32_t SAFETY_HEADROOM_US = 150; // 保留 150us 的安全空間，確保絕不觸碰物理天花板
-	int32_t MAX_ALLOWED_TARGET = ABSOLUTE_MAX_ADVANCE_US - SAFETY_HEADROOM_US;
-	if (IDEAL_TARGET_ADVANCE_US > MAX_ALLOWED_TARGET) {
-		IDEAL_TARGET_ADVANCE_US = MAX_ALLOWED_TARGET;
-	}
-
 	// ===================================================================
-	// 5. Phase Velocity
+	// 4. PID Controller targeting Smoothed Arrival Margin
 	// ===================================================================
-	int32_t shift_us = IDEAL_TARGET_ADVANCE_US - current_total_advanced_us;
-	bool adjustment_issued = false;
+	const int32_t TARGET_HEADROOM = 600; // Increased to 600us safety margin for 1Gbps jitter
+	int32_t actual_arrival_margin = current_total_advanced_us - p95_latency;
+	
+	// Error = Target_Headroom - Actual_Arrival_Margin
+	int32_t error_us = TARGET_HEADROOM - actual_arrival_margin;
 
-	// Slew-Rate Limiter
-	const int32_t MAX_ADVANCE_STEP = 200; // 緊急往前衝的最大步長
-	const int32_t MAX_RETREAT_STEP = -15; // 慢慢往後退的最大步長
+	p7_info->pid_integral_us += error_us;
+	int32_t pid_delta_error = error_us - p7_info->pid_prev_error_us;
+	p7_info->pid_prev_error_us = error_us;
 
-	if (shift_us > MAX_ADVANCE_STEP) {
-		shift_us = MAX_ADVANCE_STEP; 
-	} else if (shift_us < MAX_RETREAT_STEP) {
-		shift_us = MAX_RETREAT_STEP;
-	}
+	// Anti-windup for integral
+	if (p7_info->pid_integral_us > 100000) p7_info->pid_integral_us = 100000;
+	if (p7_info->pid_integral_us < -100000) p7_info->pid_integral_us = -100000;
 
-	// Dead-zone (如果誤差小於某個極小值，例如 2us，就不要浪費 CPU 去調整)
-	if (shift_us > -2 && shift_us < 2) {
+	// Much gentler PID constants to enforce a heavily concentrated VNF Advance Time (high stability)
+	float Kp = 0.05f;
+	float Ki = 0.001f;
+	float Kd = 0.01f;
+
+	int32_t shift_us = (int32_t)(Kp * error_us + Ki * p7_info->pid_integral_us + Kd * pid_delta_error);
+
+	// Larger dead-zone to completely freeze micro-oscillations
+	if (shift_us > -10 && shift_us < 10) {
 		shift_us = 0;
 	}
 
-	// 套用 Shift
+	// Severely limit slew rate: ±15us per cycle => highly stable Advance Time pole
+	if (shift_us > 15) shift_us = 15;
+	if (shift_us < -15) shift_us = -15;
+
 	if (shift_us != 0) {
 		long final_target = current_total_advanced_us + shift_us;
         
-		// 這裡仍要保留最終防呆，避免 current_total_advanced_us 已經接近上限
-		if (final_target > ABSOLUTE_MAX_ADVANCE_US) {
-			final_target = ABSOLUTE_MAX_ADVANCE_US;
+		if (final_target > ABSOLUTE_MAX_ADVANCE_US - 50) { 
+			final_target = ABSOLUTE_MAX_ADVANCE_US - 50; 
 		} else if (final_target < 0) {
 			final_target = 0;
 		}
 
 		long delta_us = final_target - current_total_advanced_us;
 		__atomic_store_n(&p7_info->pending_us, p7_info->pending_us + delta_us, __ATOMIC_SEQ_CST);
-		adjustment_issued = true;
-    }
 
-    if (adjustment_issued) {
-        __atomic_store_n(&p7_info->last_adjustment_time_hr, vnf_get_current_time_hr(), __ATOMIC_SEQ_CST);
+        __atomic_store_n(&p7_info->last_adjustment_time_hr, now_hr, __ATOMIC_SEQ_CST);
         __atomic_store_n(&p7_info->last_total_advanced_us, current_total_advanced_us, __ATOMIC_SEQ_CST);
     }
 }
