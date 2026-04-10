@@ -27,7 +27,8 @@
   - `vnf_rlc_avg_to_tx`
   - `vnf_advance_time`
   - `vnf_pnf_latency`
-- `MONOLITHIC` mode 可能同時產生上述 PNF 與 VNF log
+  - `rlc_am_ctrl_pdu_discard_tx_size-B`
+- `MONOLITHIC` mode 可能同時產生上述 PNF 與 VNF log。
 
 > 這裡的 `VNF mode` 即程式中對應的 VNF 執行模式。
 
@@ -74,7 +75,7 @@
 
 ### 2(c).1 Python 讀取提醒
 - `pnf_timing_window-us.bin`、`vnf_advance_time-us.bin` 為 packed log；其 raw record 應先讀成 signed 64-bit 再拆欄位。
-- `vnf_pnf_latency-us.bin`、`pnf_p7_msg_age_completed-us.bin`、`pnf_p7_msg_age_stale-us.bin`、`pnf_p7_stale_seg_expected-count.bin`、`pnf_p7_stale_seg_received-count.bin` 等皆為 raw log，直接讀出 signed 64-bit integer 即可。
+- `vnf_pnf_latency-us.bin`、`pnf_p7_msg_age_completed-us.bin`、`pnf_p7_msg_age_stale-us.bin`、`pnf_p7_stale_seg_expected-count.bin`、`pnf_p7_stale_seg_received-count.bin`、`rlc_am_ctrl_pdu_discard_tx_size-B.bin` 等皆為 raw log，直接讀出 signed 64-bit integer 即可。
 - Python 讀取範例：
 
 ```python
@@ -134,6 +135,7 @@ with open("logs/pnf_timing_window-us.bin.000", "rb") as f:
 | `vnf_rlc_runtime` | RLC 執行時間 | 典型 `0..20k` | μs | raw log |
 | `vnf_rlc_hol_delay` | RLC HOL delay | 典型 `0..20k` | μs | raw log |
 | `vnf_rlc_avg_to_tx` | RLC RX 亂序暫存量 (原為 avg transmit) | 典型 `0..N bytes` | Bytes | raw log |
+| `rlc_am_ctrl_pdu_discard_tx_size-B` | Control PDU discard 發生時 RLC TX buffer 未確認資料量 | 典型 `0..N bytes` | Bytes | raw log |
 | `vnf_rlc_rx_ooo_wait_delay` | RLC RX 等待重傳封包造成的堵塞時間 | 典型 `0..20` | ms | raw log |
 
 > 以上範圍為程式邏輯推估的典型值；特殊狀況下仍可能超出。

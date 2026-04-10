@@ -30,6 +30,8 @@
 #include "common/utils/time_stat.h"
 #include "common/utils/assertions.h"
 
+extern void log_mmap_entry(const char *log_name, uint64_t value);
+
 /* for a given SDU/SDU segment, computes the corresponding PDU header size */
 static int compute_pdu_header_size(nr_rlc_entity_am_t *entity,
                                    nr_rlc_sdu_segment_t *sdu)
@@ -364,6 +366,8 @@ static void process_control_pdu(nr_rlc_entity_am_t *entity,
   if (sn_compare_tx(entity, ack_sn, entity->tx_next) > 0) {
     LOG_W(RLC, "ack_sn (%d) not valid (tx_next_ack %d tx_next %d), discard control PDU\n",
           ack_sn, entity->tx_next_ack, entity->tx_next);
+    log_mmap_entry("rlc_am_ctrl_pdu_discard_tx_size-B.bin",
+                   (uint64_t)entity->tx_size);
     return;
   }
 
@@ -748,6 +752,9 @@ lists_over:
 
 err:
   LOG_E(RLC, "error decoding control PDU, discarding\n");
+
+  log_mmap_entry("rlc_am_ctrl_pdu_discard_tx_size-B.bin",
+                 (uint64_t)entity->tx_size);
 
 #undef R
 }
