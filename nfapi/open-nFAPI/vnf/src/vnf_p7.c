@@ -306,12 +306,43 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	if (p7_info->pid_integral_us < -200000) p7_info->pid_integral_us = -200000;
 
 	// Calculate current real distance from deadline. 
-	// If this margin drops dangerously low (< 500us), we hit panic mode.
 	int32_t actual_arrival_margin = current_total_advanced_us - max_node_to_node_latency;
+	
+	// ===================================================================
+	// STATISTICAL ANOMALY DETECTION (Jacobson/Karels TCP RTT Algorithm)
+	// ===================================================================
+	// Instead of a hardcoded "500us" magic number, we use classic Mean Absolute 
+	// Deviation (MAD) tracking to mathematically determine what constitutes a "spike" 
+	// based on the current ongoing network noise profile.
+
+	if (p7_info->estimated_mean_late == 0) {
+		p7_info->estimated_mean_late = max_node_to_node_latency;
+		p7_info->estimated_jitter_var = 100; // Cold start guess
+	}
+	
+	int32_t diff = max_node_to_node_latency - p7_info->estimated_mean_late;
+	int32_t abs_diff = diff < 0 ? -diff : diff;
+	
+	// SRTT = (7/8 * SRTT) + (1/8 * R_new)
+	p7_info->estimated_mean_late = p7_info->estimated_mean_late + (diff / 8);
+	// RTTVAR = (3/4 * RTTVAR) + (1/4 * |R_new - SRTT|)
+	int32_t var_diff = abs_diff - p7_info->estimated_jitter_var;
+	p7_info->estimated_jitter_var = p7_info->estimated_jitter_var + (var_diff / 4);
+
+	// Calculate a DYNAMIC panic threshold based on standard deviation.
+	// If variance is small (e.g. 20us noise), we don't neurotically panic until margin is tiny.
+	// If variance is huge (e.g. 600us bufferbloat), we proactively panic much earlier!
+	// We mandate at least 1.5x the Mean Absolute Deviation as breathing room.
+	int32_t dynamic_panic_threshold = (p7_info->estimated_jitter_var * 3) / 2;
+	if (dynamic_panic_threshold < 50) dynamic_panic_threshold = 50; // Hard minimum floor
 	
 	float Kp, Ki, Kd;
 	int32_t shift_us = 0;
-	bool panic_mode = (actual_arrival_margin < 500);
+
+	// Panic activates if we are statistically too close to the edge, OR if we detect 
+	// a massive outlier jump (e.g., > 3x standard deviation) in this specific packet.
+	bool panic_mode = (actual_arrival_margin < dynamic_panic_threshold) || 
+					  (abs_diff > p7_info->estimated_jitter_var * 3);
 
 	if (panic_mode) {
 		// PANIC OVERRIDE: Network just died/spiked heavily. Ignore smoothing.
