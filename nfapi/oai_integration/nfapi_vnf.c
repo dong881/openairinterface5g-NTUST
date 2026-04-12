@@ -1169,7 +1169,11 @@ void *vnf_timing_thread(void *arg) {
   int s_ahead_env = 0;
   int margin_env = 0;
   get_vnf_timing_envs(&s_ahead_env, &margin_env);
-  LOG_I(NFAPI_VNF, "[VNF] timing env read once: SLOT_AHEAD=%d, TARGET_MARGIN_INITIAL=%d\n", s_ahead_env, margin_env);
+  const char *fixed_alot_env_str = getenv("FIXED_ALOT_AHEAD");
+  int fixed_alot_ahead = fixed_alot_env_str ? atoi(fixed_alot_env_str) : 1;
+  int fixed_mode = (fixed_alot_ahead == 1 && s_ahead_env > 0);
+  LOG_I(NFAPI_VNF, "[VNF] timing env read once: SLOT_AHEAD=%d, TARGET_MARGIN_INITIAL=%d, FIXED_ALOT_AHEAD=%d (fixed_mode=%d)\n", 
+        s_ahead_env, margin_env, fixed_alot_ahead, fixed_mode);
 
   // Wait for configuration
   // Prefer to obtain mu (subcarrier spacing index) from the NFAPI NR config
@@ -1204,7 +1208,7 @@ void *vnf_timing_thread(void *arg) {
     pthread_cond_wait(&p7_info->initial_timinginfo_cond, &p7_info->mutex);
   }
   pthread_mutex_unlock(&p7_info->mutex);
-
+  if (fixed_mode) vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
   p7_info->mu = mu;
   p7_info->slot_duration_us = 1000 >> p7_info->mu; // 1ms / 2^mu
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Timing thread initialized with mu=%d, slot_duration=%dus\n",
@@ -1224,6 +1228,44 @@ void *vnf_timing_thread(void *arg) {
 
   struct timespec now;
   while (p7_info->running) {
+    if (fixed_mode) {
+      pthread_mutex_lock(&p7_info->mutex);
+      if (p7_info->slot_adjustment != 0) {
+        sfnslot_dec = (sfnslot_dec + p7_info->slot_adjustment + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
+        p7_info->slot_adjustment = 0;
+      }
+      int32_t current_pending_us = p7_info->pending_us;
+      p7_info->pending_us = 0;
+      pthread_mutex_unlock(&p7_info->mutex);
+
+      timespec_add_us(&p7_info->next_slot_time, p7_info->slot_duration_us + current_pending_us);
+      clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
+      vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
+
+      p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec);
+      p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
+
+      int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
+      int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
+
+      if (!p7_info->sync_locked && p7_info->sync_slot_counter++ >= p7_info->sync_period_slots) {
+        p7_info->sync_slot_counter = 0;
+        vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
+      }
+
+      nfapi_nr_slot_indication_scf_t ind = {0};
+      ind.sfn = ind_sfn;
+      ind.slot = ind_slot;
+      ind.header.phy_id = p7_info->phy_id;
+      phy_nr_slot_indication(&ind);
+      if (p7_info->sync_locked) {
+        log_mmap_entry("vnf_advance_time-us.bin", pack_sfn_slot_value(ind_sfn, ind_slot, p7_info->total_advanced_us));
+      }
+
+      sfnslot_dec = (sfnslot_dec + 1) % MAX_SFNSLOTDEC;
+      continue;
+    }
+
     struct timespec loop_start_slot_time = p7_info->next_slot_time;
     int skip_slots = 0;
     
