@@ -77,7 +77,7 @@ echo "[Online] $TARGET_IP is back online!"
 echo "------------------------------------------------"
 echo "[Step 3] Running NETCONF configuration (will retry until success)..."
 
-sleep 30
+sleep 40
 
 PEGAM_SCRIPT="$HOME/SMO-Mplane/Pegatron/Mplane_pega.sh"
 MAX_RETRIES=30
@@ -109,4 +109,5 @@ for ((i=1; i<=MAX_RETRIES; i++)); do
 done
 
 echo ""
+sleep 60
 echo "=== RU Auto-Reboot Process Completed ==="
