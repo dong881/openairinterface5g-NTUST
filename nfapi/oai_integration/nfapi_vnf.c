@@ -1155,6 +1155,7 @@ int vnf_nr_build_send_dl_node_sync(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_inf
 static inline void p7_sync_init(nfapi_vnf_p7_connection_info_t *p7_info)
 {
     p7_info->sync_slot_counter = 0;
+    p7_info->delta_sfn_slot = 0;
     p7_info->sync_period_slots = P7_SYNC_PERIOD_SLOTS_DEFAULT;
     NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Initialized: period=%u slots\n",
                 p7_info->sync_period_slots);
@@ -1232,6 +1233,7 @@ void *vnf_timing_thread(void *arg) {
       pthread_mutex_lock(&p7_info->mutex);
       if (p7_info->slot_adjustment != 0) {
         sfnslot_dec = (sfnslot_dec + p7_info->slot_adjustment + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
+        p7_info->delta_sfn_slot += p7_info->slot_adjustment;
         p7_info->slot_adjustment = 0;
       }
       int32_t current_pending_us = p7_info->pending_us;
@@ -1248,7 +1250,7 @@ void *vnf_timing_thread(void *arg) {
       int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
       int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
 
-      if (!p7_info->sync_locked && p7_info->sync_slot_counter++ >= p7_info->sync_period_slots) {
+      if (p7_info->delta_sfn_slot != 0 || p7_info->sync_slot_counter++ >= p7_info->sync_period_slots) {
         p7_info->sync_slot_counter = 0;
         vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
       }

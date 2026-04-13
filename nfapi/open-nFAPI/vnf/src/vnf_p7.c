@@ -1029,7 +1029,8 @@ int vnf_nr_build_send_dl_node_sync(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_inf
 	dl_node_sync.header.message_id = NFAPI_NR_PHY_MSG_TYPE_DL_NODE_SYNC;
 	//dl_node_sync.t1 = calculate_t1(p7_info->sfn_sf, vnf_p7->sf_start_time_hr);
 	dl_node_sync.t1 = calculate_nr_t1(p7_info->mu, p7_info->sfn,p7_info->slot, vnf_p7->slot_start_time_hr);
-	dl_node_sync.delta_sfn_slot = 0;
+	dl_node_sync.delta_sfn_slot = p7_info->delta_sfn_slot; 
+	p7_info->delta_sfn_slot = 0;
 
 	return config->send_p7_msg(vnf_p7, &dl_node_sync.header);
 }
