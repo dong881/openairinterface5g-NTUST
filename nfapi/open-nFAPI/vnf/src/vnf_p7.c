@@ -2139,16 +2139,7 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	// Integration Step
     int slot_ahead = 0;
     get_vnf_timing_envs(&slot_ahead, NULL);
-    if (slot_ahead == 0) {
-        handle_dynamic_timing_info(p7_con, &ind);
-    }
 
-	// // Capture current SFN/Slot locally to avoid race conditions during logging
-	// uint16_t vnf_sfn = p7_con->sfn;
-	// uint16_t vnf_slot = p7_con->slot;
-
-	// int32_t vnf_current_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, vnf_sfn, vnf_slot);
-	// int32_t pnf_ind_DEC = NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn, ind.last_slot);	
 	pthread_mutex_lock(&p7_con->mutex);
 	if (!p7_con->initial_timinginfo_received) {
 		p7_con->sfn = ind.last_sfn;
@@ -2157,6 +2148,11 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	}
 	pthread_cond_signal(&p7_con->initial_timinginfo_cond);
 	pthread_mutex_unlock(&p7_con->mutex);
+
+	// Only process dynamic timing once the VNF timing thread has initialized mu/slot duration
+	if (slot_ahead == 0 && p7_con->mu >= 0 && vnf_p7->slot_start_time_hr != 0) {
+		handle_dynamic_timing_info(p7_con, &ind);
+	}
 }
 
 void vnf_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)

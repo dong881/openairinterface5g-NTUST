@@ -1209,9 +1209,16 @@ void *vnf_timing_thread(void *arg) {
     pthread_cond_wait(&p7_info->initial_timinginfo_cond, &p7_info->mutex);
   }
   pthread_mutex_unlock(&p7_info->mutex);
-  if (fixed_mode) vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
   p7_info->mu = mu;
   p7_info->slot_duration_us = 1000 >> p7_info->mu; // 1ms / 2^mu
+  if (p7_info->initial_timinginfo_received) {
+    int sfnslot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, p7_info->sfn, p7_info->slot);
+    sfnslot_dec = (sfnslot_dec + 1) % NFAPI_MAX_SFNSLOTDEC(p7_info->mu);
+    p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec);
+    p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Initial timing info converted to current slot %d.%d\n",
+                p7_info->sfn, p7_info->slot);
+  }
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Timing thread initialized with mu=%d, slot_duration=%dus\n",
               p7_info->mu, p7_info->slot_duration_us);
   // SFN and slot are initialized dynamically from PNF's initial_timinginfo!
@@ -1222,6 +1229,8 @@ void *vnf_timing_thread(void *arg) {
   p7_sync_init(p7_info);
   clock_gettime(CLOCK_MONOTONIC, &p7_info->next_slot_time);
   vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
+  // Send an initial DL_NODE_SYNC after slot_start_time_hr is ready.
+  vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
   #define MAX_SFNSLOTDEC NFAPI_MAX_SFNSLOTDEC(p7_info->mu)
 
   // Initialize sfnslot_dec for the first iteration
