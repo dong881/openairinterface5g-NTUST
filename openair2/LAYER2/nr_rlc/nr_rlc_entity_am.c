@@ -84,6 +84,13 @@ static inline int sn_compare_tx(void *_entity, int a, int b)
   return modulus_tx(entity, a) - modulus_tx(entity, b);
 }
 
+static inline bool sn_in_tx_window(nr_rlc_entity_am_t *entity, int sn)
+{
+  int tx_range = (entity->tx_next - entity->tx_next_ack + entity->sn_modulus) % entity->sn_modulus;
+  int sn_offset = (sn - entity->tx_next_ack + entity->sn_modulus) % entity->sn_modulus;
+  return sn_offset <= tx_range;
+}
+
 nr_rlc_sdu_segment_t *nr_rlc_tx_sdu_segment_list_add(nr_rlc_entity_am_t *entity,
     nr_rlc_sdu_segment_t *list, nr_rlc_sdu_segment_t *sdu_segment)
 {
@@ -360,11 +367,10 @@ static void process_control_pdu(nr_rlc_entity_am_t *entity,
 
   /* discard the whole control PDU if ack_sn is invalid, that is
    * if it does not satisfy tx_next_ack <= ack_sn <= tx_next
-   * (no need to test tx_next_ack <= ack_sn, this is always true since
-   * tx_next_ack is the modulus base)
+   * or if it is stale/outside the current TX window.
    */
-  if (sn_compare_tx(entity, ack_sn, entity->tx_next) > 0) {
-    LOG_W(RLC, "ack_sn (%d) not valid (tx_next_ack %d tx_next %d), discard control PDU\n",
+  if (!sn_in_tx_window(entity, ack_sn)) {
+    LOG_D(RLC, "discard stale/out-of-window control PDU ack_sn (%d) not valid (tx_next_ack %d tx_next %d)\n",
           ack_sn, entity->tx_next_ack, entity->tx_next);
     log_mmap_entry("rlc_am_ctrl_pdu_discard_tx_size-B.bin",
                    (uint64_t)entity->tx_size);
