@@ -842,43 +842,56 @@ void clean_stale_dl_harq(gNB_MAC_INST *nrmac, NR_UE_info_t *UE, frame_t frame, s
   int8_t pid = sched_ctrl->feedback_dl_harq.head;
   while (pid >= 0) {
     NR_UE_harq_t *harq = &sched_ctrl->harq_processes[pid];
+    int8_t next_pid = sched_ctrl->feedback_dl_harq.next[pid];
     
     int frames_past = (frame - harq->feedback_frame + 1024) % 1024;
     
     if (frames_past > 512) {
-      break; 
+      pid = next_pid;
+      continue;
     }
 
     int slot_diff = frames_past * nrmac->frame_structure.numb_slots_frame + slot - harq->feedback_slot;
     
-    if (slot_diff > 20) {
+    if (slot_diff > 60) {
       LOG_W(NR_MAC, "UE %04x DL HARQ pid %d (PUCCH scheduled for %d.%d) feedback timeout (%d slots past), forcing drop/retrans\n",
             UE->rnti, pid, harq->feedback_frame, harq->feedback_slot, slot_diff);
-      remove_front_nr_list(&sched_ctrl->feedback_dl_harq);
+      remove_nr_list(&sched_ctrl->feedback_dl_harq, pid);
       handle_dl_harq(NULL, UE, pid, false, nrmac->dl_bler.harq_round_max);
-      pid = sched_ctrl->feedback_dl_harq.head;
-    } else {
-      break;
     }
+    pid = next_pid;
   }
 }
 
-static NR_UE_harq_t *find_harq(frame_t frame, slot_t slot, NR_UE_info_t * UE, int harq_round_max)
+static inline bool feedback_time_in_past(frame_t frame, slot_t slot, frame_t feedback_frame, slot_t feedback_slot)
 {
-  /* In case of realtime problems: we can only identify a HARQ process by
-   * timing. If the HARQ process's feedback_frame/feedback_slot is not the one we
-   * expected, we assume that processing has been aborted and we need to
-   * skip this HARQ process, which is what happens in the loop below.
-   * Similarly, we might be "in advance", in which case we need to skip
-   * this result. */
+  return (((feedback_frame - frame + 1024) % 1024) > 512) ||
+         (feedback_frame == frame && feedback_slot < slot);
+}
+
+static inline bool feedback_time_in_future(frame_t frame, slot_t slot, frame_t feedback_frame, slot_t feedback_slot)
+{
+  return (((frame - feedback_frame + 1024) % 1024) > 512) ||
+         (feedback_frame == frame && feedback_slot > slot);
+}
+
+static int8_t find_harq_pid(frame_t frame, slot_t slot, NR_UE_info_t *UE, int harq_round_max)
+{
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   int8_t pid = sched_ctrl->feedback_dl_harq.head;
   if (pid < 0)
-    return NULL;
+    return -1;
+
+  /* Search for the exact current feedback time first, in case the HARQ list is
+   * not strictly ordered by feedback slot. */
+  for (int8_t id = pid; id >= 0; id = sched_ctrl->feedback_dl_harq.next[id]) {
+    NR_UE_harq_t *harq = &sched_ctrl->harq_processes[id];
+    if (harq->feedback_frame == frame && harq->feedback_slot == slot)
+      return id;
+  }
+
   NR_UE_harq_t *harq = &sched_ctrl->harq_processes[pid];
-  /* old feedbacks we missed: mark for retransmission */
-  while ((harq->feedback_frame - frame + 1024 ) % 1024 > 512 // harq->feedback_frame < frame, distance of 512 is boundary to decide if feedback_frame is in the past or future
-         || (harq->feedback_frame == frame && harq->feedback_slot < slot)) {
+  while (feedback_time_in_past(frame, slot, harq->feedback_frame, harq->feedback_slot)) {
     LOG_W(NR_MAC,
           "UE %04x expected HARQ pid %d feedback at %4d.%2d, but is at %4d.%2d instead (HARQ feedback is in the past)\n",
           UE->rnti,
@@ -891,13 +904,11 @@ static NR_UE_harq_t *find_harq(frame_t frame, slot_t slot, NR_UE_info_t * UE, in
     handle_dl_harq(NULL, UE, pid, false, harq_round_max);
     pid = sched_ctrl->feedback_dl_harq.head;
     if (pid < 0)
-      return NULL;
+      return -1;
     harq = &sched_ctrl->harq_processes[pid];
   }
-  /* feedbacks that we wait for in the future: don't do anything */
-  if ((frame - harq->feedback_frame + 1024 ) % 1024 > 512 // harq->feedback_frame > frame, distance of 512 is boundary to decide if feedback_frame is in the past or future
-      || (harq->feedback_frame == frame && harq->feedback_slot > slot)) {
 
+  if (feedback_time_in_future(frame, slot, harq->feedback_frame, harq->feedback_slot)) {
     LOG_W(NR_MAC,
           "UE %04x expected HARQ pid %d feedback at %4d.%2d, but is at %4d.%2d instead (HARQ feedback is in the future)\n",
           UE->rnti,
@@ -906,9 +917,10 @@ static NR_UE_harq_t *find_harq(frame_t frame, slot_t slot, NR_UE_info_t * UE, in
           harq->feedback_slot,
           frame,
           slot);
-    return NULL;
+    return -1;
   }
-  return harq;
+
+  return pid;
 }
 
 void handle_nr_uci_pucch_0_1(module_id_t mod_id, frame_t frame, slot_t slot, const nfapi_nr_uci_pucch_pdu_format_0_1_t *uci_01)
@@ -933,14 +945,14 @@ void handle_nr_uci_pucch_0_1(module_id_t mod_id, frame_t frame, slot_t slot, con
     for (int harq_bit = 0; harq_bit < uci_01->harq.num_harq; harq_bit++) {
       const uint8_t harq_value = uci_01->harq.harq_list[harq_bit].harq_value;
       const uint8_t harq_confidence = uci_01->harq.harq_confidence_level;
-      NR_UE_harq_t *harq = find_harq(frame, slot, UE, nrmac->dl_bler.harq_round_max);
-      if (!harq) {
+      const int8_t pid = find_harq_pid(frame, slot, UE, nrmac->dl_bler.harq_round_max);
+      if (pid < 0) {
         LOG_E(NR_MAC, "UE %04x: Could not find a HARQ process at %4d.%2d!\n", UE->rnti, frame, slot);
         break;
       }
+      NR_UE_harq_t *harq = &sched_ctrl->harq_processes[pid];
       DevAssert(harq->is_waiting);
-      const int8_t pid = sched_ctrl->feedback_dl_harq.head;
-      remove_front_nr_list(&sched_ctrl->feedback_dl_harq);
+      remove_nr_list(&sched_ctrl->feedback_dl_harq, pid);
       LOG_D(NR_MAC,"%4d.%2d bit %d pid %d ack/nack %d\n",frame, slot, harq_bit,pid,harq_value);
       nr_mac_update_pdcch_closed_loop_adjust(sched_ctrl, harq_confidence != 0);
       bool success = harq_value == 0 && harq_confidence == 0;
@@ -1031,14 +1043,14 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, frame_t frame, slot_t slot, c
     // iterate over received harq bits
     for (int harq_bit = 0; harq_bit < uci_234->harq.harq_bit_len; harq_bit++) {
       const int acknack = ((uci_234->harq.harq_payload[harq_bit >> 3]) >> harq_bit) & 0x01;
-      NR_UE_harq_t *harq = find_harq(frame, slot, UE, RC.nrmac[mod_id]->dl_bler.harq_round_max);
-      if (!harq) {
+      const int8_t pid = find_harq_pid(frame, slot, UE, RC.nrmac[mod_id]->dl_bler.harq_round_max);
+      if (pid < 0) {
         LOG_E(NR_MAC, "UE %04x: Could not find a HARQ process at %4d.%2d!\n", UE->rnti, frame, slot);
         break;
       }
+      NR_UE_harq_t *harq = &sched_ctrl->harq_processes[pid];
       DevAssert(harq->is_waiting);
-      const int8_t pid = sched_ctrl->feedback_dl_harq.head;
-      remove_front_nr_list(&sched_ctrl->feedback_dl_harq);
+      remove_nr_list(&sched_ctrl->feedback_dl_harq, pid);
       LOG_D(NR_MAC,"%4d.%2d bit %d pid %d ack/nack %d\n",frame, slot, harq_bit, pid, acknack);
       // TCI state switch occurs at the first slot that is after slot n_+ T_HARQ + 3N_sf_slot (8.10.3 of 38.133)
       bool success = uci_234->harq.harq_crc != 1 && acknack;

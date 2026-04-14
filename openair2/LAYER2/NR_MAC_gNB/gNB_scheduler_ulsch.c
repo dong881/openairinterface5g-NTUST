@@ -679,8 +679,8 @@ void clean_stale_ul_harq(gNB_MAC_INST *nrmac, NR_UE_info_t *UE, frame_t frame, s
 
     int slot_diff = frames_past * nrmac->frame_structure.numb_slots_frame + slot - harq->feedback_slot;
     
-    // PHY takes a few slots to decode PUSCH. A wait > 20 slots is abnormally long and implies missed CRC due to skip.
-    if (slot_diff > 20) {
+    // PHY takes a few slots to decode PUSCH. A wait > 60 slots is abnormally long and implies missed CRC due to skip.
+    if (slot_diff > 60) {
       LOG_W(NR_MAC, "UE %04x UL HARQ pid %d (scheduled for %d.%d) feedback timeout (%d slots past), forcing drop/retrans\n",
             UE->rnti, ul_pid, harq->feedback_frame, harq->feedback_slot, slot_diff);
       remove_front_nr_list(&sched_ctrl->feedback_ul_harq);
