@@ -1305,6 +1305,7 @@ void *vnf_timing_thread(void *arg) {
     // "behind_us" to become extremely positive, immediately bursting packets to catch up!
     if (p7_info->pending_us >= (int32_t)p7_info->slot_duration_us) {
         int32_t borrow_slots = p7_info->pending_us / p7_info->slot_duration_us;
+        if (borrow_slots > 2) borrow_slots = 2; // Limit slot borrowing to avoid huge instantaneous jumps
         int32_t jump_us = borrow_slots * p7_info->slot_duration_us;
         duration_us -= jump_us;
         p7_info->pending_us -= jump_us;
@@ -1364,14 +1365,15 @@ void *vnf_timing_thread(void *arg) {
     } else {
       int remaining_us = duration_us - process_us;
       timespec_add_us(&p7_info->next_slot_time, duration_us);
-      if (p7_info->pending_us > 0 && remaining_us > 50) {
-        int32_t repay_budget = remaining_us - 50;
-        int32_t repay_amount = (repay_budget < p7_info->pending_us) ? repay_budget : p7_info->pending_us;
+      if (p7_info->pending_us > 0 && remaining_us > 100) {
+        int32_t repay_budget = remaining_us - 100;
+        int32_t repay_amount = repay_budget / 2; // Smooth repayment: only use half the available slack
+        if (repay_amount > p7_info->pending_us) repay_amount = p7_info->pending_us;
         p7_info->pending_us -= repay_amount;
         timespec_add_us(&p7_info->next_slot_time, -repay_amount);
       } 
       else if (p7_info->pending_us < 0) {
-        int32_t repay_amount = (p7_info->pending_us < -250) ? -250 : p7_info->pending_us;
+        int32_t repay_amount = (p7_info->pending_us < -150) ? -150 : p7_info->pending_us;
         p7_info->pending_us -= repay_amount;
         timespec_add_us(&p7_info->next_slot_time, -repay_amount);
       }

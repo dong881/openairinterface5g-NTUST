@@ -346,59 +346,58 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	// If variance is huge (e.g. 600us bufferbloat), we proactively panic much earlier!
 	// We mandate at least 1.5x the Mean Absolute Deviation as breathing room.
 	int32_t dynamic_panic_threshold = (p7_info->estimated_jitter_var * 3) / 2;
-	if (dynamic_panic_threshold < 50) dynamic_panic_threshold = 50; // Hard minimum floor
-	
-	float Kp, Ki, Kd;
-	int32_t shift_us = 0;
+    if (dynamic_panic_threshold < 250) dynamic_panic_threshold = 250; // More conservative threshold for stability
+    
+    float Kp, Ki, Kd;
+    int32_t shift_us = 0;
 
-	// Panic activates if we are statistically too close to the edge, OR if we detect 
-	// a massive outlier jump (e.g., > 3x standard deviation) in this specific packet.
-	bool panic_mode = (actual_arrival_margin < dynamic_panic_threshold) || 
-					  (abs_diff > p7_info->estimated_jitter_var * 3);
+    // Panic activates if we are statistically too close to the edge, OR if we detect 
+    // a massive outlier jump (e.g., > 3x standard deviation) in this specific packet.
+    bool panic_mode = (actual_arrival_margin < dynamic_panic_threshold) || 
+                      (abs_diff > p7_info->estimated_jitter_var * 3);
 
-	if (panic_mode) {
-		// PANIC OVERRIDE: Network just died/spiked heavily. Ignore smoothing.
-		// Force the shift to exactly what's needed to reach target_advance_us immediately.
-		Kp = 1.0f; 
-		Ki = 0.0f;
-		Kd = 0.0f;
-		shift_us = error_us; // Pure 100% instantaneous jump!
-	} else {
-		// NORMAL MODE: Gently correct and hold position.
-		Kp = 0.1f;  
-		Ki = 0.005f;
-		Kd = 0.05f;
-		shift_us = (int32_t)(Kp * error_us + Ki * p7_info->pid_integral_us + Kd * pid_delta_error);
-	}
+    if (panic_mode) {
+        // PANIC OVERRIDE: Network just died/spiked heavily. Ignore smoothing.
+        // Force the shift to exactly what's needed to reach target_advance_us immediately.
+        Kp = 1.0f; 
+        Ki = 0.0f;
+        Kd = 0.0f;
+        shift_us = error_us; // Pure 100% instantaneous jump!
+    } else {
+        // NORMAL MODE: Make corrections conservatively to avoid oscillation.
+        Kp = 0.05f;
+        Ki = 0.002f;
+        Kd = 0.02f;
+        shift_us = (int32_t)(Kp * error_us + Ki * p7_info->pid_integral_us + Kd * pid_delta_error);
+    }
 
-	// Dead-zone
-	if (!panic_mode && shift_us > -5 && shift_us < 5) {
-		shift_us = 0;
-	}
+    // Dead-zone
+    if (!panic_mode && shift_us > -10 && shift_us < 10) {
+        shift_us = 0;
+    }
 
-	// DUAL-BAND SLEW RATE LIMITER
-	if (panic_mode) {
-		// In panic mode, allow an absolutely massive jump (up to 3500us) immediately
-		// to catch up with 1 Gbps bufferbloat in a SINGLE slot!
-		if (shift_us > 3500) shift_us = 3500;
-		if (shift_us < 0) shift_us = 0; // Never retreat when panicked!
-	} else {
-		// In normal mode, behave calmly to hold the line without inducing jitter
-		if (shift_us > 200) shift_us = 200;
-		if (shift_us < -5) shift_us = -5; // Ultra safe decay
-	}
+    // DUAL-BAND SLEW RATE LIMITER
+    if (panic_mode) {
+        // In panic mode, allow a large jump, but cap to a manageable bound.
+        if (shift_us > 2000) shift_us = 2000;
+        if (shift_us < 0) shift_us = 0; // Never retreat when panicked!
+    } else {
+        // In normal mode, behave calmly to hold the line without inducing jitter
+        if (shift_us > 150) shift_us = 150;
+        if (shift_us < -20) shift_us = -20; // Ultra safe decay
+    }
 
-	if (shift_us != 0) {
-		long final_target = current_total_advanced_us + shift_us;
+    if (shift_us != 0) {
+        long final_target = current_total_advanced_us + shift_us;
         
-		if (final_target > max_safe_target) { 
-			final_target = max_safe_target; 
-		} else if (final_target < 0) {
-			final_target = 0;
-		}
+        if (final_target > max_safe_target) { 
+            final_target = max_safe_target; 
+        } else if (final_target < 0) {
+            final_target = 0;
+        }
 
-		long delta_us = final_target - current_total_advanced_us;
-		__atomic_store_n(&p7_info->pending_us, p7_info->pending_us + delta_us, __ATOMIC_SEQ_CST);
+        long delta_us = final_target - current_total_advanced_us;
+        __atomic_store_n(&p7_info->pending_us, p7_info->pending_us + delta_us, __ATOMIC_SEQ_CST);
 
         __atomic_store_n(&p7_info->last_adjustment_time_hr, now_hr, __ATOMIC_SEQ_CST);
         __atomic_store_n(&p7_info->last_total_advanced_us, current_total_advanced_us, __ATOMIC_SEQ_CST);
