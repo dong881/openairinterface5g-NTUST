@@ -773,8 +773,9 @@ static void handle_nr_ul_harq(gNB_MAC_INST *nrmac,
 
 static void handle_msg3_failed_rx(gNB_MAC_INST *mac, NR_RA_t *ra, rnti_t rnti, int harq_round_max)
 {
-  if (ra->msg3_round >= harq_round_max - 1) {
-    LOG_W(NR_MAC, "UE %04x RA failed at state %s (Reached msg3 max harq rounds)\n", rnti, nrra_text[ra->ra_state]);
+  const int ra_harq_round_max = harq_round_max < 4 ? 4 : harq_round_max;
+  if (ra->msg3_round >= ra_harq_round_max - 1) {
+    LOG_W(NR_MAC, "UE %04x RA failed at state %s (Reached msg3 max harq rounds %d)\n", rnti, nrra_text[ra->ra_state], ra_harq_round_max);
     nr_release_ra_UE(mac, rnti);
     return;
   }

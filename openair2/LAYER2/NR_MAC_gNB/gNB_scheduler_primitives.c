@@ -3675,6 +3675,39 @@ void nr_mac_update_timers(module_id_t module_id, frame_t frame, slot_t slot)
       beam_switching_procedure(mac, UE, sched_ctrl->UE_mac_ce_ctrl.tci_state_ind.tciStateId);
     }
   }
+
+  UE_iterator(UE_info->access_ue_list, UE) {
+    NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
+
+    if (nr_mac_check_release(sched_ctrl, UE->rnti)) {
+      nr_release_ra_UE(mac, UE->rnti);
+      UE--;
+      continue;
+    }
+
+    bool released = nr_mac_check_ul_failure(mac, UE->rnti, sched_ctrl);
+    if (released) {
+      UE--;
+      continue;
+    }
+
+    clean_stale_dl_harq(mac, UE, frame, slot);
+    clean_stale_ul_harq(mac, UE, frame, slot);
+
+    if (nr_timer_tick(&sched_ctrl->transm_interrupt)) {
+      /* expired */
+      nr_timer_stop(&sched_ctrl->transm_interrupt);
+    }
+    if (nr_timer_tick(&sched_ctrl->transm_timeout)) {
+      nr_timer_stop(&sched_ctrl->transm_timeout);
+      LOG_W(NR_MAC, "UE %04x UL failure after transmission timeout\n", UE->rnti);
+      nr_mac_trigger_ul_failure(sched_ctrl, UE->current_DL_BWP.scs);
+    }
+    if (nr_timer_tick(&sched_ctrl->tci_beam_switch)) {
+      nr_timer_stop(&sched_ctrl->tci_beam_switch);
+      beam_switching_procedure(mac, UE, sched_ctrl->UE_mac_ce_ctrl.tci_state_ind.tciStateId);
+    }
+  }
 }
 
 int ul_buffer_index(int frame, int slot, int slots_per_frame, int size)
