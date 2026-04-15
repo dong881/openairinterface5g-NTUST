@@ -222,11 +222,15 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	uint32_t now_hr = vnf_get_current_time_hr();
 	if (p7_info->last_adjustment_time_hr != 0) {
 		int64_t diff_us = timehr_diff_us(now_hr, p7_info->last_adjustment_time_hr);
-		if (diff_us >= 0 && diff_us <= 4LL * (int64_t)p7_info->slot_duration_us) {
-			reference_total_advanced_us = __atomic_load_n(&p7_info->last_total_advanced_us, __ATOMIC_SEQ_CST);
-		}
+        int holdoff_slots = (config->timing_info_period > 0) ? config->timing_info_period + 3 : 6;
+        if (holdoff_slots < 6) holdoff_slots = 6;
+        if (holdoff_slots > 10) holdoff_slots = 10;
+        int64_t holdoff_us = (int64_t)holdoff_slots * (int64_t)p7_info->slot_duration_us;
+        if (diff_us >= 0 && diff_us <= holdoff_us) {
+            reference_total_advanced_us = __atomic_load_n(&p7_info->last_total_advanced_us, __ATOMIC_SEQ_CST);
+        }
 	}
-	
+
 	// Current Absolute Latency
 	int32_t min_node_to_node_latency = reference_total_advanced_us + worst_early;
 	int32_t max_node_to_node_latency = reference_total_advanced_us + worst_late;
@@ -299,7 +303,10 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 	// The problem with standard PID is reaction time to severe sudden network drops.
 	// If a 2000us spike hits, we need to jump 2000us *instantly*, bypassing slow smoothing
 	// or slew-rate limits, to prevent 10+ consecutive packets from dying.
-	int32_t target_advance_us = peak_latency_tracker + 800; // Even wider safety margin
+	int32_t safety_extra_us = 800; // Base safety offset
+	if (timing_window_us >= 5000) safety_extra_us = 1200;
+	if (timing_window_us >= 5500) safety_extra_us = 1500;
+	int32_t target_advance_us = peak_latency_tracker + safety_extra_us;
 
 	// Limit to maximum safe distance in timing window (don't cause Too Early)
 	int32_t max_safe_target = ABSOLUTE_MAX_ADVANCE_US - 200;
@@ -365,25 +372,25 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         shift_us = error_us; // Pure 100% instantaneous jump!
     } else {
         // NORMAL MODE: Make corrections conservatively to avoid oscillation.
-        Kp = 0.05f;
-        Ki = 0.002f;
-        Kd = 0.02f;
+        Kp = 0.03f;
+        Ki = 0.001f;
+        Kd = 0.01f;
         shift_us = (int32_t)(Kp * error_us + Ki * p7_info->pid_integral_us + Kd * pid_delta_error);
     }
 
     // Dead-zone
-    if (!panic_mode && shift_us > -10 && shift_us < 10) {
+    if (!panic_mode && shift_us > -50 && shift_us < 50) {
         shift_us = 0;
     }
 
     // DUAL-BAND SLEW RATE LIMITER
     if (panic_mode) {
         // In panic mode, allow a large jump, but cap to a manageable bound.
-        if (shift_us > 2000) shift_us = 2000;
+        if (shift_us > 1500) shift_us = 1500;
         if (shift_us < 0) shift_us = 0; // Never retreat when panicked!
     } else {
         // In normal mode, behave calmly to hold the line without inducing jitter
-        if (shift_us > 150) shift_us = 150;
+        if (shift_us > 100) shift_us = 100;
         if (shift_us < -20) shift_us = -20; // Ultra safe decay
     }
 
@@ -436,8 +443,11 @@ void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *v
   uint32_t now_hr = vnf_get_current_time_hr();
   if (p7_info->last_adjustment_time_hr != 0) {
       int64_t diff_us = timehr_diff_us(now_hr, p7_info->last_adjustment_time_hr);
-      // Wait for approx 4 slots (e.g. 2000us for mu=1, 4000us for mu=0)
-      int32_t dead_time_us = 4 * p7_info->slot_duration_us; // Conservative hold-off window
+      nfapi_vnf_config_t *config = get_config();
+      int holdoff_slots = (config && config->timing_info_period > 0) ? config->timing_info_period + 3 : 6;
+      if (holdoff_slots < 6) holdoff_slots = 6;
+      if (holdoff_slots > 10) holdoff_slots = 10;
+      int32_t dead_time_us = holdoff_slots * p7_info->slot_duration_us;
       
       if (diff_us < dead_time_us) { // Dead Time mask based on calculated RTT margin
           return; // Ignore stale feedback
