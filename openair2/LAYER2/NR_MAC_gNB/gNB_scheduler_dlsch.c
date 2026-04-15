@@ -1121,6 +1121,10 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pdsch, NR_UE
         sched_pdsch->pucch_allocation,
         tpc);
   DevAssert(sched_pdsch->rbSize > 0);
+  log_mmap_entry("vnf_dl_sched_tb_size-B.bin", TBS);
+  log_mmap_entry("vnf_dl_sched_rb_size-count.bin", (long)sched_pdsch->rbSize);
+  log_mmap_entry("vnf_dl_sched_mcs-index.bin", (long)sched_pdsch->mcs);
+  log_mmap_entry("vnf_dl_sched_harq_round-count.bin", (long)harq->round);
 
   const int bwp_id = current_BWP->bwp_id;
   const int coresetid = sched_ctrl->coreset->controlResourceSetId;

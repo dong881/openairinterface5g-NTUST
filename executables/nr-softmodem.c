@@ -881,6 +881,20 @@ static void init_vnf_mmap_loggers(void)
   init_mmap_logger("vnf_rlc_rxbuf_occ_bytes-B.bin");
   init_mmap_logger("rlc_am_ctrl_pdu_discard_tx_size-B.bin");
   init_mmap_logger("vnf_rlc_rx_ooo_wait_delay-ms.bin");
+  init_mmap_logger("vnf_rlc_status_size-B.bin");
+  init_mmap_logger("vnf_rlc_status_tx_size-B.bin");
+  init_mmap_logger("vnf_rlc_status_retx_size-B.bin");
+  init_mmap_logger("vnf_rlc_status_bytes-B.bin");
+  init_mmap_logger("vnf_dl_sched_tb_size-B.bin");
+  init_mmap_logger("vnf_dl_sched_rb_size-count.bin");
+  init_mmap_logger("vnf_dl_sched_mcs-index.bin");
+  init_mmap_logger("vnf_dl_sched_harq_round-count.bin");
+  init_mmap_logger("vnf_timing_process_us-us.bin");
+  init_mmap_logger("vnf_timing_pending_us-us.bin");
+  init_mmap_logger("vnf_timing_total_advanced_us-us.bin");
+  init_mmap_logger("vnf_timing_real_behind_us-us.bin");
+  init_mmap_logger("vnf_timing_pure_os_delay-us.bin");
+  init_mmap_logger("vnf_timing_skip_slots-count.bin");
   // Track continuous VNF-PNF latency measurements and advance timing
   init_mmap_logger("vnf_advance_time-us.bin");
   init_mmap_logger("vnf_pnf_latency-us.bin");

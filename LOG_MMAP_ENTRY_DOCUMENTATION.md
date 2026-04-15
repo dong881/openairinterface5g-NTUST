@@ -24,7 +24,22 @@
   - `vnf_harq_rtt`
   - `vnf_rlc_runtime`
   - `vnf_rlc_hol_delay`
-  - `vnf_rlc_avg_to_tx`
+  - `vnf_rlc_rxbuf_occ_bytes`
+  - `vnf_rlc_rx_ooo_wait_delay`
+  - `vnf_rlc_status_size`
+  - `vnf_rlc_status_tx_size`
+  - `vnf_rlc_status_retx_size`
+  - `vnf_rlc_status_bytes`
+  - `vnf_dl_sched_tb_size`
+  - `vnf_dl_sched_rb_size`
+  - `vnf_dl_sched_mcs-index`
+  - `vnf_dl_sched_harq_round`
+  - `vnf_timing_process_us`
+  - `vnf_timing_pending_us`
+  - `vnf_timing_total_advanced_us`
+  - `vnf_timing_real_behind_us`
+  - `vnf_timing_pure_os_delay`
+  - `vnf_timing_skip_slots`
   - `vnf_advance_time`
   - `vnf_pnf_latency`
   - `rlc_am_ctrl_pdu_discard_tx_size-B`
@@ -134,6 +149,22 @@ with open("logs/pnf_timing_window-us.bin.000", "rb") as f:
 | `vnf_harq_rtt` | HARQ round-trip delay | 典型 `0..20k` | μs | raw log |
 | `vnf_rlc_runtime` | RLC 執行時間 | 典型 `0..20k` | μs | raw log |
 | `vnf_rlc_hol_delay` | RLC HOL delay | 典型 `0..20k` | μs | raw log |
+| `vnf_rlc_rxbuf_occ_bytes` | RLC RX buffer current occupancy | 典型 `0..N bytes` | Bytes | raw log |
+| `vnf_rlc_rx_ooo_wait_delay` | RLC RX out-of-order wait delay | 典型 `0..20` | ms | raw log |
+| `vnf_rlc_status_size` | RLC buffer status report size | 典型 `0..N bytes` | Bytes | raw log |
+| `vnf_rlc_status_tx_size` | RLC TX-ready bytes in buffer | 典型 `0..N bytes` | Bytes | raw log |
+| `vnf_rlc_status_retx_size` | RLC retransmission bytes in buffer | 典型 `0..N bytes` | Bytes | raw log |
+| `vnf_rlc_status_bytes` | RLC aggregate bytes in buffer | 典型 `0..N bytes` | Bytes | raw log |
+| `vnf_dl_sched_tb_size` | Scheduled DL TB size | 典型 `0..N bytes` | Bytes | raw log |
+| `vnf_dl_sched_rb_size` | Scheduled DL RB count | 典型 `0..N` | count | raw log |
+| `vnf_dl_sched_mcs-index` | Scheduled DL MCS index | 典型 `0..28` | index | raw log |
+| `vnf_dl_sched_harq_round` | HARQ round for scheduled PDSCH | 典型 `0..4` | count | raw log |
+| `vnf_timing_process_us` | VNF slot loop scheduling delay | 典型 `-20k..20k` | μs | raw log |
+| `vnf_timing_pending_us` | VNF pending timing debt | 典型 `-20k..20k` | μs | raw log |
+| `vnf_timing_total_advanced_us` | VNF total physical advance | 典型 `0..20k` | μs | raw log |
+| `vnf_timing_real_behind_us` | VNF real behind schedule amount | 典型 `-20k..20k` | μs | raw log |
+| `vnf_timing_pure_os_delay` | VNF pure OS delay after debt correction | 典型 `-20k..20k` | μs | raw log |
+| `vnf_timing_skip_slots` | Number of skipped physical slots due to large delay | 典型 `0..N` | count | raw log |
 | `vnf_rlc_avg_to_tx` | RLC RX 亂序暫存量 (原為 avg transmit) | 典型 `0..N bytes` | Bytes | raw log |
 | `rlc_am_ctrl_pdu_discard_tx_size-B` | Control PDU discard 發生時 RLC TX buffer 未確認資料量 | 典型 `0..N bytes` | Bytes | raw log |
 | `vnf_rlc_rx_ooo_wait_delay` | RLC RX 等待重傳封包造成的堵塞時間 | 典型 `0..20` | ms | raw log |

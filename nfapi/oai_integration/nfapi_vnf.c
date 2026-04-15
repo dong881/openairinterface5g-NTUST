@@ -1272,6 +1272,8 @@ void *vnf_timing_thread(void *arg) {
       if (p7_info->sync_locked) {
         log_mmap_entry("vnf_advance_time-us.bin", pack_sfn_slot_value(ind_sfn, ind_slot, p7_info->total_advanced_us));
       }
+      log_mmap_entry("vnf_timing_total_advanced_us-us.bin", (long)p7_info->total_advanced_us);
+      log_mmap_entry("vnf_timing_pending_us-us.bin", (long)current_pending_us);
 
       sfnslot_dec = (sfnslot_dec + 1) % MAX_SFNSLOTDEC;
       continue;
@@ -1331,7 +1333,13 @@ void *vnf_timing_thread(void *arg) {
         if (thread_burst_debt_us < 0) thread_burst_debt_us = 0;
     }
     // 此處不該包含剛剛人為加上去的 jump_us，如果 pure_os_delay 超過 3 slots，代表是真當機
-    
+
+    log_mmap_entry("vnf_timing_process_us-us.bin", (long)process_us);
+    log_mmap_entry("vnf_timing_pending_us-us.bin", (long)p7_info->pending_us);
+    log_mmap_entry("vnf_timing_total_advanced_us-us.bin", (long)p7_info->total_advanced_us);
+    log_mmap_entry("vnf_timing_real_behind_us-us.bin", (long)real_behind_us);
+    log_mmap_entry("vnf_timing_pure_os_delay-us.bin", (long)pure_os_delay);
+
     if (real_behind_us >= (int32_t)p7_info->slot_duration_us * 3 && pure_os_delay >= (int32_t)p7_info->slot_duration_us * 3) {
       /* The delay (scheduling + pack + sendto) is critically large. Drop/Skip slots and reset baseline to NOW to prevent cascading backlog. */
       /* The delay (scheduling + pack + sendto) is too large. Drop/Skip slots and reset baseline to NOW to prevent cascading backlog. */
@@ -1339,6 +1347,7 @@ void *vnf_timing_thread(void *arg) {
       int remaining_sleep_us = pure_os_delay % p7_info->slot_duration_us;
       sfnslot_dec = (sfnslot_dec + skip_slots) % MAX_SFNSLOTDEC;
       thread_burst_debt_us = 0;
+      log_mmap_entry("vnf_timing_skip_slots-count.bin", (long)skip_slots);
       
       // CRITICAL FIX: If we skip a slot logically, we must deduct its time value from pending_us!
       // Otherwise, the skipped slot generates a packet with a future SFN immediately, satisfying the "earlier" request.
