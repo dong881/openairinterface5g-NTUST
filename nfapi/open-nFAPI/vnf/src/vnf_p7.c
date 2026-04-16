@@ -253,17 +253,28 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 
     // 單次絕對落差大於三倍變異數 => 即斷定為嚴重突波
     int32_t anomaly_threshold_us = p7_info->estimated_jitter_var * 3;
-    if (anomaly_threshold_us < slot_duration_us) {
-        anomaly_threshold_us = slot_duration_us;
+    // 【重要修正】門檻最少要大於 2 個 slot_duration，否則我們主動降 1 slot (前進時間) 都會誘發自我 Panic！
+    if (anomaly_threshold_us < slot_duration_us * 2) {
+        anomaly_threshold_us = slot_duration_us * 2;
     }
     bool statistical_anomaly = (abs_diff > anomaly_threshold_us);
 
+    int32_t absolute_safe_boundary = slot_duration_us * 2;
+
+    // 如果目前距離 0 (deadline) 非常遙遠且安全 (大於 2 個 slot)
+    // 除非遇到大於 "距離 deadline 剩餘時間" 的毀滅性突波，否則無視統計異常，避免神經質跳躍
+    if (worst_late < -absolute_safe_boundary) {
+        if (abs_diff < (-worst_late - slot_duration_us)) {
+            statistical_anomaly = false;
+        }
+    }
+
     bool near_deadline_edge = (worst_late > -safe_margin_us);
-    bool jitter_activity = (stats->pnf_reported_jitter > 0);
+    bool jitter_activity = (stats->pnf_reported_jitter > 20); // 忽略底噪 (如 1 或是 2 us)
     bool significant_variation = (abs_diff > slot_duration_us / 2);
     bool strong_packet_activity = jitter_activity || significant_variation;
     bool edge_activity_panic = near_deadline_edge && strong_packet_activity;
-    bool jitter_panic = (stats->pnf_reported_jitter > (uint32_t)safe_margin_us * 2);
+    bool jitter_panic = (stats->pnf_reported_jitter > (uint32_t)safe_margin_us * 2) && (worst_late > -absolute_safe_boundary * 2);
 
     // 當有足夠流量跡象且封包快要/已經接近 deadline，或異常大抖動、突波震盪時，立即進入 Panic。
     if (edge_activity_panic || jitter_panic || statistical_anomaly) {
@@ -291,16 +302,12 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         p7_info->consecutive_late_spikes = 0;
     } else {
         // ===================================================================
-        // 3. 科學高峰保持 (Scientific Hold-Off Decay)
+        // 3. 安全降檔 (Proactive Latency Reduction)
         // ===================================================================
-        // 防止被短暫的 Jitter 低谷欺騙，必須超過 5 秒未見高峰才允許下降
-        int64_t time_since_peak = timehr_diff_us(now_hr, p7_info->peak_latency_timestamp_hr);
-        int32_t decay_headroom_us = safe_margin_us + slot_duration_us;
-
-        if (time_since_peak > 5000000LL && worst_late < -decay_headroom_us) {
+        // 只要距離 deadline 超過 2 個 slot duration，就視為安全，可以主動降低 latency
+        if (worst_late < -absolute_safe_boundary) {
             p7_info->consecutive_late_spikes++;
-            // 因為現在是 slot ahead mode，降檔要更為謹慎。原本改的 1000 仍保留。
-            if (p7_info->consecutive_late_spikes > 100) {
+            if (p7_info->consecutive_late_spikes > 10000) {
                 target_s_ahead -= 1;
                 p7_info->consecutive_late_spikes = 0;
             }
@@ -1910,9 +1917,9 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	}
 
 	// Positive offset implies VNF is BEHIND PNF (VNF Master time = PNF Slave time - Offset)
-	// VNF MUST INCREASE speed (reduce sleep time) to catch up -> requires pending_us to be POSITIVE
+	// VNF MUST INCREASE speed (reduce sleep time) to catch up -> requires pending_us to be NEGATIVE
 	// Negative offset implies VNF is AHEAD of PNF
-	// VNF MUST DECREASE speed (increase sleep time) to fall back -> requires pending_us to be NEGATIVE
+	// VNF MUST DECREASE speed (increase sleep time) to fall back -> requires pending_us to be POSITIVE
 
 	int target_margin_initial = 0;
 	get_vnf_timing_envs(NULL, &target_margin_initial);
@@ -1938,7 +1945,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 			int32_t s_adj = total_correction / p7_info->slot_duration_us;
 			int32_t p_adj = total_correction % p7_info->slot_duration_us;
 			p7_info->slot_adjustment += s_adj;
-			p7_info->pending_us += p_adj;
+			p7_info->pending_us -= p_adj;
 			p7_info->last_adjustment_time_hr = vnf_get_current_time_hr(); // Mask stale timing info
 			p7_info->last_total_advanced_us = p7_info->total_advanced_us;
 		}
