@@ -515,7 +515,6 @@ pnf_p7_rx_message_t* pnf_p7_rx_reassembly_queue_add_segment(pnf_p7_t* pnf_p7, pn
 		if(msg->num_segments_received == msg->num_segments_expected)
 		{
 			long assembly_lat = timehr_diff_us(rx_hr_time, msg->rx_hr_time);
-			log_mmap_entry("pnf_p7_msg_age_completed-us.bin", assembly_lat);
 		}
 	}
 	// else add new rx message entry
@@ -541,7 +540,6 @@ pnf_p7_rx_message_t* pnf_p7_rx_reassembly_queue_add_segment(pnf_p7_t* pnf_p7, pn
 		if(msg->num_segments_received == msg->num_segments_expected)
 		{
 			long assembly_lat = timehr_diff_us(rx_hr_time, msg->rx_hr_time);
-			log_mmap_entry("pnf_p7_msg_age_completed-us.bin", assembly_lat);
 		}
 	}
 

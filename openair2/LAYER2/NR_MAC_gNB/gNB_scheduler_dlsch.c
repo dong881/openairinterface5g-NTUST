@@ -1079,7 +1079,6 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pdsch, NR_UE
       remove_nr_list(&sched_ctrl->retrans_dl_harq, current_harq_pid);
       uint64_t end_time = rdtsc_oai();
       long diff_us = (long)((end_time - sched_ctrl->harq_processes[current_harq_pid].buffer_start_time) / (cpuf * 1000.0));
-      log_mmap_entry("vnf_harq_buffer-us.bin", diff_us);
     }
   }
 
@@ -1121,10 +1120,6 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pdsch, NR_UE
         sched_pdsch->pucch_allocation,
         tpc);
   DevAssert(sched_pdsch->rbSize > 0);
-  log_mmap_entry("vnf_dl_sched_tb_size-B.bin", TBS);
-  log_mmap_entry("vnf_dl_sched_rb_size-count.bin", (long)sched_pdsch->rbSize);
-  log_mmap_entry("vnf_dl_sched_mcs-index.bin", (long)sched_pdsch->mcs);
-  log_mmap_entry("vnf_dl_sched_harq_round-count.bin", (long)harq->round);
 
   const int bwp_id = current_BWP->bwp_id;
   const int coresetid = sched_ctrl->coreset->controlResourceSetId;

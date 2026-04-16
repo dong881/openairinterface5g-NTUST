@@ -866,7 +866,6 @@ static void init_pnf_mmap_loggers(void)
 {
   init_mmap_logger("pnf_timing_window-us.bin");
   // Add PNF-only loggers here - keeps PNF changes isolated
-  init_mmap_logger("pnf_p7_msg_age_completed-us.bin");
   init_mmap_logger("pnf_p7_msg_age_stale-us.bin");
   init_mmap_logger("pnf_p7_stale_seg_expected-count.bin");
   init_mmap_logger("pnf_p7_stale_seg_received-count.bin");
@@ -874,21 +873,9 @@ static void init_pnf_mmap_loggers(void)
 
 static void init_vnf_mmap_loggers(void)
 {
-  init_mmap_logger("vnf_harq_buffer-us.bin");
   init_mmap_logger("vnf_harq_rtt-us.bin");
-  init_mmap_logger("vnf_rlc_runtime-us.bin");
   init_mmap_logger("vnf_rlc_hol_delay-us.bin");
-  init_mmap_logger("vnf_rlc_rxbuf_occ_bytes-B.bin");
   init_mmap_logger("rlc_am_ctrl_pdu_discard_tx_size-B.bin");
-  init_mmap_logger("vnf_rlc_rx_ooo_wait_delay-ms.bin");
-  init_mmap_logger("vnf_rlc_status_size-B.bin");
-  init_mmap_logger("vnf_rlc_status_tx_size-B.bin");
-  init_mmap_logger("vnf_rlc_status_retx_size-B.bin");
-  init_mmap_logger("vnf_rlc_status_bytes-B.bin");
-  init_mmap_logger("vnf_dl_sched_tb_size-B.bin");
-  init_mmap_logger("vnf_dl_sched_rb_size-count.bin");
-  init_mmap_logger("vnf_dl_sched_mcs-index.bin");
-  init_mmap_logger("vnf_dl_sched_harq_round-count.bin");
   init_mmap_logger("vnf_timing_process_us-us.bin");
   init_mmap_logger("vnf_timing_pending_us-us.bin");
   init_mmap_logger("vnf_timing_total_advanced_us-us.bin");

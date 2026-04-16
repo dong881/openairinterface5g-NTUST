@@ -234,7 +234,6 @@ int nr_mac_rlc_multi_data_req(const module_id_t module_idP,
   if (rb != NULL) {
     uint64_t end_time = rdtsc_oai();
     long diff_us = (long)((end_time - start_time) / (cpuf * 1000.0));
-    log_mmap_entry("vnf_rlc_runtime-us.bin", diff_us);
   }
 
   if (gnb_flagP)
@@ -274,7 +273,6 @@ tbs_size_t nr_mac_rlc_data_req(const module_id_t  module_idP,
   if (rb != NULL) {
     uint64_t end_time = rdtsc_oai();
     long diff_us = (long)((end_time - start_time) / (cpuf * 1000.0));
-    log_mmap_entry("vnf_rlc_runtime-us.bin", diff_us);
   }
 
   if (gnb_flagP)
@@ -301,16 +299,10 @@ static mac_rlc_status_resp_t _nr_rlc_status_ind(nr_rlc_ue_t *ue, frame_t frame, 
     // Fix me: temproary reduction meanwhile cpu cost of this computation is optimized
     buf_stat = rb->buffer_status(rb, 1000 * 1000);
     ret.bytes_in_buffer = buf_stat.status_size + buf_stat.retx_size + buf_stat.tx_size;
-    log_mmap_entry("vnf_rlc_status_size-B.bin", (long)buf_stat.status_size);
-    log_mmap_entry("vnf_rlc_status_tx_size-B.bin", (long)buf_stat.tx_size);
-    log_mmap_entry("vnf_rlc_status_retx_size-B.bin", (long)buf_stat.retx_size);
-    log_mmap_entry("vnf_rlc_status_bytes-B.bin", (long)ret.bytes_in_buffer);
     rb->get_stats(rb, &rlc_stats);
     log_mmap_entry("vnf_rlc_hol_delay-us.bin", (long)rlc_stats.txsdu_wt_us);
     // Replace txsdu_avg_time_to_tx with rxbuf_occ_bytes to track MAC out-of-order / HARQ delay size
-    log_mmap_entry("vnf_rlc_rxbuf_occ_bytes-B.bin", (long)rlc_stats.rxbuf_occ_bytes);
-    // Log new rx out of order wait delay in ms
-    log_mmap_entry("vnf_rlc_rx_ooo_wait_delay-ms.bin", (long)rlc_stats.rx_ooo_wait_delay_ms);
+  
   } else {
     if (!(frame % 128) || channel_idP == 0) //to suppress this warning message
       LOG_W(RLC, "Radio Bearer (channel ID %d) is NULL for UE %d\n", channel_idP, ue->ue_id);
