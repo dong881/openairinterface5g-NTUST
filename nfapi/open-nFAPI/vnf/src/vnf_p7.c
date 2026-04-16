@@ -1929,7 +1929,8 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	// VNF MUST DECREASE speed (increase sleep time) to fall back -> requires pending_us to be POSITIVE
 
 	int target_margin_initial = 0;
-	get_vnf_timing_envs(NULL, &target_margin_initial);
+	int slot_ahead = 0;
+	get_vnf_timing_envs(&slot_ahead, &target_margin_initial);
 
 	int32_t total_correction = offset + target_margin_initial;
 
@@ -1949,16 +1950,16 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	if (!p7_info->sync_locked) {
 		if (total_correction >= -MARGIN_TOLERANCE_US && total_correction <= MARGIN_TOLERANCE_US) {
 			p7_info->sync_locked = 1;
-			// Conservative PLL Strategy: Cease utilizing OWD when down-link sync stops updating it.
-			// Treating it as 0 sacrifices a small timing window segment but strictly guards against 'Too Early'.
-			p7_info->ewma_owd_us = 0;
+			if (slot_ahead != 1) {
+				// Conservative PLL Strategy: Cease utilizing OWD when down-link sync stops updating it.
+				// Treating it as 0 sacrifices a small timing window segment but strictly guards against 'Too Early'.
+				p7_info->ewma_owd_us = 0;
+			}
 			// [CRITICAL FIX] The absolute phase tracking MUST initialize to the sync target margin!
 			// When sync locked, VNF is already transmitting `target_margin_initial` ahead of PNF!
 			// If this is set to 0, the dynamic margin will blindly push the phase further ahead 
 			// by `target_margin_initial` AGAIN, vastly exceeding ABSOLUTE_MAX_ADVANCE_US and 
 			// severely triggering "Too Early" drops continuously.
-			int slot_ahead = 0;
-			get_vnf_timing_envs(&slot_ahead, NULL);
 			p7_info->total_advanced_us = target_margin_initial + slot_ahead * p7_info->slot_duration_us; // Account for initial phase offset!
 		} else if (!skip_adjustment) {
 			int32_t s_adj = total_correction / p7_info->slot_duration_us;
@@ -1971,6 +1972,29 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 			NFAPI_TRACE(NFAPI_TRACE_DEBUG,
 				"[P7_SYNC] ul_node_sync phy_id:%d adjustment suppressed while waiting for dead time\n",
 				ind.header.phy_id);
+		}
+	} else if (slot_ahead == 1 && !skip_adjustment) {
+		// [Continuous Node Sync / PLL Phase Tracking for Dynamic Channel tc]
+		// Modifies the VNF to continuously adapt to asymmetric latency shifts smoothly
+		if (total_correction < -MARGIN_TOLERANCE_US || total_correction > MARGIN_TOLERANCE_US) {
+			// Dampened PLL adjustment (gain = 1/8) to avoid jitter oscillation
+			int32_t p_adj = total_correction / 8;
+			
+			// Limit jumps to maximum 1/4 of a slot duration per adjustment (ensures smooth tracking)
+			int32_t max_step = p7_info->slot_duration_us / 4;
+			if (p_adj > max_step) p_adj = max_step;
+			if (p_adj < -max_step) p_adj = -max_step;
+
+			// DO NOT shift slot_adjustment boundaries during stable scheduling,
+			// this ensures we never skip or duplicate slots for the MAC.
+			// Only tweak physical sleep timing (pending_us) directly.
+			if (p_adj != 0) {
+				p7_info->pending_us -= p_adj;
+				p7_info->last_adjustment_time_hr = vnf_get_current_time_hr();
+				NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+					"[P7_SYNC_CONT] tracking phy_id:%d offset:%d total_err:%d applied_adj:%d us\n",
+					ind.header.phy_id, offset, total_correction, p_adj);
+			}
 		}
 	}
 	pthread_mutex_unlock(&p7_info->mutex);
