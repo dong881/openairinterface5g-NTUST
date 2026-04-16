@@ -216,6 +216,9 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     int32_t slot_duration_us = p7_info->slot_duration_us;
 
     int32_t max_s_ahead = timing_window_us / slot_duration_us;
+    if (max_s_ahead > 8) {
+        max_s_ahead = 8; // 最高上限鎖定為 8
+    }
     int32_t worst_late = stats->worst_late;
     uint32_t now_hr = vnf_get_current_time_hr();
 
@@ -249,33 +252,42 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     bool in_panic = false;
 
     // 單次絕對落差大於三倍變異數 => 即斷定為嚴重突波
-    bool statistical_anomaly = (abs_diff > p7_info->estimated_jitter_var * 3);
+    int32_t anomaly_threshold_us = p7_info->estimated_jitter_var * 3;
+    if (anomaly_threshold_us < slot_duration_us) {
+        anomaly_threshold_us = slot_duration_us;
+    }
+    bool statistical_anomaly = (abs_diff > anomaly_threshold_us);
 
-    // 當 worst_late > -safe_margin_us 代表封包快要/已經接近 0 (即 timing window 邊緣), 
-    // 或者異常大抖動 (statistical anomaly / PNF 報告極度劣化) 時：
-    if (worst_late > -safe_margin_us || stats->pnf_reported_jitter > (uint32_t)safe_margin_us * 2 || statistical_anomaly) {
+    bool near_deadline_edge = (worst_late > -safe_margin_us);
+    bool jitter_activity = (stats->pnf_reported_jitter > 0);
+    bool significant_variation = (abs_diff > slot_duration_us / 2);
+    bool strong_packet_activity = jitter_activity || significant_variation;
+    bool edge_activity_panic = near_deadline_edge && strong_packet_activity;
+    bool jitter_panic = (stats->pnf_reported_jitter > (uint32_t)safe_margin_us * 2);
+
+    // 當有足夠流量跡象且封包快要/已經接近 deadline，或異常大抖動、突波震盪時，立即進入 Panic。
+    if (edge_activity_panic || jitter_panic || statistical_anomaly) {
         in_panic = true;
-        
+
+        bool c1 = edge_activity_panic;
+        bool c2 = jitter_panic;
+        bool c3 = statistical_anomaly;
+
+        NFAPI_TRACE(NFAPI_TRACE_WARN,
+            "[P7_SYNC] FAST ATTACK PANIC TRIGGERED! Reasons:%s%s%s | Values: worst_late=%d (limit > %d), pnf_jitter=%u (limit > %d), abs_diff=%d (limit > %d), slot_us=%d\n",
+            c1 ? " [worst_late edge]" : "",
+            c2 ? " [PNF Jitter]" : "",
+            c3 ? " [Statistical Anomaly MAD]" : "",
+            worst_late, -safe_margin_us,
+            stats->pnf_reported_jitter, safe_margin_us * 2,
+            abs_diff, anomaly_threshold_us,
+            slot_duration_us);
+
         // 抓到高峰/突波，刷新 Hold-Off 計時器 (FAST ATTACK)
         p7_info->peak_latency_timestamp_hr = now_hr;
-        
-        int32_t deficit_us = 0;
-        if (worst_late > -safe_margin_us) {
-            deficit_us = worst_late + safe_margin_us;
-        } else if (statistical_anomaly) {
-            deficit_us = abs_diff;
-        } else {
-            deficit_us = stats->pnf_reported_jitter - safe_margin_us;
-        }
 
-        int32_t slots_needed = (deficit_us + slot_duration_us - 1) / slot_duration_us;
-        target_s_ahead += slots_needed;
-
-        // 流量瞬間到達而產生 panic，確保至少直接跳至 8 個 slot ahead 快速吸收大掉包
-        if (target_s_ahead < 8 && max_s_ahead >= 8) {
-            target_s_ahead = 8;
-        }
-		target_s_ahead = 8;
+        // 流量瞬間到達而產生 panic，確保遇到各種情況直接跳至最高點 8
+        target_s_ahead = max_s_ahead;
         p7_info->consecutive_late_spikes = 0;
     } else {
         // ===================================================================
@@ -288,7 +300,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         if (time_since_peak > 5000000LL && worst_late < -decay_headroom_us) {
             p7_info->consecutive_late_spikes++;
             // 因為現在是 slot ahead mode，降檔要更為謹慎。原本改的 1000 仍保留。
-            if (p7_info->consecutive_late_spikes > 2) {
+            if (p7_info->consecutive_late_spikes > 100) {
                 target_s_ahead -= 1;
                 p7_info->consecutive_late_spikes = 0;
             }
