@@ -162,8 +162,8 @@ void nr_rlc_entity_tm_recv_sdu(nr_rlc_entity_t *_entity,
   /* update buffer status */
   entity->common.bstatus.tx_size += sdu->size;
 
-  if (entity->common.avg_time_is_on)
-    sdu->sdu->time_of_arrival = time_average_now();
+  /* always track time of arrival for holistic SDU delay metrics */
+  sdu->sdu->time_of_arrival = time_average_now();
 }
 
 /*************************************************************************/

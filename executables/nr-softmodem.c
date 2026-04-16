@@ -875,6 +875,7 @@ static void init_vnf_mmap_loggers(void)
 {
   init_mmap_logger("vnf_harq_rtt-us.bin");
   init_mmap_logger("vnf_rlc_hol_delay-us.bin");
+  init_mmap_logger("vnf_rlc_am_sdu_ack_delay-us.bin");
   init_mmap_logger("rlc_am_ctrl_pdu_discard_tx_size-B.bin");
   init_mmap_logger("vnf_timing_process_us-us.bin");
   init_mmap_logger("vnf_timing_pending_us-us.bin");

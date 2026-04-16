@@ -564,6 +564,7 @@ process_wait_list_head:
       if (sn_compare_tx(entity, cur_wait_list->sdu->sn, ack_sn) < 0) {
         int upper_layer_id = cur_wait_list->sdu->upper_layer_id;
         int sdu_size = cur_wait_list->sdu->size;
+        uint64_t time_of_arrival = cur_wait_list->sdu->time_of_arrival;
         prev_wait_list->next = cur_wait_list->next;
         if (cur_wait_list == entity->wait_end)
           end_wait_list = prev_wait_list;
@@ -574,6 +575,7 @@ process_wait_list_head:
           entity->common.sdu_successful_delivery(
               entity->common.sdu_successful_delivery_data,
               (nr_rlc_entity_t *)entity, upper_layer_id);
+          log_mmap_entry("vnf_rlc_am_sdu_ack_delay-us.bin", (long)(time_average_now() - time_of_arrival));
         }
         cur_wait_list = prev_wait_list->next;
         goto process_next_pdu;
@@ -628,6 +630,7 @@ process_retransmit_list_head:
         nr_rlc_sdu_segment_t *cur = cur_retransmit_list;
         int upper_layer_id = cur->sdu->upper_layer_id;
         int sdu_size = cur->sdu->size;
+        uint64_t time_of_arrival = cur->sdu->time_of_arrival;
         cur_retransmit_list = cur_retransmit_list->next;
         /* update buffer status */
         entity->common.bstatus.retx_size -= compute_pdu_header_size(entity, cur)
@@ -639,6 +642,7 @@ process_retransmit_list_head:
           entity->common.sdu_successful_delivery(
               entity->common.sdu_successful_delivery_data,
               (nr_rlc_entity_t *)entity, upper_layer_id);
+          log_mmap_entry("vnf_rlc_am_sdu_ack_delay-us.bin", (long)(time_average_now() - time_of_arrival));
         }
         goto process_next_pdu;
       }
@@ -688,6 +692,7 @@ lists_over:
      */
     int upper_layer_id = cur_wait_list->sdu->upper_layer_id;
     int sdu_size = cur_wait_list->sdu->size;
+    uint64_t time_of_arrival = cur_wait_list->sdu->time_of_arrival;
     prev_wait_list->next = cur_wait_list->next;
     if (cur_wait_list == entity->wait_end)
       end_wait_list = prev_wait_list;
@@ -698,6 +703,7 @@ lists_over:
       entity->common.sdu_successful_delivery(
           entity->common.sdu_successful_delivery_data,
           (nr_rlc_entity_t *)entity, upper_layer_id);
+      log_mmap_entry("vnf_rlc_am_sdu_ack_delay-us.bin", (long)(time_average_now() - time_of_arrival));
     }
     cur_wait_list = prev_wait_list->next;
   }
@@ -710,6 +716,7 @@ lists_over:
     nr_rlc_sdu_segment_t *cur = cur_retransmit_list;
     int upper_layer_id = cur->sdu->upper_layer_id;
     int sdu_size = cur->sdu->size;
+    uint64_t time_of_arrival = cur->sdu->time_of_arrival;
     cur_retransmit_list = cur_retransmit_list->next;
     /* update buffer status */
     entity->common.bstatus.retx_size -= compute_pdu_header_size(entity, cur)
@@ -721,6 +728,7 @@ lists_over:
       entity->common.sdu_successful_delivery(
           entity->common.sdu_successful_delivery_data,
           (nr_rlc_entity_t *)entity, upper_layer_id);
+      log_mmap_entry("vnf_rlc_am_sdu_ack_delay-us.bin", (long)(time_average_now() - time_of_arrival));
     }
   }
 
@@ -1873,8 +1881,8 @@ void nr_rlc_entity_am_recv_sdu(nr_rlc_entity_t *_entity,
   entity->common.bstatus.tx_size += compute_pdu_header_size(entity, sdu)
                                     + sdu->size;
 
-  if (entity->common.avg_time_is_on)
-    sdu->sdu->time_of_arrival = time_average_now();
+  /* always track time of arrival for holistic SDU delay metrics */
+  sdu->sdu->time_of_arrival = time_average_now();
 }
 
 /*************************************************************************/
