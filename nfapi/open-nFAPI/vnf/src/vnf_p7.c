@@ -215,12 +215,30 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     int32_t timing_window_us = (int32_t)config->timing_window;
     int32_t slot_duration_us = p7_info->slot_duration_us;
 
-    int32_t max_s_ahead = timing_window_us / slot_duration_us;
-    if (max_s_ahead > 8) {
-        max_s_ahead = 8; // 最高上限鎖定為 8
-    }
     int32_t worst_late = stats->worst_late;
+    int32_t worst_early = stats->worst_early;
     uint32_t now_hr = vnf_get_current_time_hr();
+
+    // ===================================================================
+    // 0. Fronthaul Base Latency 預先評估 (Non-Ideal Fronthaul)
+    // ===================================================================
+    // 計算傳輸延遲 OWD = (目前提早送出的時間) + (實際到達 PNF 的相對時間，提早為負)
+    int32_t current_owd_us = (s_ahead_env * slot_duration_us) + worst_early;
+    
+    // 追蹤最低延遲作為 Base Latency (每10秒放寬重置，適應環境變化)
+    if (p7_info->min_owd_us == 0 || current_owd_us < p7_info->min_owd_us) {
+        p7_info->min_owd_us = current_owd_us;
+        p7_info->min_owd_timestamp_hr = now_hr;
+    } else if (timehr_diff_us(now_hr, p7_info->min_owd_timestamp_hr) > 10000000LL) {
+        p7_info->min_owd_us = current_owd_us;
+        p7_info->min_owd_timestamp_hr = now_hr;
+    }
+
+    int32_t base_s_ahead = p7_info->min_owd_us / slot_duration_us;
+    if (base_s_ahead < 0) base_s_ahead = 0;
+
+    // 上限自動適應：理想環境 base=0 => 上限8；高延遲環境 base=N => 上限 N+8
+    int32_t max_s_ahead = base_s_ahead + 8;
 
     // ===================================================================
     // 1. 統計學突波偵測 (Jacobson/Karels TCP RTT Algorithm)
@@ -307,7 +325,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         // 只要距離 deadline 超過 2 個 slot duration，就視為安全，可以主動降低 latency
         if (worst_late < -absolute_safe_boundary) {
             p7_info->consecutive_late_spikes++;
-            if (p7_info->consecutive_late_spikes > 10000) {
+            if (p7_info->consecutive_late_spikes > 2000) {
                 target_s_ahead -= 1;
                 p7_info->consecutive_late_spikes = 0;
             }
@@ -317,11 +335,13 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     }
 
     if (target_s_ahead > max_s_ahead) target_s_ahead = max_s_ahead;
-    if (target_s_ahead < 1) target_s_ahead = 1;
+    
+    int32_t floor_s_ahead = base_s_ahead > 0 ? base_s_ahead : 1;
+    if (target_s_ahead < floor_s_ahead) target_s_ahead = floor_s_ahead;
 
     if (target_s_ahead != s_ahead_env) {
-        NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Dynamic Slot Ahead Adjusted: %d -> %d (worst_late: %d, mean: %d, var: %d, in_panic: %d)",
-                    s_ahead_env, target_s_ahead, worst_late, p7_info->estimated_mean_late, p7_info->estimated_jitter_var, in_panic);
+        NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Dynamic Slot Ahead Adjusted: %d -> %d (worst_late: %d, mean: %d, base_s_ahead: %d, in_panic: %d)",
+                    s_ahead_env, target_s_ahead, worst_late, p7_info->estimated_mean_late, base_s_ahead, in_panic);
         s_ahead_env = target_s_ahead;
     }
 }
@@ -1951,10 +1971,12 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 		}
 	}
 	pthread_mutex_unlock(&p7_info->mutex);
-	NFAPI_TRACE(NFAPI_TRACE_DEBUG, 
-		"[P7_SYNC] ul_node_sync phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) offset:%d owd:%d pending_us:%d locked:%d\n",
+	NFAPI_TRACE(NFAPI_TRACE_INFO, 
+		"[P7_SYNC] ul_node_sync phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) offset:%d owd:%d pending_us:%d locked:%d s_adj:%d p_adj:%d\n",
 		ind.header.phy_id, ind.t1, ind.t2, ind.t3, t4,
-		offset, owd, p7_info->pending_us, p7_info->sync_locked);
+		offset, owd, p7_info->pending_us, p7_info->sync_locked, 
+		total_correction / p7_info->slot_duration_us, 
+		total_correction % p7_info->slot_duration_us);
 }
 
 void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
