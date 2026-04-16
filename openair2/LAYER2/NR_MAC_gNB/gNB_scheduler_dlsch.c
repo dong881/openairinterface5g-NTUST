@@ -720,12 +720,19 @@ static void pf_dl(gNB_MAC_INST *mac,
        * if the UE disconnected in L2sim, in which case the gNB is not notified
        * (this can be considered a design flaw) */
       if (sched_ctrl->available_dl_harq.head < 0) {
+        log_mmap_entry("vnf_dl_harq_exhausted.bin", 1);
         LOG_D(NR_MAC, "[UE %04x][%4d.%2d] UE has no free DL HARQ process, skipping\n",
               UE->rnti,
               frame,
               slot);
         continue;
       }
+
+      int available_dl_harq_count = 0;
+      for (int i = sched_ctrl->available_dl_harq.head; i >= 0; i = sched_ctrl->available_dl_harq.next[i]) {
+        available_dl_harq_count++;
+      }
+      log_mmap_entry("vnf_dl_harq_available_count.bin", available_dl_harq_count);
 
       update_dlsch_buffer(pp_pdsch->frame, pp_pdsch->slot, UE);
 
@@ -1391,6 +1398,7 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pdsch, NR_UE
   DevAssert(nrOfLayers >= 1 && nrOfLayers <= 8);
   DevAssert(current_BWP->mcsTableIdx >= 0 && current_BWP->mcsTableIdx <= 1);
   DevAssert(sched_pdsch->mcs >= 0 && sched_pdsch->mcs <= 31);
+  
   NR_du_stats_t *stats = &nr_mac->du_stats;
   stats->pdsch_mcs_dist[nrOfLayers - 1][current_BWP->mcsTableIdx][sched_pdsch->mcs] += sched_pdsch->rbSize;
 

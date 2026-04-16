@@ -15,33 +15,18 @@
 ### 1(c) 產生模式
 - `PNF` mode 會產生：
   - `pnf_timing_window`
-  - `pnf_p7_msg_age_completed`
   - `pnf_p7_msg_age_stale`
   - `pnf_p7_stale_seg_expected`
   - `pnf_p7_stale_seg_received`
 - `VNF` mode 會產生：
-  - `vnf_harq_buffer`
-  - `vnf_harq_rtt`
-  - `vnf_rlc_runtime`
-  - `vnf_rlc_hol_delay`
-  - `vnf_rlc_rxbuf_occ_bytes`
-  - `vnf_rlc_rx_ooo_wait_delay`
-  - `vnf_rlc_status_size`
-  - `vnf_rlc_status_tx_size`
-  - `vnf_rlc_status_retx_size`
-  - `vnf_rlc_status_bytes`
-  - `vnf_dl_sched_tb_size`
-  - `vnf_dl_sched_rb_size`
-  - `vnf_dl_sched_mcs-index`
-  - `vnf_dl_sched_harq_round`
-  - `vnf_timing_process_us`
-  - `vnf_timing_pending_us`
-  - `vnf_timing_total_advanced_us`
-  - `vnf_timing_real_behind_us`
-  - `vnf_timing_pure_os_delay`
-  - `vnf_timing_skip_slots`
   - `vnf_advance_time`
-  - `vnf_pnf_latency`
+  - `vnf_timing_total_advanced_us`
+  - `vnf_timing_pending_us`
+  - `vnf_harq_rtt`
+  - `vnf_dl_harq_exhausted`
+  - `vnf_dl_harq_available_count`
+  - `vnf_rlc_hol_delay`
+  - `vnf_rlc_am_sdu_ack_delay`
   - `rlc_am_ctrl_pdu_discard_tx_size-B`
 - `MONOLITHIC` mode 可能同時產生上述 PNF 與 VNF log。
 
@@ -66,20 +51,20 @@
   2. `Slot`
   3. `payload`
 - 目前程式中這兩個 packed log 是由 `pack_sfn_slot_value()` 生成，接著用 `log_mmap_entry()` 直接寫入 8 bytes binary。
-- 註：`vnf_pnf_latency` 目前不是 packed log，請勿將其當成 SFN/Slot 格式解析。
 
 #### 2(b).2. Raw log（單一值）
 - 適用 log：
-  - `pnf_p7_msg_age_completed`
   - `pnf_p7_msg_age_stale`
   - `pnf_p7_stale_seg_expected`
   - `pnf_p7_stale_seg_received`
-  - `vnf_harq_buffer`
+  - `vnf_timing_total_advanced_us`
+  - `vnf_timing_pending_us`
   - `vnf_harq_rtt`
-  - `vnf_rlc_runtime`
+  - `vnf_dl_harq_exhausted`
+  - `vnf_dl_harq_available_count`
   - `vnf_rlc_hol_delay`
-  - `vnf_rlc_avg_to_tx`
-  - `vnf_pnf_latency`
+  - `vnf_rlc_am_sdu_ack_delay`
+  - `rlc_am_ctrl_pdu_discard_tx_size-B`
 - 這些 log 只儲存一個 signed 64-bit 量測值
 
 ### 2(c) Packed log 的欄位分配
@@ -90,7 +75,7 @@
 
 ### 2(c).1 Python 讀取提醒
 - `pnf_timing_window-us.bin`、`vnf_advance_time-us.bin` 為 packed log；其 raw record 應先讀成 signed 64-bit 再拆欄位。
-- `vnf_pnf_latency-us.bin`、`pnf_p7_msg_age_completed-us.bin`、`pnf_p7_msg_age_stale-us.bin`、`pnf_p7_stale_seg_expected-count.bin`、`pnf_p7_stale_seg_received-count.bin`、`rlc_am_ctrl_pdu_discard_tx_size-B.bin` 等皆為 raw log，直接讀出 signed 64-bit integer 即可。
+- `pnf_p7_msg_age_stale-us.bin`、`pnf_p7_stale_seg_expected-count.bin`、`pnf_p7_stale_seg_received-count.bin`、`vnf_timing_total_advanced_us-us.bin`、`vnf_timing_pending_us-us.bin`、`vnf_harq_rtt-us.bin`、`vnf_dl_harq_exhausted.bin`、`vnf_dl_harq_available_count.bin`、`vnf_rlc_hol_delay-us.bin`、`vnf_rlc_am_sdu_ack_delay-us.bin`、`rlc_am_ctrl_pdu_discard_tx_size-B.bin` 等皆為 raw log，直接讀出 signed 64-bit integer 即可。
 - Python 讀取範例：
 
 ```python
@@ -139,35 +124,18 @@ with open("logs/pnf_timing_window-us.bin.000", "rb") as f:
 | log 名稱 | 代表意義 | 估計範圍 | 單位 | 解析方式 |
 |---|---|---|---|---|
 | `pnf_timing_window` | PNF 時序窗口檢查 margin | 典型 `-50k..+400k` | μs | packed log |
-| `pnf_p7_msg_age_completed` | 成功組裝訊息的等待延遲 (last - first_seg) | 典型 `0..10k` | μs | raw log |
 | `pnf_p7_msg_age_stale` | 逾時被丟棄的 stale 訊息已經過了多久 | 典型 `10k` | μs | raw log |
 | `pnf_p7_stale_seg_expected` | stale 訊息被丟棄時預期的總段數 | 典型 `1..255` | count | raw log |
 | `pnf_p7_stale_seg_received` | stale 訊息被丟棄時已收到的段數 | 典型 `1..254` | count | raw log |
 | `vnf_advance_time` | VNF slot send advance time | 典型 `0..20k` | μs | packed log |
-| `vnf_pnf_latency` | VNF 到 PNF latency | 典型 `0..20k` | μs | raw log |
-| `vnf_harq_buffer` | HARQ buffer 等待延遲 | 典型 `0..20k` | μs | raw log |
-| `vnf_harq_rtt` | HARQ round-trip delay | 典型 `0..20k` | μs | raw log |
-| `vnf_rlc_runtime` | RLC 執行時間 | 典型 `0..20k` | μs | raw log |
-| `vnf_rlc_hol_delay` | RLC HOL delay | 典型 `0..20k` | μs | raw log |
-| `vnf_rlc_rxbuf_occ_bytes` | RLC RX buffer current occupancy | 典型 `0..N bytes` | Bytes | raw log |
-| `vnf_rlc_rx_ooo_wait_delay` | RLC RX out-of-order wait delay | 典型 `0..20` | ms | raw log |
-| `vnf_rlc_status_size` | RLC buffer status report size | 典型 `0..N bytes` | Bytes | raw log |
-| `vnf_rlc_status_tx_size` | RLC TX-ready bytes in buffer | 典型 `0..N bytes` | Bytes | raw log |
-| `vnf_rlc_status_retx_size` | RLC retransmission bytes in buffer | 典型 `0..N bytes` | Bytes | raw log |
-| `vnf_rlc_status_bytes` | RLC aggregate bytes in buffer | 典型 `0..N bytes` | Bytes | raw log |
-| `vnf_dl_sched_tb_size` | Scheduled DL TB size | 典型 `0..N bytes` | Bytes | raw log |
-| `vnf_dl_sched_rb_size` | Scheduled DL RB count | 典型 `0..N` | count | raw log |
-| `vnf_dl_sched_mcs-index` | Scheduled DL MCS index | 典型 `0..28` | index | raw log |
-| `vnf_dl_sched_harq_round` | HARQ round for scheduled PDSCH | 典型 `0..4` | count | raw log |
-| `vnf_timing_process_us` | VNF slot loop scheduling delay | 典型 `-20k..20k` | μs | raw log |
-| `vnf_timing_pending_us` | VNF pending timing debt | 典型 `-20k..20k` | μs | raw log |
 | `vnf_timing_total_advanced_us` | VNF total physical advance | 典型 `0..20k` | μs | raw log |
-| `vnf_timing_real_behind_us` | VNF real behind schedule amount | 典型 `-20k..20k` | μs | raw log |
-| `vnf_timing_pure_os_delay` | VNF pure OS delay after debt correction | 典型 `-20k..20k` | μs | raw log |
-| `vnf_timing_skip_slots` | Number of skipped physical slots due to large delay | 典型 `0..N` | count | raw log |
-| `vnf_rlc_avg_to_tx` | RLC RX 亂序暫存量 (原為 avg transmit) | 典型 `0..N bytes` | Bytes | raw log |
+| `vnf_timing_pending_us` | VNF pending timing debt | 典型 `-20k..20k` | μs | raw log |
+| `vnf_harq_rtt` | HARQ round-trip delay | 典型 `0..20k` | μs | raw log |
+| `vnf_dl_harq_exhausted` | DL HARQ process exhaustion event | `0..1` | count | raw log |
+| `vnf_dl_harq_available_count` | Available DL HARQ process count at scheduling | 典型 `0..N` | count | raw log |
+| `vnf_rlc_hol_delay` | RLC HOL delay | 典型 `0..20k` | μs | raw log |
+| `vnf_rlc_am_sdu_ack_delay` | RLC SDU ACK delay from arrival to acknowledgment | 典型 `0..20k` | μs | raw log |
 | `rlc_am_ctrl_pdu_discard_tx_size-B` | Control PDU discard 發生時 RLC TX buffer 未確認資料量 | 典型 `0..N bytes` | Bytes | raw log |
-| `vnf_rlc_rx_ooo_wait_delay` | RLC RX 等待重傳封包造成的堵塞時間 | 典型 `0..20` | ms | raw log |
 
 > 以上範圍為程式邏輯推估的典型值；特殊狀況下仍可能超出。
 
