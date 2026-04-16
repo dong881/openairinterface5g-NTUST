@@ -1242,7 +1242,6 @@ void *vnf_timing_thread(void *arg) {
       pthread_mutex_lock(&p7_info->mutex);
       if (p7_info->slot_adjustment != 0) {
         sfnslot_dec = (sfnslot_dec + p7_info->slot_adjustment + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
-        p7_info->delta_sfn_slot += p7_info->slot_adjustment;
         p7_info->slot_adjustment = 0;
       }
       int32_t current_pending_us = p7_info->pending_us;
@@ -1259,7 +1258,7 @@ void *vnf_timing_thread(void *arg) {
       int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
       int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
 
-      if (p7_info->delta_sfn_slot != 0 || p7_info->sync_slot_counter >= p7_info->sync_period_slots) {
+      if (p7_info->sync_slot_counter >= p7_info->sync_period_slots) {
         p7_info->sync_slot_counter = 0;
         vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
       } else {
@@ -1270,8 +1269,8 @@ void *vnf_timing_thread(void *arg) {
       ind.sfn = ind_sfn;
       ind.slot = ind_slot;
       ind.header.phy_id = p7_info->phy_id;
-      phy_nr_slot_indication(&ind);
       if (p7_info->sync_locked) {
+        phy_nr_slot_indication(&ind);
         log_mmap_entry("vnf_advance_time-us.bin", pack_sfn_slot_value(ind_sfn, ind_slot, p7_info->total_advanced_us));
       }
       log_mmap_entry("vnf_timing_total_advanced_us-us.bin", (long)p7_info->total_advanced_us);
@@ -1455,7 +1454,7 @@ void *vnf_timing_thread(void *arg) {
     // Use the env value read once at thread startup
     int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
     int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
-
+    
     if (p7_info->sync_slot_counter >= p7_info->sync_period_slots) {
       p7_info->sync_slot_counter = 0;
       vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
@@ -1470,9 +1469,9 @@ void *vnf_timing_thread(void *arg) {
     ind.header.phy_id = p7_info->phy_id;
     // Log the current physical total advance corresponding to this generated slot packet.
     if (p7_info->sync_locked) {
-      log_mmap_entry("vnf_advance_time-us.bin", pack_sfn_slot_value(ind_sfn, ind_slot, p7_info->total_advanced_us));
+      log_mmap_entry("vnf_advance_time-us.bin", pack_sfn_slot_value(ind.sfn, ind.slot, p7_info->total_advanced_us));
+      phy_nr_slot_indication(&ind);
     }
-    phy_nr_slot_indication(&ind);
 
     // Step 5: Advance to Next Slot
     sfnslot_dec = (sfnslot_dec + 1) % MAX_SFNSLOTDEC;

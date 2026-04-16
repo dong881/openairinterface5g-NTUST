@@ -2406,9 +2406,8 @@ void pnf_nr_handle_dl_node_sync(void *pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
 
 	if (dl_node_sync.delta_sfn_slot != 0)
 	{
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "Will shift Slot timing by %d on next slot\n", dl_node_sync.delta_sfn_slot);
-
-		pnf_p7->slot_shift = dl_node_sync.delta_sfn_slot;
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "Ignoring requested slot shift %d for stable PNF timing\n", dl_node_sync.delta_sfn_slot);
+		// Keep PNF slot stable; VNF must adjust locally without shifting the PNF slot.
 	}
 
 	nfapi_nr_ul_node_sync_t ul_node_sync;
