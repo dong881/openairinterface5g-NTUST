@@ -277,6 +277,8 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 /* Convergence Optimization */
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats);
 
+extern int s_ahead_env;
+
 /* Main Dynamic Timing Handler */
 void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *void_ind);
 

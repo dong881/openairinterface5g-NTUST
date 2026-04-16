@@ -1161,20 +1161,17 @@ static inline void p7_sync_init(nfapi_vnf_p7_connection_info_t *p7_info)
                 p7_info->sync_period_slots);
 }
 
+int s_ahead_env = 0;
+
 void *vnf_timing_thread(void *arg) {
   static __thread int32_t thread_burst_debt_us = 0;
   LOG_I(NFAPI_VNF, "Starting VNF autonomous timing thread\n");
   vnf_p7_info *p7_vnf = (vnf_p7_info *)arg;
   vnf_p7_t *vnf_p7 = (vnf_p7_t *)p7_vnf->config;
   
-  int s_ahead_env = 0;
-  int margin_env = 0;
-  get_vnf_timing_envs(&s_ahead_env, &margin_env);
+  get_vnf_timing_envs(&s_ahead_env, NULL);
   const char *fixed_alot_env_str = getenv("FIXED_ALOT_AHEAD");
   int fixed_alot_ahead = fixed_alot_env_str ? atoi(fixed_alot_env_str) : 1;
-  int fixed_mode = (fixed_alot_ahead == 1 && s_ahead_env > 0);
-  LOG_I(NFAPI_VNF, "[VNF] timing env read once: SLOT_AHEAD=%d, TARGET_MARGIN_INITIAL=%d, FIXED_ALOT_AHEAD=%d (fixed_mode=%d)\n", 
-        s_ahead_env, margin_env, fixed_alot_ahead, fixed_mode);
 
   // Wait for configuration
   // Prefer to obtain mu (subcarrier spacing index) from the NFAPI NR config
@@ -1219,8 +1216,6 @@ void *vnf_timing_thread(void *arg) {
     NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Initial timing info converted to current slot %d.%d\n",
                 p7_info->sfn, p7_info->slot);
   }
-  NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Timing thread initialized with mu=%d, slot_duration=%dus\n",
-              p7_info->mu, p7_info->slot_duration_us);
   // SFN and slot are initialized dynamically from PNF's initial_timinginfo!
   // Removed hardcoded p7_info->sfn = 0; p7_info->slot = 0;
   p7_info->running = 1;
@@ -1238,223 +1233,25 @@ void *vnf_timing_thread(void *arg) {
 
   struct timespec now;
   while (p7_info->running) {
-    if (fixed_mode) {
-      pthread_mutex_lock(&p7_info->mutex);
-      if (p7_info->slot_adjustment != 0) {
-        sfnslot_dec = (sfnslot_dec + p7_info->slot_adjustment + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
-        p7_info->slot_adjustment = 0;
-      }
-      int32_t current_pending_us = p7_info->pending_us;
-      p7_info->pending_us = 0;
-      pthread_mutex_unlock(&p7_info->mutex);
-
-      timespec_add_us(&p7_info->next_slot_time, p7_info->slot_duration_us + current_pending_us);
-      clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
-      vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
-
-      p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec);
-      p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
-
-      int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
-      int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
-
-      if (p7_info->sync_slot_counter >= p7_info->sync_period_slots) {
-        p7_info->sync_slot_counter = 0;
-        vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
-      } else {
-        p7_info->sync_slot_counter++;
-      }
-
-      nfapi_nr_slot_indication_scf_t ind = {0};
-      ind.sfn = ind_sfn;
-      ind.slot = ind_slot;
-      ind.header.phy_id = p7_info->phy_id;
-      if (p7_info->sync_locked) {
-        phy_nr_slot_indication(&ind);
-        log_mmap_entry("vnf_advance_time-us.bin", pack_sfn_slot_value(ind_sfn, ind_slot, p7_info->total_advanced_us));
-      }
-      log_mmap_entry("vnf_timing_total_advanced_us-us.bin", (long)p7_info->total_advanced_us);
-      log_mmap_entry("vnf_timing_pending_us-us.bin", (long)current_pending_us);
-
-      sfnslot_dec = (sfnslot_dec + 1) % MAX_SFNSLOTDEC;
-      continue;
-    }
-
-    struct timespec loop_start_slot_time = p7_info->next_slot_time;
-    int skip_slots = 0;
-    
-    // Step 1: Wait for scheduled time OR detect behind-schedule and feed back deficit
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    pthread_mutex_lock(&p7_info->mutex);
-    int32_t process_us = ((now.tv_sec - p7_info->next_slot_time.tv_sec) * 1000000000LL
-                         + (now.tv_nsec - p7_info->next_slot_time.tv_nsec)) / 1000;
-    
-    // EWMA filter for process_us to conservatively predict processing overhead
-    // We only filter positive process times. Using a heavy decay to trust the long-term stable processing time.
-    if (process_us > 0) {
-        if (p7_info->ewma_process_us == 0) {
-            p7_info->ewma_process_us = process_us; // Initialize
-        } else {
-            // Smooth EWMA: (old * 31 + new) / 32
-            p7_info->ewma_process_us = ((p7_info->ewma_process_us * 31) + process_us) / 32;
-        }
-    }
-
-    int32_t duration_us = p7_info->us_adjustment + p7_info->slot_duration_us;
-    p7_info->us_adjustment = 0;
-
-    // If we have a massive pending_us debt (e.g. from a panic jump), we instantly convert 
-    // full slots of pending debt into a NEGATIVE duration_us. This mathematically drives 
-    // "behind_us" to become extremely positive, immediately bursting packets to catch up!
-    if (p7_info->pending_us >= (int32_t)p7_info->slot_duration_us) {
-        int32_t borrow_slots = p7_info->pending_us / p7_info->slot_duration_us;
-        if (borrow_slots > 2) borrow_slots = 2; // Limit slot borrowing to avoid huge instantaneous jumps
-        int32_t jump_us = borrow_slots * p7_info->slot_duration_us;
-        duration_us -= jump_us;
-        p7_info->pending_us -= jump_us;
-        thread_burst_debt_us += jump_us;
-        NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF] Fast Advance! Borrowed %d slots (%d us) of physical time to satisfy pending debt instantly.", borrow_slots, jump_us);
-    }
-
-    int32_t real_behind_us = process_us - duration_us;
-
-    // [CRITICAL FIX] "如果已經late就用skip的"
-    // 只有在【物理執行時間】真的卡死（扣除剛才刻意製造的 Burst 假象）超過 3 個 Slot 時，
-    // 我們才承認 OS / CPU 廢了，啟動物理斷尾 (Skip SFN)。
-    // 否則，若是我們剛剛刻意製造的 real_behind_us，我們就讓它走正常的 Burst 消化！
-    
-    // 計算「真正的純OS延遲」
-    int32_t pure_os_delay = process_us - (p7_info->us_adjustment + p7_info->slot_duration_us);
-    if (pure_os_delay < (int32_t)p7_info->slot_duration_us * 3) {
-        pure_os_delay -= thread_burst_debt_us;
-    }
-    
-    if (thread_burst_debt_us > 0) {
-        thread_burst_debt_us -= p7_info->slot_duration_us;
-        if (thread_burst_debt_us < 0) thread_burst_debt_us = 0;
-    }
-    // 此處不該包含剛剛人為加上去的 jump_us，如果 pure_os_delay 超過 3 slots，代表是真當機
-
-    log_mmap_entry("vnf_timing_process_us-us.bin", (long)process_us);
-    log_mmap_entry("vnf_timing_pending_us-us.bin", (long)p7_info->pending_us);
-    log_mmap_entry("vnf_timing_total_advanced_us-us.bin", (long)p7_info->total_advanced_us);
-    log_mmap_entry("vnf_timing_real_behind_us-us.bin", (long)real_behind_us);
-    log_mmap_entry("vnf_timing_pure_os_delay-us.bin", (long)pure_os_delay);
-
-    if (real_behind_us >= (int32_t)p7_info->slot_duration_us * 3 && pure_os_delay >= (int32_t)p7_info->slot_duration_us * 3) {
-      /* The delay (scheduling + pack + sendto) is critically large. Drop/Skip slots and reset baseline to NOW to prevent cascading backlog. */
-      /* The delay (scheduling + pack + sendto) is too large. Drop/Skip slots and reset baseline to NOW to prevent cascading backlog. */
-      skip_slots = pure_os_delay / p7_info->slot_duration_us;
-      int remaining_sleep_us = pure_os_delay % p7_info->slot_duration_us;
-      sfnslot_dec = (sfnslot_dec + skip_slots) % MAX_SFNSLOTDEC;
-      thread_burst_debt_us = 0;
-      log_mmap_entry("vnf_timing_skip_slots-count.bin", (long)skip_slots);
-      
-      // CRITICAL FIX: If we skip a slot logically, we must deduct its time value from pending_us!
-      // Otherwise, the skipped slot generates a packet with a future SFN immediately, satisfying the "earlier" request.
-      if (p7_info->pending_us > 0) {
-        int32_t jump_amount_us = skip_slots * p7_info->slot_duration_us;
-        p7_info->pending_us -= jump_amount_us;
-        if (p7_info->pending_us < 0) p7_info->pending_us = 0; // Cap to 0
-      }
-
-      // Update global max/jump state (lock-free operation using atomic, if variables allow) to prevent stale timing info from compensating out-of-date P7 sync
-      __atomic_store_n(&p7_info->last_sfnslot_jump, sfnslot_dec, __ATOMIC_RELAXED);
-
-      clock_gettime(CLOCK_MONOTONIC, &now); 
-      p7_info->next_slot_time = now;
-      timespec_add_us(&p7_info->next_slot_time, p7_info->slot_duration_us - remaining_sleep_us);
-      pthread_mutex_unlock(&p7_info->mutex);
-      clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
-      pthread_mutex_lock(&p7_info->mutex); // re-lock for the check
-    } else if (real_behind_us > 0) {
-      // If we are slightly behind (e.g. 600us or artificially induced burst), we can simply BURST back-to-back to catch up! 
-      // Do NOT push the deadline forward! Do NOT forget the target by adding to pending_us!
-      // Using `duration_us` instead of `process_us` keeps the timeline rigidly anchored to target, preventing Advanced_Time from spontaneously collapsing to 0.
-      timespec_add_us(&p7_info->next_slot_time, duration_us); 
-    } else {
-      int remaining_us = duration_us - process_us;
-      timespec_add_us(&p7_info->next_slot_time, duration_us);
-      if (p7_info->pending_us > 0 && remaining_us > 100) {
-        int32_t repay_budget = remaining_us - 100;
-        int32_t repay_amount = repay_budget / 2; // Smooth repayment: only use half the available slack
-        if (repay_amount > p7_info->pending_us) repay_amount = p7_info->pending_us;
-        p7_info->pending_us -= repay_amount;
-        timespec_add_us(&p7_info->next_slot_time, -repay_amount);
-      } 
-      else if (p7_info->pending_us < 0) {
-        int32_t repay_amount = (p7_info->pending_us < -150) ? -150 : p7_info->pending_us;
-        p7_info->pending_us -= repay_amount;
-        timespec_add_us(&p7_info->next_slot_time, -repay_amount);
-      }
-    }
-
-    // --- STEP 1.5: ABSOLUTE PHASE BOUNDARY ENFORCEMENT ---
-    // User requested putting the bounds *before* we send the phy_nr_slot_indication!
-    // This allows the timeout/timer to organically prevent out-of-bounds early packets
-    // without "shooting out the storm, then noticing we are wrong".
-    // 
-    // Challenge addressed here:
-    // Slot workloads differ (DL TTI and TxData require much more CPU time than others). To
-    // prevent overall jitter, we historically buffered a large margin. But for "light" slots,
-    // applying the same margin means they arrive *too early*. The boundary must be
-    // rigidly enforced right before dispatch to clamp this structural variance.
-    if (p7_info->sync_locked) {
-        int64_t added_us = ((int64_t)p7_info->next_slot_time.tv_sec - loop_start_slot_time.tv_sec) * 1000000LL + 
-                           (p7_info->next_slot_time.tv_nsec - loop_start_slot_time.tv_nsec) / 1000;
-        int64_t nominal_us = p7_info->slot_duration_us * (1 + skip_slots);
-        int64_t physical_advance_this_loop = nominal_us - added_us;
-        
-        // [CRITICAL FIX] Prevent `total_advanced_us` from ever going negative.
-        // If we slept longer than the nominal slot time (due to OS jitter/preemption), 
-        // physical_advance_this_loop becomes negative. This would drag `total_advanced_us`
-        // below zero, which mathematically breaks the VNF-PNF latency and phase equations.
-        p7_info->total_advanced_us += physical_advance_this_loop;
-        if (p7_info->total_advanced_us < 0) {
-            p7_info->total_advanced_us = 0;
-        }
-
-        if (p7_info->absolute_max_advance_us > 0 && p7_info->total_advanced_us > p7_info->absolute_max_advance_us) {
-            int32_t over_advance_us = p7_info->total_advanced_us - p7_info->absolute_max_advance_us;
-            NFAPI_TRACE(NFAPI_TRACE_WARN, "[VNF] Slot %d.%d Phase drift bounded by ABSOLUTE_MAX_ADVANCE_US. Correcting phase before dispatch by sleeping later %d us!\n", 
-                         p7_info->sfn, p7_info->slot, over_advance_us);
-            
-            timespec_add_us(&p7_info->next_slot_time, over_advance_us);
-            p7_info->total_advanced_us = p7_info->absolute_max_advance_us;
-            
-            if (p7_info->pending_us > over_advance_us) {
-                p7_info->pending_us -= over_advance_us;
-            } else {
-                p7_info->pending_us = 0;
-            }
-        }
-    }
-    
-    pthread_mutex_unlock(&p7_info->mutex);
-
-    // Now execute actual sleep if we had remaining time (or added over_advance_us)
-    if (real_behind_us <= 0 || (p7_info->sync_locked && p7_info->absolute_max_advance_us > 0 && p7_info->total_advanced_us == p7_info->absolute_max_advance_us)) {
-      // Re-sleep to respect newly added 'over_advance_us' buffer or original duration block sleep
-      clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
-    }
-    vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
-
-    // Step 2: Apply any pending slot adjustment to the CURRENT slot index
     pthread_mutex_lock(&p7_info->mutex);
     if (p7_info->slot_adjustment != 0) {
       sfnslot_dec = (sfnslot_dec + p7_info->slot_adjustment + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
       p7_info->slot_adjustment = 0;
     }
+    int32_t current_pending_us = p7_info->pending_us;
+    p7_info->pending_us = 0;
     pthread_mutex_unlock(&p7_info->mutex);
-    
-    // Step 3: Update Global State & Send Sync if needed
+
+    timespec_add_us(&p7_info->next_slot_time, p7_info->slot_duration_us + current_pending_us);
+    clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL);
+    vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
+
     p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec);
     p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
-    
-    // Use the env value read once at thread startup
+
     int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
     int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
-    
+
     if (p7_info->sync_slot_counter >= p7_info->sync_period_slots) {
       p7_info->sync_slot_counter = 0;
       vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
@@ -1462,20 +1259,18 @@ void *vnf_timing_thread(void *arg) {
       p7_info->sync_slot_counter++;
     }
 
-    // Step 4: Send Slot Indication (Core Work)
     nfapi_nr_slot_indication_scf_t ind = {0};
     ind.sfn = ind_sfn;
     ind.slot = ind_slot;
     ind.header.phy_id = p7_info->phy_id;
-    // Log the current physical total advance corresponding to this generated slot packet.
     if (p7_info->sync_locked) {
-      log_mmap_entry("vnf_advance_time-us.bin", pack_sfn_slot_value(ind.sfn, ind.slot, p7_info->total_advanced_us));
       phy_nr_slot_indication(&ind);
+      log_mmap_entry("vnf_advance_time-us.bin", pack_sfn_slot_value(ind_sfn, ind_slot, p7_info->total_advanced_us));
     }
+    log_mmap_entry("vnf_timing_total_advanced_us-us.bin", (long)p7_info->total_advanced_us);
+    log_mmap_entry("vnf_timing_pending_us-us.bin", (long)current_pending_us);
 
-    // Step 5: Advance to Next Slot
     sfnslot_dec = (sfnslot_dec + 1) % MAX_SFNSLOTDEC;
-
   }
   return NULL;
 }

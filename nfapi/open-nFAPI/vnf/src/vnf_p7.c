@@ -210,362 +210,101 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
 {
-	int32_t worst_late  = stats->worst_late;
-	int32_t worst_early = stats->worst_early;
-	
-	nfapi_vnf_config_t *config = get_config();
-	int32_t timing_window_us = (int32_t)config->timing_window;
+    // 現在這樣更能確保不可能 too early，因為 slot ahead * slot_duration 就直接等於最早抵達封包的時間。
+    nfapi_vnf_config_t *config = get_config();
+    int32_t timing_window_us = (int32_t)config->timing_window;
+    int32_t slot_duration_us = p7_info->slot_duration_us;
+
+    int32_t max_s_ahead = timing_window_us / slot_duration_us;
+    int32_t worst_late = stats->worst_late;
+    uint32_t now_hr = vnf_get_current_time_hr();
+
+    // ===================================================================
+    // 1. 統計學突波偵測 (Jacobson/Karels TCP RTT Algorithm)
+    // ===================================================================
+    // 計算 Mean Absolute Deviation (MAD) 來建立動態網路噪音模型
+    if (p7_info->estimated_mean_late == 0) {
+        p7_info->estimated_mean_late = worst_late;
+        p7_info->estimated_jitter_var = 100; // Cold start guess
+    }
     
-	int32_t current_total_advanced_us = __atomic_load_n(&p7_info->total_advanced_us, __ATOMIC_SEQ_CST);
-	int32_t reference_total_advanced_us = current_total_advanced_us;
-	
-	uint32_t now_hr = vnf_get_current_time_hr();
-	if (p7_info->last_adjustment_time_hr != 0) {
-		int64_t diff_us = timehr_diff_us(now_hr, p7_info->last_adjustment_time_hr);
-        int holdoff_slots = (config->timing_info_period > 0) ? config->timing_info_period + 3 : 6;
-        if (holdoff_slots < 6) holdoff_slots = 6;
-        if (holdoff_slots > 10) holdoff_slots = 10;
-        int64_t holdoff_us = (int64_t)holdoff_slots * (int64_t)p7_info->slot_duration_us;
-        if (diff_us >= 0 && diff_us <= holdoff_us) {
-            reference_total_advanced_us = __atomic_load_n(&p7_info->last_total_advanced_us, __ATOMIC_SEQ_CST);
-        }
-	}
-
-	// Current Absolute Latency
-	int32_t min_node_to_node_latency = reference_total_advanced_us + worst_early;
-	int32_t max_node_to_node_latency = reference_total_advanced_us + worst_late;
-	if (min_node_to_node_latency < 0) min_node_to_node_latency = 0;
-	if (max_node_to_node_latency < 0) max_node_to_node_latency = 0;
-	if (p7_info->sync_locked) {
-		log_mmap_entry("vnf_pnf_latency-us.bin", (long)max_node_to_node_latency);
-	}
-
-	// ===================================================================
-	// 1. OWD Min-Filtering (BBR logic anchor)
-	// ===================================================================
-	if (p7_info->min_owd_us == 0 || min_node_to_node_latency < p7_info->min_owd_us) {
-		p7_info->min_owd_us = min_node_to_node_latency;
-		p7_info->min_owd_timestamp_hr = now_hr;
-	} else if (timehr_diff_us(now_hr, p7_info->min_owd_timestamp_hr) > 10000000LL) {
-		// Reset min OWD tracker every 10 seconds
-		p7_info->min_owd_us = min_node_to_node_latency;
-		p7_info->min_owd_timestamp_hr = now_hr;
-	}
-
-	// ===================================================================
-	// ===================================================================
-	// 2. High-Watermark Peak Detector (The "Absolute Ceiling Matcher")
-	// ===================================================================
-	// The user correctly identified that "Target Headroom" fails if traffic 
-	// variance violently sweeps past it. Here, we completely abandon the 
-	// Median padding strategy and adopt a direct Peak Tracker. 
-	// This tracks the "absolute worst jitter" the network is currently capable of.
-
-	if (p7_info->short_ewma_process_us == 0) {
-		p7_info->short_ewma_process_us = max_node_to_node_latency;
-		p7_info->peak_latency_timestamp_hr = now_hr;
-	}
-
-	if (max_node_to_node_latency > p7_info->short_ewma_process_us) {
-		// FAST ATTACK: Immediately snap to the absolute peak (100th percentile)
-		// If 1Gbps traffic hits, we inflate instantly to match the huge tail!
-		p7_info->short_ewma_process_us = max_node_to_node_latency;
-		p7_info->peak_latency_timestamp_hr = now_hr;
-	} else {
-		// SCIENTIFIC HOLD-OFF DECAY (Sliding Window Maximum approximation)
-		// The user noted that the system got "tricked" into dropping its advance time
-		// during steady traffic. A simple `-= 1` per loop decays way too fast during
-		// a burst of aperiodic timing_info reports.
-		// We now HOLD the peak for 5 full seconds. If the network doesn't hit this
-		// peak again in 5s, we then gently decay it. This prevents iperf micro-drains
-		// from falsely convincing the system the traffic burst is over!
-		int64_t time_since_peak = timehr_diff_us(now_hr, p7_info->peak_latency_timestamp_hr);
-		if (time_since_peak > 5000000LL) {
-			if (p7_info->short_ewma_process_us > min_node_to_node_latency + 10) {
-				p7_info->short_ewma_process_us -= 10;
-				// Reset the timer so it only decays 10us every 10ms-ish,
-				// not instantly plunging to zero, but not stalling forever.
-				p7_info->peak_latency_timestamp_hr = now_hr - 4990000LL;
-			}
-		}
-	}
-	int32_t peak_latency_tracker = p7_info->short_ewma_process_us;
-
-	// ===================================================================
-	// 3. Absolute Guards & Clamping calculation
-	// ===================================================================
-	int32_t ABSOLUTE_MAX_ADVANCE_US = timing_window_us + p7_info->min_owd_us;
-	p7_info->absolute_max_advance_us = ABSOLUTE_MAX_ADVANCE_US;
-
-	// ===================================================================
-	// 4. Emergency Rescue PID Controller
-	// ===================================================================
-	// The problem with standard PID is reaction time to severe sudden network drops.
-	// If a 2000us spike hits, we need to jump 2000us *instantly*, bypassing slow smoothing
-	// or slew-rate limits, to prevent 10+ consecutive packets from dying.
-	int32_t safety_extra_us = 800; // Base safety offset
-	if (timing_window_us >= 5000) safety_extra_us = 1200;
-	if (timing_window_us >= 5500) safety_extra_us = 1500;
-	int32_t target_advance_us = peak_latency_tracker + safety_extra_us;
-
-	// Limit to maximum safe distance in timing window (don't cause Too Early)
-	int32_t max_safe_target = ABSOLUTE_MAX_ADVANCE_US - 200;
-	if (target_advance_us > max_safe_target) target_advance_us = max_safe_target;
-	if (target_advance_us < 0) target_advance_us = 0;
-
-	// Error calc
-	int32_t error_us = target_advance_us - current_total_advanced_us;
-
-	p7_info->pid_integral_us += error_us;
-	int32_t pid_delta_error = error_us - p7_info->pid_prev_error_us;
-	p7_info->pid_prev_error_us = error_us;
-
-	// Anti-windup
-	if (p7_info->pid_integral_us > 200000) p7_info->pid_integral_us = 200000;
-	if (p7_info->pid_integral_us < -200000) p7_info->pid_integral_us = -200000;
-
-	// Calculate current real distance from deadline. 
-	int32_t actual_arrival_margin = current_total_advanced_us - max_node_to_node_latency;
-	
-	// ===================================================================
-	// STATISTICAL ANOMALY DETECTION (Jacobson/Karels TCP RTT Algorithm)
-	// ===================================================================
-	// Instead of a hardcoded "500us" magic number, we use classic Mean Absolute 
-	// Deviation (MAD) tracking to mathematically determine what constitutes a "spike" 
-	// based on the current ongoing network noise profile.
-
-	if (p7_info->estimated_mean_late == 0) {
-		p7_info->estimated_mean_late = max_node_to_node_latency;
-		p7_info->estimated_jitter_var = 100; // Cold start guess
-	}
-	
-	int32_t diff = max_node_to_node_latency - p7_info->estimated_mean_late;
-	int32_t abs_diff = diff < 0 ? -diff : diff;
-	
-	// SRTT = (7/8 * SRTT) + (1/8 * R_new)
-	p7_info->estimated_mean_late = p7_info->estimated_mean_late + (diff / 8);
-	// RTTVAR = (3/4 * RTTVAR) + (1/4 * |R_new - SRTT|)
-	int32_t var_diff = abs_diff - p7_info->estimated_jitter_var;
-	p7_info->estimated_jitter_var = p7_info->estimated_jitter_var + (var_diff / 4);
-
-	// Calculate a DYNAMIC panic threshold based on standard deviation.
-	// If variance is small (e.g. 20us noise), we don't neurotically panic until margin is tiny.
-	// If variance is huge (e.g. 600us bufferbloat), we proactively panic much earlier!
-	// We mandate at least 1.5x the Mean Absolute Deviation as breathing room.
-	int32_t dynamic_panic_threshold = (p7_info->estimated_jitter_var * 3) / 2;
-    if (dynamic_panic_threshold < 250) dynamic_panic_threshold = 250; // More conservative threshold for stability
+    int32_t diff = worst_late - p7_info->estimated_mean_late;
+    int32_t abs_diff = diff < 0 ? -diff : diff;
     
-    float Kp, Ki, Kd;
-    int32_t shift_us = 0;
+    // SRTT = (7/8 * SRTT) + (1/8 * R_new)
+    p7_info->estimated_mean_late = p7_info->estimated_mean_late + (diff / 8);
+    // RTTVAR = (3/4 * RTTVAR) + (1/4 * |R_new - SRTT|)
+    int32_t var_diff = abs_diff - p7_info->estimated_jitter_var;
+    p7_info->estimated_jitter_var = p7_info->estimated_jitter_var + (var_diff / 4);
 
-    // Panic activates if we are statistically too close to the edge, OR if we detect 
-    // a massive outlier jump (e.g., > 3x standard deviation) in this specific packet.
-    bool panic_mode = (actual_arrival_margin < dynamic_panic_threshold) || 
-                      (abs_diff > p7_info->estimated_jitter_var * 3);
+    // ===================================================================
+    // 2. 動態安全邊界 (Dynamic Bounds)
+    // ===================================================================
+    // 基本盤為 1.5 倍 slot duration。若現況 Jitter極大，自動拓寬邊界
+    int32_t base_margin_us = (slot_duration_us * 3) / 2;
+    int32_t dynamic_panic_threshold = (p7_info->estimated_jitter_var * 3) / 2;
+    int32_t safe_margin_us = dynamic_panic_threshold > base_margin_us ? dynamic_panic_threshold : base_margin_us;
 
-    if (panic_mode) {
-        // PANIC OVERRIDE: Network just died/spiked heavily. Ignore smoothing.
-        // Force the shift to exactly what's needed to reach target_advance_us immediately.
-        Kp = 1.0f; 
-        Ki = 0.0f;
-        Kd = 0.0f;
-        shift_us = error_us; // Pure 100% instantaneous jump!
-    } else {
-        // NORMAL MODE: Make corrections conservatively to avoid oscillation.
-        Kp = 0.03f;
-        Ki = 0.001f;
-        Kd = 0.01f;
-        shift_us = (int32_t)(Kp * error_us + Ki * p7_info->pid_integral_us + Kd * pid_delta_error);
-    }
+    int target_s_ahead = s_ahead_env;
+    bool in_panic = false;
 
-    // Dead-zone
-    if (!panic_mode && shift_us > -50 && shift_us < 50) {
-        shift_us = 0;
-    }
+    // 單次絕對落差大於三倍變異數 => 即斷定為嚴重突波
+    bool statistical_anomaly = (abs_diff > p7_info->estimated_jitter_var * 3);
 
-    // DUAL-BAND SLEW RATE LIMITER
-    if (panic_mode) {
-        // In panic mode, allow a large jump, but cap to a manageable bound.
-        if (shift_us > 1500) shift_us = 1500;
-        if (shift_us < 0) shift_us = 0; // Never retreat when panicked!
-    } else {
-        // In normal mode, behave calmly to hold the line without inducing jitter
-        if (shift_us > 100) shift_us = 100;
-        if (shift_us < -20) shift_us = -20; // Ultra safe decay
-    }
-
-    if (shift_us != 0) {
-        long final_target = current_total_advanced_us + shift_us;
+    // 當 worst_late > -safe_margin_us 代表封包快要/已經接近 0 (即 timing window 邊緣), 
+    // 或者異常大抖動 (statistical anomaly / PNF 報告極度劣化) 時：
+    if (worst_late > -safe_margin_us || stats->pnf_reported_jitter > (uint32_t)safe_margin_us * 2 || statistical_anomaly) {
+        in_panic = true;
         
-        if (final_target > max_safe_target) { 
-            final_target = max_safe_target; 
-        } else if (final_target < 0) {
-            final_target = 0;
+        // 抓到高峰/突波，刷新 Hold-Off 計時器 (FAST ATTACK)
+        p7_info->peak_latency_timestamp_hr = now_hr;
+        
+        int32_t deficit_us = 0;
+        if (worst_late > -safe_margin_us) {
+            deficit_us = worst_late + safe_margin_us;
+        } else if (statistical_anomaly) {
+            deficit_us = abs_diff;
+        } else {
+            deficit_us = stats->pnf_reported_jitter - safe_margin_us;
         }
 
-        long delta_us = final_target - current_total_advanced_us;
-        __atomic_store_n(&p7_info->pending_us, p7_info->pending_us + delta_us, __ATOMIC_SEQ_CST);
+        int32_t slots_needed = (deficit_us + slot_duration_us - 1) / slot_duration_us;
+        target_s_ahead += slots_needed;
 
-        __atomic_store_n(&p7_info->last_adjustment_time_hr, now_hr, __ATOMIC_SEQ_CST);
-        __atomic_store_n(&p7_info->last_total_advanced_us, current_total_advanced_us, __ATOMIC_SEQ_CST);
+        // 流量瞬間到達而產生 panic，確保至少直接跳至 8 個 slot ahead 快速吸收大掉包
+        if (target_s_ahead < 8 && max_s_ahead >= 8) {
+            target_s_ahead = 8;
+        }
+		target_s_ahead = 8;
+        p7_info->consecutive_late_spikes = 0;
+    } else {
+        // ===================================================================
+        // 3. 科學高峰保持 (Scientific Hold-Off Decay)
+        // ===================================================================
+        // 防止被短暫的 Jitter 低谷欺騙，必須超過 5 秒未見高峰才允許下降
+        int64_t time_since_peak = timehr_diff_us(now_hr, p7_info->peak_latency_timestamp_hr);
+        int32_t decay_headroom_us = safe_margin_us + slot_duration_us;
+
+        if (time_since_peak > 5000000LL && worst_late < -decay_headroom_us) {
+            p7_info->consecutive_late_spikes++;
+            // 因為現在是 slot ahead mode，降檔要更為謹慎。原本改的 1000 仍保留。
+            if (p7_info->consecutive_late_spikes > 2) {
+                target_s_ahead -= 1;
+                p7_info->consecutive_late_spikes = 0;
+            }
+        } else {
+            p7_info->consecutive_late_spikes = 0;
+        }
     }
-}
 
-void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *void_ind)
-{
-  nfapi_nr_timing_info_t *ind = (nfapi_nr_timing_info_t *)void_ind;
+    if (target_s_ahead > max_s_ahead) target_s_ahead = max_s_ahead;
+    if (target_s_ahead < 1) target_s_ahead = 1;
 
-  // Error Handling
-  if (!ind || !p7_info)
-    return;
-  if (ind->time_since_last_timing_info > 10000)
-    return; // Basic sanity check
-
-  // Sanity Clamp: If 'earliest_arrival' is absurdly negative (e.g. -140000), drop it entirely.
-  // This happens during initial SFN/Slot wraps or severe out-of-order packets where the
-  // PNF reports a wrap difference backwards. Applying this throws the VNF violently back.
-  // Sanity Drop replaced by PNF physical offset bounds [-40, 40]
-  /* 
-   * Feedback Hold-Off / Dead Time Masking (Based on Control Theory for Delayed Systems)
-   * 
-   * Reference: 
-   * Smith, O. J. M. (1957). "Closer Control of Loops with Dead Time". Chemical Engineering Progress.
-   * 
-   * Logic: 
-   * The system has a round-trip delay (VNF -> PNF processing -> Timing Info feedback).
-   * If an adjustment was made, the subsequent `timing_info` messages will still reflect the old, 
-   * pre-adjustment state for a duration equivalent to this Dead Time (~RTT). 
-   * If we process these stale reports, the controller will repeatedly overcompensate, causing severe oscillation.
-   * 
-   * Solution: Ignore all timing inputs for a short hold-off window equivalent to a few slot durations
-   * after any adjustment to ensure the new feedback corresponds to the adjusted packet generation.
-   */
-  uint32_t now_hr = vnf_get_current_time_hr();
-  if (p7_info->last_adjustment_time_hr != 0) {
-      int64_t diff_us = timehr_diff_us(now_hr, p7_info->last_adjustment_time_hr);
-      nfapi_vnf_config_t *config = get_config();
-      int holdoff_slots = (config && config->timing_info_period > 0) ? config->timing_info_period + 3 : 6;
-      if (holdoff_slots < 6) holdoff_slots = 6;
-      if (holdoff_slots > 10) holdoff_slots = 10;
-      int32_t dead_time_us = holdoff_slots * p7_info->slot_duration_us;
-      
-      if (diff_us < dead_time_us) { // Dead Time mask based on calculated RTT margin
-          return; // Ignore stale feedback
-      }
-  }
-
-  // Step 1: Extract per-slot timing stats (up to 8 unique slots)
-  vnf_timing_stats_t slot_stats[8];
-  int num_slots = vnf_p7_extract_timing_info(ind, p7_info, slot_stats, 8);
-
-  // Step 2: Aggregate all slots into a single event to prevent loop amplification
-  // If the network delayed a batch of slots, evaluating them in a loop would trigger 
-  // convergence tracking multiple times and instantly bypass filtering.
-  if (num_slots > 0) {
-      vnf_timing_stats_t agg_stats = slot_stats[0];
-      for (int i = 1; i < num_slots; i++) {
-          if (slot_stats[i].worst_late > agg_stats.worst_late) 
-              agg_stats.worst_late = slot_stats[i].worst_late;
-          if (slot_stats[i].worst_early < agg_stats.worst_early) 
-              agg_stats.worst_early = slot_stats[i].worst_early;
-          if (slot_stats[i].pnf_reported_jitter > agg_stats.pnf_reported_jitter)
-              agg_stats.pnf_reported_jitter = slot_stats[i].pnf_reported_jitter;
-      }
-      
-      vnf_p7_convergence_optimization(p7_info, &agg_stats);
-  }
-}
-
-void* vnf_p7_malloc(vnf_p7_t* vnf_p7, size_t size)
-{
-	if(vnf_p7->_public.malloc)
-	{
-		return (vnf_p7->_public.malloc)(size);
-	}
-	else
-	{
-		return calloc(1, size); 
-	}
-}
-void vnf_p7_free(vnf_p7_t* vnf_p7, void* ptr)
-{
-	if(ptr == 0)
-		return;
-
-	if(vnf_p7->_public.free)
-	{
-		(vnf_p7->_public.free)(ptr);
-	}
-	else
-	{
-		free(ptr); 
-	}
-}
-
-void vnf_p7_codec_free(vnf_p7_t* vnf_p7, void* ptr)
-{
-	if(ptr == 0)
-		return;
-
-	if(vnf_p7->_public.codec_config.deallocate)
-	{
-		(vnf_p7->_public.codec_config.deallocate)(ptr);
-	}
-	else
-	{
-		free(ptr); 
-	}
-}
-
-void vnf_p7_connection_info_list_add(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* node)
-{
-	NFAPI_TRACE(NFAPI_TRACE_INFO, "%s()\n", __FUNCTION__);
-	// todo : add mutex
-	node->next = vnf_p7->p7_connections; 
-	vnf_p7->p7_connections = node;
-}
-
-nfapi_vnf_p7_connection_info_t* vnf_p7_connection_info_list_find(vnf_p7_t* vnf_p7, uint16_t phy_id)
-{
-	nfapi_vnf_p7_connection_info_t* curr = vnf_p7->p7_connections;
-  while (curr != 0) {
-    if (curr->phy_id == phy_id)
-      return curr;
-    curr = curr->next;
-  }
-  NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s(): could not find P7 connection for phy_id %d\n", __func__, phy_id);
-
-  return 0;
-}
-
-nfapi_vnf_p7_connection_info_t* vnf_p7_connection_info_list_delete(vnf_p7_t* vnf_p7, uint16_t phy_id)
-{
-	nfapi_vnf_p7_connection_info_t* curr = vnf_p7->p7_connections;
-	nfapi_vnf_p7_connection_info_t* prev = 0;
-
-	while(curr != 0)
-	{
-		if(curr->phy_id == phy_id)
-		{
-			if(prev == 0)
-			{
-				vnf_p7->p7_connections = curr->next;
-			}
-			else
-			{
-				prev->next = curr->next;
-			}
-
-			return curr;
-		}
-		else
-		{
-			prev = curr;
-			curr = curr->next;
-		}
-	}
-
-	return 0;
+    if (target_s_ahead != s_ahead_env) {
+        NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Dynamic Slot Ahead Adjusted: %d -> %d (worst_late: %d, mean: %d, var: %d, in_panic: %d)",
+                    s_ahead_env, target_s_ahead, worst_late, p7_info->estimated_mean_late, p7_info->estimated_jitter_var, in_panic);
+        s_ahead_env = target_s_ahead;
+    }
 }
 
 vnf_p7_rx_message_t* vnf_p7_rx_reassembly_queue_add_segment(vnf_p7_t* vnf_p7, vnf_p7_rx_reassembly_queue_t* queue, uint16_t sequence_number, uint16_t segment_number, uint8_t m, uint8_t* data, uint16_t data_len)
@@ -701,6 +440,110 @@ void vnf_p7_rx_reassembly_queue_remove_old_msgs(vnf_p7_t* vnf_p7, vnf_p7_rx_reas
 			iterator = iterator->next;
 		}
 	}
+}
+
+void* vnf_p7_malloc(vnf_p7_t* vnf_p7, size_t size)
+{
+	(void)vnf_p7;
+	return malloc(size);
+}
+
+void vnf_p7_free(vnf_p7_t* vnf_p7, void* ptr)
+{
+	(void)vnf_p7;
+	free(ptr);
+}
+
+void vnf_p7_connection_info_list_add(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* node)
+{
+	if (vnf_p7 == NULL || node == NULL)
+		return;
+
+	node->next = vnf_p7->p7_connections;
+	vnf_p7->p7_connections = node;
+}
+
+nfapi_vnf_p7_connection_info_t* vnf_p7_connection_info_list_find(vnf_p7_t* vnf_p7, uint16_t phy_id)
+{
+	if (vnf_p7 == NULL)
+		return NULL;
+
+	nfapi_vnf_p7_connection_info_t* iterator = vnf_p7->p7_connections;
+	while (iterator != NULL) {
+		if (iterator->phy_id == phy_id)
+			return iterator;
+		iterator = iterator->next;
+	}
+
+	return NULL;
+}
+
+nfapi_vnf_p7_connection_info_t* vnf_p7_connection_info_list_delete(vnf_p7_t* vnf_p7, uint16_t phy_id)
+{
+	if (vnf_p7 == NULL)
+		return NULL;
+
+	nfapi_vnf_p7_connection_info_t* iterator = vnf_p7->p7_connections;
+	nfapi_vnf_p7_connection_info_t* previous = NULL;
+
+	while (iterator != NULL) {
+		if (iterator->phy_id == phy_id) {
+			if (previous == NULL) {
+				vnf_p7->p7_connections = iterator->next;
+			} else {
+				previous->next = iterator->next;
+			}
+			iterator->next = NULL;
+			return iterator;
+		}
+		previous = iterator;
+		iterator = iterator->next;
+	}
+
+	return NULL;
+}
+
+void vnf_p7_codec_free(vnf_p7_t* vnf_p7, void* ptr)
+{
+	if (ptr != NULL) {
+		vnf_p7_free(vnf_p7, ptr);
+	}
+}
+
+void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *void_ind)
+{
+	if (p7_info == NULL || void_ind == NULL) {
+		return;
+	}
+
+	const nfapi_nr_timing_info_t* ind = (const nfapi_nr_timing_info_t*)void_ind;
+	vnf_timing_stats_t stats[8];
+	int count = vnf_p7_extract_timing_info(ind, p7_info, stats, 8);
+
+	if (count <= 0) {
+		return;
+	}
+
+	vnf_timing_stats_t merged = {
+		.worst_late = INT32_MIN,
+		.worst_early = INT32_MAX,
+		.packet_slot = 0,
+		.pnf_reported_jitter = 0
+	};
+
+	for (int i = 0; i < count; ++i) {
+		if (stats[i].worst_late > merged.worst_late) {
+			merged.worst_late = stats[i].worst_late;
+		}
+		if (stats[i].worst_early < merged.worst_early) {
+			merged.worst_early = stats[i].worst_early;
+		}
+		if (stats[i].pnf_reported_jitter > merged.pnf_reported_jitter) {
+			merged.pnf_reported_jitter = stats[i].pnf_reported_jitter;
+		}
+	}
+
+	vnf_p7_convergence_optimization(p7_info, &merged);
 }
 
 uint32_t vnf_get_current_time_hr()
@@ -2158,7 +2001,7 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	pthread_mutex_unlock(&p7_con->mutex);
 
 	// Only process dynamic timing once the VNF timing thread has initialized mu/slot duration
-	if (slot_ahead == 0 && p7_con->mu >= 0 && vnf_p7->slot_start_time_hr != 0) {
+	if (slot_ahead == 1 && p7_con->mu >= 0 && vnf_p7->slot_start_time_hr != 0) {
 		handle_dynamic_timing_info(p7_con, &ind);
 	}
 }
