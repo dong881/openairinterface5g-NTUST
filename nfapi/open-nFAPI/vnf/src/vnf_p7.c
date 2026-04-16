@@ -262,20 +262,23 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     bool significant_variation = (abs_diff > slot_duration_us / 2);
     bool strong_packet_activity = jitter_activity || significant_variation;
     bool edge_activity_panic = near_deadline_edge && strong_packet_activity;
+    bool strict_deadline_violation = (worst_late >= 0);
     bool jitter_panic = (stats->pnf_reported_jitter > (uint32_t)safe_margin_us * 2) && (worst_late > -absolute_safe_boundary * 2);
 
-    if (edge_activity_panic || jitter_panic || statistical_anomaly) {
+    if (edge_activity_panic || jitter_panic || statistical_anomaly || strict_deadline_violation) {
         in_panic = true;
 
         bool c1 = edge_activity_panic;
         bool c2 = jitter_panic;
         bool c3 = statistical_anomaly;
+        bool c4 = strict_deadline_violation;
 
         NFAPI_TRACE(NFAPI_TRACE_WARN,
-            "[P7_SYNC] FAST ATTACK PANIC TRIGGERED! Reasons:%s%s%s | Values: worst_late=%d (limit > %d), pnf_jitter=%u (limit > %d), abs_diff=%d (limit > %d), slot_us=%d\n",
+            "[P7_SYNC] FAST ATTACK PANIC TRIGGERED! Reasons:%s%s%s%s | Values: worst_late=%d (limit > %d), pnf_jitter=%u (limit > %d), abs_diff=%d (limit > %d), slot_us=%d\n",
             c1 ? " [worst_late edge]" : "",
             c2 ? " [PNF Jitter]" : "",
             c3 ? " [Statistical Anomaly MAD]" : "",
+            c4 ? " [deadline violation]" : "",
             worst_late, -safe_margin_us,
             stats->pnf_reported_jitter, safe_margin_us * 2,
             abs_diff, anomaly_threshold_us,
@@ -324,7 +327,10 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Dynamic Slot Ahead Adjusted: %d -> %d (worst_late: %d, mean: %d, in_panic: %d)",
                     s_ahead_env, target_s_ahead, worst_late, p7_info->estimated_mean_late, in_panic);
         s_ahead_env = target_s_ahead;
-    }
+    }else if(p7_info->sfn % 256 == 0){
+		NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Slot Ahead Maintained: %d (worst_late: %d, mean: %d, in_panic: %d)",
+					s_ahead_env, worst_late, p7_info->estimated_mean_late, in_panic);
+	}
 }
 
 vnf_p7_rx_message_t* vnf_p7_rx_reassembly_queue_add_segment(vnf_p7_t* vnf_p7, vnf_p7_rx_reassembly_queue_t* queue, uint16_t sequence_number, uint16_t segment_number, uint8_t m, uint8_t* data, uint16_t data_len)
