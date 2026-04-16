@@ -237,8 +237,9 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     int32_t base_s_ahead = p7_info->min_owd_us / slot_duration_us;
     if (base_s_ahead < 0) base_s_ahead = 0;
 
-    // 上限自動適應：理想環境 base=0 => 上限8；高延遲環境 base=N => 上限 N+8
-    int32_t max_s_ahead = base_s_ahead + 8;
+    // 上限自動適應：理想環境 base=0 => 上限8；高延遲環境 base=N => 上限 N+8。
+    // 若已達到上限且連續 panic，允許持續延展 extra slot。
+    int32_t max_s_ahead = base_s_ahead + 8 + p7_info->panic_extension_slots;
 
     // ===================================================================
     // 1. 統計學突波偵測 (Jacobson/Karels TCP RTT Algorithm)
@@ -315,7 +316,21 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         // 抓到高峰/突波，刷新 Hold-Off 計時器 (FAST ATTACK)
         p7_info->peak_latency_timestamp_hr = now_hr;
 
-        // 流量瞬間到達而產生 panic，確保遇到各種情況直接跳至最高點 8
+        // 如果已經到達目前最高 cap 且仍然持續 panic，就允許逐步延展額外 slot
+        if (s_ahead_env >= max_s_ahead - 1) {
+            p7_info->consecutive_panic_spikes++;
+            if (p7_info->consecutive_panic_spikes > 3) {
+                p7_info->panic_extension_slots += 1;
+                max_s_ahead += 1;
+                p7_info->consecutive_panic_spikes = 0;
+                NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] PANIC EXTENSION: base %d + 8 + extra %d => new max %d",
+                            base_s_ahead, p7_info->panic_extension_slots, max_s_ahead);
+            }
+        } else {
+            p7_info->consecutive_panic_spikes = 0;
+        }
+
+        // 流量瞬間到達而產生 panic，確保遇到各種情況直接跳至最高點
         target_s_ahead = max_s_ahead;
         p7_info->consecutive_late_spikes = 0;
     } else {
@@ -326,15 +341,39 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         if (worst_late < -absolute_safe_boundary) {
             p7_info->consecutive_late_spikes++;
             if (p7_info->consecutive_late_spikes > 2000) {
-                target_s_ahead -= 1;
+                int32_t step_down_target = target_s_ahead - 1;
+                int32_t top_zone_threshold = base_s_ahead + 8;
+
+                if (s_ahead_env == top_zone_threshold && step_down_target == top_zone_threshold - 1) {
+                    if (p7_info->stable_top_pending_drop != step_down_target) {
+                        p7_info->stable_top_pending_drop = step_down_target;
+                        NFAPI_TRACE(NFAPI_TRACE_INFO,
+                            "[P7_SYNC] TOP HOLD: keeping %d, pending lower target %d until next safe reduction",
+                            s_ahead_env, step_down_target);
+                        // 保住 8，不做 8 -> 7 的 tiny adjustment
+                    } else {
+                        target_s_ahead -= 2; // 8 -> 6 directly
+                        p7_info->stable_top_pending_drop = 0;
+                    }
+                } else {
+                    target_s_ahead -= 1;
+                    p7_info->stable_top_pending_drop = 0;
+                }
+
                 p7_info->consecutive_late_spikes = 0;
             }
         } else {
             p7_info->consecutive_late_spikes = 0;
+            p7_info->stable_top_pending_drop = 0;
         }
     }
 
     if (target_s_ahead > max_s_ahead) target_s_ahead = max_s_ahead;
+
+    // 如果系統長時間穩定，且已經不再 panic，可緩慢回收 extension
+    if (!in_panic && p7_info->panic_extension_slots > 0) {
+        p7_info->panic_extension_slots = 0;
+    }
     
     int32_t floor_s_ahead = base_s_ahead > 0 ? base_s_ahead : 1;
     if (target_s_ahead < floor_s_ahead) target_s_ahead = floor_s_ahead;
@@ -1947,6 +1986,18 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	int32_t total_correction = offset + target_margin_initial;
 
 	pthread_mutex_lock(&p7_info->mutex);
+	
+	// [CRITICAL Fix] Avoid applying multiple rapid adjustments from stale in-flight UL_NODE_SYNC samples.
+	// We still allow the packet to be processed for logging and lock detection, but we defer
+	// further corrections until the network has flushed the previous timing change.
+	int64_t time_since_adj_us = timehr_diff_us(now_time_hr, p7_info->last_adjustment_time_hr);
+	bool skip_adjustment = (p7_info->last_adjustment_time_hr != 0 && time_since_adj_us < 10000);
+	if (skip_adjustment) {
+		NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+			"[P7_SYNC] ul_node_sync phy_id:%d skipping adjustment due dead time %lldus\n",
+			ind.header.phy_id, time_since_adj_us);
+	}
+
 	if (!p7_info->sync_locked) {
 		if (total_correction >= -MARGIN_TOLERANCE_US && total_correction <= MARGIN_TOLERANCE_US) {
 			p7_info->sync_locked = 1;
@@ -1961,17 +2012,21 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 			int slot_ahead = 0;
 			get_vnf_timing_envs(&slot_ahead, NULL);
 			p7_info->total_advanced_us = target_margin_initial + slot_ahead * p7_info->slot_duration_us; // Account for initial phase offset!
-		} else {
+		} else if (!skip_adjustment) {
 			int32_t s_adj = total_correction / p7_info->slot_duration_us;
 			int32_t p_adj = total_correction % p7_info->slot_duration_us;
 			p7_info->slot_adjustment += s_adj;
 			p7_info->pending_us -= p_adj;
 			p7_info->last_adjustment_time_hr = vnf_get_current_time_hr(); // Mask stale timing info
 			p7_info->last_total_advanced_us = p7_info->total_advanced_us;
+		} else {
+			NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+				"[P7_SYNC] ul_node_sync phy_id:%d adjustment suppressed while waiting for dead time\n",
+				ind.header.phy_id);
 		}
 	}
 	pthread_mutex_unlock(&p7_info->mutex);
-	NFAPI_TRACE(NFAPI_TRACE_INFO, 
+	NFAPI_TRACE(NFAPI_TRACE_DEBUG, 
 		"[P7_SYNC] ul_node_sync phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) offset:%d owd:%d pending_us:%d locked:%d s_adj:%d p_adj:%d\n",
 		ind.header.phy_id, ind.t1, ind.t2, ind.t3, t4,
 		offset, owd, p7_info->pending_us, p7_info->sync_locked, 
