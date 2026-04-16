@@ -1259,9 +1259,11 @@ void *vnf_timing_thread(void *arg) {
       int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
       int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
 
-      if (p7_info->delta_sfn_slot != 0 || p7_info->sync_slot_counter++ >= p7_info->sync_period_slots) {
+      if (p7_info->delta_sfn_slot != 0 || p7_info->sync_slot_counter >= p7_info->sync_period_slots) {
         p7_info->sync_slot_counter = 0;
         vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
+      } else {
+        p7_info->sync_slot_counter++;
       }
 
       nfapi_nr_slot_indication_scf_t ind = {0};
@@ -1454,9 +1456,11 @@ void *vnf_timing_thread(void *arg) {
     int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
     int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
 
-    if (p7_info->sync_slot_counter++ >= p7_info->sync_period_slots) {
+    if (p7_info->sync_slot_counter >= p7_info->sync_period_slots) {
       p7_info->sync_slot_counter = 0;
       vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
+    } else {
+      p7_info->sync_slot_counter++;
     }
 
     // Step 4: Send Slot Indication (Core Work)
