@@ -210,59 +210,32 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
 {
-    // 現在這樣更能確保不可能 too early，因為 slot ahead * slot_duration 就直接等於最早抵達封包的時間。
-    nfapi_vnf_config_t *config = get_config();
-    int32_t timing_window_us = (int32_t)config->timing_window;
     int32_t slot_duration_us = p7_info->slot_duration_us;
 
     int32_t worst_late = stats->worst_late;
-    int32_t worst_early = stats->worst_early;
     uint32_t now_hr = vnf_get_current_time_hr();
 
-    // ===================================================================
-    // 0. Fronthaul Base Latency 預先評估 (Non-Ideal Fronthaul)
-    // ===================================================================
-    // 計算傳輸延遲 OWD = (目前提早送出的時間) + (實際到達 PNF 的相對時間，提早為負)
-    int32_t current_owd_us = (s_ahead_env * slot_duration_us) + worst_early;
-    
-    // 追蹤最低延遲作為 Base Latency (每10秒放寬重置，適應環境變化)
-    if (p7_info->min_owd_us == 0 || current_owd_us < p7_info->min_owd_us) {
-        p7_info->min_owd_us = current_owd_us;
-        p7_info->min_owd_timestamp_hr = now_hr;
-    } else if (timehr_diff_us(now_hr, p7_info->min_owd_timestamp_hr) > 10000000LL) {
-        p7_info->min_owd_us = current_owd_us;
-        p7_info->min_owd_timestamp_hr = now_hr;
-    }
-
-    int32_t base_s_ahead = p7_info->min_owd_us / slot_duration_us;
-    if (base_s_ahead < 0) base_s_ahead = 0;
-
-    // 上限自動適應：理想環境 base=0 => 上限8；高延遲環境 base=N => 上限 N+8。
-    // 若已達到上限且連續 panic，允許持續延展 extra slot。
-    int32_t max_s_ahead = base_s_ahead + 8 + p7_info->panic_extension_slots;
+    // 固定範圍 1 ~ 8，因為 node sync 會處理預設的 offset
+    int32_t max_s_ahead = 8;
 
     // ===================================================================
     // 1. 統計學突波偵測 (Jacobson/Karels TCP RTT Algorithm)
     // ===================================================================
-    // 計算 Mean Absolute Deviation (MAD) 來建立動態網路噪音模型
     if (p7_info->estimated_mean_late == 0) {
         p7_info->estimated_mean_late = worst_late;
-        p7_info->estimated_jitter_var = 100; // Cold start guess
+        p7_info->estimated_jitter_var = 100;
     }
     
     int32_t diff = worst_late - p7_info->estimated_mean_late;
     int32_t abs_diff = diff < 0 ? -diff : diff;
     
-    // SRTT = (7/8 * SRTT) + (1/8 * R_new)
     p7_info->estimated_mean_late = p7_info->estimated_mean_late + (diff / 8);
-    // RTTVAR = (3/4 * RTTVAR) + (1/4 * |R_new - SRTT|)
     int32_t var_diff = abs_diff - p7_info->estimated_jitter_var;
     p7_info->estimated_jitter_var = p7_info->estimated_jitter_var + (var_diff / 4);
 
     // ===================================================================
     // 2. 動態安全邊界 (Dynamic Bounds)
     // ===================================================================
-    // 基本盤為 1.5 倍 slot duration。若現況 Jitter極大，自動拓寬邊界
     int32_t base_margin_us = (slot_duration_us * 3) / 2;
     int32_t dynamic_panic_threshold = (p7_info->estimated_jitter_var * 3) / 2;
     int32_t safe_margin_us = dynamic_panic_threshold > base_margin_us ? dynamic_panic_threshold : base_margin_us;
@@ -270,9 +243,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     int target_s_ahead = s_ahead_env;
     bool in_panic = false;
 
-    // 單次絕對落差大於三倍變異數 => 即斷定為嚴重突波
     int32_t anomaly_threshold_us = p7_info->estimated_jitter_var * 3;
-    // 【重要修正】門檻最少要大於 2 個 slot_duration，否則我們主動降 1 slot (前進時間) 都會誘發自我 Panic！
     if (anomaly_threshold_us < slot_duration_us * 2) {
         anomaly_threshold_us = slot_duration_us * 2;
     }
@@ -280,8 +251,6 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 
     int32_t absolute_safe_boundary = slot_duration_us * 2;
 
-    // 如果目前距離 0 (deadline) 非常遙遠且安全 (大於 2 個 slot)
-    // 除非遇到大於 "距離 deadline 剩餘時間" 的毀滅性突波，否則無視統計異常，避免神經質跳躍
     if (worst_late < -absolute_safe_boundary) {
         if (abs_diff < (-worst_late - slot_duration_us)) {
             statistical_anomaly = false;
@@ -289,13 +258,12 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     }
 
     bool near_deadline_edge = (worst_late > -safe_margin_us);
-    bool jitter_activity = (stats->pnf_reported_jitter > 20); // 忽略底噪 (如 1 或是 2 us)
+    bool jitter_activity = (stats->pnf_reported_jitter > 20);
     bool significant_variation = (abs_diff > slot_duration_us / 2);
     bool strong_packet_activity = jitter_activity || significant_variation;
     bool edge_activity_panic = near_deadline_edge && strong_packet_activity;
     bool jitter_panic = (stats->pnf_reported_jitter > (uint32_t)safe_margin_us * 2) && (worst_late > -absolute_safe_boundary * 2);
 
-    // 當有足夠流量跡象且封包快要/已經接近 deadline，或異常大抖動、突波震盪時，立即進入 Panic。
     if (edge_activity_panic || jitter_panic || statistical_anomaly) {
         in_panic = true;
 
@@ -313,36 +281,18 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
             abs_diff, anomaly_threshold_us,
             slot_duration_us);
 
-        // 抓到高峰/突波，刷新 Hold-Off 計時器 (FAST ATTACK)
         p7_info->peak_latency_timestamp_hr = now_hr;
-
-        // 如果已經到達目前最高 cap 且仍然持續 panic，就允許逐步延展額外 slot
-        if (s_ahead_env >= max_s_ahead - 1) {
-            p7_info->consecutive_panic_spikes++;
-            if (p7_info->consecutive_panic_spikes > 3) {
-                p7_info->panic_extension_slots += 1;
-                max_s_ahead += 1;
-                p7_info->consecutive_panic_spikes = 0;
-                NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] PANIC EXTENSION: base %d + 8 + extra %d => new max %d",
-                            base_s_ahead, p7_info->panic_extension_slots, max_s_ahead);
-            }
-        } else {
-            p7_info->consecutive_panic_spikes = 0;
-        }
-
-        // 流量瞬間到達而產生 panic，確保遇到各種情況直接跳至最高點
         target_s_ahead = max_s_ahead;
         p7_info->consecutive_late_spikes = 0;
     } else {
         // ===================================================================
         // 3. 安全降檔 (Proactive Latency Reduction)
         // ===================================================================
-        // 只要距離 deadline 超過 2 個 slot duration，就視為安全，可以主動降低 latency
         if (worst_late < -absolute_safe_boundary) {
             p7_info->consecutive_late_spikes++;
             if (p7_info->consecutive_late_spikes > 2000) {
                 int32_t step_down_target = target_s_ahead - 1;
-                int32_t top_zone_threshold = base_s_ahead + 8;
+                int32_t top_zone_threshold = 8;
 
                 if (s_ahead_env == top_zone_threshold && step_down_target == top_zone_threshold - 1) {
                     if (p7_info->stable_top_pending_drop != step_down_target) {
@@ -350,9 +300,8 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
                         NFAPI_TRACE(NFAPI_TRACE_INFO,
                             "[P7_SYNC] TOP HOLD: keeping %d, pending lower target %d until next safe reduction",
                             s_ahead_env, step_down_target);
-                        // 保住 8，不做 8 -> 7 的 tiny adjustment
                     } else {
-                        target_s_ahead -= 2; // 8 -> 6 directly
+                        target_s_ahead -= 2;
                         p7_info->stable_top_pending_drop = 0;
                     }
                 } else {
@@ -369,18 +318,11 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     }
 
     if (target_s_ahead > max_s_ahead) target_s_ahead = max_s_ahead;
-
-    // 如果系統長時間穩定，且已經不再 panic，可緩慢回收 extension
-    if (!in_panic && p7_info->panic_extension_slots > 0) {
-        p7_info->panic_extension_slots = 0;
-    }
-    
-    int32_t floor_s_ahead = base_s_ahead > 0 ? base_s_ahead : 1;
-    if (target_s_ahead < floor_s_ahead) target_s_ahead = floor_s_ahead;
+    if (target_s_ahead < 1) target_s_ahead = 1;
 
     if (target_s_ahead != s_ahead_env) {
-        NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Dynamic Slot Ahead Adjusted: %d -> %d (worst_late: %d, mean: %d, base_s_ahead: %d, in_panic: %d)",
-                    s_ahead_env, target_s_ahead, worst_late, p7_info->estimated_mean_late, base_s_ahead, in_panic);
+        NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Dynamic Slot Ahead Adjusted: %d -> %d (worst_late: %d, mean: %d, in_panic: %d)",
+                    s_ahead_env, target_s_ahead, worst_late, p7_info->estimated_mean_late, in_panic);
         s_ahead_env = target_s_ahead;
     }
 }
