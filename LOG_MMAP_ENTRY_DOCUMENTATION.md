@@ -75,7 +75,7 @@
 
 ### 2(c).1 Python 讀取提醒
 - `pnf_timing_window-us.bin`、`vnf_advance_time-us.bin` 為 packed log；其 raw record 應先讀成 signed 64-bit 再拆欄位。
-- `pnf_p7_msg_age_stale-us.bin`、`pnf_p7_stale_seg_expected-count.bin`、`pnf_p7_stale_seg_received-count.bin`、`vnf_timing_total_advanced_us-us.bin`、`vnf_timing_pending_us-us.bin`、`vnf_harq_rtt-us.bin`、`vnf_dl_harq_exhausted.bin`、`vnf_dl_harq_available_count.bin`、`vnf_rlc_hol_delay-us.bin`、`vnf_rlc_am_sdu_ack_delay-us.bin`、`rlc_am_ctrl_pdu_discard_tx_size-B.bin` 等皆為 raw log，直接讀出 signed 64-bit integer 即可。
+- `pnf_p7_msg_age_stale-us.bin`、`pnf_p7_stale_seg_expected-count.bin`、`pnf_p7_stale_seg_received-count.bin`、`vnf_timing_total_advanced_us-us.bin`、`vnf_timing_pending_us-us.bin`、`vnf_harq_rtt-us.bin`、`vnf_dl_harq_available-count.bin`、`vnf_rlc_hol_delay-us.bin`、`vnf_rlc_am_sdu_ack_delay-us.bin`、`rlc_am_ctrl_pdu_discard_tx_size-B.bin` 等皆為 raw log，直接讀出 signed 64-bit integer 即可。
 - Python 讀取範例：
 
 ```python
@@ -131,9 +131,10 @@ with open("logs/pnf_timing_window-us.bin.000", "rb") as f:
 | `vnf_timing_total_advanced_us` | VNF total physical advance | 典型 `0..20k` | μs | raw log |
 | `vnf_timing_pending_us` | VNF pending timing debt | 典型 `-20k..20k` | μs | raw log |
 | `vnf_harq_rtt` | HARQ round-trip delay | 典型 `0..20k` | μs | raw log |
-| `vnf_dl_harq_exhausted` | DL HARQ process exhaustion event | `0..1` | count | raw log |
-| `vnf_dl_harq_available_count` | Available DL HARQ process count at scheduling | 典型 `0..N` | count | raw log |
+| `vnf_dl_harq_available-count` | Available DL HARQ process count at scheduling, including `0` when no HARQ process is free | 典型 `0..N` | count | raw log |
 | `vnf_rlc_hol_delay` | RLC HOL delay | 典型 `0..20k` | μs | raw log |
+
+> Note: Use `vnf_dl_harq_available-count.bin` as the primary distribution log for HARQ availability. It includes `0` values when no DL HARQ process was free.
 | `vnf_rlc_am_sdu_ack_delay` | RLC SDU ACK delay from arrival to acknowledgment | 典型 `0..20k` | μs | raw log |
 | `rlc_am_ctrl_pdu_discard_tx_size-B` | Control PDU discard 發生時 RLC TX buffer 未確認資料量 | 典型 `0..N bytes` | Bytes | raw log |
 
