@@ -300,7 +300,6 @@ static mac_rlc_status_resp_t _nr_rlc_status_ind(nr_rlc_ue_t *ue, frame_t frame, 
     buf_stat = rb->buffer_status(rb, 1000 * 1000);
     ret.bytes_in_buffer = buf_stat.status_size + buf_stat.retx_size + buf_stat.tx_size;
     rb->get_stats(rb, &rlc_stats);
-    log_mmap_entry("vnf_rlc_hol_delay-us.bin", (long)rlc_stats.txsdu_wt_us);
     // Replace txsdu_avg_time_to_tx with rxbuf_occ_bytes to track MAC out-of-order / HARQ delay size
   
   } else {
