@@ -605,7 +605,6 @@ void pnf_p7_rx_reassembly_queue_remove_old_msgs(pnf_p7_t* pnf_p7, pnf_p7_rx_reas
 			NFAPI_TRACE(NFAPI_TRACE_WARN, "Deleting stale reassembly message (packet rx_hr_time %u current rx_hr_time %u delta %d us)\n", iterator->rx_hr_time, rx_hr_time, delta);
 			
 			long drop_age = timehr_diff_us(rx_hr_time, iterator->rx_hr_time);
-			log_mmap_entry("pnf_p7_msg_age_stale-us.bin", drop_age);
 			log_mmap_entry("pnf_p7_stale_seg_expected-count.bin", iterator->num_segments_expected);
 			log_mmap_entry("pnf_p7_stale_seg_received-count.bin", iterator->num_segments_received);
 
