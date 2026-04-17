@@ -1164,7 +1164,6 @@ static inline void p7_sync_init(nfapi_vnf_p7_connection_info_t *p7_info)
 int s_ahead_env = 0;
 
 void *vnf_timing_thread(void *arg) {
-  static __thread int32_t thread_burst_debt_us = 0;
   LOG_I(NFAPI_VNF, "Starting VNF autonomous timing thread\n");
   vnf_p7_info *p7_vnf = (vnf_p7_info *)arg;
   vnf_p7_t *vnf_p7 = (vnf_p7_t *)p7_vnf->config;
@@ -1234,8 +1233,10 @@ void *vnf_timing_thread(void *arg) {
   struct timespec now;
   while (p7_info->running) {
     pthread_mutex_lock(&p7_info->mutex);
+    p7_info->total_advanced_us = s_ahead_env * p7_info->slot_duration_us;
     if (p7_info->slot_adjustment != 0) {
       sfnslot_dec = (sfnslot_dec + p7_info->slot_adjustment + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
+      if (p7_info->sync_locked) p7_info->total_advanced_us += p7_info->slot_adjustment;
       p7_info->slot_adjustment = 0;
     }
     int32_t current_pending_us = p7_info->pending_us;
@@ -1267,7 +1268,6 @@ void *vnf_timing_thread(void *arg) {
       phy_nr_slot_indication(&ind);
       log_mmap_entry("vnf_advance_time-us.bin", pack_sfn_slot_value(ind_sfn, ind_slot, p7_info->total_advanced_us));
     }
-    log_mmap_entry("vnf_timing_total_advanced_us-us.bin", (long)p7_info->total_advanced_us);
     log_mmap_entry("vnf_timing_pending_us-us.bin", (long)current_pending_us);
 
     sfnslot_dec = (sfnslot_dec + 1) % MAX_SFNSLOTDEC;
