@@ -112,9 +112,9 @@ case "$MODE" in
         stop_ue_local
         ;;
     all)
+        stop_pnf_local
         stop_vnf_hpe
         stop_vnf_local
-        stop_pnf_local
         stop_gnb_local
         stop_ue_local
         ;;
