@@ -882,7 +882,6 @@ static void init_vnf_mmap_loggers(void)
   init_mmap_logger("vnf_timing_pure_os_delay-us.bin");
   init_mmap_logger("vnf_timing_skip_slots-count.bin");
   init_mmap_logger("vnf_dl_harq_available-count.bin");
-  init_mmap_logger("vnf_dl_harq_starvation-count.bin");
   init_mmap_logger("vnf_dl_cqi-idx.bin");
   init_mmap_logger("vnf_dl_mcs-idx.bin");
   init_mmap_logger("vnf_dl_tbs-B.bin");

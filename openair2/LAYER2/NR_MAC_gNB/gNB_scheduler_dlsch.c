@@ -729,9 +729,6 @@ static void pf_dl(gNB_MAC_INST *mac,
        * (this can be considered a design flaw) */
       if (sched_ctrl->available_dl_harq.head < 0) {
         log_mmap_entry("vnf_dl_harq_available-count.bin", 0);
-        if (dlsch_to_schedule(sched_ctrl, frame)) {
-          log_mmap_entry("vnf_dl_harq_starvation-count.bin", 1);
-        }
         LOG_D(NR_MAC, "[UE %04x][%4d.%2d] UE has no free DL HARQ process, skipping\n",
               UE->rnti,
               frame,
