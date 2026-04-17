@@ -33,6 +33,13 @@
 #include "common/ran_context.h"
 #include "common/utils/nr/nr_common.h"
 #include "nfapi/oai_integration/vendor_ext.h"
+extern void log_mmap_entry(const char *log_name, uint64_t value);
+/* log_mmap metrics for PUCCH / HARQ / CQI analysis:
+ * - vnf_dl_cqi-idx.bin: reported wideband CQI index
+ * - vnf_dl_snr-dB10.bin: UL feedback SNR in dB*10
+ * - vnf_dl_harq_nack-count.bin: HARQ NACK events during active DL feedback
+ * - vnf_dl_harq_dtx-count.bin: HARQ DTX events during active DL feedback
+ */
 static void nr_fill_nfapi_pucch(gNB_MAC_INST *nrmac, frame_t frame, slot_t slot, const NR_sched_pucch_t *pucch, NR_UE_info_t* UE)
 {
 
@@ -650,6 +657,7 @@ static void evaluate_cqi_report(uint8_t *payload,
   // NR_CSI_ReportConfig__cqi_Table_table3	= 2
   sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.cqi_table = cqi_Table;
   sched_ctrl->CSI_report.cri_ri_li_pmi_cqi_report.wb_cqi_1tb = temp_cqi;
+  log_mmap_entry("vnf_dl_cqi-idx.bin", temp_cqi);
   LOG_D(MAC,"Wide-band CQI for the first TB %d\n", temp_cqi);
   if (cqi_bitlen > 4) {
     temp_cqi = pickandreverse_bits(payload, 4, cumul_bits);
@@ -956,6 +964,11 @@ void handle_nr_uci_pucch_0_1(module_id_t mod_id, frame_t frame, slot_t slot, con
       LOG_D(NR_MAC,"%4d.%2d bit %d pid %d ack/nack %d\n",frame, slot, harq_bit,pid,harq_value);
       nr_mac_update_pdcch_closed_loop_adjust(sched_ctrl, harq_confidence != 0);
       bool success = harq_value == 0 && harq_confidence == 0;
+      if (harq_confidence == 1) {
+        log_mmap_entry("vnf_dl_harq_dtx-count.bin", 1);
+      } else if (!success) {
+        log_mmap_entry("vnf_dl_harq_nack-count.bin", 1);
+      }
       // TCI state switch occurs at the first slot that is after slot n_+ T_HARQ + 3N_sf_slot (8.10.3 of 38.133)
       if (success && harq->start_tci_timer) {
         int slots = 3 * nrmac->frame_structure.numb_slots_frame / 10;
@@ -981,6 +994,7 @@ void handle_nr_uci_pucch_0_1(module_id_t mod_id, frame_t frame, slot_t slot, con
     // tpc (power control) only if we received AckNack
     if (uci_01->harq.harq_confidence_level == 0 && uci_01->ul_cqi != 0xff) {
       int pucch_snrx10 = uci_01->ul_cqi * 5 - 640;
+      log_mmap_entry("vnf_dl_snr-dB10.bin", (uint64_t)(int64_t)pucch_snrx10); // signed dB*10
       nr_mac_pc_snr(&sched_ctrl->pucch_pc, pucch_snrx10, uci_01->rssi);
 
       T(T_GNB_MAC_PUCCH_POWER_CONTROL,
@@ -1023,6 +1037,7 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, frame_t frame, slot_t slot, c
   // TODO PUCCH2 SNR computation is not correct -> ignore the following
   if (uci_234->ul_cqi != 0xff) {
     int pucch_snrx10 = uci_234->ul_cqi * 5 - 640;
+    log_mmap_entry("vnf_dl_snr-dB10.bin", (uint64_t)(int64_t)pucch_snrx10); // signed dB*10
     nr_mac_pc_snr(&sched_ctrl->pucch_pc, pucch_snrx10, uci_234->rssi);
 
     T(T_GNB_MAC_PUCCH_POWER_CONTROL,
@@ -1052,8 +1067,11 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, frame_t frame, slot_t slot, c
       DevAssert(harq->is_waiting);
       remove_nr_list(&sched_ctrl->feedback_dl_harq, pid);
       LOG_D(NR_MAC,"%4d.%2d bit %d pid %d ack/nack %d\n",frame, slot, harq_bit, pid, acknack);
-      // TCI state switch occurs at the first slot that is after slot n_+ T_HARQ + 3N_sf_slot (8.10.3 of 38.133)
       bool success = uci_234->harq.harq_crc != 1 && acknack;
+      if (!success) {
+        log_mmap_entry("vnf_dl_harq_nack-count.bin", 1);
+      }
+      // TCI state switch occurs at the first slot that is after slot n_+ T_HARQ + 3N_sf_slot (8.10.3 of 38.133)
       if (success && harq->start_tci_timer) {
         int slots = 3 * nrmac->frame_structure.numb_slots_frame / 10;
         nr_timer_setup(&sched_ctrl->tci_beam_switch, slots, 1);
@@ -1267,6 +1285,7 @@ int nr_acknack_scheduling(gNB_MAC_INST *mac,
       curr_pucch->dai_c++;
       LOG_D(NR_MAC, "DL %4d.%2d, UL_ACK %4d.%2d Scheduling ACK/NACK in PUCCH %d with timing indicator %d DAI %d CSI %d\n",
             frame,slot,curr_pucch->frame,curr_pucch->ul_slot,pucch_index,f,curr_pucch->dai_c,curr_pucch->csi_bits);
+      log_mmap_entry("vnf_dl_harq_k1-count.bin", (uint64_t)(pdsch_to_harq_feedback[f] + NTN_gNB_Koffset));
       return pucch_index; // index of current PUCCH structure
     }
     else if (curr_pucch->active) {
@@ -1315,6 +1334,7 @@ int nr_acknack_scheduling(gNB_MAC_INST *mac,
 
       LOG_D(NR_MAC, "DL %4d.%2d, UL_ACK %4d.%2d Scheduling ACK/NACK in PUCCH %d with timing indicator %d DAI %d\n",
             frame, slot, curr_pucch->frame, curr_pucch->ul_slot, pucch_index, f, curr_pucch->dai_c);
+      log_mmap_entry("vnf_dl_harq_k1-count.bin", (uint64_t)(pdsch_to_harq_feedback[f] + NTN_gNB_Koffset));
 
       // blocking resources for current PUCCH in VRB map
       set_pucch0_vrb_occupation(curr_pucch, vrb_map_UL, bwp_start);

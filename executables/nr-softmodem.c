@@ -884,6 +884,14 @@ static void init_vnf_mmap_loggers(void)
   init_mmap_logger("vnf_timing_pure_os_delay-us.bin");
   init_mmap_logger("vnf_timing_skip_slots-count.bin");
   init_mmap_logger("vnf_dl_harq_available-count.bin");
+  init_mmap_logger("vnf_dl_cqi-idx.bin");
+  init_mmap_logger("vnf_dl_mcs-idx.bin");
+  init_mmap_logger("vnf_dl_tbs-B.bin");
+  init_mmap_logger("vnf_dl_rb_size-PRB.bin");
+  init_mmap_logger("vnf_dl_snr-dB10.bin");
+  init_mmap_logger("vnf_dl_harq_nack-count.bin");
+  init_mmap_logger("vnf_dl_harq_dtx-count.bin");
+  init_mmap_logger("vnf_dl_harq_k1-count.bin");
   // Track continuous VNF-PNF latency measurements and advance timing
   init_mmap_logger("vnf_advance_time-us.bin");
   init_mmap_logger("vnf_pnf_latency-us.bin");

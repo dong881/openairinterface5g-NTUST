@@ -36,6 +36,12 @@
 #include "LAYER2/NR_MAC_gNB/mac_proto.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
 
+/* log_mmap metrics added for slot-ahead analysis:
+ * - vnf_dl_mcs-idx.bin: selected MCS index
+ * - vnf_dl_tbs-B.bin: scheduled TBS bytes
+ * - vnf_dl_rb_size-PRB.bin: scheduled PRB count
+ * - vnf_dl_harq_available-count.bin: free DL HARQ process count
+ */
 /*TAG*/
 #include "NR_TAG-Id.h"
 
@@ -750,6 +756,7 @@ static void pf_dl(gNB_MAC_INST *mac,
         sched_ctrl->dl_bler_stats.mcs = selected_mcs;
       } else
         selected_mcs = get_mcs_from_bler(bo, stats, &sched_ctrl->dl_bler_stats, max_mcs, frame);
+      log_mmap_entry("vnf_dl_mcs-idx.bin", selected_mcs);
       int l = get_dl_nrOfLayers(sched_ctrl, current_BWP->dci_format);
       const uint8_t Qm = nr_get_Qm_dl(selected_mcs, current_BWP->mcsTableIdx);
       const uint16_t R = nr_get_code_rate_dl(selected_mcs, current_BWP->mcsTableIdx);
@@ -1102,6 +1109,8 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pdsch, NR_UE
     harq->is_waiting = true;
   }
   UE->mac_stats.dl.rounds[harq->round]++;
+  if (harq->round > 0) {
+  }
   int tpc = nr_mac_get_tpc(&sched_ctrl->pucch_pc);
   LOG_D(NR_MAC,
         "%4d.%2d [DLSCH/PDSCH/PUCCH] RNTI %04x DCI L %d start %3d RBs %3d startSymbol %2d nb_symbol %2d dmrspos %x MCS %2d nrOfLayers %d TBS %4d HARQ PID %2d round %d RV %d NDI %d dl_data_to_ULACK %d (%d.%d) PUCCH allocation %d TPC %d\n",
@@ -1398,6 +1407,8 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pdsch, NR_UE
   DevAssert(nrOfLayers >= 1 && nrOfLayers <= 8);
   DevAssert(current_BWP->mcsTableIdx >= 0 && current_BWP->mcsTableIdx <= 1);
   DevAssert(sched_pdsch->mcs >= 0 && sched_pdsch->mcs <= 31);
+  log_mmap_entry("vnf_dl_tbs-B.bin", TBS);      // bytes
+  log_mmap_entry("vnf_dl_rb_size-PRB.bin", sched_pdsch->rbSize); // PRBs
   
   NR_du_stats_t *stats = &nr_mac->du_stats;
   stats->pdsch_mcs_dist[nrOfLayers - 1][current_BWP->mcsTableIdx][sched_pdsch->mcs] += sched_pdsch->rbSize;
