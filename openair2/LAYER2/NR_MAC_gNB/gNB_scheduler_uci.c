@@ -1249,7 +1249,8 @@ int nr_acknack_scheduling(gNB_MAC_INST *mac,
       if (r_pucch >= 0 && is_mixed_slot(mod_slot, fs) && pc->tdd_slot_bitmap[mod_slot].num_ul_symbols < 2)
         continue;
     }
-    const int pucch_frame = (frame + ((slot + pdsch_to_harq_feedback[f] + NTN_gNB_Koffset) / n_slots_frame)) % MAX_FRAME_NUMBER;
+    const int k1_value = pdsch_to_harq_feedback[f] + NTN_gNB_Koffset;
+    const int pucch_frame = (frame + ((slot + k1_value) / n_slots_frame)) % MAX_FRAME_NUMBER;
     // we store PUCCH resources according to slot, TDD configuration and size of the vector containing PUCCH structures
     const int pucch_index = get_pucch_index(pucch_frame, pucch_slot, &mac->frame_structure, sched_ctrl->sched_pucch_size);
     NR_sched_pucch_t *curr_pucch = &sched_ctrl->sched_pucch[pucch_index];
