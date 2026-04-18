@@ -1240,6 +1240,9 @@ void *vnf_timing_thread(void *arg) {
       p7_info->slot_adjustment = 0;
     }
     int32_t current_pending_us = p7_info->pending_us;
+    if (p7_info->sync_locked) {
+      p7_info->total_advanced_us -= current_pending_us;
+    }
     p7_info->pending_us = 0;
     pthread_mutex_unlock(&p7_info->mutex);
 
@@ -1250,9 +1253,6 @@ void *vnf_timing_thread(void *arg) {
     p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec);
     p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
 
-    int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
-    int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC);
-
     if (p7_info->sync_slot_counter >= p7_info->sync_period_slots) {
       p7_info->sync_slot_counter = 0;
       vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
@@ -1260,13 +1260,29 @@ void *vnf_timing_thread(void *arg) {
       p7_info->sync_slot_counter++;
     }
 
-    nfapi_nr_slot_indication_scf_t ind = {0};
-    ind.sfn = ind_sfn;
-    ind.slot = ind_slot;
-    ind.header.phy_id = p7_info->phy_id;
+    int target_ind_dec = (sfnslot_dec + s_ahead_env) % MAX_SFNSLOTDEC;
+    static int last_mac_ind_dec = -1;
+    if (last_mac_ind_dec == -1) {
+      last_mac_ind_dec = (target_ind_dec - 1 + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
+    }
+
+    while (last_mac_ind_dec != target_ind_dec) {
+      last_mac_ind_dec = (last_mac_ind_dec + 1) % MAX_SFNSLOTDEC;
+      int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, last_mac_ind_dec);
+      int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, last_mac_ind_dec);
+      
+      nfapi_nr_slot_indication_scf_t ind = {0};
+      ind.sfn = ind_sfn;
+      ind.slot = ind_slot;
+      ind.header.phy_id = p7_info->phy_id;
+      
+      if (p7_info->sync_locked) {
+        phy_nr_slot_indication(&ind);
+      }
+    }
+    
     if (p7_info->sync_locked) {
-      phy_nr_slot_indication(&ind);
-      log_mmap_entry("vnf_advance_time-us.bin", pack_sfn_slot_value(ind_sfn, ind_slot, p7_info->total_advanced_us));
+      log_mmap_entry("vnf_advance_time-us.bin", pack_sfn_slot_value(p7_info->sfn, p7_info->slot, p7_info->total_advanced_us));
     }
     log_mmap_entry("vnf_timing_pending_us-us.bin", (long)current_pending_us);
 

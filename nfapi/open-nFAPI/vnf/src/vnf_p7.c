@@ -257,13 +257,56 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         }
     }
 
-    bool near_deadline_edge = (worst_late > -safe_margin_us);
+    /* Estimate current effective slot advance using the absolute tracked phase.
+     * This is the key data point for slot-ahead adaptation, especially when
+     * the VNF is making sub-slot sleep adjustments in addition to slot shifts.
+     */
+    int32_t current_slot_estimate = (p7_info->total_advanced_us + slot_duration_us / 2) / slot_duration_us;
+    if (current_slot_estimate < 1) current_slot_estimate = 1;
+    if (current_slot_estimate > max_s_ahead) current_slot_estimate = max_s_ahead;
+
+    bool positive_timing = (worst_late >= 0);
+    bool near_deadline_edge = (worst_late > 0 && worst_late < slot_duration_us);
     bool jitter_activity = (stats->pnf_reported_jitter > 20);
     bool significant_variation = (abs_diff > slot_duration_us / 2);
     bool strong_packet_activity = jitter_activity || significant_variation;
-    bool edge_activity_panic = near_deadline_edge && strong_packet_activity;
-    bool strict_deadline_violation = (worst_late >= 0);
-    bool jitter_panic = (stats->pnf_reported_jitter > (uint32_t)safe_margin_us * 2) && (worst_late > -absolute_safe_boundary * 2);
+    bool edge_activity_panic = positive_timing && (target_s_ahead <= current_slot_estimate) && near_deadline_edge && strong_packet_activity;
+    bool strict_deadline_violation = (worst_late >= slot_duration_us);
+    bool jitter_panic = positive_timing && (stats->pnf_reported_jitter > (uint32_t)safe_margin_us * 2) && (worst_late > -absolute_safe_boundary * 2);
+    if (!positive_timing) {
+        statistical_anomaly = false;
+    }
+
+    /* Use last_total_advanced_us to detect whether the previous phase move
+     * helped or overshot the latency direction. This avoids repeated
+     * oscillation around the boundary between 7 and 8.
+     */
+    int32_t last_phase_delta_us = p7_info->total_advanced_us - p7_info->last_total_advanced_us;
+    bool phase_direction_helpful = false;
+    if (last_phase_delta_us > 0 && worst_late > 0) phase_direction_helpful = true;
+    if (last_phase_delta_us < 0 && worst_late < 0) phase_direction_helpful = true;
+
+    /* Determine a discrete target slot ahead when the timing window clearly
+     * supports a step change. This should be smoother than jumping to 8 every
+     * deadline violation, and should prefer the smallest slot shift that still
+     * resolves the late/early error.
+     */
+    int32_t proposed_slot_ahead = current_slot_estimate;
+    if (worst_late >= slot_duration_us / 2) {
+        proposed_slot_ahead = current_slot_estimate + 1;
+    }
+    // DO NOT aggressively push down! Only push down safely in section 3 (Proactive Latency Reduction)
+    if (proposed_slot_ahead < 1) proposed_slot_ahead = 1;
+    if (proposed_slot_ahead > max_s_ahead) proposed_slot_ahead = max_s_ahead;
+
+    if (proposed_slot_ahead != target_s_ahead) {
+        int32_t move = proposed_slot_ahead - target_s_ahead;
+        if (abs(move) > 1 && !phase_direction_helpful) {
+            target_s_ahead += (move > 0 ? 1 : -1);
+        } else {
+            target_s_ahead = proposed_slot_ahead;
+        }
+    }
 
     if (edge_activity_panic || jitter_panic || statistical_anomaly || strict_deadline_violation) {
         in_panic = true;
@@ -285,7 +328,16 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
             slot_duration_us);
 
         p7_info->peak_latency_timestamp_hr = now_hr;
-        target_s_ahead = max_s_ahead;
+        
+        // Instead of jumping blindly to max, take a measured jump based on severity
+        // Jump +2 slots, or more if strictly necessary, but bounded to max_s_ahead.
+        int32_t step_up = 2;
+        if (strict_deadline_violation) {
+            step_up = (worst_late / slot_duration_us) + 2;
+        }
+        target_s_ahead += step_up;
+        if (target_s_ahead > max_s_ahead) target_s_ahead = max_s_ahead;
+
         p7_info->consecutive_late_spikes = 0;
     } else {
         // ===================================================================
@@ -297,7 +349,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
                 int32_t step_down_target = target_s_ahead - 1;
                 int32_t top_zone_threshold = 8;
 
-                if (s_ahead_env == top_zone_threshold && step_down_target == top_zone_threshold - 1) {
+                if (false && s_ahead_env == top_zone_threshold && step_down_target == top_zone_threshold - 1) {
                     if (p7_info->stable_top_pending_drop != step_down_target) {
                         p7_info->stable_top_pending_drop = step_down_target;
                         NFAPI_TRACE(NFAPI_TRACE_INFO,
@@ -324,10 +376,14 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     if (target_s_ahead < 1) target_s_ahead = 1;
 
     if (target_s_ahead != s_ahead_env) {
+        int32_t shift_us = (target_s_ahead - s_ahead_env) * slot_duration_us;
+        p7_info->estimated_mean_late += shift_us;
+
         NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Dynamic Slot Ahead Adjusted: %d -> %d (worst_late: %d, mean: %d, in_panic: %d)",
                     s_ahead_env, target_s_ahead, worst_late, p7_info->estimated_mean_late, in_panic);
+        p7_info->last_total_advanced_us = p7_info->total_advanced_us;
         s_ahead_env = target_s_ahead;
-    }else if(p7_info->sfn % 256 == 0){
+    } else if (p7_info->sfn % 256 == 0) {
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Slot Ahead Maintained: %d (worst_late: %d, mean: %d, in_panic: %d)",
 					s_ahead_env, worst_late, p7_info->estimated_mean_late, in_panic);
 	}
@@ -1933,6 +1989,15 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	get_vnf_timing_envs(&slot_ahead, &target_margin_initial);
 
 	int32_t total_correction = offset + target_margin_initial;
+	int32_t phase_delta_us = p7_info->total_advanced_us - p7_info->last_total_advanced_us;
+	int32_t adaptive_gain = 8;
+	if (phase_delta_us != 0) {
+		if ((phase_delta_us > 0 && offset > 0) || (phase_delta_us < 0 && offset < 0)) {
+			adaptive_gain = 4; // previous advance direction agrees with current offset, allow stronger correction
+		} else {
+			adaptive_gain = 12; // previous adjustment overshot or reversed, dampen correction
+		}
+	}
 
 	pthread_mutex_lock(&p7_info->mutex);
 	
@@ -1977,8 +2042,8 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 		// [Continuous Node Sync / PLL Phase Tracking for Dynamic Channel tc]
 		// Modifies the VNF to continuously adapt to asymmetric latency shifts smoothly
 		if (total_correction < -MARGIN_TOLERANCE_US || total_correction > MARGIN_TOLERANCE_US) {
-			// Dampened PLL adjustment (gain = 1/8) to avoid jitter oscillation
-			int32_t p_adj = total_correction / 8;
+			// Dampened PLL adjustment, adapt gain using last_total_advanced_us to avoid oscillation
+			int32_t p_adj = total_correction / adaptive_gain;
 			
 			// Limit jumps to maximum 1/4 of a slot duration per adjustment (ensures smooth tracking)
 			int32_t max_step = p7_info->slot_duration_us / 4;
@@ -1990,10 +2055,12 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 			// Only tweak physical sleep timing (pending_us) directly.
 			if (p_adj != 0) {
 				p7_info->pending_us -= p_adj;
+				p7_info->total_advanced_us += p_adj;
+				p7_info->last_total_advanced_us = p7_info->total_advanced_us;
 				p7_info->last_adjustment_time_hr = vnf_get_current_time_hr();
 				NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-					"[P7_SYNC_CONT] tracking phy_id:%d offset:%d total_err:%d applied_adj:%d us\n",
-					ind.header.phy_id, offset, total_correction, p_adj);
+					"[P7_SYNC_CONT] tracking phy_id:%d offset:%d total_err:%d applied_adj:%d us phase_delta:%d total_advance:%d\n",
+					ind.header.phy_id, offset, total_correction, p_adj, phase_delta_us, p7_info->total_advanced_us);
 			}
 		}
 	}
