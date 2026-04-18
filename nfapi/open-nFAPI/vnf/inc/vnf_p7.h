@@ -166,6 +166,7 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t panic_extension_slots;
 	int32_t consecutive_panic_spikes;
 	int32_t stable_top_pending_drop;
+	int32_t reduction_penalty_counter;
 
 	int32_t total_advanced_us; // Absolute cumulative phase shift relative to initial sync
 	int32_t last_total_advanced_us; // Reference total advance measured at last adjustment

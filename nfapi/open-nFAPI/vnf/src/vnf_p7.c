@@ -334,6 +334,11 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         int32_t step_up = 2;
         if (strict_deadline_violation) {
             step_up = (worst_late / slot_duration_us) + 2;
+            // Apply a harsh penalty on the reduction threshold to avoid rapid bounce-back
+            p7_info->reduction_penalty_counter += 10000;
+            if (p7_info->reduction_penalty_counter > 500000) {
+                p7_info->reduction_penalty_counter = 500000;
+            }
         }
         target_s_ahead += step_up;
         if (target_s_ahead > max_s_ahead) target_s_ahead = max_s_ahead;
@@ -345,7 +350,15 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         // ===================================================================
         if (worst_late < -absolute_safe_boundary) {
             p7_info->consecutive_late_spikes++;
-            if (p7_info->consecutive_late_spikes > 2000) {
+            
+            // Leaky bucket decay for the penalty when operating safely
+            if (p7_info->reduction_penalty_counter > 0) {
+                p7_info->reduction_penalty_counter--;
+            }
+            
+            int32_t current_threshold = 2000 + p7_info->reduction_penalty_counter;
+
+            if (p7_info->consecutive_late_spikes > current_threshold) {
                 int32_t step_down_target = target_s_ahead - 1;
                 int32_t top_zone_threshold = 8;
 
