@@ -532,7 +532,7 @@ configmodule_interface_t *uniqCfg = NULL;
 // Log file parameters
 // Set to 50MB per split file
 #define SPLIT_LOG_SIZE (50 * 1024 * 1024)
-#define MAX_LOG_FILES 16
+#define MAX_LOG_FILES 32
 #define MAX_SPLIT_INDEX 999
 #define LOG_OUTPUT_DIR "logs"
 #define LOG_HASH_SIZE 32
