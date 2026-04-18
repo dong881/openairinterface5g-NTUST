@@ -26,8 +26,9 @@
   - `vnf_dl_harq_exhausted`
   - `vnf_dl_harq_available_count`
   - `vnf_rlc_hol_delay`
-  - `vnf_rlc_am_sdu_ack_delay`
-  - `rlc_am_ctrl_pdu_discard_tx_size-B`
+  - `rlc_am_sn_in_tx_window-count`
+  - `rlc_am_arq_retx-count`
+  - `rlc_am_arq_rtt-us`
 - `MONOLITHIC` mode 可能同時產生上述 PNF 與 VNF log。
 
 > 這裡的 `VNF mode` 即程式中對應的 VNF 執行模式。
@@ -63,8 +64,9 @@
   - `vnf_dl_harq_exhausted`
   - `vnf_dl_harq_available_count`
   - `vnf_rlc_hol_delay`
-  - `vnf_rlc_am_sdu_ack_delay`
-  - `rlc_am_ctrl_pdu_discard_tx_size-B`
+  - `rlc_am_sn_in_tx_window-count`
+  - `rlc_am_arq_rtt-us`
+  - `rlc_am_arq_retx-count`
 - 這些 log 只儲存一個 signed 64-bit 量測值
 
 ### 2(c) Packed log 的欄位分配
@@ -75,7 +77,7 @@
 
 ### 2(c).1 Python 讀取提醒
 - `pnf_timing_window-us.bin`、`vnf_advance_time-us.bin` 為 packed log；其 raw record 應先讀成 signed 64-bit 再拆欄位。
-- `pnf_p7_msg_age_stale-us.bin`、`pnf_p7_stale_seg_expected-count.bin`、`pnf_p7_stale_seg_received-count.bin`、`vnf_timing_total_advanced_us-us.bin`、`vnf_timing_pending_us-us.bin`、`vnf_harq_rtt-us.bin`、`vnf_dl_harq_available-count.bin`、`vnf_rlc_hol_delay-us.bin`、`vnf_rlc_am_sdu_ack_delay-us.bin`、`rlc_am_ctrl_pdu_discard_tx_size-B.bin` 等皆為 raw log，直接讀出 signed 64-bit integer 即可。
+- `pnf_p7_msg_age_stale-us.bin`、`pnf_p7_stale_seg_expected-count.bin`、`pnf_p7_stale_seg_received-count.bin`、`vnf_timing_pending_us-us.bin`、`vnf_harq_rtt-us.bin`、`vnf_dl_harq_available-count.bin`、`vnf_rlc_hol_delay-us.bin`、`rlc_am_sn_in_tx_window-count.bin`、`rlc_am_arq_rtt-us.bin`、`rlc_am_arq_retx-count.bin` 等皆為 raw log，直接讀出 signed 64-bit integer 即可。
 - Python 讀取範例：
 
 ```python
@@ -136,8 +138,9 @@ with open("logs/pnf_timing_window-us.bin.000", "rb") as f:
 | `vnf_rlc_hol_delay` | RLC HOL delay | 典型 `0..20k` | μs | raw log |
 
 > Note: Use `vnf_dl_harq_available-count.bin` as the primary distribution log for HARQ availability. It includes `0` values when no DL HARQ process was free.
-| `vnf_rlc_am_sdu_ack_delay` | RLC SDU ACK delay from arrival to acknowledgment | 典型 `0..20k` | μs | raw log |
-| `rlc_am_ctrl_pdu_discard_tx_size-B` | Control PDU discard 發生時 RLC TX buffer 未確認資料量 | 典型 `0..N bytes` | Bytes | raw log |
+| `rlc_am_sn_in_tx_window-count` | RLC AM control PDU ACK_SN window validity indicator | `0` or `1` | count | raw log |
+| `rlc_am_arq_retx-count` | RLC AM retransmission count when SDU completes | 典型 `0..N` | count | raw log |
+| `rlc_am_arq_rtt-us` | RLC AM ARQ RTT from first transmission to ACK/clear | 典型 `0..20k` | μs | raw log |
 
 > 以上範圍為程式邏輯推估的典型值；特殊狀況下仍可能超出。
 

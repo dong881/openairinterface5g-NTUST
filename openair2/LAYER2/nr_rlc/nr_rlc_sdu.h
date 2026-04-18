@@ -41,7 +41,8 @@ typedef struct nr_rlc_sdu_t {
    * been serialized for MAC for the first time so that only the first
    * transmission is used for statistics
    */
-  uint64_t time_of_arrival;  /* unit microsecond */
+  uint64_t time_of_arrival;    /* unit microsecond */
+  uint64_t time_of_first_tx;  /* unit microsecond */
 } nr_rlc_sdu_t;
 
 typedef struct nr_rlc_sdu_segment_t {

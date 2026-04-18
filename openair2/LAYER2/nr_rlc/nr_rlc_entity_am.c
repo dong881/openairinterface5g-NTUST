@@ -91,6 +91,14 @@ static inline bool sn_in_tx_window(nr_rlc_entity_am_t *entity, int sn)
   return sn_offset <= tx_range;
 }
 
+static inline void log_rlc_am_arq_metrics(uint64_t time_of_first_tx, int retx_count)
+{
+  log_mmap_entry("rlc_am_arq_rtt-us.bin",
+                 (long)(time_of_first_tx ? time_average_now() - time_of_first_tx : 0));
+  log_mmap_entry("rlc_am_arq_retx-count.bin",
+                 (long)(retx_count >= 0 ? retx_count + 1 : 0));
+}
+
 nr_rlc_sdu_segment_t *nr_rlc_tx_sdu_segment_list_add(nr_rlc_entity_am_t *entity,
     nr_rlc_sdu_segment_t *list, nr_rlc_sdu_segment_t *sdu_segment)
 {
@@ -372,10 +380,11 @@ static void process_control_pdu(nr_rlc_entity_am_t *entity,
   if (!sn_in_tx_window(entity, ack_sn)) {
     LOG_D(RLC, "discard stale/out-of-window control PDU ack_sn (%d) not valid (tx_next_ack %d tx_next %d)\n",
           ack_sn, entity->tx_next_ack, entity->tx_next);
-    log_mmap_entry("rlc_am_ctrl_pdu_discard_tx_size-B.bin",
-                   (uint64_t)entity->tx_size);
+    log_mmap_entry("rlc_am_sn_in_tx_window-count.bin", 0);
     return;
   }
+
+  log_mmap_entry("rlc_am_sn_in_tx_window-count.bin", 1);
 
   /* discard the whole control PDU if NACKs are bad (not <= ack_sn, not in
    * increasing order)
@@ -540,9 +549,15 @@ process_wait_list_head:
          * this is a problem.
          */
         if (cur_wait_list->sdu->retx_count
-              >= entity->max_retx_threshold * cur_wait_list->sdu->ref_count)
+              >= entity->max_retx_threshold * cur_wait_list->sdu->ref_count) {
+          if (cur_wait_list->sdu->retx_count ==
+              entity->max_retx_threshold * cur_wait_list->sdu->ref_count) {
+            log_rlc_am_arq_metrics(cur_wait_list->sdu->time_of_first_tx,
+                                   cur_wait_list->sdu->retx_count);
+          }
           entity->common.max_retx_reached(entity->common.max_retx_reached_data,
                                           (nr_rlc_entity_t *)entity);
+        }
         /* update buffer status */
         entity->common.bstatus.retx_size += compute_pdu_header_size(entity, cur_wait_list)
                                             + cur_wait_list->size;
@@ -564,7 +579,8 @@ process_wait_list_head:
       if (sn_compare_tx(entity, cur_wait_list->sdu->sn, ack_sn) < 0) {
         int upper_layer_id = cur_wait_list->sdu->upper_layer_id;
         int sdu_size = cur_wait_list->sdu->size;
-        uint64_t time_of_arrival = cur_wait_list->sdu->time_of_arrival;
+        uint64_t time_of_first_tx = cur_wait_list->sdu->time_of_first_tx;
+        int retx_count = cur_wait_list->sdu->retx_count;
         prev_wait_list->next = cur_wait_list->next;
         if (cur_wait_list == entity->wait_end)
           end_wait_list = prev_wait_list;
@@ -575,7 +591,7 @@ process_wait_list_head:
           entity->common.sdu_successful_delivery(
               entity->common.sdu_successful_delivery_data,
               (nr_rlc_entity_t *)entity, upper_layer_id);
-          log_mmap_entry("vnf_rlc_am_sdu_ack_delay-us.bin", (long)(time_average_now() - time_of_arrival));
+          log_rlc_am_arq_metrics(time_of_first_tx, retx_count);
         }
         cur_wait_list = prev_wait_list->next;
         goto process_next_pdu;
@@ -630,7 +646,8 @@ process_retransmit_list_head:
         nr_rlc_sdu_segment_t *cur = cur_retransmit_list;
         int upper_layer_id = cur->sdu->upper_layer_id;
         int sdu_size = cur->sdu->size;
-        uint64_t time_of_arrival = cur->sdu->time_of_arrival;
+        uint64_t time_of_first_tx = cur->sdu->time_of_first_tx;
+        int retx_count = cur->sdu->retx_count;
         cur_retransmit_list = cur_retransmit_list->next;
         /* update buffer status */
         entity->common.bstatus.retx_size -= compute_pdu_header_size(entity, cur)
@@ -642,7 +659,7 @@ process_retransmit_list_head:
           entity->common.sdu_successful_delivery(
               entity->common.sdu_successful_delivery_data,
               (nr_rlc_entity_t *)entity, upper_layer_id);
-          log_mmap_entry("vnf_rlc_am_sdu_ack_delay-us.bin", (long)(time_average_now() - time_of_arrival));
+          log_rlc_am_arq_metrics(time_of_first_tx, retx_count);
         }
         goto process_next_pdu;
       }
@@ -692,10 +709,11 @@ lists_over:
      */
     int upper_layer_id = cur_wait_list->sdu->upper_layer_id;
     int sdu_size = cur_wait_list->sdu->size;
-    uint64_t time_of_arrival = cur_wait_list->sdu->time_of_arrival;
+    uint64_t time_of_first_tx = cur_wait_list->sdu->time_of_first_tx;
     prev_wait_list->next = cur_wait_list->next;
     if (cur_wait_list == entity->wait_end)
       end_wait_list = prev_wait_list;
+    int retx_count = cur_wait_list->sdu->retx_count;
     if (nr_rlc_free_sdu_segment(cur_wait_list)) {
       entity->tx_size -= sdu_size;
       // Wait-NACK done: count as successfully transmitted bytes
@@ -703,7 +721,7 @@ lists_over:
       entity->common.sdu_successful_delivery(
           entity->common.sdu_successful_delivery_data,
           (nr_rlc_entity_t *)entity, upper_layer_id);
-      log_mmap_entry("vnf_rlc_am_sdu_ack_delay-us.bin", (long)(time_average_now() - time_of_arrival));
+      log_rlc_am_arq_metrics(time_of_first_tx, retx_count);
     }
     cur_wait_list = prev_wait_list->next;
   }
@@ -716,11 +734,12 @@ lists_over:
     nr_rlc_sdu_segment_t *cur = cur_retransmit_list;
     int upper_layer_id = cur->sdu->upper_layer_id;
     int sdu_size = cur->sdu->size;
-    uint64_t time_of_arrival = cur->sdu->time_of_arrival;
+    uint64_t time_of_first_tx = cur->sdu->time_of_first_tx;
     cur_retransmit_list = cur_retransmit_list->next;
     /* update buffer status */
     entity->common.bstatus.retx_size -= compute_pdu_header_size(entity, cur)
                                         + cur->size;
+    int retx_count = cur->sdu->retx_count;
     if (nr_rlc_free_sdu_segment(cur)) {
       entity->tx_size -= sdu_size;
       // Retransmit-NACK done: count as successfully transmitted bytes
@@ -728,7 +747,7 @@ lists_over:
       entity->common.sdu_successful_delivery(
           entity->common.sdu_successful_delivery_data,
           (nr_rlc_entity_t *)entity, upper_layer_id);
-      log_mmap_entry("vnf_rlc_am_sdu_ack_delay-us.bin", (long)(time_average_now() - time_of_arrival));
+      log_rlc_am_arq_metrics(time_of_first_tx, retx_count);
     }
   }
 
@@ -766,9 +785,6 @@ lists_over:
 
 err:
   LOG_E(RLC, "error decoding control PDU, discarding\n");
-
-  log_mmap_entry("rlc_am_ctrl_pdu_discard_tx_size-B.bin",
-                 (uint64_t)entity->tx_size);
 
 #undef R
 }
@@ -1770,6 +1786,10 @@ static int generate_tx_pdu(nr_rlc_entity_am_t *entity, char *buffer, int size)
     p = 1;
     entity->force_poll = 0;
   }
+
+  if (sdu->sdu->time_of_first_tx == 0)
+    sdu->sdu->time_of_first_tx = time_average_now();
+
   int ret_size = serialize_sdu(entity, sdu, buffer, size, p);
 
   entity->common.stats.txpdu_pkts++;

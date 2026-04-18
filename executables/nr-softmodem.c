@@ -873,14 +873,11 @@ static void init_pnf_mmap_loggers(void)
 static void init_vnf_mmap_loggers(void)
 {
   init_mmap_logger("vnf_harq_rtt-us.bin");
-  init_mmap_logger("vnf_rlc_am_sdu_ack_delay-us.bin");
-  init_mmap_logger("rlc_am_ctrl_pdu_discard_tx_size-B.bin");
+  init_mmap_logger("rlc_am_sn_in_tx_window-count.bin");
+  init_mmap_logger("rlc_am_arq_retx-count.bin");
+  init_mmap_logger("rlc_am_arq_rtt-us.bin");
   init_mmap_logger("vnf_timing_process_us-us.bin");
   init_mmap_logger("vnf_timing_pending_us-us.bin");
-  init_mmap_logger("vnf_timing_total_advanced_us-us.bin");
-  init_mmap_logger("vnf_timing_real_behind_us-us.bin");
-  init_mmap_logger("vnf_timing_pure_os_delay-us.bin");
-  init_mmap_logger("vnf_timing_skip_slots-count.bin");
   init_mmap_logger("vnf_dl_harq_available-count.bin");
   init_mmap_logger("vnf_dl_cqi-idx.bin");
   init_mmap_logger("vnf_dl_mcs-idx.bin");

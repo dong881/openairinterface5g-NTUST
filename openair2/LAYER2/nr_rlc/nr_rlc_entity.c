@@ -95,6 +95,7 @@ nr_rlc_entity_t *new_nr_rlc_entity_am(int rx_maxsize,
                                       int max_retx_threshold,
                                       int sn_field_length)
 {
+  static int rlcam_window_info_printed = 0;
   nr_rlc_entity_am_t *ret;
 
   ret = calloc(1, sizeof(nr_rlc_entity_am_t));
