@@ -132,6 +132,7 @@ with open("logs/pnf_timing_window-us.bin.000", "rb") as f:
 | `vnf_timing_pending_us` | VNF pending timing debt | 典型 `-20k..20k` | μs | raw log |
 | `vnf_harq_rtt` | HARQ round-trip delay | 典型 `0..20k` | μs | raw log |
 | `vnf_dl_harq_available-count` | Available DL HARQ process count at scheduling, including `0` when no HARQ process is free | 典型 `0..N` | count | raw log |
+| `vnf_dl_harq_round-count` | DL HARQ transmission count until success. Values 1..4 indicate successful decode after that many transmissions; 5 indicates DTX or final HARQ failure | 典型 `1..5` | count | raw log |
 | `vnf_rlc_hol_delay` | RLC HOL delay | 典型 `0..20k` | μs | raw log |
 
 > Note: Use `vnf_dl_harq_available-count.bin` as the primary distribution log for HARQ availability. It includes `0` values when no DL HARQ process was free.

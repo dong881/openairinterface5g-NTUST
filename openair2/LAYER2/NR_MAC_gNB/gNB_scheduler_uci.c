@@ -37,8 +37,7 @@ extern void log_mmap_entry(const char *log_name, uint64_t value);
 /* log_mmap metrics for PUCCH / HARQ / CQI analysis:
  * - vnf_dl_cqi-idx.bin: reported wideband CQI index
  * - vnf_dl_snr-dB10.bin: UL feedback SNR in dB*10
- * - vnf_dl_harq_nack-count.bin: HARQ NACK events during active DL feedback
- * - vnf_dl_harq_dtx-count.bin: HARQ DTX events during active DL feedback
+ * - vnf_dl_harq_round-count.bin: DL HARQ transmission count until success, 5 indicates DTX or final HARQ failure
  */
 static void nr_fill_nfapi_pucch(gNB_MAC_INST *nrmac, frame_t frame, slot_t slot, const NR_sched_pucch_t *pucch, NR_UE_info_t* UE)
 {
@@ -391,10 +390,12 @@ static void handle_dl_harq(gNB_MAC_INST *mac, NR_UE_info_t * UE, int8_t harq_pid
   harq->feedback_slot = -1;
   harq->is_waiting = false;
   if (success) {
+    log_mmap_entry("vnf_dl_harq_round-count.bin", (uint64_t)(harq->round + 1));
     if (harq->sched_pdsch.action)
       harq->sched_pdsch.action(mac, UE);
     finish_nr_dl_harq(sched_ctrl, harq_pid);
   } else if (harq->round >= harq_round_max - 1) {
+    log_mmap_entry("vnf_dl_harq_round-count.bin", 5);
     abort_nr_dl_harq(UE, harq_pid);
     LOG_D(NR_MAC, "retransmission error for UE %04x (total %"PRIu64")\n", UE->rnti, UE->mac_stats.dl.errors);
   } else {
@@ -964,11 +965,6 @@ void handle_nr_uci_pucch_0_1(module_id_t mod_id, frame_t frame, slot_t slot, con
       LOG_D(NR_MAC,"%4d.%2d bit %d pid %d ack/nack %d\n",frame, slot, harq_bit,pid,harq_value);
       nr_mac_update_pdcch_closed_loop_adjust(sched_ctrl, harq_confidence != 0);
       bool success = harq_value == 0 && harq_confidence == 0;
-      if (harq_confidence == 1) {
-        log_mmap_entry("vnf_dl_harq_dtx-count.bin", 1);
-      } else if (!success) {
-        log_mmap_entry("vnf_dl_harq_nack-count.bin", 1);
-      }
       // TCI state switch occurs at the first slot that is after slot n_+ T_HARQ + 3N_sf_slot (8.10.3 of 38.133)
       if (success && harq->start_tci_timer) {
         int slots = 3 * nrmac->frame_structure.numb_slots_frame / 10;
@@ -1068,9 +1064,6 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, frame_t frame, slot_t slot, c
       remove_nr_list(&sched_ctrl->feedback_dl_harq, pid);
       LOG_D(NR_MAC,"%4d.%2d bit %d pid %d ack/nack %d\n",frame, slot, harq_bit, pid, acknack);
       bool success = uci_234->harq.harq_crc != 1 && acknack;
-      if (!success) {
-        log_mmap_entry("vnf_dl_harq_nack-count.bin", 1);
-      }
       // TCI state switch occurs at the first slot that is after slot n_+ T_HARQ + 3N_sf_slot (8.10.3 of 38.133)
       if (success && harq->start_tci_timer) {
         int slots = 3 * nrmac->frame_structure.numb_slots_frame / 10;
