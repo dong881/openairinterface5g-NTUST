@@ -2054,7 +2054,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	} else if (slot_ahead == 1 && !skip_adjustment) {
 		// [Continuous Node Sync / PLL Phase Tracking for Dynamic Channel tc]
 		// Modifies the VNF to continuously adapt to asymmetric latency shifts smoothly
-		if (total_correction < -MARGIN_TOLERANCE_US || total_correction > MARGIN_TOLERANCE_US) {
+		if (total_correction < -MARGIN_TOLERANCE_LOCKED_US || total_correction > MARGIN_TOLERANCE_LOCKED_US) {
 			// Dampened PLL adjustment, adapt gain using last_total_advanced_us to avoid oscillation
 			int32_t p_adj = total_correction / adaptive_gain;
 			

@@ -27,8 +27,9 @@
  * DYNAMIC SLOT SLEEP TIMING CONTROL CONSTANTS
  * ============================================================================ */
 /* Dynamic Target Margin (adaptive to avoid late packets) */
-#define MARGIN_TOLERANCE_US     20    // Deadband zone: +/- MARGIN_TOLERANCE_US us
-#define SLOT_ARRAY_SIZE         20    // TDD cycle slot count (Reduced to 20 for faster convergence)
+#define MARGIN_TOLERANCE_US         20    // Initial deadband zone used for first synchronization
+#define MARGIN_TOLERANCE_LOCKED_US 100    // Wider deadband zone used after first sync lock
+#define SLOT_ARRAY_SIZE             20    // TDD cycle slot count (Reduced to 20 for faster convergence)
 
 /*
  * get_vnf_timing_envs():
