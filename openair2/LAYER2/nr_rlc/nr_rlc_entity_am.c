@@ -91,12 +91,23 @@ static inline bool sn_in_tx_window(nr_rlc_entity_am_t *entity, int sn)
   return sn_offset <= tx_range;
 }
 
-static inline void log_rlc_am_arq_metrics(uint64_t time_of_first_tx, int retx_count)
+static inline void log_rlc_am_arq_metrics(uint64_t time_of_first_tx, int retx_count, bool is_error_event)
 {
-  log_mmap_entry("rlc_am_arq_rtt-us.bin",
-                 (long)(time_of_first_tx ? time_average_now() - time_of_first_tx : 0));
-  log_mmap_entry("rlc_am_arq_retx-count.bin",
-                 (long)(retx_count >= 0 ? retx_count + 1 : 0));
+  /* Write explicit timeout/drop events directly to the RTT metric to capture failures.
+   * Successful normal RTTs are now recorded using the precise Polling mechanism
+   * (T_Status - T_Poll) per the standard formula, bypassing double-count issues entirely.
+   */
+  if (is_error_event && time_of_first_tx != 0) {
+    uint64_t now = time_average_now();
+    if (now > time_of_first_tx) {
+      log_mmap_entry("rlc_am_arq_rtt-us.bin", (long)(now - time_of_first_tx));
+    }
+  }
+
+  /* Log the retransmission count for all packets so we do not skew retx distribution */
+  if (retx_count >= 0) {
+    log_mmap_entry("rlc_am_arq_retx-count.bin", (uint64_t)retx_count);
+  }
 }
 
 nr_rlc_sdu_segment_t *nr_rlc_tx_sdu_segment_list_add(nr_rlc_entity_am_t *entity,
@@ -472,8 +483,13 @@ static void process_control_pdu(nr_rlc_entity_am_t *entity,
   /* 38.322 5.3.3.3 says to stop t_poll_retransmit if a ACK or NACK is
    * received for the SN 'poll_sn' - check ACK case (NACK done below)
    */
-  if (sn_compare_tx(entity, entity->poll_sn, ack_sn) < 0)
+  if (sn_compare_tx(entity, entity->poll_sn, ack_sn) < 0) {
+    if (entity->t_poll_retransmit_start != 0 && entity->t_poll_pdu_tx_time != 0) {
+      log_mmap_entry("rlc_am_arq_rtt-us.bin", (long)(time_average_now() - entity->t_poll_pdu_tx_time));
+    }
     entity->t_poll_retransmit_start = 0;
+    entity->t_poll_pdu_tx_time = 0;
+  }
 
   while (e1) {
     nack_sn = nr_rlc_pdu_decoder_get_bits(&decoder, entity->sn_field_length);
@@ -553,7 +569,7 @@ process_wait_list_head:
           if (cur_wait_list->sdu->retx_count ==
               entity->max_retx_threshold * cur_wait_list->sdu->ref_count) {
             log_rlc_am_arq_metrics(cur_wait_list->sdu->time_of_first_tx,
-                                   cur_wait_list->sdu->retx_count);
+                                   cur_wait_list->sdu->retx_count, true);
           }
           entity->common.max_retx_reached(entity->common.max_retx_reached_data,
                                           (nr_rlc_entity_t *)entity);
@@ -591,7 +607,7 @@ process_wait_list_head:
           entity->common.sdu_successful_delivery(
               entity->common.sdu_successful_delivery_data,
               (nr_rlc_entity_t *)entity, upper_layer_id);
-          log_rlc_am_arq_metrics(time_of_first_tx, retx_count);
+          log_rlc_am_arq_metrics(time_of_first_tx, retx_count, false);
         }
         cur_wait_list = prev_wait_list->next;
         goto process_next_pdu;
@@ -659,7 +675,7 @@ process_retransmit_list_head:
           entity->common.sdu_successful_delivery(
               entity->common.sdu_successful_delivery_data,
               (nr_rlc_entity_t *)entity, upper_layer_id);
-          log_rlc_am_arq_metrics(time_of_first_tx, retx_count);
+          log_rlc_am_arq_metrics(time_of_first_tx, retx_count, false);
         }
         goto process_next_pdu;
       }
@@ -691,8 +707,10 @@ lists_over:
      * received for the SN 'poll_sn' - check NACK case (ACK done above)
      */
     if (sn_compare_tx(entity, nack_sn, entity->poll_sn) <= 0 &&
-        sn_compare_tx(entity, entity->poll_sn, (nack_sn + range) % entity->sn_modulus) < 0)
+        sn_compare_tx(entity, entity->poll_sn, (nack_sn + range) % entity->sn_modulus) < 0) {
       entity->t_poll_retransmit_start = 0;
+      entity->t_poll_pdu_tx_time = 0;
+    }
   } /* while (e1) */
 
   /* nacks done, finish with ack */
@@ -721,7 +739,7 @@ lists_over:
       entity->common.sdu_successful_delivery(
           entity->common.sdu_successful_delivery_data,
           (nr_rlc_entity_t *)entity, upper_layer_id);
-      log_rlc_am_arq_metrics(time_of_first_tx, retx_count);
+      log_rlc_am_arq_metrics(time_of_first_tx, retx_count, false);
     }
     cur_wait_list = prev_wait_list->next;
   }
@@ -747,7 +765,7 @@ lists_over:
       entity->common.sdu_successful_delivery(
           entity->common.sdu_successful_delivery_data,
           (nr_rlc_entity_t *)entity, upper_layer_id);
-      log_rlc_am_arq_metrics(time_of_first_tx, retx_count);
+      log_rlc_am_arq_metrics(time_of_first_tx, retx_count, false);
     }
   }
 
@@ -949,6 +967,7 @@ static void include_poll(nr_rlc_entity_am_t *entity, char *buffer)
 
   /* start/restart t_poll_retransmit */
   entity->t_poll_retransmit_start = entity->t_current;
+  entity->t_poll_pdu_tx_time = time_average_now(); /* High precision start time of RTT measurement */
 }
 
 static int check_poll_after_pdu_assembly(nr_rlc_entity_am_t *entity)
@@ -1922,6 +1941,7 @@ static void check_t_poll_retransmit(nr_rlc_entity_am_t *entity)
 
   /* stop timer */
   entity->t_poll_retransmit_start = 0;
+  entity->t_poll_pdu_tx_time = 0;
 
   /* 38.322 5.3.3.4 says:
    *
@@ -1944,13 +1964,22 @@ static void check_t_poll_retransmit(nr_rlc_entity_am_t *entity)
   if (!check_poll_after_pdu_assembly(entity))
     return;
 
+  /* timeout expired: log one ARQ RTT for this timeout event, using the
+   * time of first transmission for the oldest pending SDU. This records the
+   * no-ACK timeout interval once, without logging every retransmit.
+   */
+  cur = entity->wait_list;
+  if (cur != NULL && cur->sdu->time_of_first_tx != 0) {
+    log_rlc_am_arq_metrics(cur->sdu->time_of_first_tx,
+                           cur->sdu->retx_count, true);
+  }
+
   /* retransmit the SDU at the head of wait list, this is the case
    * "consider any RLC SDU which has not been positively acknowledged for
    * retransmission" of 36.322 5.3.3.4.
    * We don't search for the highest SN, it's simpler to just take the head
    * of wait list. This can be changed if needed.
    */
-  cur = entity->wait_list;
 
   /* todo: do we need to for check cur == NULL?
    * It seems that no, the wait list should not be empty here, but not sure.
@@ -2113,6 +2142,7 @@ static void clear_entity(nr_rlc_entity_am_t *entity)
   entity->sdu_rejected      = 0;
 
   entity->t_poll_retransmit_start = 0;
+  entity->t_poll_pdu_tx_time      = 0;
   entity->t_reassembly_start      = 0;
   entity->t_status_prohibit_start = 0;
 

@@ -54,6 +54,7 @@ typedef struct {
   int tx_next;
   int tx_next_ack;
   int poll_sn;
+  uint64_t t_poll_pdu_tx_time; /* Timestamp in microseconds for RTT polling measurement */
   int pdu_without_poll;
   int byte_without_poll;
   int force_poll;

@@ -47,7 +47,7 @@ nr_rlc_sdu_segment_t *nr_rlc_new_sdu(
   sdu->data           = (char*)(sdu + 1);
   memcpy(sdu->data, buffer, size);
   sdu->size           = size;
-  sdu->retx_count     = -1;
+  sdu->retx_count     = 0;
 
   ret->sdu      = sdu;
   ret->size     = size;
