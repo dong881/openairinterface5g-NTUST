@@ -876,7 +876,6 @@ static void init_vnf_mmap_loggers(void)
   init_mmap_logger("rlc_am_sn_in_tx_window-count.bin");
   init_mmap_logger("rlc_am_arq_retx-count.bin");
   init_mmap_logger("rlc_am_arq_rtt-us.bin");
-  init_mmap_logger("vnf_timing_process_us-us.bin");
   init_mmap_logger("vnf_dl_harq_available-count.bin");
   init_mmap_logger("vnf_dl_cqi-idx.bin");
   init_mmap_logger("vnf_dl_mcs-idx.bin");
