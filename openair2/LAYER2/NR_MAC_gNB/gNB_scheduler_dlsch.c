@@ -38,7 +38,6 @@
 
 /* log_mmap metrics added for slot-ahead analysis:
  * - vnf_dl_mcs-idx.bin: selected MCS index
- * - vnf_dl_rb_size-PRB.bin: scheduled PRB count
  * - vnf_dl_harq_available-count.bin: free DL HARQ process count
  */
 /*TAG*/
@@ -1424,7 +1423,6 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pdsch, NR_UE
   DevAssert(nrOfLayers >= 1 && nrOfLayers <= 8);
   DevAssert(current_BWP->mcsTableIdx >= 0 && current_BWP->mcsTableIdx <= 1);
   DevAssert(sched_pdsch->mcs >= 0 && sched_pdsch->mcs <= 31);
-  log_mmap_entry("vnf_dl_rb_size-PRB.bin", sched_pdsch->rbSize); // PRBs
   
   NR_du_stats_t *stats = &nr_mac->du_stats;
   stats->pdsch_mcs_dist[nrOfLayers - 1][current_BWP->mcsTableIdx][sched_pdsch->mcs] += sched_pdsch->rbSize;
