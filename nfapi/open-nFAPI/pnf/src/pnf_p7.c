@@ -1053,13 +1053,10 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
   pnf_p7->sfn = sfn;
   pnf_p7->slot = slot;
 
-  uint32_t tx_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, sfn, slot);
-  uint8_t buffer_index_tx = tx_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
-
   // If the subframe_buffer has been configured
   if (pnf_p7->_public.slot_buffer_size != 0) // for now value is same as sf_buffer_size
   {
-    // apply the shift to the incoming sfn_sf
+    // apply the shift to the incoming slot/SFN pair
     // send the periodic timing info if configured
     // This is done at the START of the slot processing to cover the previous slot completion
     if (pnf_p7->_public.timing_info_mode_periodic && (++pnf_p7->timing_info_period_counter) >= pnf_p7->_public.timing_info_period) {
@@ -1072,24 +1069,18 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
 
     if (pnf_p7->slot_shift != 0) // see in vnf_build_send_dl_node_sync
     {
-      uint16_t shifted_slot = slot + pnf_p7->slot_shift;
+      sfnslot_add_slot(pnf_p7->mu, &sfn, &slot, pnf_p7->slot_shift);
 
-      // adjust for wrap-around
-      if (shifted_slot < 0)
-        shifted_slot += NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
-      else if (shifted_slot > NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu))
-        shifted_slot -= NFAPI_MAX_SFNSLOTDEC(pnf_p7->mu);
-
-      //NFAPI_TRACE(NFAPI_TRACE_INFO, "Applying shift %d to sfn/slot (%d -> %d)\n", pnf_p7->sfn_slot_shift,
-      //NFAPI_SFNSF2DEC(sfn_slot), shifted_sfn_slot);
-      slot = shifted_slot;
-
-      //
-      // why does the shift not apply to pnf_p7->sfn_sf???
-      //
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "Applying slot shift %d to sfn/slot -> %d.%d\n",
+                  pnf_p7->slot_shift,
+                  sfn,
+                  slot);
 
       pnf_p7->slot_shift = 0;
     }
+
+    uint32_t tx_slot_dec = NFAPI_SFNSLOT2DEC(pnf_p7->mu, sfn, slot);
+    uint8_t buffer_index_tx = tx_slot_dec % NFAPI_SLOTNUM(pnf_p7->mu);
 
     nfapi_pnf_p7_slot_buffer_t* tx_slot_buffer = &(pnf_p7->slot_buffer[buffer_index_tx]);
 
