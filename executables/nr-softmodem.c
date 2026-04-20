@@ -958,6 +958,7 @@ int main( int argc, char **argv ) {
     memset(&act, 0, sizeof(act));
     act.sa_handler = mmap_logging_signal_handler;
     sigemptyset(&act.sa_mask);
+    act.sa_flags = SA_RESTART;
     sigaction(SIGUSR1, &act, NULL);
   }
 #ifdef DEBUG_CONSOLE

@@ -42,7 +42,7 @@
   }
 #define semwait(sem)                                                                           \
   {                                                                                            \
-    int ret = sem_wait(&sem);                                                                  \
+    int ret; do { ret = sem_wait(&sem); } while (ret == -1 && errno == EINTR);                                                                  \
     AssertFatal(ret == 0, "sem_wait(): ret=%d, errno=%d (%s)\n", ret, errno, strerror(errno)); \
   }
 #define semdestroy(sem)                                                                           \

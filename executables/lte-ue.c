@@ -956,7 +956,7 @@ static void *UE_phy_stub_standalone_pnf_task(void *arg) {
   while (!oai_exit) {
     bool sent_any = false;
 
-    if (sem_wait(&sfn_semaphore) != 0) {
+    int rc; do { rc = sem_wait(&sfn_semaphore); } while (rc == -1 && errno == EINTR); if (rc != 0) {
       LOG_E(MAC, "sem_wait() error\n");
       abort();
     }
