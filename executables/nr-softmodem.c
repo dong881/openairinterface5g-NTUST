@@ -862,7 +862,6 @@ void log_mmap_entry(const char *log_name, uint64_t value)
     return;
 
   ensure_mmap_logs_initialized();
-
   int log_id = find_log_id(log_name);
   if (log_id < 0 || !log_files[log_id].is_active)
     return;
@@ -971,6 +970,7 @@ int main( int argc, char **argv ) {
   get_options(uniqCfg);
 
   printf("[LOG] mmap logging default is OFF. send SIGUSR1 to toggle. PID=%d\n", getpid());
+  ensure_mmap_logs_initialized();
 
   if (!has_cap_sys_nice())
     LOG_W(UTIL,
