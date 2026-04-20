@@ -881,7 +881,6 @@ static void init_vnf_mmap_loggers(void)
   init_mmap_logger("vnf_dl_mcs-idx.bin");
   init_mmap_logger("vnf_dl_harq_round-count.bin");
   init_mmap_logger("vnf_dl_harq_k1-count.bin");
-  init_mmap_logger("vnf_dl_harq_release_slot-count.bin");
   // Track continuous VNF-PNF latency measurements and advance timing
   init_mmap_logger("vnf_advance_time-us.bin");
   init_mmap_logger("vnf_pnf_latency-us.bin");

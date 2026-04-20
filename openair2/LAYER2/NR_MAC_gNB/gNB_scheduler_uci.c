@@ -382,7 +382,7 @@ int get_pucch_resourceid(NR_PUCCH_Config_t *pucch_Config, int O_uci, int pucch_r
   return *resource_id;
 }
 
-static void handle_dl_harq(gNB_MAC_INST *mac, NR_UE_info_t * UE, int8_t harq_pid, bool success, int harq_round_max, frame_t frame, slot_t slot)
+static void handle_dl_harq(gNB_MAC_INST *mac, NR_UE_info_t * UE, int8_t harq_pid, bool success, int harq_round_max)
 {
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   NR_UE_harq_t *harq = &sched_ctrl->harq_processes[harq_pid];
@@ -392,10 +392,10 @@ static void handle_dl_harq(gNB_MAC_INST *mac, NR_UE_info_t * UE, int8_t harq_pid
     log_mmap_entry("vnf_dl_harq_round-count.bin", (uint64_t)(harq->round + 1));
     if (harq->sched_pdsch.action)
       harq->sched_pdsch.action(mac, UE);
-    finish_nr_dl_harq(sched_ctrl, harq_pid, frame, slot);
+    finish_nr_dl_harq(sched_ctrl, harq_pid);
   } else if (harq->round >= harq_round_max - 1) {
     log_mmap_entry("vnf_dl_harq_round-count.bin", 5);
-    abort_nr_dl_harq(UE, harq_pid, frame, slot);
+    abort_nr_dl_harq(UE, harq_pid);
     LOG_D(NR_MAC, "retransmission error for UE %04x (total %"PRIu64")\n", UE->rnti, UE->mac_stats.dl.errors);
   } else {
     LOG_D(PHY,"NACK for: pid %d, ue %04x\n",harq_pid, UE->rnti);
@@ -865,7 +865,7 @@ void clean_stale_dl_harq(gNB_MAC_INST *nrmac, NR_UE_info_t *UE, frame_t frame, s
       LOG_W(NR_MAC, "UE %04x DL HARQ pid %d (PUCCH scheduled for %d.%d) feedback timeout (%d slots past), forcing drop/retrans\n",
             UE->rnti, pid, harq->feedback_frame, harq->feedback_slot, slot_diff);
       remove_nr_list(&sched_ctrl->feedback_dl_harq, pid);
-      handle_dl_harq(NULL, UE, pid, false, nrmac->dl_bler.harq_round_max, frame, slot);
+      handle_dl_harq(NULL, UE, pid, false, nrmac->dl_bler.harq_round_max);
     }
     pid = next_pid;
   }
@@ -909,7 +909,7 @@ static int8_t find_harq_pid(frame_t frame, slot_t slot, NR_UE_info_t *UE, int ha
           frame,
           slot);
     remove_front_nr_list(&sched_ctrl->feedback_dl_harq);
-    handle_dl_harq(NULL, UE, pid, false, harq_round_max, frame, slot);
+    handle_dl_harq(NULL, UE, pid, false, harq_round_max);
     pid = sched_ctrl->feedback_dl_harq.head;
     if (pid < 0)
       return -1;
@@ -971,7 +971,7 @@ void handle_nr_uci_pucch_0_1(module_id_t mod_id, frame_t frame, slot_t slot, con
         nr_timer_start(&sched_ctrl->tci_beam_switch);
         harq->start_tci_timer = false;
       }
-      handle_dl_harq(nrmac, UE, pid, success, nrmac->dl_bler.harq_round_max, frame, slot);
+      handle_dl_harq(nrmac, UE, pid, success, nrmac->dl_bler.harq_round_max);
       if (is_ra) {
         bool ue_rejected = nr_check_Msg4_MsgB_Ack(mod_id, frame, slot, UE, success);
         if (ue_rejected) {
@@ -1068,7 +1068,7 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, frame_t frame, slot_t slot, c
         nr_timer_start(&sched_ctrl->tci_beam_switch);
         harq->start_tci_timer = false;
       }
-      handle_dl_harq(nrmac, UE, pid, success, nrmac->dl_bler.harq_round_max, frame, slot);
+      handle_dl_harq(nrmac, UE, pid, success, nrmac->dl_bler.harq_round_max);
     }
     free(uci_234->harq.harq_payload);
   }

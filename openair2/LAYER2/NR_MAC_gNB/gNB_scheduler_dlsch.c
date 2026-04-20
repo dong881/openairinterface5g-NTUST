@@ -49,10 +49,6 @@
 
 extern void log_mmap_entry(const char *log_name, uint64_t value);
 
-static frame_t last_harq_release_frame = -1;
-static slot_t last_harq_release_slot = -1;
-static int harq_release_count = 0;
-
 #include "../../../nfapi/oai_integration/vendor_ext.h"
 
 ////////////////////////////////////////////////////////
@@ -378,21 +374,9 @@ static uint32_t update_dlsch_buffer(frame_t frame, slot_t slot, NR_UE_info_t *UE
   return sched_ctrl->num_total_bytes;
 }
 
-void finish_nr_dl_harq(NR_UE_sched_ctrl_t *sched_ctrl, int harq_pid, frame_t frame, slot_t slot)
+void finish_nr_dl_harq(NR_UE_sched_ctrl_t *sched_ctrl, int harq_pid)
 {
   NR_UE_harq_t *harq = &sched_ctrl->harq_processes[harq_pid];
-
-  if (last_harq_release_frame != frame || last_harq_release_slot != slot) {
-    if (harq_release_count > 0) {
-      log_mmap_entry("vnf_dl_harq_release_slot-count.bin",
-                     (uint64_t)last_harq_release_slot + 100ULL * harq_release_count);
-    }
-    last_harq_release_frame = frame;
-    last_harq_release_slot = slot;
-    harq_release_count = 0;
-  }
-
-  harq_release_count++;
 
   if (harq->rtt_start_time > 0) {
     uint64_t end_time = rdtsc_oai();
@@ -407,12 +391,12 @@ void finish_nr_dl_harq(NR_UE_sched_ctrl_t *sched_ctrl, int harq_pid, frame_t fra
   add_tail_nr_list(&sched_ctrl->available_dl_harq, harq_pid);
 }
 
-void abort_nr_dl_harq(NR_UE_info_t* UE, int8_t harq_pid, frame_t frame, slot_t slot)
+void abort_nr_dl_harq(NR_UE_info_t* UE, int8_t harq_pid)
 {
   /* already mutex protected through handle_dl_harq() */
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
 
-  finish_nr_dl_harq(sched_ctrl, harq_pid, frame, slot);
+  finish_nr_dl_harq(sched_ctrl, harq_pid);
   UE->mac_stats.dl.errors++;
 }
 
@@ -727,7 +711,7 @@ static void pf_dl(gNB_MAC_INST *mac,
         if (harq->round >= mac->dl_bler.harq_round_max) {
              LOG_E(NR_MAC, "[UE %04x] Aborting DL retransmission for harq_pid %d after reaching max rounds due to allocation failures\n", UE->rnti, harq_pid);
              remove_front_nr_list(&sched_ctrl->retrans_dl_harq);
-             abort_nr_dl_harq(UE, harq_pid, frame, slot);
+             abort_nr_dl_harq(UE, harq_pid);
         }
         
         continue;
@@ -1441,7 +1425,7 @@ void post_process_dlsch(gNB_MAC_INST *nr_mac, post_process_pdsch_t *pdsch, NR_UE
   // RESET HARQ NDI and ROUND once they are used.
   // as HARQ is disabled and there will no PUCCH being received.
   if (sched_pdsch->pucch_allocation < 0) {
-    finish_nr_dl_harq(sched_ctrl, current_harq_pid, frame, slot);
+    finish_nr_dl_harq(sched_ctrl, current_harq_pid);
   }
 }
 
