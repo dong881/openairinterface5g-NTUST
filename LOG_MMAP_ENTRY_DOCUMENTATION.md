@@ -8,28 +8,26 @@
 - 不會建立更深的子資料夾，所有 log 檔案都直接放於 `logs/`
 
 ### 1(b) 檔案名稱
-- 格式：`logs/<log_name>.<split_index>`
+- 格式：`logs/<log_name_without_.bin>.<split_index>.bin`（當 `log_name` 自帶 `.bin` 副檔名時）
 - `split_index` 以三位數格式填補：`000`, `001`, `002`
-- 範例：`logs/pnf_timing_window.000`、`logs/vnf_harq_rtt.000`
+- 範例：`logs/pnf_timing_window-us.000.bin`、`logs/vnf_harq_rtt-us.000.bin`
 
 ### 1(c) 產生模式
 - `PNF` mode 會產生：
-  - `pnf_timing_window`
-  - `pnf_p7_msg_age_stale`
-  - `pnf_p7_stale_seg_expected`
-  - `pnf_p7_stale_seg_received`
+  - `pnf_timing_window-us.bin`
 - `VNF` mode 會產生：
-  - `vnf_advance_time`
-  - `vnf_timing_total_advanced_us`
-  - `vnf_timing_pending_us`
-  - `vnf_harq_rtt`
-  - `vnf_dl_harq_exhausted`
-  - `vnf_dl_harq_available_count`
-  - `vnf_rlc_hol_delay`
-  - `rlc_am_sn_in_tx_window-count`
-  - `rlc_am_arq_retx-count`
-  - `rlc_am_arq_rtt-us`
-- `MONOLITHIC` mode 可能同時產生上述 PNF 與 VNF log。
+  - `vnf_harq_rtt-us.bin`
+  - `rlc_am_sn_in_tx_window-count.bin`
+  - `rlc_am_arq_retx-count.bin`
+  - `rlc_am_arq_rtt-us.bin`
+  - `vnf_dl_harq_available-count.bin`
+  - `vnf_dl_cqi-idx.bin`
+  - `vnf_dl_mcs-idx.bin`
+  - `vnf_dl_harq_round-count.bin`
+  - `vnf_dl_harq_k1-count.bin`
+  - `vnf_advance_time-us.bin`
+  - `vnf_pnf_latency-us.bin`
+- `MONOLITHIC` mode 會同時初始化上述 PNF 與 VNF log，並可擴充 monolithic-only log。
 
 > 這裡的 `VNF mode` 即程式中對應的 VNF 執行模式。
 
@@ -45,8 +43,8 @@
 
 #### 2(b).1. Packed log（含 SFN/Slot）
 - 適用 log：
-  - `pnf_timing_window`
-  - `vnf_advance_time`
+  - `pnf_timing_window-us.bin`
+  - `vnf_advance_time-us.bin`
 - 這兩個 log 的一筆記錄包含：
   1. `SFN`
   2. `Slot`
@@ -55,18 +53,17 @@
 
 #### 2(b).2. Raw log（單一值）
 - 適用 log：
-  - `pnf_p7_msg_age_stale`
-  - `pnf_p7_stale_seg_expected`
-  - `pnf_p7_stale_seg_received`
-  - `vnf_timing_total_advanced_us`
-  - `vnf_timing_pending_us`
-  - `vnf_harq_rtt`
-  - `vnf_dl_harq_exhausted`
-  - `vnf_dl_harq_available_count`
-  - `vnf_rlc_hol_delay`
-  - `rlc_am_sn_in_tx_window-count`
-  - `rlc_am_arq_rtt-us`
-  - `rlc_am_arq_retx-count`
+  - `vnf_timing_pending_us-us.bin`
+  - `vnf_harq_rtt-us.bin`
+  - `vnf_dl_harq_available-count.bin`
+  - `vnf_dl_cqi-idx.bin`
+  - `vnf_dl_mcs-idx.bin`
+  - `vnf_dl_harq_round-count.bin`
+  - `vnf_dl_harq_k1-count.bin`
+  - `rlc_am_sn_in_tx_window-count.bin`
+  - `rlc_am_arq_retx-count.bin`
+  - `rlc_am_arq_rtt-us.bin`
+  - `vnf_pnf_latency-us.bin`
 - 這些 log 只儲存一個 signed 64-bit 量測值
 
 ### 2(c) Packed log 的欄位分配
@@ -77,7 +74,7 @@
 
 ### 2(c).1 Python 讀取提醒
 - `pnf_timing_window-us.bin`、`vnf_advance_time-us.bin` 為 packed log；其 raw record 應先讀成 signed 64-bit 再拆欄位。
-- `pnf_p7_msg_age_stale-us.bin`、`pnf_p7_stale_seg_expected-count.bin`、`pnf_p7_stale_seg_received-count.bin`、`vnf_timing_pending_us-us.bin`、`vnf_harq_rtt-us.bin`、`vnf_dl_harq_available-count.bin`、`vnf_rlc_hol_delay-us.bin`、`rlc_am_sn_in_tx_window-count.bin`、`rlc_am_arq_rtt-us.bin`、`rlc_am_arq_retx-count.bin` 等皆為 raw log，直接讀出 signed 64-bit integer 即可。
+- `vnf_timing_pending_us-us.bin`、`vnf_harq_rtt-us.bin`、`vnf_dl_harq_available-count.bin`、`vnf_dl_cqi-idx.bin`、`vnf_dl_mcs-idx.bin`、`vnf_dl_harq_round-count.bin`、`vnf_dl_harq_k1-count.bin`、`rlc_am_sn_in_tx_window-count.bin`、`rlc_am_arq_retx-count.bin`、`rlc_am_arq_rtt-us.bin`、`vnf_pnf_latency-us.bin` 等皆為 raw log，直接讀出 signed 64-bit integer 即可。
 - Python 讀取範例：
 
 ```python
@@ -125,22 +122,21 @@ with open("logs/pnf_timing_window-us.bin.000", "rb") as f:
 
 | log 名稱 | 代表意義 | 估計範圍 | 單位 | 解析方式 |
 |---|---|---|---|---|
-| `pnf_timing_window` | PNF 時序窗口檢查 margin | 典型 `-50k..+400k` | μs | packed log |
-| `pnf_p7_msg_age_stale` | 逾時被丟棄的 stale 訊息已經過了多久 | 典型 `10k` | μs | raw log |
-| `pnf_p7_stale_seg_expected` | stale 訊息被丟棄時預期的總段數 | 典型 `1..255` | count | raw log |
-| `pnf_p7_stale_seg_received` | stale 訊息被丟棄時已收到的段數 | 典型 `1..254` | count | raw log |
-| `vnf_advance_time` | VNF slot send advance time | 典型 `0..20k` | μs | packed log |
-| `vnf_timing_total_advanced_us` | VNF total physical advance | 典型 `0..20k` | μs | raw log |
-| `vnf_timing_pending_us` | VNF pending timing debt | 典型 `-20k..20k` | μs | raw log |
-| `vnf_harq_rtt` | HARQ round-trip delay | 典型 `0..20k` | μs | raw log |
-| `vnf_dl_harq_available-count` | Available DL HARQ process count at scheduling, including `0` when no HARQ process is free | 典型 `0..N` | count | raw log |
-| `vnf_dl_harq_round-count` | DL HARQ transmission count until success. Values 1..4 indicate successful decode after that many transmissions; 5 indicates DTX or final HARQ failure | 典型 `1..5` | count | raw log |
-| `vnf_rlc_hol_delay` | RLC HOL delay | 典型 `0..20k` | μs | raw log |
+| `pnf_timing_window-us.bin` | PNF 時序窗口檢查 margin | 典型 `-50k..+400k` | μs | packed log |
+| `vnf_advance_time-us.bin` | VNF slot send advance time | 典型 `0..20k` | μs | packed log |
+| `vnf_timing_pending_us-us.bin` | VNF pending timing debt | 典型 `-20k..20k` | μs | raw log |
+| `vnf_harq_rtt-us.bin` | HARQ round-trip delay | 典型 `0..20k` | μs | raw log |
+| `vnf_dl_harq_available-count.bin` | Available DL HARQ process count at scheduling, including `0` when no DL HARQ process is free | 典型 `0..N` | count | raw log |
+| `vnf_dl_cqi-idx.bin` | reported wideband CQI index | 典型 `0..31` | CQI index | raw log |
+| `vnf_dl_mcs-idx.bin` | selected MCS index for DL scheduling | 典型 `0..28` | MCS index | raw log |
+| `vnf_dl_harq_round-count.bin` | DL HARQ transmission count until success; `5` indicates DTX or final HARQ failure | 典型 `1..5` | count | raw log |
+| `vnf_dl_harq_k1-count.bin` | DL HARQ timing indicator (k1) for PUCCH ACK/NACK scheduling | 典型 `-N..+N` | count | raw log |
+| `vnf_pnf_latency-us.bin` | VNF‑PNF latency placeholder | 目前已初始化但未在現有 code 中寫入值 | raw log |
+| `rlc_am_sn_in_tx_window-count.bin` | RLC AM control PDU ACK_SN window validity indicator | `0` or `1` | count | raw log |
+| `rlc_am_arq_retx-count.bin` | RLC AM retransmission count when SDU completes | 典型 `0..N` | count | raw log |
+| `rlc_am_arq_rtt-us.bin` | RLC AM ARQ RTT from first transmission to ACK/clear | 典型 `0..20k` | μs | raw log |
 
-> Note: Use `vnf_dl_harq_available-count.bin` as the primary distribution log for HARQ availability. It includes `0` values when no DL HARQ process was free.
-| `rlc_am_sn_in_tx_window-count` | RLC AM control PDU ACK_SN window validity indicator | `0` or `1` | count | raw log |
-| `rlc_am_arq_retx-count` | RLC AM retransmission count when SDU completes | 典型 `0..N` | count | raw log |
-| `rlc_am_arq_rtt-us` | RLC AM ARQ RTT from first transmission to ACK/clear | 典型 `0..20k` | μs | raw log |
+> Note: `vnf_dl_harq_available-count.bin` 是 DL HARQ 可用性分布的主要 log，當沒有空閒 DL HARQ process 時會寫入 `0`。
 
 > 以上範圍為程式邏輯推估的典型值；特殊狀況下仍可能超出。
 
@@ -148,8 +144,8 @@ with open("logs/pnf_timing_window-us.bin.000", "rb") as f:
 
 ### 4(a) 是否拆成 SFN/Slot
 - 若 `log_name` 為：
-  - `pnf_timing_window`
-  - `vnf_advance_time`
+  - `pnf_timing_window-us.bin`
+  - `vnf_advance_time-us.bin`
   → 必須拆成 SFN/Slot/payload
 - 否則 → 當作單一 signed 64-bit 量測值
 
