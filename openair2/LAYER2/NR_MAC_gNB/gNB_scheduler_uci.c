@@ -36,7 +36,6 @@
 extern void log_mmap_entry(const char *log_name, uint64_t value);
 /* log_mmap metrics for PUCCH / HARQ / CQI analysis:
  * - vnf_dl_cqi-idx.bin: reported wideband CQI index
- * - vnf_dl_snr-dB10.bin: UL feedback SNR in dB*10
  * - vnf_dl_harq_round-count.bin: DL HARQ transmission count until success, 5 indicates DTX or final HARQ failure
  */
 static void nr_fill_nfapi_pucch(gNB_MAC_INST *nrmac, frame_t frame, slot_t slot, const NR_sched_pucch_t *pucch, NR_UE_info_t* UE)
@@ -990,7 +989,6 @@ void handle_nr_uci_pucch_0_1(module_id_t mod_id, frame_t frame, slot_t slot, con
     // tpc (power control) only if we received AckNack
     if (uci_01->harq.harq_confidence_level == 0 && uci_01->ul_cqi != 0xff) {
       int pucch_snrx10 = uci_01->ul_cqi * 5 - 640;
-      log_mmap_entry("vnf_dl_snr-dB10.bin", (uint64_t)(int64_t)pucch_snrx10); // signed dB*10
       nr_mac_pc_snr(&sched_ctrl->pucch_pc, pucch_snrx10, uci_01->rssi);
 
       T(T_GNB_MAC_PUCCH_POWER_CONTROL,
@@ -1033,7 +1031,6 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, frame_t frame, slot_t slot, c
   // TODO PUCCH2 SNR computation is not correct -> ignore the following
   if (uci_234->ul_cqi != 0xff) {
     int pucch_snrx10 = uci_234->ul_cqi * 5 - 640;
-    log_mmap_entry("vnf_dl_snr-dB10.bin", (uint64_t)(int64_t)pucch_snrx10); // signed dB*10
     nr_mac_pc_snr(&sched_ctrl->pucch_pc, pucch_snrx10, uci_234->rssi);
 
     T(T_GNB_MAC_PUCCH_POWER_CONTROL,
