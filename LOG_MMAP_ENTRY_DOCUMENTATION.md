@@ -31,6 +31,30 @@
 
 > 這裡的 `VNF mode` 即程式中對應的 VNF 執行模式。
 
+## 1(d) 動態開關說明
+- `nr-softmodem` 中的 `log_mmap_entry` 紀錄預設為關閉。
+- 執行中可用 `SIGUSR1` 來切換開/關，無需重新啟動程式。
+- 每次傳送 `SIGUSR1` 都會反轉當前狀態：
+  - 關閉 -> 開啟
+  - 開啟 -> 關閉
+- 如果尚未開啟過，第一次開啟時會初始化所有應用於目前執行模式的 mmap loggers。
+- 關閉後，`log_mmap_entry()` 會直接返回，不會產生新的 log 檔案或寫入資料。
+
+### 1(d).1. 命令範例
+- 查 PID：`ps aux | grep nr-softmodem`
+- 開啟／關閉 log：
+  ```bash
+  kill -SIGUSR1 <PID>
+  ```
+- 如果想確認目前狀態，可留意程式輸出，它會印出：
+  - `[LOG] mmap logging enabled`
+  - `[LOG] mmap logging disabled`
+
+### 1(d).2. 行為說明
+- `SIGUSR1` 只是切換開關，不會改變 log 檔名或資料格式。
+- 該機制支援所有現有 `log_mmap_entry()` 呼叫，無須額外修改來源程式碼。
+- 若程式在關閉狀態時收到訊號，會在下次收到 `SIGUSR1` 時啟動 logger。
+
 ## 2. 內容與數值拆分細節
 
 ### 2(a) 二進位記錄格式
@@ -174,6 +198,53 @@ with open("logs/pnf_timing_window-us.bin.000", "rb") as f:
 3. 對 packed log 進行 SFN/Slot 解碼
 4. 對 raw log 直接做 microsecond 統計
 5. 如果需要時間軸排序，優先用 `sfn`/`slot`
+
+## 5(a) 在 `screen` 中執行 gNB VNF / PNF
+
+### 開啟新的 `screen` 視窗
+建議為 VNF 和 PNF 各創建一個獨立 `screen` session，方便管理與日後切換：
+
+```bash
+screen -S oai_vnf
+# 在這個視窗中啟動 VNF
+./build/oai/install/bin/nr-softmodem --nfapi VNF ...
+```
+
+```bash
+screen -S oai_pnf
+# 在這個視窗中啟動 PNF
+./build/oai/install/bin/nr-softmodem --nfapi PNF ...
+```
+
+### 從另一個終端或 screen 視窗切換回來
+```bash
+screen -ls
+screen -r oai_vnf
+screen -r oai_pnf
+```
+
+### 從另一個終端發送 `SIGUSR1`
+1. 先取得正在執行中 VNF / PNF 的 PID：
+   ```bash
+   ps aux | grep nr-softmodem
+   ```
+2. 傳送訊號切換 log：
+   ```bash
+   kill -SIGUSR1 <PID>
+   ```
+3. 程式會在 `screen` 視窗中印出：
+   - `[LOG] mmap logging enabled`
+   - `[LOG] mmap logging disabled`
+
+### `screen` 常用操作
+- 解除連線（detach）：`Ctrl-a d`
+- 重新連線：`screen -r <session_name>`
+- 列出所有 session：`screen -ls`
+
+### 注意事項
+- VNF / PNF 兩個執行個體各有自己的 `screen` session，彼此獨立，互不影響。
+- `SIGUSR1` 只切換當前 process 的 mmap logging，不會影響另一個 process。
+- 若要同時開啟或關閉兩個 session 的 log，必須對各自 PID 分別發送 `SIGUSR1`。
 
 ## 6. 結論
 - 這組 log 使用固定 8 bytes binary，是最省空間的方案

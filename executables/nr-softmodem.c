@@ -46,6 +46,7 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <unistd.h>
 #include "LAYER2/nr_pdcp/nr_pdcp_oai_api.h"
 #include "NR_PHY_INTERFACE/NR_IF_Module.h"
@@ -70,6 +71,23 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include "executables/softmodem-common.h"
 #include "gnb_config.h"
 #include "gnb_paramdef.h"
+
+static volatile sig_atomic_t mmap_logging_enabled = 0;
+static volatile sig_atomic_t mmap_logs_initialized = 0;
+static pthread_mutex_t mmap_logger_init_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void mmap_logging_signal_handler(int sig)
+{
+  if (sig != SIGUSR1)
+    return;
+
+  mmap_logging_enabled = !mmap_logging_enabled;
+
+  if (mmap_logging_enabled)
+    (void)write(STDOUT_FILENO, "[LOG] mmap logging enabled\n", 27);
+  else
+    (void)write(STDOUT_FILENO, "[LOG] mmap logging disabled\n", 28);
+}
 #include "intertask_interface.h"
 #include "nfapi/oai_integration/vendor_ext.h"
 #include "nfapi_interface.h"
@@ -691,7 +709,7 @@ static void finalize_current_split(mmap_log_file_t *log)
 
   if (log->log_fd != -1) {
     // Always truncate to actual written size (removes pre-allocated space)
-    ftruncate(log->log_fd, log->log_offset);
+    (void)ftruncate(log->log_fd, log->log_offset);
     close(log->log_fd);
     log->log_fd = -1;
   }
@@ -824,8 +842,27 @@ void init_mmap_logger(const char *filename)
  * 
  * print(data[:10]) # Print first 10 recorded values
  */
+static void init_mmap_logs_by_mode(void);
+
+static void ensure_mmap_logs_initialized(void)
+{
+  if (!mmap_logs_initialized) {
+    pthread_mutex_lock(&mmap_logger_init_mutex);
+    if (!mmap_logs_initialized) {
+      init_mmap_logs_by_mode();
+      mmap_logs_initialized = 1;
+    }
+    pthread_mutex_unlock(&mmap_logger_init_mutex);
+  }
+}
+
 void log_mmap_entry(const char *log_name, uint64_t value)
 {
+  if (!mmap_logging_enabled)
+    return;
+
+  ensure_mmap_logs_initialized();
+
   int log_id = find_log_id(log_name);
   if (log_id < 0 || !log_files[log_id].is_active)
     return;
@@ -916,6 +953,13 @@ int main( int argc, char **argv ) {
   }
 
   set_softmodem_sighandler();
+  {
+    struct sigaction act;
+    memset(&act, 0, sizeof(act));
+    act.sa_handler = mmap_logging_signal_handler;
+    sigemptyset(&act.sa_mask);
+    sigaction(SIGUSR1, &act, NULL);
+  }
 #ifdef DEBUG_CONSOLE
   setvbuf(stdout, NULL, _IONBF, 0);
   setvbuf(stderr, NULL, _IONBF, 0);
@@ -925,8 +969,7 @@ int main( int argc, char **argv ) {
   lock_memory_to_ram();
   get_options(uniqCfg);
 
-  // Initialize mode-specific loggers after configuration is parsed
-  init_mmap_logs_by_mode();
+  printf("[LOG] mmap logging default is OFF. send SIGUSR1 to toggle. PID=%d\n", getpid());
 
   if (!has_cap_sys_nice())
     LOG_W(UTIL,
