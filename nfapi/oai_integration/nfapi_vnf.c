@@ -1284,7 +1284,6 @@ void *vnf_timing_thread(void *arg) {
     if (p7_info->sync_locked) {
       log_mmap_entry("vnf_advance_time-us.bin", pack_sfn_slot_value(p7_info->sfn, p7_info->slot, p7_info->total_advanced_us));
     }
-    log_mmap_entry("vnf_timing_pending_us-us.bin", (long)current_pending_us);
 
     sfnslot_dec = (sfnslot_dec + 1) % MAX_SFNSLOTDEC;
   }
