@@ -385,7 +385,7 @@ void finish_nr_dl_harq(NR_UE_sched_ctrl_t *sched_ctrl, int harq_pid, frame_t fra
   if (last_harq_release_frame != frame || last_harq_release_slot != slot) {
     if (harq_release_count > 0) {
       log_mmap_entry("vnf_dl_harq_release_slot-count.bin",
-                     100ULL * (uint64_t)last_harq_release_slot + harq_release_count);
+                     (uint64_t)last_harq_release_slot + 100ULL * harq_release_count);
     }
     last_harq_release_frame = frame;
     last_harq_release_slot = slot;
