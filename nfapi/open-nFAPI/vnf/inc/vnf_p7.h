@@ -20,6 +20,7 @@
 
 #include "nfapi_vnf_interface.h"
 #include <stdatomic.h>
+#include <stdbool.h>
 #define TIMEHR_SEC(_time_hr) ((uint32_t)(_time_hr) >> 20)
 #define TIMEHR_USEC(_time_hr) ((uint32_t)(_time_hr) & 0xFFFFF)
 #define TIME2TIMEHR(_time) (((uint32_t)(_time.tv_sec) & 0xFFF) << 20 | ((uint32_t)(_time.tv_usec) & 0xFFFFF))
@@ -36,47 +37,64 @@
  *   Read runtime NFAPI timing configuration from environment variables.
  *
  *   SLOT_AHEAD
- *     - If set to a positive integer, the VNF runs in fixed slot-ahead mode.
+ *     - Controls the initial slot-ahead value used by the VNF.
  *     - Example: export SLOT_AHEAD=6
- *     - In this mode, slot_ahead is taken from SLOT_AHEAD and
- *       TARGET_MARGIN_INITIAL is forced to 0.
+ *     - When dynamic timing is disabled, this value is treated as a fixed
+ *       slot-ahead offset.
+ *     - When dynamic timing is enabled, this value is used only as the initial
+ *       slot-ahead starting point.
+ *
+ *   DYNAMIC_TIMING
+ *     - If set to a nonzero value, enable dynamic timing adjustment.
+ *     - Example: export DYNAMIC_TIMING=1
+ *     - This allows dynamic timing to run from any initial SLOT_AHEAD value.
  *
  *   TARGET_MARGIN_INITIAL
- *     - Only used when SLOT_AHEAD is unset or 0.
+ *     - Used in dynamic timing mode to set the initial target margin.
  *     - Example: export TARGET_MARGIN_INITIAL=1500
  *     - If unset in dynamic mode, the default is 1500.
  *
  *   General behavior:
- *     - Fixed mode: SLOT_AHEAD > 0 => use that slot shift and skip
- *       handle_dynamic_timing_info().
- *     - Dynamic mode: SLOT_AHEAD == 0 => use dynamic timing and apply
- *       handle_dynamic_timing_info(); TARGET_MARGIN_INITIAL defaults to 1500.
+ *     - Fixed mode: SLOT_AHEAD > 0 and DYNAMIC_TIMING is unset.
+ *       The VNF uses the fixed slot-ahead value and skips dynamic timing.
+ *     - Dynamic mode: DYNAMIC_TIMING=1 or SLOT_AHEAD == 0.
+ *       The VNF applies dynamic timing adjustment, with SLOT_AHEAD providing
+ *       the initial slot-ahead start point and TARGET_MARGIN_INITIAL active.
  *
  *   IMPORTANT USAGE NOTE (sudo):
  *     - When running the softmodem with `sudo`, regular exported environment
  *       variables are NOT passed to the executed process by default.
  *     - To fix this, you must either use `sudo -E` to preserve environment,
  *       or pass the variable inline with the command:
- *       `sudo SLOT_AHEAD=6 TIMING_WINDOW=3000 ./nr-softmodem ...`
+ *       `sudo DYNAMIC_TIMING=1 SLOT_AHEAD=2 TIMING_WINDOW=3000 ./nr-softmodem ...`
  *
  *   The function fills the caller-provided pointers and keeps all
  *   timing behavior local to the caller scope, without global state.
  */
-static inline void get_vnf_timing_envs(int *slot_ahead, int *target_margin_initial) {
+static inline void get_vnf_timing_envs(int *slot_ahead, int *target_margin_initial, bool *dynamic_timing_enabled) {
     const char *slot_ahead_env = getenv("SLOT_AHEAD");
     int env_slot = slot_ahead_env ? atoi(slot_ahead_env) : 0;
+    const char *dynamic_env = getenv("DYNAMIC_TIMING");
+    bool env_dynamic = false;
+
+    if (dynamic_env && atoi(dynamic_env) != 0) {
+        env_dynamic = true;
+    }
+    if (env_slot == 0) {
+        env_dynamic = true;
+    }
+
     int env_margin = 0;
-    
-    if (env_slot > 0) {
+    if (env_slot > 0 && !env_dynamic) {
         env_margin = 0;
     } else {
         const char *margin_env = getenv("TARGET_MARGIN_INITIAL");
         env_margin = margin_env ? atoi(margin_env) : 1500;
-        env_slot = 0;
     }
-    
+
     if (slot_ahead) *slot_ahead = env_slot;
     if (target_margin_initial) *target_margin_initial = env_margin;
+    if (dynamic_timing_enabled) *dynamic_timing_enabled = env_dynamic;
 }
 
 typedef struct {

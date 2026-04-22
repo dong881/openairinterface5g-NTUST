@@ -1168,7 +1168,8 @@ void *vnf_timing_thread(void *arg) {
   vnf_p7_info *p7_vnf = (vnf_p7_info *)arg;
   vnf_p7_t *vnf_p7 = (vnf_p7_t *)p7_vnf->config;
   
-  get_vnf_timing_envs(&s_ahead_env, NULL);
+  bool dynamic_timing_enabled = false;
+  get_vnf_timing_envs(&s_ahead_env, NULL, &dynamic_timing_enabled);
   const char *fixed_alot_env_str = getenv("FIXED_ALOT_AHEAD");
   int fixed_alot_ahead = fixed_alot_env_str ? atoi(fixed_alot_env_str) : 1;
 

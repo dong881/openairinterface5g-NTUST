@@ -1999,7 +1999,8 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 
 	int target_margin_initial = 0;
 	int slot_ahead = 0;
-	get_vnf_timing_envs(&slot_ahead, &target_margin_initial);
+	bool dynamic_timing_enabled = false;
+	get_vnf_timing_envs(&slot_ahead, &target_margin_initial, &dynamic_timing_enabled);
 
 	int32_t total_correction = offset + target_margin_initial;
 	int32_t phase_delta_us = p7_info->total_advanced_us - p7_info->last_total_advanced_us;
@@ -2018,7 +2019,13 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	// We still allow the packet to be processed for logging and lock detection, but we defer
 	// further corrections until the network has flushed the previous timing change.
 	int64_t time_since_adj_us = timehr_diff_us(now_time_hr, p7_info->last_adjustment_time_hr);
-	bool skip_adjustment = (p7_info->last_adjustment_time_hr != 0 && time_since_adj_us < 10000);
+	int64_t min_adjustment_interval_us = 10000LL;
+	if (p7_info->sync_locked && dynamic_timing_enabled) {
+		// Dynamic NR mode should not re-tune phase on every packet once sync is established.
+		// Use a longer-cycle correction interval to keep throughput comparable to fixed slot-ahead mode.
+		min_adjustment_interval_us = 50000LL;
+	}
+	bool skip_adjustment = (p7_info->last_adjustment_time_hr != 0 && time_since_adj_us < min_adjustment_interval_us);
 	if (skip_adjustment) {
 		NFAPI_TRACE(NFAPI_TRACE_DEBUG,
 			"[P7_SYNC] ul_node_sync phy_id:%d skipping adjustment due dead time %lldus\n",
@@ -2028,7 +2035,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	if (!p7_info->sync_locked) {
 		if (total_correction >= -MARGIN_TOLERANCE_US && total_correction <= MARGIN_TOLERANCE_US) {
 			p7_info->sync_locked = 1;
-			if (slot_ahead != 1) {
+			if (!dynamic_timing_enabled) {
 				// Conservative PLL Strategy: Cease utilizing OWD when down-link sync stops updating it.
 				// Treating it as 0 sacrifices a small timing window segment but strictly guards against 'Too Early'.
 				p7_info->ewma_owd_us = 0;
@@ -2051,7 +2058,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 				"[P7_SYNC] ul_node_sync phy_id:%d adjustment suppressed while waiting for dead time\n",
 				ind.header.phy_id);
 		}
-	} else if (slot_ahead == 1 && !skip_adjustment) {
+	} else if (dynamic_timing_enabled && !skip_adjustment) {
 		// [Continuous Node Sync / PLL Phase Tracking for Dynamic Channel tc]
 		// Modifies the VNF to continuously adapt to asymmetric latency shifts smoothly
 		if (total_correction < -MARGIN_TOLERANCE_LOCKED_US || total_correction > MARGIN_TOLERANCE_LOCKED_US) {
@@ -2137,7 +2144,8 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 
 	// Integration Step
     int slot_ahead = 0;
-    get_vnf_timing_envs(&slot_ahead, NULL);
+    bool dynamic_timing_enabled = false;
+    get_vnf_timing_envs(&slot_ahead, NULL, &dynamic_timing_enabled);
 
 	pthread_mutex_lock(&p7_con->mutex);
 	if (!p7_con->initial_timinginfo_received) {
@@ -2149,7 +2157,7 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	pthread_mutex_unlock(&p7_con->mutex);
 
 	// Only process dynamic timing once the VNF timing thread has initialized mu/slot duration
-	if (slot_ahead == 1 && p7_con->mu >= 0 && vnf_p7->slot_start_time_hr != 0) {
+	if (dynamic_timing_enabled && p7_con->mu >= 0 && vnf_p7->slot_start_time_hr != 0) {
 		handle_dynamic_timing_info(p7_con, &ind);
 	}
 }
