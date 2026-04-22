@@ -362,7 +362,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
                 int32_t step_down_target = target_s_ahead - 1;
                 int32_t top_zone_threshold = 8;
 
-                if (false && s_ahead_env == top_zone_threshold && step_down_target == top_zone_threshold - 1) {
+                if (s_ahead_env == top_zone_threshold && step_down_target == top_zone_threshold - 1) {
                     if (p7_info->stable_top_pending_drop != step_down_target) {
                         p7_info->stable_top_pending_drop = step_down_target;
                         NFAPI_TRACE(NFAPI_TRACE_INFO,
