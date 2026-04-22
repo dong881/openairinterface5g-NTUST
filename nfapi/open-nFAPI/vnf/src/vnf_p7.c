@@ -249,7 +249,9 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     }
     bool statistical_anomaly = (abs_diff > anomaly_threshold_us);
 
-    int32_t absolute_safe_boundary = slot_duration_us * 2;
+    // Dynamic Safe Boundary: If we are N slots ahead, we only drop to N-1 if we have 
+    // consistently Arrival at least (N-1) slots early, ensuring a 1-slot safety buffer after drop.
+    int32_t absolute_safe_boundary = (s_ahead_env - 1) * slot_duration_us;
 
     if (worst_late < -absolute_safe_boundary) {
         if (abs_diff < (-worst_late - slot_duration_us)) {
@@ -335,7 +337,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         if (strict_deadline_violation) {
             step_up = (worst_late / slot_duration_us) + 3;
             // Apply a harsh penalty on the reduction threshold to avoid rapid bounce-back
-            p7_info->reduction_penalty_counter += 10000;
+            p7_info->reduction_penalty_counter += 20000;
             if (p7_info->reduction_penalty_counter > 500000) {
                 p7_info->reduction_penalty_counter = 500000;
             }
