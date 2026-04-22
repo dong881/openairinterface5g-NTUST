@@ -53,6 +53,7 @@ show_help() {
     echo "  TIMING_WINDOW=X            - Pass TIMING_WINDOW to VNF when starting with --nfapi VNF"
     echo "  TIMING_INFO_MODE=X         - Pass TIMING_INFO_MODE to VNF when starting with --nfapi VNF"
     echo "  TIMING_INFO_PERIOD=X       - Pass TIMING_INFO_PERIOD to VNF when starting with --nfapi VNF"
+    echo "  DYNAMIC_TIMING=1           - Enable dynamic timing mode for VNF"
     echo ""
     echo "LOG FILES:"
     echo "  PNF Log:       \$HOME/gNB-logs/nfapi-PNF-pegatron-open5gs-develop-latest.log"
@@ -69,6 +70,7 @@ AUTO_STOP=${3:-0}
 TIMING_WINDOW_VAL=${TIMING_WINDOW:-}
 TIMING_INFO_MODE_VAL=${TIMING_INFO_MODE:-}
 TIMING_INFO_PERIOD_VAL=${TIMING_INFO_PERIOD:-}
+DYNAMIC_TIMING_VAL=${DYNAMIC_TIMING:-}
 
 # Priority for Environment Variables in New Version Mode
 if [ "$USE_NEW_SLIDER_HEAD" = "1" ]; then
@@ -91,6 +93,9 @@ build_vnf_env_args() {
     fi
     if [ -n "$TIMING_INFO_PERIOD_VAL" ]; then
         env_args+="TIMING_INFO_PERIOD=${TIMING_INFO_PERIOD_VAL} "
+    fi
+    if [ -n "$DYNAMIC_TIMING_VAL" ]; then
+        env_args+="DYNAMIC_TIMING=${DYNAMIC_TIMING_VAL} "
     fi
     env_args+="NFAPI_TRACE_LEVEL=info"
     echo "$env_args"
@@ -474,6 +479,9 @@ start_vnf_hpe() {
     fi
     if [ -n "$TIMING_INFO_PERIOD_VAL" ]; then
         vnf_env+="TIMING_INFO_PERIOD=${TIMING_INFO_PERIOD_VAL} "
+    fi
+    if [ -n "$DYNAMIC_TIMING_VAL" ]; then
+        vnf_env+="DYNAMIC_TIMING=${DYNAMIC_TIMING_VAL} "
     fi
     vnf_env+="NFAPI_TRACE_LEVEL=info"
     local start_cmd="screen -dmS VNF_SESSION bash -c 'cd $build_path && sudo -E ${vnf_env} numactl --cpunodebind=1 --membind=1 taskset -c ${TASKSET_VNF} ./nr-softmodem -O ${conf_file} --nfapi VNF 2>&1 | tee ${log_file}'"
