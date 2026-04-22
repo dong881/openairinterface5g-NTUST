@@ -1265,18 +1265,21 @@ void *vnf_timing_thread(void *arg) {
       last_mac_ind_dec = (target_ind_dec - 1 + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
     }
 
-    while (last_mac_ind_dec != target_ind_dec) {
-      last_mac_ind_dec = (last_mac_ind_dec + 1) % MAX_SFNSLOTDEC;
-      int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, last_mac_ind_dec);
-      int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, last_mac_ind_dec);
-      
-      nfapi_nr_slot_indication_scf_t ind = {0};
-      ind.sfn = ind_sfn;
-      ind.slot = ind_slot;
-      ind.header.phy_id = p7_info->phy_id;
-      
-      if (p7_info->sync_locked) {
-        phy_nr_slot_indication(&ind);
+    int diff_mac = (target_ind_dec - last_mac_ind_dec + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
+    if (diff_mac < MAX_SFNSLOTDEC / 2) {
+      while (last_mac_ind_dec != target_ind_dec) {
+        last_mac_ind_dec = (last_mac_ind_dec + 1) % MAX_SFNSLOTDEC;
+        int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, last_mac_ind_dec);
+        int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, last_mac_ind_dec);
+        
+        nfapi_nr_slot_indication_scf_t ind = {0};
+        ind.sfn = ind_sfn;
+        ind.slot = ind_slot;
+        ind.header.phy_id = p7_info->phy_id;
+        
+        if (p7_info->sync_locked) {
+          phy_nr_slot_indication(&ind);
+        }
       }
     }
     
