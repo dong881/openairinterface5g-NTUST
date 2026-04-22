@@ -49,17 +49,12 @@
  *     - Example: export DYNAMIC_TIMING=1
  *     - This allows dynamic timing to run from any initial SLOT_AHEAD value.
  *
- *   TARGET_MARGIN_INITIAL
- *     - Used in dynamic timing mode to set the initial target margin.
- *     - Example: export TARGET_MARGIN_INITIAL=1500
- *     - If unset in dynamic mode, the default is 1500.
- *
  *   General behavior:
  *     - Fixed mode: SLOT_AHEAD > 0 and DYNAMIC_TIMING is unset.
  *       The VNF uses the fixed slot-ahead value and skips dynamic timing.
  *     - Dynamic mode: DYNAMIC_TIMING=1 or SLOT_AHEAD == 0.
  *       The VNF applies dynamic timing adjustment, with SLOT_AHEAD providing
- *       the initial slot-ahead start point and TARGET_MARGIN_INITIAL active.
+ *       the initial slot-ahead start point.
  *
  *   IMPORTANT USAGE NOTE (sudo):
  *     - When running the softmodem with `sudo`, regular exported environment
@@ -71,7 +66,7 @@
  *   The function fills the caller-provided pointers and keeps all
  *   timing behavior local to the caller scope, without global state.
  */
-static inline void get_vnf_timing_envs(int *slot_ahead, int *target_margin_initial, bool *dynamic_timing_enabled) {
+static inline void get_vnf_timing_envs(int *slot_ahead, bool *dynamic_timing_enabled) {
     const char *slot_ahead_env = getenv("SLOT_AHEAD");
     int env_slot = slot_ahead_env ? atoi(slot_ahead_env) : 0;
     const char *dynamic_env = getenv("DYNAMIC_TIMING");
@@ -84,16 +79,7 @@ static inline void get_vnf_timing_envs(int *slot_ahead, int *target_margin_initi
         env_dynamic = true;
     }
 
-    int env_margin = 0;
-    if (env_slot > 0 && !env_dynamic) {
-        env_margin = 0;
-    } else {
-        const char *margin_env = getenv("TARGET_MARGIN_INITIAL");
-        env_margin = margin_env ? atoi(margin_env) : 1500;
-    }
-
     if (slot_ahead) *slot_ahead = env_slot;
-    if (target_margin_initial) *target_margin_initial = env_margin;
     if (dynamic_timing_enabled) *dynamic_timing_enabled = env_dynamic;
 }
 

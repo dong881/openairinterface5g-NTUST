@@ -1169,9 +1169,7 @@ void *vnf_timing_thread(void *arg) {
   vnf_p7_t *vnf_p7 = (vnf_p7_t *)p7_vnf->config;
   
   bool dynamic_timing_enabled = false;
-  get_vnf_timing_envs(&s_ahead_env, NULL, &dynamic_timing_enabled);
-  const char *fixed_alot_env_str = getenv("FIXED_ALOT_AHEAD");
-  int fixed_alot_ahead = fixed_alot_env_str ? atoi(fixed_alot_env_str) : 1;
+  get_vnf_timing_envs(&s_ahead_env, &dynamic_timing_enabled);
 
   // Wait for configuration
   // Prefer to obtain mu (subcarrier spacing index) from the NFAPI NR config

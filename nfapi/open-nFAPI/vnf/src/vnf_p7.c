@@ -1997,12 +1997,11 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	// Negative offset implies VNF is AHEAD of PNF
 	// VNF MUST DECREASE speed (increase sleep time) to fall back -> requires pending_us to be POSITIVE
 
-	int target_margin_initial = 0;
 	int slot_ahead = 0;
 	bool dynamic_timing_enabled = false;
-	get_vnf_timing_envs(&slot_ahead, &target_margin_initial, &dynamic_timing_enabled);
+	get_vnf_timing_envs(&slot_ahead, &dynamic_timing_enabled);
 
-	int32_t total_correction = offset + target_margin_initial;
+	int32_t total_correction = offset;
 	int32_t phase_delta_us = p7_info->total_advanced_us - p7_info->last_total_advanced_us;
 	int32_t adaptive_gain = 8;
 	if (phase_delta_us != 0) {
@@ -2040,12 +2039,9 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 				// Treating it as 0 sacrifices a small timing window segment but strictly guards against 'Too Early'.
 				p7_info->ewma_owd_us = 0;
 			}
-			// [CRITICAL FIX] The absolute phase tracking MUST initialize to the sync target margin!
-			// When sync locked, VNF is already transmitting `target_margin_initial` ahead of PNF!
-			// If this is set to 0, the dynamic margin will blindly push the phase further ahead 
-			// by `target_margin_initial` AGAIN, vastly exceeding ABSOLUTE_MAX_ADVANCE_US and 
-			// severely triggering "Too Early" drops continuously.
-			p7_info->total_advanced_us = target_margin_initial + slot_ahead * p7_info->slot_duration_us; // Account for initial phase offset!
+			// [CRITICAL FIX] The absolute phase tracking MUST initialize to the slot-ahead margin!
+			// When sync locked, VNF is already transmitting ahead of PNF!
+			p7_info->total_advanced_us = slot_ahead * p7_info->slot_duration_us; // Account for initial phase offset!
 		} else if (!skip_adjustment) {
 			int32_t s_adj = total_correction / p7_info->slot_duration_us;
 			int32_t p_adj = total_correction % p7_info->slot_duration_us;
@@ -2145,7 +2141,7 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	// Integration Step
     int slot_ahead = 0;
     bool dynamic_timing_enabled = false;
-    get_vnf_timing_envs(&slot_ahead, NULL, &dynamic_timing_enabled);
+    get_vnf_timing_envs(&slot_ahead, &dynamic_timing_enabled);
 
 	pthread_mutex_lock(&p7_con->mutex);
 	if (!p7_con->initial_timinginfo_received) {
