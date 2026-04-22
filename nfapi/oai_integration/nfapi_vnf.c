@@ -1229,7 +1229,7 @@ void *vnf_timing_thread(void *arg) {
   // Initialize sfnslot_dec for the first iteration
   int sfnslot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, p7_info->sfn, p7_info->slot);
 
-  struct timespec now;
+
   while (p7_info->running) {
     pthread_mutex_lock(&p7_info->mutex);
     p7_info->total_advanced_us = s_ahead_env * p7_info->slot_duration_us;
@@ -1267,7 +1267,9 @@ void *vnf_timing_thread(void *arg) {
 
     int diff_mac = (target_ind_dec - last_mac_ind_dec + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
     if (diff_mac < MAX_SFNSLOTDEC / 2) {
-      while (last_mac_ind_dec != target_ind_dec) {
+      int burst_counter = 0;
+      const int MAX_CATCHUP_SLOTS = 3;
+      while (last_mac_ind_dec != target_ind_dec && burst_counter < MAX_CATCHUP_SLOTS) {
         last_mac_ind_dec = (last_mac_ind_dec + 1) % MAX_SFNSLOTDEC;
         int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, last_mac_ind_dec);
         int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, last_mac_ind_dec);
@@ -1280,6 +1282,11 @@ void *vnf_timing_thread(void *arg) {
         if (p7_info->sync_locked) {
           phy_nr_slot_indication(&ind);
         }
+        burst_counter++;
+      }
+      if (last_mac_ind_dec != target_ind_dec) {
+        NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Catch-up burst limited to %d slots (remaining: %d). Allowing other threads to run.\n",
+                    MAX_CATCHUP_SLOTS, (target_ind_dec - last_mac_ind_dec + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC);
       }
     }
     
