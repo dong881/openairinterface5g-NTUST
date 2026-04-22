@@ -2013,42 +2013,14 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	}
 
 	pthread_mutex_lock(&p7_info->mutex);
-	
-	// [CRITICAL Fix] Avoid applying multiple rapid adjustments from stale in-flight UL_NODE_SYNC samples.
-	// We still allow the packet to be processed for logging and lock detection, but we defer
-	// further corrections until the network has flushed the previous timing change.
-	int64_t time_since_adj_us = timehr_diff_us(now_time_hr, p7_info->last_adjustment_time_hr);
-	int64_t min_adjustment_interval_us = 10000LL;
-	if (p7_info->sync_locked && dynamic_timing_enabled) {
-		// Dynamic NR mode should not re-tune phase on every packet once sync is established.
-		// Use a longer-cycle correction interval to keep throughput comparable to fixed slot-ahead mode.
-		min_adjustment_interval_us = 50000LL;
-	}
-	// bool skip_adjustment = (p7_info->last_adjustment_time_hr != 0 && time_since_adj_us < min_adjustment_interval_us);
-	// if (skip_adjustment) {
-	// 	NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-	// 		"[P7_SYNC] ul_node_sync phy_id:%d skipping adjustment due dead time %lldus\n",
-	// 		ind.header.phy_id, time_since_adj_us);
-	// }
 
 	if (!p7_info->sync_locked) {
 		if (total_correction >= -MARGIN_TOLERANCE_US && total_correction <= MARGIN_TOLERANCE_US) {
 			p7_info->sync_locked = 1;
 			// if (!dynamic_timing_enabled) {
-			// 	// Conservative PLL Strategy: Cease utilizing OWD when down-link sync stops updating it.
-			// 	// Treating it as 0 sacrifices a small timing window segment but strictly guards against 'Too Early'.
 			// 	p7_info->ewma_owd_us = 0;
 			// }
-			// [CRITICAL FIX] The absolute phase tracking MUST initialize to the slot-ahead margin!
-			// When sync locked, VNF is already transmitting ahead of PNF!
 			p7_info->total_advanced_us = slot_ahead * p7_info->slot_duration_us; // Account for initial phase offset!
-		// } else if (!skip_adjustment) {
-		// 	int32_t s_adj = total_correction / p7_info->slot_duration_us;
-		// 	int32_t p_adj = total_correction % p7_info->slot_duration_us;
-		// 	p7_info->slot_adjustment += s_adj;
-		// 	p7_info->pending_us -= p_adj;
-		// 	p7_info->last_adjustment_time_hr = vnf_get_current_time_hr(); // Mask stale timing info
-		// 	p7_info->last_total_advanced_us = p7_info->total_advanced_us;
 		} else {
 			int32_t s_adj = total_correction / p7_info->slot_duration_us;
 			int32_t p_adj = total_correction % p7_info->slot_duration_us;
@@ -2056,35 +2028,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 			p7_info->pending_us -= p_adj;
 			p7_info->last_adjustment_time_hr = vnf_get_current_time_hr(); // Mask stale timing info
 			p7_info->last_total_advanced_us = p7_info->total_advanced_us;
-			NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-				"[P7_SYNC] ul_node_sync phy_id:%d adjustment suppressed while waiting for dead time\n",
-				ind.header.phy_id);
 		}
-	// } else if (dynamic_timing_enabled && !skip_adjustment) {
-	// 	// [PHASE ALIGNMENT] Even in fixed mode, we MUST compensate for drift to avoid periodic 'Too Late'.
-	// 	// Dynamic NR mode uses more aggressive gain, while fixed mode uses dampened gain.
-	// 	if (total_correction < -MARGIN_TOLERANCE_LOCKED_US || total_correction > MARGIN_TOLERANCE_LOCKED_US) {
-	// 		// Dampened PLL adjustment, adapt gain using last_total_advanced_us to avoid oscillation
-	// 		int32_t p_adj = total_correction / adaptive_gain;
-			
-	// 		// Limit jumps to maximum 1/4 of a slot duration per adjustment (ensures smooth tracking)
-	// 		int32_t max_step = p7_info->slot_duration_us / 4;
-	// 		if (p_adj > max_step) p_adj = max_step;
-	// 		if (p_adj < -max_step) p_adj = -max_step;
-
-	// 		// DO NOT shift slot_adjustment boundaries during stable scheduling,
-	// 		// this ensures we never skip or duplicate slots for the MAC.
-	// 		// Only tweak physical sleep timing (pending_us) directly.
-	// 		if (p_adj != 0) {
-	// 			p7_info->pending_us -= p_adj;
-	// 			p7_info->total_advanced_us += p_adj;
-	// 			p7_info->last_total_advanced_us = p7_info->total_advanced_us;
-	// 			p7_info->last_adjustment_time_hr = vnf_get_current_time_hr();
-	// 			NFAPI_TRACE(NFAPI_TRACE_INFO,
-	// 				"[P7_SYNC_CONT] tracking phy_id:%d offset:%d total_err:%d applied_adj:%d us phase_delta:%d total_advance:%d\n",
-	// 				ind.header.phy_id, offset, total_correction, p_adj, phase_delta_us, p7_info->total_advanced_us);
-	// 		}
-	// 	}
 	}
 	pthread_mutex_unlock(&p7_info->mutex);
 	NFAPI_TRACE(NFAPI_TRACE_DEBUG, 
