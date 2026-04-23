@@ -1266,27 +1266,35 @@ void *vnf_timing_thread(void *arg) {
     }
 
     int diff_mac = (target_ind_dec - last_mac_ind_dec + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC;
-    if (diff_mac < MAX_SFNSLOTDEC / 2) {
-      int burst_counter = 0;
-      const int MAX_CATCHUP_SLOTS = 3;
-      while (last_mac_ind_dec != target_ind_dec && burst_counter < MAX_CATCHUP_SLOTS) {
-        last_mac_ind_dec = (last_mac_ind_dec + 1) % MAX_SFNSLOTDEC;
-        int ind_sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, last_mac_ind_dec);
-        int ind_slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, last_mac_ind_dec);
-        
+    if (diff_mac > 0 && diff_mac < MAX_SFNSLOTDEC / 2) {
+      if (!p7_info->sync_locked || diff_mac > 500) {
+        // Extreme drift or initial sync: jump directly to avoid long-term hang
+        if (p7_info->sync_locked) {
+          NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Extreme VNF gap (%d slots). Jumping to latest to avoid deadlock.\n", diff_mac);
+        }
+        last_mac_ind_dec = target_ind_dec;
         nfapi_nr_slot_indication_scf_t ind = {0};
-        ind.sfn = ind_sfn;
-        ind.slot = ind_slot;
+        ind.sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, last_mac_ind_dec);
+        ind.slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, last_mac_ind_dec);
         ind.header.phy_id = p7_info->phy_id;
-        
         if (p7_info->sync_locked) {
           phy_nr_slot_indication(&ind);
         }
-        burst_counter++;
-      }
-      if (last_mac_ind_dec != target_ind_dec) {
-        NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Catch-up burst limited to %d slots (remaining: %d). Allowing other threads to run.\n",
-                    MAX_CATCHUP_SLOTS, (target_ind_dec - last_mac_ind_dec + MAX_SFNSLOTDEC) % MAX_SFNSLOTDEC);
+      } else {
+        // Normal drift: catch up in small bursts to smooth out RLC traffic
+        int burst_counter = 0;
+        const int MAX_BURST = 3;
+        while (last_mac_ind_dec != target_ind_dec && burst_counter < MAX_BURST) {
+          last_mac_ind_dec = (last_mac_ind_dec + 1) % MAX_SFNSLOTDEC;
+          nfapi_nr_slot_indication_scf_t ind = {0};
+          ind.sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, last_mac_ind_dec);
+          ind.slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, last_mac_ind_dec);
+          ind.header.phy_id = p7_info->phy_id;
+          if (p7_info->sync_locked) {
+            phy_nr_slot_indication(&ind);
+          }
+          burst_counter++;
+        }
       }
     }
     

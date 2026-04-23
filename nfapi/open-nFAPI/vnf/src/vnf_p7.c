@@ -2033,12 +2033,12 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 		}
 	}
 	pthread_mutex_unlock(&p7_info->mutex);
-	NFAPI_TRACE(NFAPI_TRACE_DEBUG, 
-		"[P7_SYNC] ul_node_sync phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) offset:%d owd:%d pending_us:%d locked:%d s_adj:%d p_adj:%d\n",
-		ind.header.phy_id, ind.t1, ind.t2, ind.t3, t4,
-		offset, owd, p7_info->pending_us, p7_info->sync_locked, 
-		total_correction / p7_info->slot_duration_us, 
-		total_correction % p7_info->slot_duration_us);
+	// NFAPI_TRACE(NFAPI_TRACE_DEBUG, 
+	// 	"[P7_SYNC] ul_node_sync phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) offset:%d owd:%d pending_us:%d locked:%d s_adj:%d p_adj:%d\n",
+	// 	ind.header.phy_id, ind.t1, ind.t2, ind.t3, t4,
+	// 	offset, owd, p7_info->pending_us, p7_info->sync_locked, 
+	// 	total_correction / p7_info->slot_duration_us, 
+	// 	total_correction % p7_info->slot_duration_us);
 }
 
 void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
