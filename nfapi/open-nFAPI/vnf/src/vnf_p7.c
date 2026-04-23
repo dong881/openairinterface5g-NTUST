@@ -259,11 +259,11 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         }
     }
 
-    /* Estimate current effective slot advance using the absolute tracked phase.
-     * This is the key data point for slot-ahead adaptation, especially when
-     * the VNF is making sub-slot sleep adjustments in addition to slot shifts.
+    /* Use s_ahead_env directly as the baseline for proposed adjustments to decouple
+     * macro-shifts from micro-advancements (pending_us). This prevents the "chain effect"
+     * where increased sleep causes a premature downward slot-ahead drop.
      */
-    int32_t current_slot_estimate = (p7_info->total_advanced_us + slot_duration_us / 2) / slot_duration_us;
+    int32_t current_slot_estimate = s_ahead_env;
     if (current_slot_estimate < 1) current_slot_estimate = 1;
     if (current_slot_estimate > max_s_ahead) current_slot_estimate = max_s_ahead;
 
@@ -301,7 +301,8 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     if (proposed_slot_ahead < 1) proposed_slot_ahead = 1;
     if (proposed_slot_ahead > max_s_ahead) proposed_slot_ahead = max_s_ahead;
 
-    if (proposed_slot_ahead != target_s_ahead) {
+    if (proposed_slot_ahead > target_s_ahead) {
+        // Only allow upward moves here; downward moves are handled by the leaky bucket in section 3.
         int32_t move = proposed_slot_ahead - target_s_ahead;
         if (abs(move) > 1 && !phase_direction_helpful) {
             target_s_ahead += (move > 0 ? 1 : -1);
@@ -337,20 +338,24 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         if (strict_deadline_violation) {
             step_up = (worst_late / slot_duration_us) + 3;
             // Apply a harsh penalty on the reduction threshold to avoid rapid bounce-back
-            p7_info->reduction_penalty_counter += 20000;
-            if (p7_info->reduction_penalty_counter > 500000) {
-                p7_info->reduction_penalty_counter = 500000;
+            p7_info->reduction_penalty_counter += 50000;
+            if (p7_info->reduction_penalty_counter > 1000000) {
+                p7_info->reduction_penalty_counter = 1000000;
             }
         }
         target_s_ahead += step_up;
         if (target_s_ahead > max_s_ahead) target_s_ahead = max_s_ahead;
 
+        p7_info->last_increase_timestamp_hr = now_hr;
         p7_info->consecutive_late_spikes = 0;
     } else {
         // ===================================================================
         // 3. 安全降檔 (Proactive Latency Reduction)
         // ===================================================================
-        if (worst_late < -absolute_safe_boundary) {
+        int64_t diff_last_increase_us = timehr_diff_us(now_hr, p7_info->last_increase_timestamp_hr);
+        bool reduction_locked = (p7_info->last_increase_timestamp_hr != 0 && diff_last_increase_us < 30000000); // 30s lock
+
+        if (worst_late < -absolute_safe_boundary && !reduction_locked) {
             p7_info->consecutive_late_spikes++;
             
             // Leaky bucket decay for the penalty when operating safely
@@ -382,6 +387,10 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
                 p7_info->consecutive_late_spikes = 0;
             }
         } else {
+            if (reduction_locked && worst_late < -absolute_safe_boundary && (p7_info->sfn % 1024 == 0)) {
+                 NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC] Reduction Locked: %d s ahead (time since last increase: %ld ms)\n", 
+                             s_ahead_env, diff_last_increase_us / 1000);
+            }
             p7_info->consecutive_late_spikes = 0;
             p7_info->stable_top_pending_drop = 0;
         }
@@ -2537,5 +2546,48 @@ void vnf_p7_release_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* header)
 void vnf_p7_release_pdu(vnf_p7_t* vnf_p7, void* pdu)
 {
 	vnf_p7_free(vnf_p7, pdu);
+}
+
+void unit_test_vnf_p7_convergence_optimization(void)
+{
+    nfapi_vnf_p7_connection_info_t p7_info;
+    memset(&p7_info, 0, sizeof(p7_info));
+    p7_info.slot_duration_us = 1000;
+    s_ahead_env = 1;
+
+    printf("[UNIT_TEST] Testing VNF P7 Convergence Optimization...\n");
+
+    vnf_timing_stats_t stats = {
+        .worst_late = 364,
+        .worst_early = -500,
+        .packet_slot = 0,
+        .pnf_reported_jitter = 50
+    };
+
+    printf("[UNIT_TEST] Phase 1: Rapid Increase (Panic)\n");
+    vnf_p7_convergence_optimization(&p7_info, &stats);
+    printf("[UNIT_TEST] Expected Increase. Current s_ahead_env: %d\n", s_ahead_env);
+
+    stats.worst_late = 938;
+    vnf_p7_convergence_optimization(&p7_info, &stats);
+    printf("[UNIT_TEST] Expected Focus. Current s_ahead_env: %d\n", s_ahead_env);
+
+    printf("[UNIT_TEST] Phase 2: Stability with Locking (30s lock test)\n");
+    stats.worst_late = -4000;
+    // Simulate 25 seconds of stability (25000 slots)
+    // In our mock, timehr_diff_us should return the simulated time
+    // We update p7_info.sfn just to see some logs if we added them
+    for (int i = 0; i < 25000; i++) {
+        p7_info.sfn = i / 20;
+        vnf_p7_convergence_optimization(&p7_info, &stats);
+    }
+    printf("[UNIT_TEST] After 25s stability (expected locked): %d\n", s_ahead_env);
+
+    // Now simulate 35 seconds of stability
+    for (int i = 25000; i < 35000; i++) {
+        p7_info.sfn = i / 20;
+        vnf_p7_convergence_optimization(&p7_info, &stats);
+    }
+    printf("[UNIT_TEST] After 35s stability (expected drop if penalty decayed): %d\n", s_ahead_env);
 }
 

@@ -1157,6 +1157,7 @@ static inline void p7_sync_init(nfapi_vnf_p7_connection_info_t *p7_info)
     p7_info->sync_slot_counter = 0;
     p7_info->delta_sfn_slot = 0;
     p7_info->sync_period_slots = P7_SYNC_PERIOD_SLOTS_DEFAULT;
+    p7_info->last_increase_timestamp_hr = 0;
     NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Initialized: period=%u slots\n",
                 p7_info->sync_period_slots);
 }
