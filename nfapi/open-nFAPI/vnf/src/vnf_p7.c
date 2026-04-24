@@ -2033,8 +2033,8 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 			// }
 			p7_info->total_advanced_us = slot_ahead * p7_info->slot_duration_us; // Account for initial phase offset!
 		} else {
-			int32_t s_adj = total_correction / p7_info->slot_duration_us;
-			int32_t p_adj = total_correction % p7_info->slot_duration_us;
+			int32_t s_adj = total_correction / (int32_t)p7_info->slot_duration_us;
+			int32_t p_adj = total_correction % (int32_t)p7_info->slot_duration_us;
 			p7_info->slot_adjustment += s_adj;
 			p7_info->pending_us -= p_adj;
 			p7_info->last_adjustment_time_hr = vnf_get_current_time_hr(); // Mask stale timing info
