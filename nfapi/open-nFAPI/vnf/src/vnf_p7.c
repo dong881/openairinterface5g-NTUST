@@ -407,7 +407,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
                     s_ahead_env, target_s_ahead, worst_late, p7_info->estimated_mean_late, in_panic);
         p7_info->last_total_advanced_us = p7_info->total_advanced_us;
         s_ahead_env = target_s_ahead;
-    } else if (p7_info->sfn % 256 == 0) {
+    } else if (p7_info->sfn % 256 == 0 && p7_info->slot % 0 == 0) {
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Slot Ahead Maintained: %d (worst_late: %d, mean: %d, in_panic: %d)",
 					s_ahead_env, worst_late, p7_info->estimated_mean_late, in_panic);
 	}
@@ -2025,12 +2025,18 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 
 	pthread_mutex_lock(&p7_info->mutex);
 
+	if (p7_info->sync_locked) {
+		// Drift Monitoring: If we are locked but the offset exceeds the locked tolerance,
+		// we must unlock and re-synchronize to avoid long-term instability.
+		if (total_correction < -MARGIN_TOLERANCE_LOCKED_US || total_correction > MARGIN_TOLERANCE_LOCKED_US) {
+			p7_info->sync_locked = 0;
+			NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Drift detected (%d us). Unlocking sync for re-calibration.\n", total_correction);
+		}
+	}
+
 	if (!p7_info->sync_locked) {
 		if (total_correction >= -MARGIN_TOLERANCE_US && total_correction <= MARGIN_TOLERANCE_US) {
 			p7_info->sync_locked = 1;
-			// if (!dynamic_timing_enabled) {
-			// 	p7_info->ewma_owd_us = 0;
-			// }
 			p7_info->total_advanced_us = slot_ahead * p7_info->slot_duration_us; // Account for initial phase offset!
 		} else {
 			int32_t s_adj = total_correction / (int32_t)p7_info->slot_duration_us;

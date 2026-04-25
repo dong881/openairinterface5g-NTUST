@@ -1149,7 +1149,7 @@ static inline uint64_t pack_sfn_slot_value(uint16_t sfn, uint16_t slot, int32_t 
     return packed;
 }
 
-#define P7_SYNC_PERIOD_SLOTS_DEFAULT 3  // Send vnf_nr_sync every N slots
+#define P7_SYNC_PERIOD_SLOTS_DEFAULT 100  // Send vnf_nr_sync every N slots
 int vnf_nr_build_send_dl_node_sync(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info);
 
 static inline void p7_sync_init(nfapi_vnf_p7_connection_info_t *p7_info)
@@ -1284,7 +1284,7 @@ void *vnf_timing_thread(void *arg) {
       } else {
         // Normal drift: catch up in small bursts to smooth out RLC traffic
         int burst_counter = 0;
-        const int MAX_BURST = 3;
+        const int MAX_BURST = 2;
         while (last_mac_ind_dec != target_ind_dec && burst_counter < MAX_BURST) {
           last_mac_ind_dec = (last_mac_ind_dec + 1) % MAX_SFNSLOTDEC;
           nfapi_nr_slot_indication_scf_t ind = {0};
