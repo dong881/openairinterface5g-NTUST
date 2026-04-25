@@ -61,6 +61,7 @@
 #include "pdcp_messages_types.h"
 #include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "utils.h"
+#include "common/utils/system.h"
 
 #define TODO do { \
     printf("%s:%d:%s: todo\n", __FILE__, __LINE__, __FUNCTION__); \
@@ -124,7 +125,7 @@ typedef struct {
   uint8_t *sdu_pP;
 } rlc_data_req_queue_item;
 
-#define RLC_DATA_REQ_QUEUE_SIZE 10000
+#define RLC_DATA_REQ_QUEUE_SIZE 100000
 
 typedef struct {
   rlc_data_req_queue_item q[RLC_DATA_REQ_QUEUE_SIZE];
@@ -172,10 +173,7 @@ static void init_nr_rlc_data_req_queue(void)
   pthread_mutex_init(&q.m, NULL);
   pthread_cond_init(&q.c, NULL);
 
-  if (pthread_create(&t, NULL, rlc_data_req_thread, NULL) != 0) {
-    LOG_E(PDCP, "%s:%d:%s: fatal\n", __FILE__, __LINE__, __FUNCTION__);
-    exit(1);
-  }
+  threadCreate(&t, rlc_data_req_thread, NULL, "RLC queue", -1, OAI_PRIORITY_RT);
 }
 
 static void enqueue_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
@@ -229,7 +227,7 @@ typedef struct {
   uint8_t *sdu_buffer;
 } pdcp_data_ind_queue_item;
 
-#define PDCP_DATA_IND_QUEUE_SIZE 10000
+#define PDCP_DATA_IND_QUEUE_SIZE 100000
 
 typedef struct {
   pdcp_data_ind_queue_item q[PDCP_DATA_IND_QUEUE_SIZE];
@@ -313,10 +311,7 @@ static void init_nr_pdcp_data_ind_queue(void)
   pthread_mutex_init(&pq.m, NULL);
   pthread_cond_init(&pq.c, NULL);
 
-  if (pthread_create(&t, NULL, pdcp_data_ind_thread, NULL) != 0) {
-    LOG_E(PDCP, "%s:%d:%s: fatal\n", __FILE__, __LINE__, __FUNCTION__);
-    exit(1);
-  }
+  threadCreate(&t, pdcp_data_ind_thread, NULL, "PDCP data ind", -1, OAI_PRIORITY_RT);
 }
 
 static void enqueue_pdcp_data_ind(const protocol_ctxt_t *const ctxt_pP,
