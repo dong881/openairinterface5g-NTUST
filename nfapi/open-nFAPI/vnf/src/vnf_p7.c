@@ -407,7 +407,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
                     s_ahead_env, target_s_ahead, worst_late, p7_info->estimated_mean_late, in_panic);
         p7_info->last_total_advanced_us = p7_info->total_advanced_us;
         s_ahead_env = target_s_ahead;
-    } else if (p7_info->sfn % 256 == 0 && p7_info->slot % 0 == 0) {
+    } else if (p7_info->sfn % 256 == 0 && p7_info->slot == 0) {
 		NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Slot Ahead Maintained: %d (worst_late: %d, mean: %d, in_panic: %d)",
 					s_ahead_env, worst_late, p7_info->estimated_mean_late, in_panic);
 	}

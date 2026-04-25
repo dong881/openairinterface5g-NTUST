@@ -1278,9 +1278,7 @@ void *vnf_timing_thread(void *arg) {
         ind.sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, last_mac_ind_dec);
         ind.slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, last_mac_ind_dec);
         ind.header.phy_id = p7_info->phy_id;
-        if (p7_info->sync_locked) {
-          phy_nr_slot_indication(&ind);
-        }
+        phy_nr_slot_indication(&ind);
       } else {
         // Normal drift: catch up in small bursts to smooth out RLC traffic
         int burst_counter = 0;
@@ -1291,9 +1289,7 @@ void *vnf_timing_thread(void *arg) {
           ind.sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, last_mac_ind_dec);
           ind.slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, last_mac_ind_dec);
           ind.header.phy_id = p7_info->phy_id;
-          if (p7_info->sync_locked) {
             phy_nr_slot_indication(&ind);
-          }
           burst_counter++;
         }
       }
