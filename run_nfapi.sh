@@ -122,7 +122,8 @@ CONF_GNB="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi
 
 # Taskset / Thread pool settings
 TASKSET_VNF="8-15,40-47"
-THREAD_POOL_PNF="24,25,26,27,28,29,30,31"
+# THREAD_POOL_PNF="24,25,26,27,28,29,30,31"
+THREAD_POOL_PNF="8,9,10,11,13,14,15,1"
 THREAD_POOL_GNB="1,3,5,7,9,11,13,14,15,16,17,18"
 
 # Log directory
