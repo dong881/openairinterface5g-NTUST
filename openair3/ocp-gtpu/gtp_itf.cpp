@@ -1085,7 +1085,7 @@ static int Gtpv1uHandleEndMarker(int h, uint8_t *msgBuf, uint32_t msgBufLen, con
   auto tunnel = globGtp.te2ue_mapping.find(ntohl(msgHdr->teid));
 
   if (tunnel == globGtp.te2ue_mapping.end()) {
-    LOG_E(GTPU, "[%d] Received a incoming packet on unknown TEID (0x%x) Dropping!\n", h, msgHdr->teid);
+    LOG_D(GTPU, "[%d] Received a incoming packet on unknown TEID (0x%x) Dropping!\n", h, msgHdr->teid);
     pthread_mutex_unlock(&globGtp.gtp_lock);
     return GTPNOK;
   }
@@ -1131,7 +1131,7 @@ static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const st
   auto tunnel = globGtp.te2ue_mapping.find(ntohl(msgHdr->teid));
 
   if (tunnel == globGtp.te2ue_mapping.end()) {
-    LOG_E(GTPU, "[%d] Received a incoming packet on unknown TEID (0x%x) Dropping!\n", h, ntohl(msgHdr->teid));
+    LOG_D(GTPU, "[%d] Received a incoming packet on unknown TEID (0x%x) Dropping!\n", h, ntohl(msgHdr->teid));
     pthread_mutex_unlock(&globGtp.gtp_lock);
     return GTPNOK;
   }

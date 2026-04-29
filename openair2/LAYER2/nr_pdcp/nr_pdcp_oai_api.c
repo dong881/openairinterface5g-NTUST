@@ -191,7 +191,7 @@ static void enqueue_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
   while (q.length == RLC_DATA_REQ_QUEUE_SIZE) {
     if (!logged) {
       logged = 1;
-      LOG_W(PDCP, "%s: rlc_data_req queue is full\n", __FUNCTION__);
+      LOG_D(PDCP, "%s: rlc_data_req queue is full\n", __FUNCTION__);
     }
     if (pthread_cond_wait(&q.c, &q.m) != 0) abort();
   }
