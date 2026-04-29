@@ -21,6 +21,7 @@
   - `rlc_am_arq_retx-count.bin`
   - `rlc_am_arq_rtt-us.bin`
   - `vnf_dl_harq_available-count.bin`
+  - `vnf_total_dl_harq_available-count.bin`
   - `vnf_dl_cqi-idx.bin`
   - `vnf_dl_mcs-idx.bin`
   - `vnf_dl_harq_round-count.bin`
@@ -80,6 +81,7 @@
   - `vnf_timing_pending_us-us.bin`
   - `vnf_harq_rtt-us.bin`
   - `vnf_dl_harq_available-count.bin`
+  - `vnf_total_dl_harq_available-count.bin`
   - `vnf_dl_cqi-idx.bin`
   - `vnf_dl_mcs-idx.bin`
   - `vnf_dl_harq_round-count.bin`

@@ -38,7 +38,8 @@
 
 /* log_mmap metrics added for slot-ahead analysis:
  * - vnf_dl_mcs-idx.bin: selected MCS index
- * - vnf_dl_harq_available-count.bin: free DL HARQ process count
+ * - vnf_dl_harq_available-count.bin: free DL HARQ process count (only when data to schedule)
+ * - vnf_total_dl_harq_available-count.bin: free DL HARQ process count (all cases)
  */
 /*TAG*/
 #include "NR_TAG-Id.h"
@@ -722,11 +723,22 @@ static void pf_dl(gNB_MAC_INST *mac,
     } else {
       update_dlsch_buffer(pp_pdsch->frame, pp_pdsch->slot, UE);
 
+      int available_dl_harq_count = 0;
+      for (int i = sched_ctrl->available_dl_harq.head; i >= 0; i = sched_ctrl->available_dl_harq.next[i]) {
+        available_dl_harq_count++;
+      }
+
+      bool to_schedule = dlsch_to_schedule(sched_ctrl, frame);
+
+      log_mmap_entry("vnf_total_dl_harq_available-count.bin", available_dl_harq_count);
+      if (to_schedule) {
+        log_mmap_entry("vnf_dl_harq_available-count.bin", available_dl_harq_count);
+      }
+
       /* skip this UE if there are no free HARQ processes. This can happen e.g.
        * if the UE disconnected in L2sim, in which case the gNB is not notified
        * (this can be considered a design flaw) */
-      if (sched_ctrl->available_dl_harq.head < 0) {
-        log_mmap_entry("vnf_dl_harq_available-count.bin", 0);
+      if (available_dl_harq_count == 0) {
         LOG_D(NR_MAC, "[UE %04x][%4d.%2d] UE has no free DL HARQ process, skipping\n",
               UE->rnti,
               frame,
@@ -734,15 +746,7 @@ static void pf_dl(gNB_MAC_INST *mac,
         continue;
       }
 
-      int available_dl_harq_count = 0;
-      for (int i = sched_ctrl->available_dl_harq.head; i >= 0; i = sched_ctrl->available_dl_harq.next[i]) {
-        available_dl_harq_count++;
-      }
-      log_mmap_entry("vnf_dl_harq_available-count.bin", available_dl_harq_count);
-
-      update_dlsch_buffer(pp_pdsch->frame, pp_pdsch->slot, UE);
-
-      if (!dlsch_to_schedule(sched_ctrl, frame))
+      if (!to_schedule)
         continue;
 
       /* Calculate coeff */
