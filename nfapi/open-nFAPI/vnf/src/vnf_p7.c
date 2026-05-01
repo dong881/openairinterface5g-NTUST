@@ -172,39 +172,31 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
  * =========================================================================================
  * 
  * REFERENCES & ALGORITHMIC FOUNDATIONS:
- * 1. WebRTC NetEQ / Adaptive Jitter Buffer (Ramjee et al., IEEE INFOCOM):
- *    - Logic: Aggressively expand the buffer upon delay spikes to prevent drops, but shrink 
- *      the buffer very slowly ("Slow Decay") during stable periods to minimize latency 
- *      without risking underruns. Asymmetric adjustment rate (Fast Expand, Slow Decay).
+ * 1. WebRTC NetEQ / Adaptive Jitter Buffer Strategy:
+ *    - Logic: Aggressively expand the buffer (increase s_ahead_env) upon delay spikes or 
+ *      deadline violations to prevent packet drops (Fast Attack). Shrink the buffer extremely 
+ *      slowly ("Slow Decay") during stable periods to minimize latency without risking underruns.
  * 2. TCP RTO Jacobson/Karels Algorithm (RFC 6298):
  *    - Logic: Averages are insufficient for delay predictions in bursty networks. Reaction
- *      must be anchored to the variance / extreme measured edges (e.g., worst_late).
- * 3. BBR (Bottleneck Bandwidth and Round-trip propagation time - Google):
- *    - Logic: Continuous probing of the lower delay bounds. When the network is quiet, 
- *      the pacing smoothly drifts toward the minimum possible RTT constraint to prevent 
- *      bufferbloat (Latency minimization).
+ *      must be anchored to the estimated mean and the variance of measured extremes (worst_late).
+ * 3. BBR-style Probing (Bottleneck Bandwidth and RTT):
+ *    - Logic: Continuous probing of the lower delay bounds. When the network is quiet and operates 
+ *      within an absolute safe boundary, the pacing smoothly drifts toward the minimum slot-ahead.
  *
- * CHALLENGES & SOLUTIONS:
- * [Challenge 1: Catastrophic Jitter exceeding the Timing Window]
- *   Under 1G traffic, bidirectional jitter can exceed the entire PNF timing window (e.g., >5000us).
- *   - Solution: Maximum Advance Pinning. Instead of "centering", we pin the earliest packets 
- *     directly against the Timing Window's Upper Bound (minus a 200us safety margin). We advance 
- *     as much as physically permissible without triggering "Too Early" drops, rescuing the 
- *     maximum possible number of late packets.
- * [Challenge 2: Integral Windup Deadlock vs. Instantaneous Queues]
- *   Continuously acting on "Late" feedback causes infinite accumulation. `pending_us` is a relative queue 
- *   that gets constantly consumed by the sleep thread, leading to a blind "Integral Windup" logic flaw if 
- *   capped directly. Guessing OWD or Task processing times is also dangerous.
- *   - Solution: PID-style Anti-Windup & Cumulative Phase Limit. Based on Control Theory / PLLs, we sum
- *     every commanded `shift` delta into an absolute integral variable (`total_advanced_us`) relative to 
- *     initial sync locking. We strictly cap this cumulative sum to `(Timing Window + ewma_proc + ewma_owd - 200 padding)`. 
- *     Following conservative designs, `ewma_owd` is wiped to 0 when lock engages (as sync stops), guaranteeing 
- *     the limit safely anchors itself against pushing into the "Too Early" precipice with stale values.
+ * CURRENT IMPLEMENTATION CHALLENGES & SOLUTIONS:
+ * [Challenge 1: Catastrophic Jitter & Deadline Violations]
+ *   - Solution: Fast Attack Panic. Instead of slow incremental adjustments, we instantly jump 
+ *     `target_s_ahead` by at least 2 slots (or strictly calculated based on the `worst_late` 
+ *     severity) when hitting statistical anomalies or strict deadline violations.
+ * [Challenge 2: Oscillation & State Bouncing]
+ *   - Solution: Phase Direction & Penalty Dampening. We use `last_phase_delta_us` tracking 
+ *     (comparing previous absolute `total_advanced_us` adjustments) to verify if a phase shift 
+ *     is helpful. A harsh penalty counter (`reduction_penalty_counter`) and a 30-second time-lock 
+ *     (`last_increase_timestamp_hr`) are applied after panic expansions to prevent rapid bounce-backs.
  * [Challenge 3: Maximizing Low Latency in Safe Zones]
- *   Operating permanently near the upper bound wastes latency. 
- *   - Solution: BBR-style Probing. When in the safe zone, smoothly drift toward the lower 
- *     bound (Lower Margin) to cut latency. If a spike occurs, the aggressive jump mechanism 
- *     acts as a safety net to instantly push it back up.
+ *   - Solution: Proactive Latency Reduction (Safe Decay). We monitor `absolute_safe_boundary` 
+ *     (ensuring at least a 1-slot safety margin). Once `consecutive_late_spikes` safely meets the 
+ *     leaky bucket penalty threshold, and the 30s lock has expired, we safely drop `s_ahead_env`.
  * =========================================================================================
  */
 
@@ -2553,47 +2545,3 @@ void vnf_p7_release_pdu(vnf_p7_t* vnf_p7, void* pdu)
 {
 	vnf_p7_free(vnf_p7, pdu);
 }
-
-void unit_test_vnf_p7_convergence_optimization(void)
-{
-    nfapi_vnf_p7_connection_info_t p7_info;
-    memset(&p7_info, 0, sizeof(p7_info));
-    p7_info.slot_duration_us = 1000;
-    s_ahead_env = 1;
-
-    printf("[UNIT_TEST] Testing VNF P7 Convergence Optimization...\n");
-
-    vnf_timing_stats_t stats = {
-        .worst_late = 364,
-        .worst_early = -500,
-        .packet_slot = 0,
-        .pnf_reported_jitter = 50
-    };
-
-    printf("[UNIT_TEST] Phase 1: Rapid Increase (Panic)\n");
-    vnf_p7_convergence_optimization(&p7_info, &stats);
-    printf("[UNIT_TEST] Expected Increase. Current s_ahead_env: %d\n", s_ahead_env);
-
-    stats.worst_late = 938;
-    vnf_p7_convergence_optimization(&p7_info, &stats);
-    printf("[UNIT_TEST] Expected Focus. Current s_ahead_env: %d\n", s_ahead_env);
-
-    printf("[UNIT_TEST] Phase 2: Stability with Locking (30s lock test)\n");
-    stats.worst_late = -4000;
-    // Simulate 25 seconds of stability (25000 slots)
-    // In our mock, timehr_diff_us should return the simulated time
-    // We update p7_info.sfn just to see some logs if we added them
-    for (int i = 0; i < 25000; i++) {
-        p7_info.sfn = i / 20;
-        vnf_p7_convergence_optimization(&p7_info, &stats);
-    }
-    printf("[UNIT_TEST] After 25s stability (expected locked): %d\n", s_ahead_env);
-
-    // Now simulate 35 seconds of stability
-    for (int i = 25000; i < 35000; i++) {
-        p7_info.sfn = i / 20;
-        vnf_p7_convergence_optimization(&p7_info, &stats);
-    }
-    printf("[UNIT_TEST] After 35s stability (expected drop if penalty decayed): %d\n", s_ahead_env);
-}
-
