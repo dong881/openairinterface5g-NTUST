@@ -76,17 +76,23 @@ static volatile sig_atomic_t mmap_logging_enabled = 0;
 static volatile sig_atomic_t mmap_logs_initialized = 0;
 static pthread_mutex_t mmap_logger_init_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+void enable_all_mmap_logs(void);
+void disable_all_mmap_logs(void);
+
 static void mmap_logging_signal_handler(int sig)
 {
   if (sig != SIGUSR1)
     return;
 
-  mmap_logging_enabled = !mmap_logging_enabled;
-
-  if (mmap_logging_enabled)
+  if (!mmap_logging_enabled) {
+    if (mmap_logs_initialized) enable_all_mmap_logs();
+    mmap_logging_enabled = 1;
     (void)write(STDOUT_FILENO, "[LOG] mmap logging enabled\n", 27);
-  else
+  } else {
+    mmap_logging_enabled = 0;
+    if (mmap_logs_initialized) disable_all_mmap_logs();
     (void)write(STDOUT_FILENO, "[LOG] mmap logging disabled\n", 28);
+  }
 }
 #include "intertask_interface.h"
 #include "nfapi/oai_integration/vendor_ext.h"
@@ -870,6 +876,11 @@ void log_mmap_entry(const char *log_name, uint64_t value)
 
   pthread_spin_lock(&log->lock);
 
+  if (log->log_ptr == NULL || log->log_ptr == MAP_FAILED) {
+    pthread_spin_unlock(&log->lock);
+    return;
+  }
+
   if ((log->current_log_size - log->log_offset) < sizeof(uint64_t)) {
     if (rotate_log_file(log) == -1) {
       pthread_spin_unlock(&log->lock);
@@ -894,6 +905,42 @@ void cleanup_mmap_logger(void)
       log->is_active = 0;
       finalize_current_split(log);
       pthread_spin_destroy(&log->lock);
+    }
+  }
+}
+
+void disable_all_mmap_logs(void)
+{
+  for (int i = 0; i < num_log_files; i++) {
+    mmap_log_file_t *log = &log_files[i];
+
+    if (log->is_active) {
+      pthread_spin_lock(&log->lock);
+      finalize_current_split(log);
+      pthread_spin_unlock(&log->lock);
+    }
+  }
+}
+
+void enable_all_mmap_logs(void)
+{
+  for (int i = 0; i < num_log_files; i++) {
+    mmap_log_file_t *log = &log_files[i];
+
+    if (log->is_active) {
+      pthread_spin_lock(&log->lock);
+      
+      // Delete split files > 0
+      for (int j = 1; j <= log->current_split_index; j++) {
+        char filepath[128];
+        generate_split_filename(filepath, sizeof(filepath), log->base_filename, j);
+        unlink(filepath);
+      }
+      
+      log->current_split_index = 0;
+      open_new_split(log);
+
+      pthread_spin_unlock(&log->lock);
     }
   }
 }
