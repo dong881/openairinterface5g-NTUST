@@ -200,6 +200,15 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
  * =========================================================================================
  */
 
+static int32_t global_max_s_ahead = 4;
+
+__attribute__((constructor)) static void initialize_max_s_ahead(void) {
+    char *env_val = getenv("MAX_S_AHEAD");
+    if (env_val != NULL) {
+        global_max_s_ahead = atoi(env_val);
+    }
+}
+
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
 {
     int32_t slot_duration_us = p7_info->slot_duration_us;
@@ -208,7 +217,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     uint32_t now_hr = vnf_get_current_time_hr();
 
     // 固定範圍 1 ~ 8，因為 node sync 會處理預設的 offset
-    int32_t max_s_ahead = 8;
+    int32_t max_s_ahead = global_max_s_ahead;
 
     // ===================================================================
     // 1. 統計學突波偵測 (Jacobson/Karels TCP RTT Algorithm)
@@ -2017,7 +2026,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 
 	pthread_mutex_lock(&p7_info->mutex);
 
-	if (p7_info->sync_locked) {
+	if (false && p7_info->sync_locked && dynamic_timing_enabled) {
 		// Drift Monitoring: If we are locked but the offset exceeds the locked tolerance,
 		// we must unlock and re-synchronize to avoid long-term instability.
 		if (total_correction < -MARGIN_TOLERANCE_LOCKED_US || total_correction > MARGIN_TOLERANCE_LOCKED_US) {
