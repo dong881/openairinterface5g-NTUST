@@ -54,6 +54,7 @@ show_help() {
     echo "  TIMING_INFO_MODE=X         - Pass TIMING_INFO_MODE to VNF when starting with --nfapi VNF"
     echo "  TIMING_INFO_PERIOD=X       - Pass TIMING_INFO_PERIOD to VNF when starting with --nfapi VNF"
     echo "  DYNAMIC_TIMING=1           - Enable dynamic timing mode for VNF"
+    echo "  MAX_S_AHEAD=X              - Max S ahead (with DYNAMIC_TIMING; passed to VNF)"
     echo ""
     echo "LOG FILES:"
     echo "  PNF Log:       \$HOME/gNB-logs/nfapi-PNF-pegatron-open5gs-develop-latest.log"
@@ -71,6 +72,7 @@ TIMING_WINDOW_VAL=${TIMING_WINDOW:-}
 TIMING_INFO_MODE_VAL=${TIMING_INFO_MODE:-}
 TIMING_INFO_PERIOD_VAL=${TIMING_INFO_PERIOD:-}
 DYNAMIC_TIMING_VAL=${DYNAMIC_TIMING:-}
+MAX_S_AHEAD_VAL=${MAX_S_AHEAD:-}
 
 # Priority for Environment Variables in New Version Mode
 if [ "$USE_NEW_SLIDER_HEAD" = "1" ]; then
@@ -97,6 +99,9 @@ build_vnf_env_args() {
     if [ -n "$DYNAMIC_TIMING_VAL" ]; then
         env_args+="DYNAMIC_TIMING=${DYNAMIC_TIMING_VAL} "
     fi
+    if [ -n "$MAX_S_AHEAD_VAL" ]; then
+        env_args+="MAX_S_AHEAD=${MAX_S_AHEAD_VAL} "
+    fi
     env_args+="NFAPI_TRACE_LEVEL=info"
     echo "$env_args"
 }
@@ -114,9 +119,9 @@ PATH_HPE_ORIG="openairinterface5g-develop-latest"
 
 # Configuration file paths (relative to build directory)
 CONF_VNF="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-vnf.sa.band78.273prb.nfapi-bmw.conf"
-CONF_VNF_SPLIT="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-vnf-split-direct.sa.band78.273prb.nfapi-bmw.conf"
+CONF_VNF_SPLIT="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-vnf-split.sa.band78.273prb.nfapi-bmw.conf"
 CONF_PNF="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-pnf.sa.band78.fhi72.nfapi.4x4-pegatron.conf"
-CONF_PNF_SPLIT="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-pnf-split-direct.sa.band78.fhi72.nfapi.4x4-pegatron.conf"
+CONF_PNF_SPLIT="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-pnf-split.sa.band78.fhi72.nfapi.4x4-pegatron.conf"
 CONF_PNF_RFSIM="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-pnf.band78.rfsim.conf"
 CONF_GNB="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi72.4x4-pega.conf"
 
@@ -483,6 +488,9 @@ start_vnf_hpe() {
     fi
     if [ -n "$DYNAMIC_TIMING_VAL" ]; then
         vnf_env+="DYNAMIC_TIMING=${DYNAMIC_TIMING_VAL} "
+    fi
+    if [ -n "$MAX_S_AHEAD_VAL" ]; then
+        vnf_env+="MAX_S_AHEAD=${MAX_S_AHEAD_VAL} "
     fi
     vnf_env+="NFAPI_TRACE_LEVEL=info"
     local start_cmd="screen -dmS VNF_SESSION bash -c 'cd $build_path && sudo -E ${vnf_env} numactl --cpunodebind=1 --membind=1 taskset -c ${TASKSET_VNF} ./nr-softmodem -O ${conf_file} --nfapi VNF 2>&1 | tee ${log_file}'"
