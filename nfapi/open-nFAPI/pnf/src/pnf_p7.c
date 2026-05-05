@@ -697,7 +697,8 @@ static bool check_nr_p7_timing(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_t msg_
 	int64_t time_since_slot_start = timehr_diff_us(recv_time_hr, pnf_p7->slot_start_time_hr);
 	int64_t delay_to_msg_slot = diff_slots * slot_len_us;
 	int64_t margin = delay_to_msg_slot - time_since_slot_start - timing_offset;
-	if(msg_sfn %256 == 0 && msg_slot == 0) NFAPI_TRACE(NFAPI_TRACE_INFO, "%s [%d.%d] diff_slots %d delay_to_msg_slot %ld us time_since_slot_start %ld us margin %ld us\n", name, msg_sfn, msg_slot, diff_slots, (long)delay_to_msg_slot, (long)time_since_slot_start, (long)margin);
+	if(msg_sfn %256 == 0 && msg_slot == 0)
+	 NFAPI_TRACE(NFAPI_TRACE_INFO, "%s [%d.%d] diff_slots %d delay_to_msg_slot %ld us time_since_slot_start %ld us margin %ld us\n", name, msg_sfn, msg_slot, diff_slots, (long)delay_to_msg_slot, (long)time_since_slot_start, (long)margin);
 
 	// Offset = RecvTime - (TargetTime - TimingOffset) = -Margin
 	// Positive Value: Later than acceptable (LATE)
