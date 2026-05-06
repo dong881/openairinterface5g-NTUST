@@ -203,8 +203,8 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 static int32_t global_max_s_ahead = 14;
 static int32_t global_raw_worst_late_control = 0;
 static int32_t global_ewma_only_control = 1;
-static int32_t global_ewma_alpha_denom = 16;    // 1/16 default
-static int32_t global_ewma_beta_denom = 16;     // 1/16 default
+static int32_t global_ewma_alpha_denom = 1;    // 1/16 default
+static int32_t global_ewma_beta_denom = 1;     // 1/16 default
 
 __attribute__((constructor)) static void initialize_max_s_ahead(void) {
     char *env_val = getenv("MAX_S_AHEAD");
