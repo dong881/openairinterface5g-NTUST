@@ -202,6 +202,9 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 
 static int32_t global_max_s_ahead = 14;
 static int32_t global_raw_worst_late_control = 0;
+static int32_t global_ewma_only_control = 0;
+static int32_t global_ewma_alpha_denom = 8;    // 1/8 default
+static int32_t global_ewma_beta_denom = 4;     // 1/4 default
 
 __attribute__((constructor)) static void initialize_max_s_ahead(void) {
     char *env_val = getenv("MAX_S_AHEAD");
@@ -212,6 +215,27 @@ __attribute__((constructor)) static void initialize_max_s_ahead(void) {
 	char *raw_ctrl = getenv("RAW_WORST_LATE_CONTROL");
 	if (raw_ctrl != NULL) {
 		global_raw_worst_late_control = atoi(raw_ctrl) != 0;
+	}
+
+	char *ewma_only = getenv("EWMA_ONLY_CONTROL");
+	if (ewma_only != NULL) {
+		global_ewma_only_control = atoi(ewma_only) != 0;
+	}
+
+	char *alpha_denom = getenv("EWMA_ALPHA");
+	if (alpha_denom != NULL) {
+		int val = atoi(alpha_denom);
+		if (val > 0 && val <= 256) {
+			global_ewma_alpha_denom = val;
+		}
+	}
+
+	char *beta_denom = getenv("EWMA_BETA");
+	if (beta_denom != NULL) {
+		int val = atoi(beta_denom);
+		if (val > 0 && val <= 256) {
+			global_ewma_beta_denom = val;
+		}
 	}
 }
 
@@ -231,7 +255,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
      * - Follow raw worst_late directly with aggressive up/down slot moves.
      * This intentionally makes slot-ahead prone to ping-pong oscillation.
      */
-    if (global_raw_worst_late_control) {
+    if (false) {
         int target_s_ahead = s_ahead_env;
 
         if (worst_late >= 0) {
@@ -255,6 +279,69 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
                         s_ahead_env, target_s_ahead, worst_late, stats->pnf_reported_jitter);
             p7_info->last_total_advanced_us = p7_info->total_advanced_us;
             s_ahead_env = target_s_ahead;
+        }
+        return;
+    }
+
+    /*
+     * EWMA-only control group:
+     * - Apply only EWMA smoothing to worst_late (configurable alpha/beta).
+     * - No complex panic logic, no slow-decay damping.
+     * - Use Gaussian distribution bounds (mean ± 3*sigma) to determine if adjustment is needed.
+     * - Adjustment magnitude is dynamic based on how much worst_late exceeds the safe range.
+     * This mode tests the effect of smoothing alone without algorithmic complexity.
+     */
+    if (true) {
+        if (p7_info->estimated_mean_late == 0) {
+            p7_info->estimated_mean_late = worst_late;
+            p7_info->estimated_jitter_var = 100;
+        }
+
+        int32_t diff = worst_late - p7_info->estimated_mean_late;
+        int32_t abs_diff = diff < 0 ? -diff : diff;
+
+        // Apply tunable EWMA smoothing
+        p7_info->estimated_mean_late = p7_info->estimated_mean_late + (diff / global_ewma_alpha_denom);
+        int32_t var_diff = abs_diff - p7_info->estimated_jitter_var;
+        p7_info->estimated_jitter_var = p7_info->estimated_jitter_var + (var_diff / global_ewma_beta_denom);
+
+        // Gaussian distribution bounds: mean ± 3*sigma (covers ~99.7% of data)
+        int32_t safe_margin = p7_info->estimated_jitter_var * 3;
+        int32_t lower_bound = p7_info->estimated_mean_late - safe_margin;
+        int32_t upper_bound = p7_info->estimated_mean_late + safe_margin;
+
+        int target_s_ahead = s_ahead_env;
+
+        if (worst_late > upper_bound) {
+            // Too late: worst_late exceeds upper bound (mean + 3*sigma)
+            // Dynamic adjustment based on overshoot magnitude
+            int32_t adjustment = 2 + (worst_late / slot_duration_us);
+            target_s_ahead = s_ahead_env + adjustment;
+        } else if (worst_late < lower_bound) {
+            // Too early: worst_late exceeds lower bound (mean - 3*sigma)
+            // Dynamic adjustment based on undershoot magnitude
+            int32_t undershoot = lower_bound - worst_late;
+            int32_t adjustment = 1 + (undershoot / slot_duration_us);
+            target_s_ahead = s_ahead_env - adjustment;
+        }
+
+        if (target_s_ahead > max_s_ahead) target_s_ahead = max_s_ahead;
+        if (target_s_ahead < 1) target_s_ahead = 1;
+
+        if (target_s_ahead != s_ahead_env) {
+            NFAPI_TRACE(NFAPI_TRACE_INFO,
+                        "[P7_SYNC][EWMA_ONLY] Adjusted: %d -> %d | worst_late=%d, range=[%d,%d](mean%d±3*%d), var_diff=%d, alpha=1/%d, beta=1/%d",
+                        s_ahead_env, target_s_ahead, worst_late, lower_bound, upper_bound,
+                        p7_info->estimated_mean_late, p7_info->estimated_jitter_var, var_diff,
+                        global_ewma_alpha_denom, global_ewma_beta_denom);
+            p7_info->last_total_advanced_us = p7_info->total_advanced_us;
+            s_ahead_env = target_s_ahead;
+        } else if (p7_info->sfn % 256 == 0 && p7_info->slot == 0) {
+            NFAPI_TRACE(NFAPI_TRACE_DEBUG,
+                        "[P7_SYNC][EWMA_ONLY] Stable: %d | worst_late=%d, range=[%d,%d](mean%d±3*%d), var_diff=%d, alpha=1/%d, beta=1/%d",
+                        s_ahead_env, worst_late, lower_bound, upper_bound,
+                        p7_info->estimated_mean_late, p7_info->estimated_jitter_var, var_diff,
+                        global_ewma_alpha_denom, global_ewma_beta_denom);
         }
         return;
     }
