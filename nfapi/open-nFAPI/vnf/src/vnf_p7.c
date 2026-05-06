@@ -200,13 +200,19 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
  * =========================================================================================
  */
 
-static int32_t global_max_s_ahead = 4;
+static int32_t global_max_s_ahead = 14;
+static int32_t global_raw_worst_late_control = 0;
 
 __attribute__((constructor)) static void initialize_max_s_ahead(void) {
     char *env_val = getenv("MAX_S_AHEAD");
     if (env_val != NULL) {
         global_max_s_ahead = atoi(env_val);
     }
+
+	char *raw_ctrl = getenv("RAW_WORST_LATE_CONTROL");
+	if (raw_ctrl != NULL) {
+		global_raw_worst_late_control = atoi(raw_ctrl) != 0;
+	}
 }
 
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
@@ -218,6 +224,40 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 
     // 固定範圍 1 ~ 8，因為 node sync 會處理預設的 offset
     int32_t max_s_ahead = global_max_s_ahead;
+
+    /*
+     * A/B control group mode for instability reproduction:
+     * - No EWMA, no variance-based damping, no slow-decay guardrails.
+     * - Follow raw worst_late directly with aggressive up/down slot moves.
+     * This intentionally makes slot-ahead prone to ping-pong oscillation.
+     */
+    if (global_raw_worst_late_control) {
+        int target_s_ahead = s_ahead_env;
+
+        if (worst_late >= 0) {
+            int32_t late_slots = worst_late / slot_duration_us;
+            target_s_ahead += late_slots + 1;
+        } else {
+            int32_t early_us = -worst_late;
+            int32_t early_slots = early_us / slot_duration_us;
+            target_s_ahead -= early_slots + 1;
+        }
+
+        if (target_s_ahead > max_s_ahead) target_s_ahead = max_s_ahead;
+        if (target_s_ahead < 1) target_s_ahead = 1;
+
+        p7_info->estimated_mean_late = worst_late;
+        p7_info->estimated_jitter_var = 0;
+
+        if (target_s_ahead != s_ahead_env) {
+            NFAPI_TRACE(NFAPI_TRACE_WARN,
+                        "[P7_SYNC][CONTROL_RAW] Direct worst_late control: %d -> %d (worst_late=%d, jitter=%u)",
+                        s_ahead_env, target_s_ahead, worst_late, stats->pnf_reported_jitter);
+            p7_info->last_total_advanced_us = p7_info->total_advanced_us;
+            s_ahead_env = target_s_ahead;
+        }
+        return;
+    }
 
     // ===================================================================
     // 1. 統計學突波偵測 (Jacobson/Karels TCP RTT Algorithm)
