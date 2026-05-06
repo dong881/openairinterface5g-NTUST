@@ -203,8 +203,8 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 static int32_t global_max_s_ahead = 14;
 static int32_t global_raw_worst_late_control = 0;
 static int32_t global_ewma_only_control = 0;
-static int32_t global_ewma_alpha_denom = 8;    // 1/8 default
-static int32_t global_ewma_beta_denom = 4;     // 1/4 default
+static int32_t global_ewma_alpha_denom = 4;    // 1/8 default
+static int32_t global_ewma_beta_denom = 8;     // 1/4 default
 
 __attribute__((constructor)) static void initialize_max_s_ahead(void) {
     char *env_val = getenv("MAX_S_AHEAD");
@@ -315,7 +315,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
         if (worst_late > upper_bound) {
             // Too late: worst_late exceeds upper bound (mean + 3*sigma)
             // Dynamic adjustment based on overshoot magnitude
-            int32_t adjustment = 2 + (worst_late / slot_duration_us);
+            int32_t adjustment = 3 + (worst_late / slot_duration_us);
             target_s_ahead = s_ahead_env + adjustment;
         } else if (worst_late < lower_bound) {
             // Too early: worst_late exceeds lower bound (mean - 3*sigma)
@@ -325,7 +325,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
             target_s_ahead = s_ahead_env - adjustment;
         }
 
-        if (target_s_ahead > max_s_ahead) target_s_ahead = max_s_ahead;
+        if (target_s_ahead > 8) target_s_ahead = 8;
         if (target_s_ahead < 1) target_s_ahead = 1;
 
         if (target_s_ahead != s_ahead_env) {
