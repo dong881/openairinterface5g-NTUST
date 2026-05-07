@@ -203,8 +203,8 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 static int32_t global_max_s_ahead = 14;
 static int32_t global_raw_worst_late_control = 0;
 static int32_t global_ewma_only_control = 1;
-static int32_t global_ewma_alpha_denom = 1;    // 1/16 default
-static int32_t global_ewma_beta_denom = 1;     // 1/16 default
+static int32_t global_ewma_alpha_denom = 8;    // 1/16 default
+static int32_t global_ewma_beta_denom = 4;     // 1/16 default
 
 __attribute__((constructor)) static void initialize_max_s_ahead(void) {
     char *env_val = getenv("MAX_S_AHEAD");
@@ -239,77 +239,162 @@ __attribute__((constructor)) static void initialize_max_s_ahead(void) {
 	}
 }
 
-static bool p7_run_ewma_lab_control(
+/*
+ * Calculate the number of slots between two (SFN, slot) pairs.
+ * Accounts for SFN wrap-around (SFN 0-1023).
+ * Result: positive if (current_sfn, current_slot) > (prev_sfn, prev_slot)
+ */
+static inline int32_t calculate_slot_distance(int32_t current_sfn, int32_t current_slot,
+                                               int32_t prev_sfn, int32_t prev_slot,
+                                               int32_t slots_per_frame)
+{
+	// Convert to absolute slot numbers within a frame boundary
+	int32_t current_absolute = current_sfn * slots_per_frame + current_slot;
+	int32_t prev_absolute = prev_sfn * slots_per_frame + prev_slot;
+	
+	// Handle wrap-around: if current < prev, add one full hyperframe cycle
+	if (current_absolute < prev_absolute) {
+		current_absolute += 1024 * slots_per_frame;  // 1024 SFNs per hyperframe
+	}
+	
+	return current_absolute - prev_absolute;
+}
+
+int32_t ceil_div(int32_t x, int32_t d)
+{
+    if (d > 0) {
+        if (x >= 0)
+            return (x + d - 1) / d;
+        else
+            return x / d;  // 已經是 ceil（因為 toward 0）
+    } else {
+        // 如果 d 可能負，很少見但完整給你
+        if (x >= 0)
+            return x / d;
+        else
+            return (x + d + 1) / d;
+    }
+}
+
+static void p7_run_ewma_lab_control(
 	nfapi_vnf_p7_connection_info_t *p7_info,
 	const vnf_timing_stats_t *stats,
 	int32_t slot_duration_us,
-	int32_t max_s_ahead,
-	uint32_t now_hr)
+	int32_t max_s_ahead)
 {
+	nfapi_vnf_config_t *config = get_config();
+	int32_t elapsed_slots = calculate_slot_distance(p7_info->sfn, p7_info->slot,
+														p7_info->last_adjustment_sfn, 
+														p7_info->last_adjustment_slot,
+														10 << p7_info->mu);
+	int32_t required_wait_slots = p7_info->last_adjustment_steps + (int32_t)config->timing_info_period;
+	if (elapsed_slots < required_wait_slots) return;
+
 	if (p7_info->estimated_mean_late == 0) {
 		p7_info->estimated_mean_late = stats->worst_late;
 		p7_info->estimated_jitter_var = 100;
+		p7_info->last_adjustment_sfn = p7_info->sfn;
+		p7_info->last_adjustment_slot = p7_info->slot;
 	}
 
 	int32_t diff = stats->worst_late - p7_info->estimated_mean_late;
 	int32_t abs_diff = diff < 0 ? -diff : diff;
 
 	/*
-	 * Lab mode:
-	 * - EWMA alpha only changes the mean tracking speed.
-	 * - EWMA beta only changes the variance tracking speed.
-	 * - No panic / hysteresis / time-lock logic is allowed to influence the result.
-	 */
+	* Update EWMA estimator.
+	* stats->worst_late is only used as measurement input.
+	*/
 	p7_info->estimated_mean_late += diff / global_ewma_alpha_denom;
+
 	int32_t var_diff = abs_diff - p7_info->estimated_jitter_var;
 	p7_info->estimated_jitter_var += var_diff / global_ewma_beta_denom;
 
-	int32_t safe_margin_us = p7_info->estimated_jitter_var * 3;
-	int32_t lower_bound = p7_info->estimated_mean_late - safe_margin_us;
-	int32_t upper_bound = p7_info->estimated_mean_late + safe_margin_us;
+	/*
+	* estimated_jitter_var here is actually EWMA mean absolute deviation,
+	* not true variance. But using 3x as safety bound is still acceptable
+	* as a dynamic jitter margin.
+	*/
+	int32_t jitter_bound_us = p7_info->estimated_jitter_var * 3;
+
+	/*
+	* Directional anomaly.
+	* Only positive diff means timing became later than expected.
+	*/
+	bool late_anomaly = diff > jitter_bound_us;
+	/*
+	* Predict what happens if we reduce s_ahead by one slot.
+	*
+	* If we reduce s_ahead by 1, packets effectively become later by
+	* slot_duration_us.
+	*
+	* Downward is allowed only if:
+	*
+	*   estimated_mean_late + slot_duration_us + jitter_bound_us <= 0
+	*
+	* Meaning:
+	*   even after moving one slot later, the EWMA upper bound is still safe.
+	*/
+	bool can_down = p7_info->estimated_mean_late + slot_duration_us + jitter_bound_us <= 0;
 
 	int32_t target_s_ahead = s_ahead_env;
-	if (stats->worst_late > upper_bound) {
-		int32_t adjustment = 3 + (stats->worst_late / slot_duration_us);
-		target_s_ahead += adjustment;
-	} else if (stats->worst_late < lower_bound) {
-		int32_t undershoot = lower_bound - stats->worst_late;
-		int32_t adjustment = 1 + (undershoot / slot_duration_us);
-		target_s_ahead -= adjustment;
+
+	// ========== UPWARD REACTION ==========
+	if (late_anomaly) {
+			int32_t adjustment = ceil_div(diff, slot_duration_us);
+			if (adjustment < 1)
+					adjustment = 1;
+			target_s_ahead += adjustment;
+			p7_info->last_adjustment_steps = adjustment;
+			p7_info->last_adjustment_sfn = p7_info->sfn;
+			p7_info->last_adjustment_slot = p7_info->slot;
 	}
+	// ========== DOWNWARD REACTION ==========
+	else if (can_down){
+			int32_t safe_early_headroom_us =
+					-(p7_info->estimated_mean_late + jitter_bound_us);
+
+			if (safe_early_headroom_us >= slot_duration_us) {
+					int32_t down_steps =
+							safe_early_headroom_us / slot_duration_us;
+
+					target_s_ahead -= down_steps;
+
+					p7_info->last_adjustment_steps = down_steps;
+					p7_info->last_adjustment_sfn = p7_info->sfn;
+					p7_info->last_adjustment_slot = p7_info->slot;
+			}
+	}
+
 
 	if (target_s_ahead > max_s_ahead) target_s_ahead = max_s_ahead;
 	if (target_s_ahead < 1) target_s_ahead = 1;
 
 	if (target_s_ahead != s_ahead_env) {
+		int32_t step_direction = target_s_ahead > s_ahead_env ? 1 : -1;
 		NFAPI_TRACE(NFAPI_TRACE_INFO,
-				"[P7_SYNC][EWMA_LAB] alpha=1/%d beta=1/%d s_ahead=%d -> %d worst_late=%d mean=%d var=%d range=[%d,%d]",
+				"[P7_SYNC][EWMA_LAB] α=1/%d β=1/%d %s: %d→%d | worst_late=%d mean=%d var=%d",
 				global_ewma_alpha_denom,
 				global_ewma_beta_denom,
+				(step_direction > 0 ? "UP" : "DOWN"),
 				s_ahead_env,
 				target_s_ahead,
 				stats->worst_late,
 				p7_info->estimated_mean_late,
-				p7_info->estimated_jitter_var,
-				lower_bound,
-				upper_bound);
+				p7_info->estimated_jitter_var);
 		p7_info->last_total_advanced_us = p7_info->total_advanced_us;
 		s_ahead_env = target_s_ahead;
 	} else if (p7_info->sfn % 256 == 0 && p7_info->slot == 0) {
-		NFAPI_TRACE(NFAPI_TRACE_DEBUG,
-				"[P7_SYNC][EWMA_LAB] stable s_ahead=%d worst_late=%d mean=%d var=%d range=[%d,%d] alpha=1/%d beta=1/%d",
+		NFAPI_TRACE(NFAPI_TRACE_INFO,
+				"[P7_SYNC][EWMA_LAB] stable s_ahead=%d worst_late=%d mean=%d var=%d alpha=1/%d beta=1/%d",
 				s_ahead_env,
 				stats->worst_late,
 				p7_info->estimated_mean_late,
 				p7_info->estimated_jitter_var,
-				lower_bound,
-				upper_bound,
 				global_ewma_alpha_denom,
 				global_ewma_beta_denom);
 	}
 
-	(void)now_hr;
-	return true;
+	return;
 }
 
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
@@ -317,7 +402,7 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     int32_t slot_duration_us = p7_info->slot_duration_us;
 
     int32_t worst_late = stats->worst_late;
-    uint32_t now_hr = vnf_get_current_time_hr();
+    // uint32_t now_hr = vnf_get_current_time_hr();
 
     // 固定範圍 1 ~ 8，因為 node sync 會處理預設的 offset
     int32_t max_s_ahead = global_max_s_ahead;
@@ -357,203 +442,203 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
     }
 
 	if (true) {
-		p7_run_ewma_lab_control(p7_info, stats, slot_duration_us, max_s_ahead, now_hr);
+		p7_run_ewma_lab_control(p7_info, stats, slot_duration_us, max_s_ahead);
 		return;
 	}
 
-    // ===================================================================
-    // 1. 統計學突波偵測 (Jacobson/Karels TCP RTT Algorithm)
-    // ===================================================================
-    if (p7_info->estimated_mean_late == 0) {
-        p7_info->estimated_mean_late = worst_late;
-        p7_info->estimated_jitter_var = 100;
-    }
+  //   // ===================================================================
+  //   // 1. 統計學突波偵測 (Jacobson/Karels TCP RTT Algorithm)
+  //   // ===================================================================
+  //   if (p7_info->estimated_mean_late == 0) {
+  //       p7_info->estimated_mean_late = worst_late;
+  //       p7_info->estimated_jitter_var = 100;
+  //   }
     
-    int32_t diff = worst_late - p7_info->estimated_mean_late;
-    int32_t abs_diff = diff < 0 ? -diff : diff;
+  //   int32_t diff = worst_late - p7_info->estimated_mean_late;
+  //   int32_t abs_diff = diff < 0 ? -diff : diff;
     
-    p7_info->estimated_mean_late = p7_info->estimated_mean_late + (diff / 8);
-    int32_t var_diff = abs_diff - p7_info->estimated_jitter_var;
-    p7_info->estimated_jitter_var = p7_info->estimated_jitter_var + (var_diff / 4);
+  //   p7_info->estimated_mean_late = p7_info->estimated_mean_late + (diff / 8);
+  //   int32_t var_diff = abs_diff - p7_info->estimated_jitter_var;
+  //   p7_info->estimated_jitter_var = p7_info->estimated_jitter_var + (var_diff / 4);
 
-    // ===================================================================
-    // 2. 動態安全邊界 (Dynamic Bounds)
-    // ===================================================================
-    int32_t base_margin_us = (slot_duration_us * 3) / 2;
-    int32_t dynamic_panic_threshold = (p7_info->estimated_jitter_var * 3) / 2;
-    int32_t safe_margin_us = dynamic_panic_threshold > base_margin_us ? dynamic_panic_threshold : base_margin_us;
+  //   // ===================================================================
+  //   // 2. 動態安全邊界 (Dynamic Bounds)
+  //   // ===================================================================
+  //   int32_t base_margin_us = (slot_duration_us * 3) / 2;
+  //   int32_t dynamic_panic_threshold = (p7_info->estimated_jitter_var * 3) / 2;
+  //   int32_t safe_margin_us = dynamic_panic_threshold > base_margin_us ? dynamic_panic_threshold : base_margin_us;
 
-    int target_s_ahead = s_ahead_env;
-    bool in_panic = false;
+  //   int target_s_ahead = s_ahead_env;
+  //   bool in_panic = false;
 
-    int32_t anomaly_threshold_us = p7_info->estimated_jitter_var * 3;
-    if (anomaly_threshold_us < slot_duration_us * 2) {
-        anomaly_threshold_us = slot_duration_us * 2;
-    }
-    bool statistical_anomaly = (abs_diff > anomaly_threshold_us);
+  //   int32_t anomaly_threshold_us = p7_info->estimated_jitter_var * 3;
+  //   if (anomaly_threshold_us < slot_duration_us * 2) {
+  //       anomaly_threshold_us = slot_duration_us * 2;
+  //   }
+  //   bool statistical_anomaly = (abs_diff > anomaly_threshold_us);
 
-    // Dynamic Safe Boundary: If we are N slots ahead, we only drop to N-1 if we have 
-    // consistently Arrival at least (N-1) slots early, ensuring a 1-slot safety buffer after drop.
-    int32_t absolute_safe_boundary = (s_ahead_env - 1) * slot_duration_us;
+  //   // Dynamic Safe Boundary: If we are N slots ahead, we only drop to N-1 if we have 
+  //   // consistently Arrival at least (N-1) slots early, ensuring a 1-slot safety buffer after drop.
+  //   int32_t absolute_safe_boundary = (s_ahead_env - 1) * slot_duration_us;
 
-    if (worst_late < -absolute_safe_boundary) {
-        if (abs_diff < (-worst_late - slot_duration_us)) {
-            statistical_anomaly = false;
-        }
-    }
+  //   if (worst_late < -absolute_safe_boundary) {
+  //       if (abs_diff < (-worst_late - slot_duration_us)) {
+  //           statistical_anomaly = false;
+  //       }
+  //   }
 
-    /* Use s_ahead_env directly as the baseline for proposed adjustments to decouple
-     * macro-shifts from micro-advancements (pending_us). This prevents the "chain effect"
-     * where increased sleep causes a premature downward slot-ahead drop.
-     */
-    int32_t current_slot_estimate = s_ahead_env;
-    if (current_slot_estimate < 1) current_slot_estimate = 1;
-    if (current_slot_estimate > max_s_ahead) current_slot_estimate = max_s_ahead;
+  //   /* Use s_ahead_env directly as the baseline for proposed adjustments to decouple
+  //    * macro-shifts from micro-advancements (pending_us). This prevents the "chain effect"
+  //    * where increased sleep causes a premature downward slot-ahead drop.
+  //    */
+  //   int32_t current_slot_estimate = s_ahead_env;
+  //   if (current_slot_estimate < 1) current_slot_estimate = 1;
+  //   if (current_slot_estimate > max_s_ahead) current_slot_estimate = max_s_ahead;
 
-    bool positive_timing = (worst_late >= 0);
-    bool near_deadline_edge = (worst_late > 0 && worst_late < slot_duration_us);
-    bool jitter_activity = (stats->pnf_reported_jitter > 20);
-    bool significant_variation = (abs_diff > slot_duration_us / 2);
-    bool strong_packet_activity = jitter_activity || significant_variation;
-    bool edge_activity_panic = positive_timing && (target_s_ahead <= current_slot_estimate) && near_deadline_edge && strong_packet_activity;
-    bool strict_deadline_violation = (worst_late >= slot_duration_us);
-    bool jitter_panic = positive_timing && (stats->pnf_reported_jitter > (uint32_t)safe_margin_us * 2) && (worst_late > -absolute_safe_boundary * 2);
-    if (!positive_timing) {
-        statistical_anomaly = false;
-    }
+  //   bool positive_timing = (worst_late >= 0);
+  //   bool near_deadline_edge = (worst_late > 0 && worst_late < slot_duration_us);
+  //   bool jitter_activity = (stats->pnf_reported_jitter > 20);
+  //   bool significant_variation = (abs_diff > slot_duration_us / 2);
+  //   bool strong_packet_activity = jitter_activity || significant_variation;
+  //   bool edge_activity_panic = positive_timing && (target_s_ahead <= current_slot_estimate) && near_deadline_edge && strong_packet_activity;
+  //   bool strict_deadline_violation = (worst_late >= slot_duration_us);
+  //   bool jitter_panic = positive_timing && (stats->pnf_reported_jitter > (uint32_t)safe_margin_us * 2) && (worst_late > -absolute_safe_boundary * 2);
+  //   if (!positive_timing) {
+  //       statistical_anomaly = false;
+  //   }
 
-    /* Use last_total_advanced_us to detect whether the previous phase move
-     * helped or overshot the latency direction. This avoids repeated
-     * oscillation around the boundary between 7 and 8.
-     */
-    int32_t last_phase_delta_us = p7_info->total_advanced_us - p7_info->last_total_advanced_us;
-    bool phase_direction_helpful = false;
-    if (last_phase_delta_us > 0 && worst_late > 0) phase_direction_helpful = true;
-    if (last_phase_delta_us < 0 && worst_late < 0) phase_direction_helpful = true;
+  //   /* Use last_total_advanced_us to detect whether the previous phase move
+  //    * helped or overshot the latency direction. This avoids repeated
+  //    * oscillation around the boundary between 7 and 8.
+  //    */
+  //   int32_t last_phase_delta_us = p7_info->total_advanced_us - p7_info->last_total_advanced_us;
+  //   bool phase_direction_helpful = false;
+  //   if (last_phase_delta_us > 0 && worst_late > 0) phase_direction_helpful = true;
+  //   if (last_phase_delta_us < 0 && worst_late < 0) phase_direction_helpful = true;
 
-    /* Determine a discrete target slot ahead when the timing window clearly
-     * supports a step change. This should be smoother than jumping to 8 every
-     * deadline violation, and should prefer the smallest slot shift that still
-     * resolves the late/early error.
-     */
-    int32_t proposed_slot_ahead = current_slot_estimate;
-    if (worst_late >= slot_duration_us / 2) {
-        proposed_slot_ahead = current_slot_estimate + 1;
-    }
-    // DO NOT aggressively push down! Only push down safely in section 3 (Proactive Latency Reduction)
-    if (proposed_slot_ahead < 1) proposed_slot_ahead = 1;
-    if (proposed_slot_ahead > max_s_ahead) proposed_slot_ahead = max_s_ahead;
+  //   /* Determine a discrete target slot ahead when the timing window clearly
+  //    * supports a step change. This should be smoother than jumping to 8 every
+  //    * deadline violation, and should prefer the smallest slot shift that still
+  //    * resolves the late/early error.
+  //    */
+  //   int32_t proposed_slot_ahead = current_slot_estimate;
+  //   if (worst_late >= slot_duration_us / 2) {
+  //       proposed_slot_ahead = current_slot_estimate + 1;
+  //   }
+  //   // DO NOT aggressively push down! Only push down safely in section 3 (Proactive Latency Reduction)
+  //   if (proposed_slot_ahead < 1) proposed_slot_ahead = 1;
+  //   if (proposed_slot_ahead > max_s_ahead) proposed_slot_ahead = max_s_ahead;
 
-    if (proposed_slot_ahead > target_s_ahead) {
-        // Only allow upward moves here; downward moves are handled by the leaky bucket in section 3.
-        int32_t move = proposed_slot_ahead - target_s_ahead;
-        if (abs(move) > 1 && !phase_direction_helpful) {
-            target_s_ahead += (move > 0 ? 1 : -1);
-        } else {
-            target_s_ahead = proposed_slot_ahead;
-        }
-    }
+  //   if (proposed_slot_ahead > target_s_ahead) {
+  //       // Only allow upward moves here; downward moves are handled by the leaky bucket in section 3.
+  //       int32_t move = proposed_slot_ahead - target_s_ahead;
+  //       if (abs(move) > 1 && !phase_direction_helpful) {
+  //           target_s_ahead += (move > 0 ? 1 : -1);
+  //       } else {
+  //           target_s_ahead = proposed_slot_ahead;
+  //       }
+  //   }
 
-    if (edge_activity_panic || jitter_panic || statistical_anomaly || strict_deadline_violation) {
-        in_panic = true;
+  //   if (edge_activity_panic || jitter_panic || statistical_anomaly || strict_deadline_violation) {
+  //       in_panic = true;
 
-        bool c1 = edge_activity_panic;
-        bool c2 = jitter_panic;
-        bool c3 = statistical_anomaly;
-        bool c4 = strict_deadline_violation;
+  //       bool c1 = edge_activity_panic;
+  //       bool c2 = jitter_panic;
+  //       bool c3 = statistical_anomaly;
+  //       bool c4 = strict_deadline_violation;
 
-        NFAPI_TRACE(NFAPI_TRACE_WARN,
-            "[P7_SYNC] FAST ATTACK PANIC TRIGGERED! Reasons:%s%s%s%s | Values: worst_late=%d (limit > %d), pnf_jitter=%u (limit > %d), abs_diff=%d (limit > %d), slot_us=%d\n",
-            c1 ? " [worst_late edge]" : "",
-            c2 ? " [PNF Jitter]" : "",
-            c3 ? " [Statistical Anomaly MAD]" : "",
-            c4 ? " [deadline violation]" : "",
-            worst_late, -safe_margin_us,
-            stats->pnf_reported_jitter, safe_margin_us * 2,
-            abs_diff, anomaly_threshold_us,
-            slot_duration_us);
+  //       NFAPI_TRACE(NFAPI_TRACE_WARN,
+  //           "[P7_SYNC] FAST ATTACK PANIC TRIGGERED! Reasons:%s%s%s%s | Values: worst_late=%d (limit > %d), pnf_jitter=%u (limit > %d), abs_diff=%d (limit > %d), slot_us=%d\n",
+  //           c1 ? " [worst_late edge]" : "",
+  //           c2 ? " [PNF Jitter]" : "",
+  //           c3 ? " [Statistical Anomaly MAD]" : "",
+  //           c4 ? " [deadline violation]" : "",
+  //           worst_late, -safe_margin_us,
+  //           stats->pnf_reported_jitter, safe_margin_us * 2,
+  //           abs_diff, anomaly_threshold_us,
+  //           slot_duration_us);
 
-        p7_info->peak_latency_timestamp_hr = now_hr;
+  //       p7_info->peak_latency_timestamp_hr = now_hr;
         
-        // Instead of jumping blindly to max, take a measured jump based on severity
-        // Jump +2 slots, or more if strictly necessary, but bounded to max_s_ahead.
-        int32_t step_up = 2;
-        if (strict_deadline_violation) {
-            step_up = (worst_late / slot_duration_us) + 3;
-            // Apply a harsh penalty on the reduction threshold to avoid rapid bounce-back
-            p7_info->reduction_penalty_counter += 50000;
-            if (p7_info->reduction_penalty_counter > 1000000) {
-                p7_info->reduction_penalty_counter = 1000000;
-            }
-        }
-        target_s_ahead += step_up;
-        if (target_s_ahead > max_s_ahead) target_s_ahead = max_s_ahead;
+  //       // Instead of jumping blindly to max, take a measured jump based on severity
+  //       // Jump +2 slots, or more if strictly necessary, but bounded to max_s_ahead.
+  //       int32_t step_up = 2;
+  //       if (strict_deadline_violation) {
+  //           step_up = (worst_late / slot_duration_us) + 3;
+  //           // Apply a harsh penalty on the reduction threshold to avoid rapid bounce-back
+  //           p7_info->reduction_penalty_counter += 50000;
+  //           if (p7_info->reduction_penalty_counter > 1000000) {
+  //               p7_info->reduction_penalty_counter = 1000000;
+  //           }
+  //       }
+  //       target_s_ahead += step_up;
+  //       if (target_s_ahead > max_s_ahead) target_s_ahead = max_s_ahead;
 
-        p7_info->last_increase_timestamp_hr = now_hr;
-        p7_info->consecutive_late_spikes = 0;
-    } else {
-        // ===================================================================
-        // 3. 安全降檔 (Proactive Latency Reduction)
-        // ===================================================================
-        int64_t diff_last_increase_us = timehr_diff_us(now_hr, p7_info->last_increase_timestamp_hr);
-        bool reduction_locked = (p7_info->last_increase_timestamp_hr != 0 && diff_last_increase_us < 30000000); // 30s lock
+  //       p7_info->last_increase_timestamp_hr = now_hr;
+  //       p7_info->consecutive_late_spikes = 0;
+  //   } else {
+  //       // ===================================================================
+  //       // 3. 安全降檔 (Proactive Latency Reduction)
+  //       // ===================================================================
+  //       int64_t diff_last_increase_us = timehr_diff_us(now_hr, p7_info->last_increase_timestamp_hr);
+  //       bool reduction_locked = (p7_info->last_increase_timestamp_hr != 0 && diff_last_increase_us < 30000000); // 30s lock
 
-        if (worst_late < -absolute_safe_boundary && !reduction_locked) {
-            p7_info->consecutive_late_spikes++;
+  //       if (worst_late < -absolute_safe_boundary && !reduction_locked) {
+  //           p7_info->consecutive_late_spikes++;
             
-            // Leaky bucket decay for the penalty when operating safely
-            if (p7_info->reduction_penalty_counter > 0) {
-                p7_info->reduction_penalty_counter--;
-            }
+  //           // Leaky bucket decay for the penalty when operating safely
+  //           if (p7_info->reduction_penalty_counter > 0) {
+  //               p7_info->reduction_penalty_counter--;
+  //           }
             
-            int32_t current_threshold = 2000 + p7_info->reduction_penalty_counter;
+  //           int32_t current_threshold = 2000 + p7_info->reduction_penalty_counter;
 
-            if (p7_info->consecutive_late_spikes > current_threshold) {
-                int32_t step_down_target = target_s_ahead - 1;
-                int32_t top_zone_threshold = 8;
+  //           if (p7_info->consecutive_late_spikes > current_threshold) {
+  //               int32_t step_down_target = target_s_ahead - 1;
+  //               int32_t top_zone_threshold = 8;
 
-                if (s_ahead_env == top_zone_threshold && step_down_target == top_zone_threshold - 1) {
-                    if (p7_info->stable_top_pending_drop != step_down_target) {
-                        p7_info->stable_top_pending_drop = step_down_target;
-                        NFAPI_TRACE(NFAPI_TRACE_INFO,
-                            "[P7_SYNC] TOP HOLD: keeping %d, pending lower target %d until next safe reduction",
-                            s_ahead_env, step_down_target);
-                    } else {
-                        target_s_ahead -= 2;
-                        p7_info->stable_top_pending_drop = 0;
-                    }
-                } else {
-                    target_s_ahead -= 1;
-                    p7_info->stable_top_pending_drop = 0;
-                }
+  //               if (s_ahead_env == top_zone_threshold && step_down_target == top_zone_threshold - 1) {
+  //                   if (p7_info->stable_top_pending_drop != step_down_target) {
+  //                       p7_info->stable_top_pending_drop = step_down_target;
+  //                       NFAPI_TRACE(NFAPI_TRACE_INFO,
+  //                           "[P7_SYNC] TOP HOLD: keeping %d, pending lower target %d until next safe reduction",
+  //                           s_ahead_env, step_down_target);
+  //                   } else {
+  //                       target_s_ahead -= 2;
+  //                       p7_info->stable_top_pending_drop = 0;
+  //                   }
+  //               } else {
+  //                   target_s_ahead -= 1;
+  //                   p7_info->stable_top_pending_drop = 0;
+  //               }
 
-                p7_info->consecutive_late_spikes = 0;
-            }
-        } else {
-            if (reduction_locked && worst_late < -absolute_safe_boundary && (p7_info->sfn % 1024 == 0)) {
-                 NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC] Reduction Locked: %d s ahead (time since last increase: %ld ms)\n", 
-                             s_ahead_env, diff_last_increase_us / 1000);
-            }
-            p7_info->consecutive_late_spikes = 0;
-            p7_info->stable_top_pending_drop = 0;
-        }
-    }
+  //               p7_info->consecutive_late_spikes = 0;
+  //           }
+  //       } else {
+  //           if (reduction_locked && worst_late < -absolute_safe_boundary && (p7_info->sfn % 1024 == 0)) {
+  //                NFAPI_TRACE(NFAPI_TRACE_DEBUG, "[P7_SYNC] Reduction Locked: %d s ahead (time since last increase: %ld ms)\n", 
+  //                            s_ahead_env, diff_last_increase_us / 1000);
+  //           }
+  //           p7_info->consecutive_late_spikes = 0;
+  //           p7_info->stable_top_pending_drop = 0;
+  //       }
+  //   }
 
-    if (target_s_ahead > max_s_ahead) target_s_ahead = max_s_ahead;
-    if (target_s_ahead < 1) target_s_ahead = 1;
+  //   if (target_s_ahead > max_s_ahead) target_s_ahead = max_s_ahead;
+  //   if (target_s_ahead < 1) target_s_ahead = 1;
 
-    if (target_s_ahead != s_ahead_env) {
-        int32_t shift_us = (target_s_ahead - s_ahead_env) * slot_duration_us;
-        p7_info->estimated_mean_late += shift_us;
+  //   if (target_s_ahead != s_ahead_env) {
+  //       int32_t shift_us = (target_s_ahead - s_ahead_env) * slot_duration_us;
+  //       p7_info->estimated_mean_late += shift_us;
 
-        NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Dynamic Slot Ahead Adjusted: %d -> %d (worst_late: %d, mean: %d, in_panic: %d)",
-                    s_ahead_env, target_s_ahead, worst_late, p7_info->estimated_mean_late, in_panic);
-        p7_info->last_total_advanced_us = p7_info->total_advanced_us;
-        s_ahead_env = target_s_ahead;
-    } else if (p7_info->sfn % 256 == 0 && p7_info->slot == 0) {
-		NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Slot Ahead Maintained: %d (worst_late: %d, mean: %d, in_panic: %d)",
-					s_ahead_env, worst_late, p7_info->estimated_mean_late, in_panic);
-	}
+  //       NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Dynamic Slot Ahead Adjusted: %d -> %d (worst_late: %d, mean: %d, in_panic: %d)",
+  //                   s_ahead_env, target_s_ahead, worst_late, p7_info->estimated_mean_late, in_panic);
+  //       p7_info->last_total_advanced_us = p7_info->total_advanced_us;
+  //       s_ahead_env = target_s_ahead;
+  //   } else if (p7_info->sfn % 256 == 0 && p7_info->slot == 0) {
+	// 	NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Slot Ahead Maintained: %d (worst_late: %d, mean: %d, in_panic: %d)",
+	// 				s_ahead_env, worst_late, p7_info->estimated_mean_late, in_panic);
+	// }
 }
 
 vnf_p7_rx_message_t* vnf_p7_rx_reassembly_queue_add_segment(vnf_p7_t* vnf_p7, vnf_p7_rx_reassembly_queue_t* queue, uint16_t sequence_number, uint16_t segment_number, uint8_t m, uint8_t* data, uint16_t data_len)
@@ -2156,26 +2241,26 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	get_vnf_timing_envs(&slot_ahead, &dynamic_timing_enabled);
 
 	int32_t total_correction = offset;
-	int32_t phase_delta_us = p7_info->total_advanced_us - p7_info->last_total_advanced_us;
-	int32_t adaptive_gain = 8;
-	if (phase_delta_us != 0) {
-		if ((phase_delta_us > 0 && offset > 0) || (phase_delta_us < 0 && offset < 0)) {
-			adaptive_gain = 4; // previous advance direction agrees with current offset, allow stronger correction
-		} else {
-			adaptive_gain = 12; // previous adjustment overshot or reversed, dampen correction
-		}
-	}
+	// int32_t phase_delta_us = p7_info->total_advanced_us - p7_info->last_total_advanced_us;
+	// int32_t adaptive_gain = 8;
+	// if (phase_delta_us != 0) {
+	// 	if ((phase_delta_us > 0 && offset > 0) || (phase_delta_us < 0 && offset < 0)) {
+	// 		adaptive_gain = 4; // previous advance direction agrees with current offset, allow stronger correction
+	// 	} else {
+	// 		adaptive_gain = 12; // previous adjustment overshot or reversed, dampen correction
+	// 	}
+	// }
 
 	pthread_mutex_lock(&p7_info->mutex);
 
-	if (false && p7_info->sync_locked && dynamic_timing_enabled) {
-		// Drift Monitoring: If we are locked but the offset exceeds the locked tolerance,
-		// we must unlock and re-synchronize to avoid long-term instability.
-		if (total_correction < -MARGIN_TOLERANCE_LOCKED_US || total_correction > MARGIN_TOLERANCE_LOCKED_US) {
-			p7_info->sync_locked = 0;
-			NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Drift detected (%d us). Unlocking sync for re-calibration.\n", total_correction);
-		}
-	}
+	// if (false && p7_info->sync_locked && dynamic_timing_enabled) {
+	// 	// Drift Monitoring: If we are locked but the offset exceeds the locked tolerance,
+	// 	// we must unlock and re-synchronize to avoid long-term instability.
+	// 	if (total_correction < -MARGIN_TOLERANCE_LOCKED_US || total_correction > MARGIN_TOLERANCE_LOCKED_US) {
+	// 		p7_info->sync_locked = 0;
+	// 		NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Drift detected (%d us). Unlocking sync for re-calibration.\n", total_correction);
+	// 	}
+	// }
 
 	if (!p7_info->sync_locked) {
 		if (total_correction >= -MARGIN_TOLERANCE_US && total_correction <= MARGIN_TOLERANCE_US) {

@@ -226,6 +226,11 @@ typedef struct nfapi_vnf_p7_connection_info {
 
     /* Time Bank: borrowed time to be repaid by future slots */
     int32_t pending_us;             // Accumulated borrowed time (us) to be repaid incrementally
+
+	/* Adaptive Decay Control for EWMA Lab Mode */
+	int32_t last_adjustment_steps;  // How many slots we increased in last adjustment
+	int32_t last_adjustment_sfn;    // SFN when we made the last upward adjustment
+	int32_t last_adjustment_slot;   // Slot when we made the last upward adjustment
 } nfapi_vnf_p7_connection_info_t;
 
 typedef struct vnf_p7_s {
