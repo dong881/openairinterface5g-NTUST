@@ -73,6 +73,12 @@ TIMING_INFO_MODE_VAL=${TIMING_INFO_MODE:-}
 TIMING_INFO_PERIOD_VAL=${TIMING_INFO_PERIOD:-}
 DYNAMIC_TIMING_VAL=${DYNAMIC_TIMING:-}
 MAX_S_AHEAD_VAL=${MAX_S_AHEAD:-}
+EWMA_ALPHA_VAL=${EWMA_ALPHA:-}
+EWMA_BETA_VAL=${EWMA_BETA:-}
+EWMA_SUMMARY_PERIOD_VAL=${EWMA_SUMMARY_PERIOD:-}
+EWMA_CSV_EVERY_VAL=${EWMA_CSV_EVERY:-}
+EWMA_ONLY_CONTROL_VAL=${EWMA_ONLY_CONTROL:-}
+RAW_WORST_LATE_CONTROL_VAL=${RAW_WORST_LATE_CONTROL:-}
 
 # Priority for Environment Variables in New Version Mode
 if [ "$USE_NEW_SLIDER_HEAD" = "1" ]; then
@@ -101,6 +107,24 @@ build_vnf_env_args() {
     fi
     if [ -n "$MAX_S_AHEAD_VAL" ]; then
         env_args+="MAX_S_AHEAD=${MAX_S_AHEAD_VAL} "
+    fi
+    if [ -n "$EWMA_ALPHA_VAL" ]; then
+        env_args+="EWMA_ALPHA=${EWMA_ALPHA_VAL} "
+    fi
+    if [ -n "$EWMA_BETA_VAL" ]; then
+        env_args+="EWMA_BETA=${EWMA_BETA_VAL} "
+    fi
+    if [ -n "$EWMA_SUMMARY_PERIOD_VAL" ]; then
+        env_args+="EWMA_SUMMARY_PERIOD=${EWMA_SUMMARY_PERIOD_VAL} "
+    fi
+    if [ -n "$EWMA_CSV_EVERY_VAL" ]; then
+        env_args+="EWMA_CSV_EVERY=${EWMA_CSV_EVERY_VAL} "
+    fi
+    if [ -n "$EWMA_ONLY_CONTROL_VAL" ]; then
+        env_args+="EWMA_ONLY_CONTROL=${EWMA_ONLY_CONTROL_VAL} "
+    fi
+    if [ -n "$RAW_WORST_LATE_CONTROL_VAL" ]; then
+        env_args+="RAW_WORST_LATE_CONTROL=${RAW_WORST_LATE_CONTROL_VAL} "
     fi
     env_args+="NFAPI_TRACE_LEVEL=info"
     echo "$env_args"
@@ -491,6 +515,24 @@ start_vnf_hpe() {
     fi
     if [ -n "$MAX_S_AHEAD_VAL" ]; then
         vnf_env+="MAX_S_AHEAD=${MAX_S_AHEAD_VAL} "
+    fi
+    if [ -n "$EWMA_ALPHA_VAL" ]; then
+        vnf_env+="EWMA_ALPHA=${EWMA_ALPHA_VAL} "
+    fi
+    if [ -n "$EWMA_BETA_VAL" ]; then
+        vnf_env+="EWMA_BETA=${EWMA_BETA_VAL} "
+    fi
+    if [ -n "$EWMA_SUMMARY_PERIOD_VAL" ]; then
+        vnf_env+="EWMA_SUMMARY_PERIOD=${EWMA_SUMMARY_PERIOD_VAL} "
+    fi
+    if [ -n "$EWMA_CSV_EVERY_VAL" ]; then
+        vnf_env+="EWMA_CSV_EVERY=${EWMA_CSV_EVERY_VAL} "
+    fi
+    if [ -n "$EWMA_ONLY_CONTROL_VAL" ]; then
+        vnf_env+="EWMA_ONLY_CONTROL=${EWMA_ONLY_CONTROL_VAL} "
+    fi
+    if [ -n "$RAW_WORST_LATE_CONTROL_VAL" ]; then
+        vnf_env+="RAW_WORST_LATE_CONTROL=${RAW_WORST_LATE_CONTROL_VAL} "
     fi
     vnf_env+="NFAPI_TRACE_LEVEL=info"
     local start_cmd="screen -dmS VNF_SESSION bash -c 'cd $build_path && sudo -E ${vnf_env} numactl --cpunodebind=1 --membind=1 taskset -c ${TASKSET_VNF} ./nr-softmodem -O ${conf_file} --nfapi VNF 2>&1 | tee ${log_file}'"

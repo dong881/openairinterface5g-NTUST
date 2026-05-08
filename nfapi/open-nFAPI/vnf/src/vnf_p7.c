@@ -203,8 +203,177 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 static int32_t global_max_s_ahead = 14;
 static int32_t global_raw_worst_late_control = 0;
 static int32_t global_ewma_only_control = 1;
-static int32_t global_ewma_alpha_denom = 8;    // 1/16 default
-static int32_t global_ewma_beta_denom = 4;     // 1/16 default
+static int32_t global_ewma_alpha_denom = 8;    // alpha = 1/8 default
+static int32_t global_ewma_beta_denom = 4;     // beta = 1/4 default
+static int32_t global_ewma_summary_period = 32;
+static int32_t global_ewma_csv_every = 1;
+
+typedef struct {
+	int alpha_denom;
+	int beta_denom;
+	int total_samples;
+	int up_count;
+	int down_count;
+	int stable_count;
+	int adjustment_count;
+	int oscillation_count;
+	int last_direction;
+	int max_s_ahead;
+	int min_s_ahead;
+	int max_worst_late;
+	int min_worst_late;
+	long long sum_abs_worst_late;
+	int late_risk_count;
+	int late_reacted_count;
+	int late_pending;
+	int late_pending_age;
+	int sum_late_to_up_delay;
+	int max_late_to_up_delay;
+} ewma_sweep_stats_t;
+
+static ewma_sweep_stats_t global_ewma_sweep_stats;
+static bool global_ewma_sweep_stats_initialized = false;
+
+static uint64_t p7_now_us(void)
+{
+	struct timeval now;
+	(void)gettimeofday(&now, NULL);
+	return (uint64_t)now.tv_sec * 1000000ULL + (uint64_t)now.tv_usec;
+}
+
+static void ewma_sweep_reset_stats(ewma_sweep_stats_t *st, int alpha_denom, int beta_denom)
+{
+	memset(st, 0, sizeof(*st));
+	st->alpha_denom = alpha_denom;
+	st->beta_denom = beta_denom;
+	st->max_s_ahead = INT32_MIN;
+	st->min_s_ahead = INT32_MAX;
+	st->max_worst_late = INT32_MIN;
+	st->min_worst_late = INT32_MAX;
+	global_ewma_sweep_stats_initialized = true;
+}
+
+static void ewma_sweep_ensure_stats(ewma_sweep_stats_t *st)
+{
+	if (!global_ewma_sweep_stats_initialized ||
+	    st->alpha_denom != global_ewma_alpha_denom ||
+	    st->beta_denom != global_ewma_beta_denom) {
+		ewma_sweep_reset_stats(st, global_ewma_alpha_denom, global_ewma_beta_denom);
+	}
+}
+
+static void ewma_sweep_update_stats(
+	ewma_sweep_stats_t *st,
+	int old_s_ahead,
+	int new_s_ahead,
+	int worst_late,
+	int mean,
+	int jitter_bound_us)
+{
+	st->total_samples++;
+
+	int direction = 0;
+	if (new_s_ahead > old_s_ahead) {
+		st->up_count++;
+		st->adjustment_count++;
+		direction = 1;
+	} else if (new_s_ahead < old_s_ahead) {
+		st->down_count++;
+		st->adjustment_count++;
+		direction = -1;
+	} else {
+		st->stable_count++;
+	}
+
+	if (direction != 0 &&
+	    st->last_direction != 0 &&
+	    direction != st->last_direction) {
+		st->oscillation_count++;
+	}
+	if (direction != 0) {
+		st->last_direction = direction;
+	}
+
+	if (new_s_ahead > st->max_s_ahead) st->max_s_ahead = new_s_ahead;
+	if (new_s_ahead < st->min_s_ahead) st->min_s_ahead = new_s_ahead;
+	if (worst_late > st->max_worst_late) st->max_worst_late = worst_late;
+	if (worst_late < st->min_worst_late) st->min_worst_late = worst_late;
+
+	int abs_late = worst_late < 0 ? -worst_late : worst_late;
+	st->sum_abs_worst_late += abs_late;
+
+	bool late_risk = (worst_late > 0) || ((mean + jitter_bound_us) > 0);
+	if (late_risk) {
+		st->late_risk_count++;
+		if (!st->late_pending) {
+			st->late_pending = 1;
+			st->late_pending_age = 0;
+		}
+	}
+
+	if (st->late_pending) {
+		st->late_pending_age++;
+		if (direction > 0) {
+			st->late_reacted_count++;
+			st->sum_late_to_up_delay += st->late_pending_age;
+			if (st->late_pending_age > st->max_late_to_up_delay) {
+				st->max_late_to_up_delay = st->late_pending_age;
+			}
+			st->late_pending = 0;
+			st->late_pending_age = 0;
+		}
+	}
+}
+
+static double ewma_sweep_score(const ewma_sweep_stats_t *st, double avg_abs_worst_late, double avg_late_to_up_delay)
+{
+	return 10.0 * st->adjustment_count +
+	       50.0 * st->oscillation_count +
+	       2.0 * avg_abs_worst_late +
+	       5.0 * avg_late_to_up_delay;
+}
+
+static void ewma_sweep_print_summary(const ewma_sweep_stats_t *st)
+{
+	double avg_abs_worst_late = 0.0;
+	double stable_ratio = 0.0;
+	double avg_late_to_up_delay = 0.0;
+
+	if (st->total_samples > 0) {
+		avg_abs_worst_late = (double)st->sum_abs_worst_late / (double)st->total_samples;
+		stable_ratio = (double)st->stable_count / (double)st->total_samples;
+	}
+	if (st->late_reacted_count > 0) {
+		avg_late_to_up_delay = (double)st->sum_late_to_up_delay / (double)st->late_reacted_count;
+	}
+
+	NFAPI_TRACE(NFAPI_TRACE_INFO,
+		    "[P7_EWMA_SUMMARY],alpha=%d,beta=%d,total=%d,"
+		    "up=%d,down=%d,stable=%d,adjust=%d,osc=%d,"
+		    "min_s=%d,max_s=%d,min_late=%d,max_late=%d,"
+		    "avg_abs_late=%.2f,stable_ratio=%.4f,"
+		    "late_risk=%d,late_reacted=%d,avg_late_to_up_delay=%.2f,"
+		    "max_late_to_up_delay=%d,score=%.2f\n",
+		    st->alpha_denom,
+		    st->beta_denom,
+		    st->total_samples,
+		    st->up_count,
+		    st->down_count,
+		    st->stable_count,
+		    st->adjustment_count,
+		    st->oscillation_count,
+		    st->min_s_ahead == INT32_MAX ? 0 : st->min_s_ahead,
+		    st->max_s_ahead == INT32_MIN ? 0 : st->max_s_ahead,
+		    st->min_worst_late == INT32_MAX ? 0 : st->min_worst_late,
+		    st->max_worst_late == INT32_MIN ? 0 : st->max_worst_late,
+		    avg_abs_worst_late,
+		    stable_ratio,
+		    st->late_risk_count,
+		    st->late_reacted_count,
+		    avg_late_to_up_delay,
+		    st->max_late_to_up_delay,
+		    ewma_sweep_score(st, avg_abs_worst_late, avg_late_to_up_delay));
+}
 
 __attribute__((constructor)) static void initialize_max_s_ahead(void) {
     char *env_val = getenv("MAX_S_AHEAD");
@@ -235,6 +404,22 @@ __attribute__((constructor)) static void initialize_max_s_ahead(void) {
 		int val = atoi(beta_denom);
 		if (val > 0 && val <= 256) {
 			global_ewma_beta_denom = val;
+		}
+	}
+
+	char *summary_period = getenv("EWMA_SUMMARY_PERIOD");
+	if (summary_period != NULL) {
+		int val = atoi(summary_period);
+		if (val > 0 && val <= 10000) {
+			global_ewma_summary_period = val;
+		}
+	}
+
+	char *csv_every = getenv("EWMA_CSV_EVERY");
+	if (csv_every != NULL) {
+		int val = atoi(csv_every);
+		if (val >= 0 && val <= 10000) {
+			global_ewma_csv_every = val;
 		}
 	}
 }
@@ -283,6 +468,7 @@ static void p7_run_ewma_lab_control(
 	int32_t max_s_ahead)
 {
 	nfapi_vnf_config_t *config = get_config();
+	ewma_sweep_ensure_stats(&global_ewma_sweep_stats);
 	int32_t elapsed_slots = calculate_slot_distance(p7_info->sfn, p7_info->slot,
 														p7_info->last_adjustment_sfn, 
 														p7_info->last_adjustment_slot,
@@ -337,6 +523,7 @@ static void p7_run_ewma_lab_control(
 	bool can_down = p7_info->estimated_mean_late + slot_duration_us + jitter_bound_us <= 0;
 
 	int32_t target_s_ahead = s_ahead_env;
+	int32_t old_s_ahead = s_ahead_env;
 
 	// ========== UPWARD REACTION ==========
 	if (late_anomaly) {
@@ -369,6 +556,41 @@ static void p7_run_ewma_lab_control(
 	if (target_s_ahead > max_s_ahead) target_s_ahead = max_s_ahead;
 	if (target_s_ahead < 1) target_s_ahead = 1;
 
+	const char *action_str = "STABLE";
+	if (target_s_ahead > old_s_ahead) {
+		action_str = "UP";
+	} else if (target_s_ahead < old_s_ahead) {
+		action_str = "DOWN";
+	}
+
+	ewma_sweep_update_stats(&global_ewma_sweep_stats,
+	                        old_s_ahead,
+	                        target_s_ahead,
+	                        stats->worst_late,
+	                        p7_info->estimated_mean_late,
+	                        jitter_bound_us);
+
+	if (global_ewma_csv_every > 0 &&
+	    (global_ewma_sweep_stats.total_samples % global_ewma_csv_every) == 0) {
+		NFAPI_TRACE(NFAPI_TRACE_INFO,
+		            "[P7_EWMA_CSV],time=%lu,alpha=%d,beta=%d,s_ahead=%d,target=%d,"
+		            "worst_late=%d,mean=%d,var=%d,diff=%d,bound=%d,"
+		            "action=%s,late_anomaly=%d,can_down=%d\n",
+		            (unsigned long)p7_now_us(),
+		            global_ewma_alpha_denom,
+		            global_ewma_beta_denom,
+		            old_s_ahead,
+		            target_s_ahead,
+		            stats->worst_late,
+		            p7_info->estimated_mean_late,
+		            p7_info->estimated_jitter_var,
+		            diff,
+		            jitter_bound_us,
+		            action_str,
+		            late_anomaly ? 1 : 0,
+		            can_down ? 1 : 0);
+	}
+
 	if (target_s_ahead != s_ahead_env) {
 		int32_t step_direction = target_s_ahead > s_ahead_env ? 1 : -1;
 		NFAPI_TRACE(NFAPI_TRACE_INFO,
@@ -392,6 +614,12 @@ static void p7_run_ewma_lab_control(
 				p7_info->estimated_jitter_var,
 				global_ewma_alpha_denom,
 				global_ewma_beta_denom);
+	}
+
+	if (global_ewma_sweep_stats.total_samples == 1 ||
+	    (global_ewma_summary_period > 0 &&
+	     (global_ewma_sweep_stats.total_samples % global_ewma_summary_period) == 0)) {
+		ewma_sweep_print_summary(&global_ewma_sweep_stats);
 	}
 
 	return;

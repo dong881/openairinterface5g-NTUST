@@ -726,6 +726,13 @@ static bool check_nr_p7_timing(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_t msg_
 	if (margin < 0 || margin > (int64_t)pnf_p7->timing_window) {
 		if (margin < 0) {
 			NFAPI_TRACE(NFAPI_TRACE_WARN, "%s [%d.%d] TOO LATE by %ld us\n", name, msg_sfn, msg_slot, (long)(-margin));
+			NFAPI_TRACE(NFAPI_TRACE_WARN,
+			            "[P7_PNF_LATE_CSV],time=%lu,type=%s,sfn=%d,slot=%d,late_us=%ld\n",
+			            (unsigned long)pnf_timehr_to_us(pnf_p7, recv_time_hr),
+			            name,
+			            msg_sfn,
+			            msg_slot,
+			            (long)(-margin));
 		} else {
 			NFAPI_TRACE(NFAPI_TRACE_WARN, "%s too early by %ld us (window:%u)\n",
 									name, (long)(margin - pnf_p7->timing_window), pnf_p7->timing_window);
