@@ -10,6 +10,8 @@ import re
 from pathlib import Path
 from typing import Iterable
 
+import numpy as np
+
 
 SUMMARY_RE = re.compile(
     r"\[P7_EWMA_SUMMARY\],"
@@ -127,6 +129,55 @@ def attach_pnf_stats(rows: list[dict[str, object]], pnf_stats: dict[tuple[int, i
         )
 
 
+def _minmax_norm(values: list[float]) -> list[float]:
+    arr = np.array(values, dtype=float)
+    mn = float(arr.min())
+    mx = float(arr.max())
+    if mx <= mn:
+        return [0.0 for _ in values]
+    return [float((v - mn) / (mx - mn)) for v in arr]
+
+
+def attach_score_models(rows: list[dict[str, object]]) -> None:
+    if not rows:
+        return
+    score = [float(r["score"]) for r in rows]
+    late_count = [float(r["pnf_too_late_count"]) for r in rows]
+    late_avg = [float(r["pnf_too_late_avg_us"]) for r in rows]
+    adjust = [float(r["adjust"]) for r in rows]
+    osc = [float(r["osc"]) for r in rows]
+    avg_abs_late = [float(r["avg_abs_late"]) for r in rows]
+    late_delay = [float(r["avg_late_to_up_delay"]) for r in rows]
+
+    n_score = _minmax_norm(score)
+    n_late_count = _minmax_norm(late_count)
+    n_late_avg = _minmax_norm(late_avg)
+    n_adjust = _minmax_norm(adjust)
+    n_osc = _minmax_norm(osc)
+    n_avg_abs_late = _minmax_norm(avg_abs_late)
+    n_late_delay = _minmax_norm(late_delay)
+
+    for idx, row in enumerate(rows):
+        row["score_all_ones_raw"] = (
+            float(row["score"]) + float(row["pnf_too_late_count"]) + float(row["pnf_too_late_avg_us"])
+        )
+        row["score_log_pnf"] = (
+            float(row["score"])
+            + 200.0 * float(np.log1p(float(row["pnf_too_late_count"])))
+            + 0.5 * float(row["pnf_too_late_avg_us"])
+        )
+        row["score_norm_equal_3"] = n_score[idx] + n_late_count[idx] + n_late_avg[idx]
+
+        severe_late = int(row["pnf_too_late_count"]) >= 100
+        moderate_late = (int(row["pnf_too_late_count"]) > 0) and (not severe_late)
+        safety_tier = 2 if severe_late else (1 if moderate_late else 0)
+        row["safety_tier"] = safety_tier
+        row["performance_score"] = (
+            n_adjust[idx] + n_osc[idx] + n_avg_abs_late[idx] + n_late_delay[idx]
+        )
+        row["score_two_stage_hierarchical"] = 100.0 * safety_tier + float(row["performance_score"])
+
+
 def write_csv(rows: list[dict[str, object]], output: Path) -> None:
     fields = [
         "alpha",
@@ -152,6 +203,12 @@ def write_csv(rows: list[dict[str, object]], output: Path) -> None:
         "pnf_too_late_avg_us",
         "score",
         "score_with_pnf",
+        "score_all_ones_raw",
+        "score_log_pnf",
+        "score_norm_equal_3",
+        "safety_tier",
+        "performance_score",
+        "score_two_stage_hierarchical",
         "source",
     ]
     with output.open("w", newline="", encoding="utf-8") as stream:
@@ -226,6 +283,18 @@ def main() -> int:
     parser.add_argument("--pnf-log", action="append", default=[], help="PNF log file. Can be passed multiple times.")
     parser.add_argument("--log-dir", type=Path, help="Directory containing per-run logs.")
     parser.add_argument("--out-dir", type=Path, default=Path("ewma_results"))
+    parser.add_argument(
+        "--score-model",
+        choices=[
+            "legacy",
+            "all_ones_raw",
+            "log_pnf",
+            "norm_equal_3",
+            "two_stage_hierarchical",
+        ],
+        default="legacy",
+        help="Scoring model to rank final alpha/beta sets.",
+    )
     args = parser.parse_args()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -240,7 +309,17 @@ def main() -> int:
         raise RuntimeError("No P7_EWMA_SUMMARY rows found in VNF logs")
 
     attach_pnf_stats(rows, parse_pnf_late_logs(pnf_logs))
-    rows = sorted(rows, key=lambda row: float(row["score_with_pnf"]))
+    attach_score_models(rows)
+
+    score_field_by_model = {
+        "legacy": "score_with_pnf",
+        "all_ones_raw": "score_all_ones_raw",
+        "log_pnf": "score_log_pnf",
+        "norm_equal_3": "score_norm_equal_3",
+        "two_stage_hierarchical": "score_two_stage_hierarchical",
+    }
+    active_score_field = score_field_by_model[args.score_model]
+    rows = sorted(rows, key=lambda row: float(row[active_score_field]))
 
     csv_path = args.out_dir / "ewma_sweep_summary.csv"
     write_csv(rows, csv_path)
@@ -252,7 +331,13 @@ def main() -> int:
         args.out_dir / "ewma_oscillation_count.png",
     ]
     plot_heatmap(rows, "score", plot_paths[0], "EWMA Parameter Sweep Score", "Score, lower is better")
-    plot_heatmap(rows, "score_with_pnf", plot_paths[1], "EWMA Score with PNF Too-Late Penalty", "Score, lower is better")
+    plot_heatmap(
+        rows,
+        active_score_field,
+        plot_paths[1],
+        f"EWMA Score Heatmap ({args.score_model})",
+        "Score, lower is better",
+    )
     plot_top_bars(rows, "adjust", plot_paths[2], "Top EWMA Parameter Sets - Adjustment Count", "Adjustment count")
     plot_top_bars(rows, "osc", plot_paths[3], "Top EWMA Parameter Sets - Oscillation Count", "Oscillation count")
 
@@ -260,6 +345,8 @@ def main() -> int:
         "csv": {"file": str(csv_path), "rows": len(rows), "bytes": csv_path.stat().st_size},
         "plots": [validate_png(path) for path in plot_paths],
         "top10": rows[:10],
+        "score_model": args.score_model,
+        "active_score_field": active_score_field,
     }
     target_rank = next((idx + 1 for idx, row in enumerate(rows) if row["alpha"] == 8 and row["beta"] == 4), None)
     validation["target_alpha_8_beta_4_rank"] = target_rank
@@ -272,7 +359,7 @@ def main() -> int:
     for idx, row in enumerate(rows[:10], start=1):
         print(
             f"{idx:2d}. alpha=1/{row['alpha']} beta=1/{row['beta']} "
-            f"score_with_pnf={row['score_with_pnf']:.2f} score={row['score']:.2f} "
+            f"{active_score_field}={float(row[active_score_field]):.2f} score={row['score']:.2f} "
             f"pnf_late={row['pnf_too_late_count']}"
         )
     if target_rank:
