@@ -122,11 +122,36 @@ def attach_pnf_stats(rows: list[dict[str, object]], pnf_stats: dict[tuple[int, i
         row["pnf_too_late_count"] = int(item.get("pnf_too_late_count", 0))
         row["pnf_too_late_max_us"] = int(item.get("pnf_too_late_max_us", 0))
         row["pnf_too_late_avg_us"] = float(item.get("pnf_too_late_avg_us", 0.0))
+
+
+def recompute_base_score(rows: list[dict[str, object]]) -> None:
+    """Recompute a base score from collected metrics after all logs are available.
+
+    This ensures scoring is done post-collection and is reproducible for sensitivity analysis.
+    """
+    for row in rows:
+        # preserve original log-provided score (if any)
+        if "score" in row:
+            row["score_from_log"] = float(row.pop("score"))
+        else:
+            row["score_from_log"] = 0.0
+
+        # Use a transparent, tunable base score formula similar to the proposal:
+        # base_score = 10*adjust + 50*osc + 2*avg_abs_late + 5*avg_late_to_up_delay
+        adjust = float(row.get("adjust", 0))
+        osc = float(row.get("osc", 0))
+        avg_abs_late = float(row.get("avg_abs_late", 0.0))
+        late_delay = float(row.get("avg_late_to_up_delay", 0.0))
+
+        base_score = 10.0 * adjust + 50.0 * osc + 2.0 * avg_abs_late + 5.0 * late_delay
+        row["base_score"] = float(base_score)
+
+        # score_with_pnf is computed post-collection as base_score plus penalties
         row["score_with_pnf"] = (
-            float(row["score"])
-            + 1000.0 * int(row["pnf_too_late_count"])
-            + 2.0 * float(row["pnf_too_late_avg_us"])
+            row["base_score"] + 1000.0 * float(row.get("pnf_too_late_count", 0)) + 2.0 * float(row.get("pnf_too_late_avg_us", 0.0))
         )
+        # keep compatibility: use recomputed base score as the canonical `score` for plotting
+        row["score"] = row["base_score"]
 
 
 def _minmax_norm(values: list[float]) -> list[float]:
@@ -201,6 +226,8 @@ def write_csv(rows: list[dict[str, object]], output: Path) -> None:
         "pnf_too_late_count",
         "pnf_too_late_max_us",
         "pnf_too_late_avg_us",
+        "score_from_log",
+        "base_score",
         "score",
         "score_with_pnf",
         "score_all_ones_raw",
@@ -309,6 +336,8 @@ def main() -> int:
         raise RuntimeError("No P7_EWMA_SUMMARY rows found in VNF logs")
 
     attach_pnf_stats(rows, parse_pnf_late_logs(pnf_logs))
+    # Recompute canonical scores only after all logs (VNF + PNF) are collected
+    recompute_base_score(rows)
     attach_score_models(rows)
 
     score_field_by_model = {

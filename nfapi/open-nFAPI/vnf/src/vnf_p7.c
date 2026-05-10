@@ -325,14 +325,6 @@ static void ewma_sweep_update_stats(
 	}
 }
 
-static double ewma_sweep_score(const ewma_sweep_stats_t *st, double avg_abs_worst_late, double avg_late_to_up_delay)
-{
-	return 10.0 * st->adjustment_count +
-	       50.0 * st->oscillation_count +
-	       2.0 * avg_abs_worst_late +
-	       5.0 * avg_late_to_up_delay;
-}
-
 static void ewma_sweep_print_summary(const ewma_sweep_stats_t *st)
 {
 	double avg_abs_worst_late = 0.0;
@@ -347,13 +339,17 @@ static void ewma_sweep_print_summary(const ewma_sweep_stats_t *st)
 		avg_late_to_up_delay = (double)st->sum_late_to_up_delay / (double)st->late_reacted_count;
 	}
 
+	/* Score calculation moved to Python post-collection analysis.
+	 * C code now outputs raw metrics only; Python analyzer recomputes all
+	 * scoring models for reproducibility and weight sensitivity analysis.
+	 */
 	NFAPI_TRACE(NFAPI_TRACE_INFO,
 		    "[P7_EWMA_SUMMARY],alpha=%d,beta=%d,total=%d,"
 		    "up=%d,down=%d,stable=%d,adjust=%d,osc=%d,"
 		    "min_s=%d,max_s=%d,min_late=%d,max_late=%d,"
 		    "avg_abs_late=%.2f,stable_ratio=%.4f,"
 		    "late_risk=%d,late_reacted=%d,avg_late_to_up_delay=%.2f,"
-		    "max_late_to_up_delay=%d,score=%.2f\n",
+		    "max_late_to_up_delay=%d,score=0.0\n",
 		    st->alpha_denom,
 		    st->beta_denom,
 		    st->total_samples,
@@ -371,8 +367,7 @@ static void ewma_sweep_print_summary(const ewma_sweep_stats_t *st)
 		    st->late_risk_count,
 		    st->late_reacted_count,
 		    avg_late_to_up_delay,
-		    st->max_late_to_up_delay,
-		    ewma_sweep_score(st, avg_abs_worst_late, avg_late_to_up_delay));
+		    st->max_late_to_up_delay);
 }
 
 __attribute__((constructor)) static void initialize_max_s_ahead(void) {
