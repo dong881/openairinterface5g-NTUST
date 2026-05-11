@@ -1404,8 +1404,12 @@ def plot_pnf_pressure_response_pattern(
     output_prefix="vnf_pnf"
 ):
     """
-    繪製 PNF 壓力回應模式。
+    繪製 PNF 壓力回應模式 - 簡化版，只保留兩條線用於驗證 mapping。
     pattern_tuple: (flat_start, pnf_drop_idx, rise_start, rise_end)
+    
+    用於驗證 mapping 正確性：
+    - 當 VNF 不變時，Δt_arrive 應該較低
+    - 如果 VNF 不變但 Δt_arrive 值很高，表示 mapping 錯誤
     """
     flat_start, pnf_drop_idx, rise_start, rise_end = pattern_tuple
     
@@ -1456,48 +1460,6 @@ def plot_pnf_pressure_response_pattern(
         zorder=3
     )
     
-    # 轉換成局部座標
-    local_flat_start = flat_start - window_start
-    local_flat_end = min(flat_start + PNF_FLAT_WINDOW - 1 - window_start, len(x_indices) - 1)
-    local_pnf_drop = pnf_drop_idx - window_start
-    local_rise_start = rise_start - window_start
-    local_rise_end = rise_end - window_start
-    
-    # 標示三個階段
-    # 1. VNF 平穩區域
-    if 0 <= local_flat_start < len(x_indices):
-        ax.axvspan(
-            local_flat_start,
-            local_flat_end,
-            color=PNF_RESPONSE_COLOR,
-            alpha=0.15,
-            zorder=1,
-            label='VNF flat region'
-        )
-    
-    # 2. PNF 下降點
-    if 0 <= local_pnf_drop < len(x_indices):
-        ax.axvline(
-            local_pnf_drop,
-            color='#e74c3c',
-            linestyle=':',
-            linewidth=2.0,
-            alpha=0.8,
-            zorder=2,
-            label='PNF drop'
-        )
-    
-    # 3. VNF 上升區域
-    if 0 <= local_rise_start < len(x_indices):
-        ax.axvspan(
-            local_rise_start,
-            local_rise_end,
-            color=FALLING_COLOR,
-            alpha=0.20,
-            zorder=1,
-            label='VNF rise response'
-        )
-    
     style_timing_axes(ax, 0, len(x_indices) - 1, y_label)
     
     output_img = os.path.join(
@@ -1511,6 +1473,231 @@ def plot_pnf_pressure_response_pattern(
     
     print(f"PNF 壓力回應模式圖表已儲存為: {output_img}")
     return output_img
+
+
+def verify_pnf_vnf_mapping_quality(
+    vnf_data,
+    aligned_pnf,
+    vnf_flat_threshold=20,
+    min_flat_length=5,
+    verbose=True
+):
+    """
+    驗證 PNF-VNF mapping 的正確性。
+    
+    檢查原則：當 VNF 不變時，Δt_arrive 應該 < VNF（Y軸上VNF永遠在Δt_arrive上方）
+    - 若 VNF 穩定但 Δt_arrive > VNF，表示 mapping 錯誤
+    - 反之，VNF > Δt_arrive 表示 mapping 正確
+    
+    回傳：(mapping_quality_score, violations, recommendations)
+    """
+    payloads = [d['payload'] for d in vnf_data]
+    
+    if len(payloads) < 2:
+        print("資料不足以驗證")
+        return 1.0, [], []
+    
+    diffs = [payloads[i] - payloads[i-1] for i in range(1, len(payloads))]
+    
+    # 找出 VNF 平穩區間
+    flat_regions = []
+    current_flat_start = None
+    
+    for i, diff in enumerate(diffs):
+        if abs(diff) <= vnf_flat_threshold:
+            if current_flat_start is None:
+                current_flat_start = i
+        else:
+            if current_flat_start is not None and i - current_flat_start >= min_flat_length:
+                flat_regions.append((current_flat_start, i - 1))
+            current_flat_start = None
+    
+    if current_flat_start is not None and len(diffs) - current_flat_start >= min_flat_length:
+        flat_regions.append((current_flat_start, len(diffs) - 1))
+    
+    if not flat_regions:
+        if verbose:
+            print("未找到 VNF 平穩區間（可能是數據波動太大）")
+        return 0.5, [], []
+    
+    violations = []
+    pnf_above_vnf = 0
+    
+    # 對每個 VNF 平穩區間檢查 PNF 值
+    for flat_start, flat_end in flat_regions:
+        vnf_flat_value = payloads[flat_start]
+        
+        for idx in range(flat_start, flat_end + 2):  # +2 because diff is 1-indexed
+            if idx < len(aligned_pnf) and aligned_pnf[idx] is not None:
+                pnf_value = aligned_pnf[idx]
+                
+                # 關鍵檢查：PNF 應該 < VNF（Y軸上VNF永遠在上方）
+                # 如果 PNF >= VNF，表示 mapping 錯誤
+                if pnf_value >= vnf_flat_value:
+                    pnf_above_vnf += 1
+                    if len(violations) < 10:  # 只記錄前 10 個
+                        violations.append({
+                            'index': idx,
+                            'vnf_value': vnf_flat_value,
+                            'pnf_value': pnf_value,
+                            'ratio': pnf_value / vnf_flat_value if vnf_flat_value > 0 else 0,
+                            'flat_region': (flat_start, flat_end),
+                            'status': '✗ PNF >= VNF' if pnf_value >= vnf_flat_value else '✓ PNF < VNF'
+                        })
+    
+    # 計算 mapping 質量得分
+    total_flat_samples = sum(flat_end - flat_start + 2 for flat_start, flat_end in flat_regions)
+    violation_rate = pnf_above_vnf / total_flat_samples if total_flat_samples > 0 else 0.0
+    
+    quality_score = max(0.0, 1.0 - violation_rate)
+    
+    recommendations = []
+    violation_pct = violation_rate * 100
+    quality_pct = quality_score * 100
+    
+    if quality_score < 0.5:
+        recommendations.append("✗ MAPPING ERROR! 超過50%的樣本點違反 VNF > Δt_arrive")
+        recommendations.append("   這表示 mapping 到了大量錯誤的 (SFN, slot) 組合")
+        recommendations.append("   結果完全無法用於分析，必須修復 mapping 邏輯！")
+    elif quality_score < 0.9:
+        msg = "⚠️  Mapping 質量一般，有約 {:.1f}% 的樣本違反 VNF > Δt_arrive".format(violation_pct)
+        recommendations.append(msg)
+        recommendations.append(f"   共 {pnf_above_vnf} 個樣本點出現 PNF >= VNF 的情況")
+        recommendations.append("   可能在某些邊界情況或資料片段有 mapping 誤差")
+        recommendations.append("   分析時需要注意這些異常區間")
+    else:
+        msg = "✓ Mapping 正確！{:.1f}% 的樣本滿足 VNF > Δt_arrive".format(quality_pct)
+        recommendations.append(msg)
+        if pnf_above_vnf > 0:
+            msg2 = "   只有 {} 個邊界異常樣本 ({:.1f}%)".format(pnf_above_vnf, violation_pct)
+            recommendations.append(msg2)
+            recommendations.append("   整體 mapping 質量良好，可以進行分析")
+        else:
+            recommendations.append("   所有 VNF 平穩區間中，PNF值都低於對應的VNF值")
+            recommendations.append("   mapping 完美，可以放心進行後續分析")
+    
+    if verbose:
+        print("\n=== PNF-VNF Mapping 驗證報告 ===")
+        print(f"找到 {len(flat_regions)} 個 VNF 平穩區間")
+        print(f"違規樣本數 (PNF >= VNF): {pnf_above_vnf}/{total_flat_samples}")
+        print(f"Mapping 質量得分: {quality_score:.1%}")
+        
+        if pnf_above_vnf > 0:
+            print(f"\n違規情況 (前 {len(violations)} 個):")
+            for v in violations:
+                print(f"  Index {v['index']}: VNF={v['vnf_value']:.0f}, "
+                      f"Δt_arrive={v['pnf_value']:.0f} {v['status']}")
+        else:
+            print("\n✓ 完美！未發現任何 PNF >= VNF 的情況")
+        
+        print("\n建議:")
+        for rec in recommendations:
+            print(f"  {rec}")
+        print()
+    
+    return quality_score, violations, recommendations
+
+
+def plot_mapping_verification(
+    vnf_data,
+    aligned_pnf,
+    flat_regions,
+    output_prefix="vnf_pnf",
+    display_total_points=DISPLAY_TOTAL_POINTS
+):
+    """
+    繪製 mapping 驗證圖表，突出顯示 VNF 平穩的區間。
+    """
+    payloads = [d['payload'] for d in vnf_data]
+    
+    if not flat_regions:
+        print("無平穩區間可繪製")
+        return
+    
+    # 使用第一個平穩區間
+    flat_start, flat_end = flat_regions[0]
+    
+    window_start, window_end = clamp_window_around_interval(
+        max(0, flat_start - 10),
+        min(len(vnf_data) - 1, flat_end + 10),
+        display_total_points,
+        len(vnf_data)
+    )
+    
+    target_vnf = vnf_data[window_start:window_end + 1]
+    x_indices = list(range(len(target_vnf)))
+    
+    vnf_y = [d['payload'] for d in target_vnf]
+    pnf_y = aligned_pnf[window_start:window_end + 1]
+    vnf_y, pnf_y, y_label, _ = normalize_timing_values(vnf_y, pnf_y)
+    
+    fig, ax = plt.subplots(figsize=SQUARE_FIGSIZE)
+    
+    ax.plot(
+        x_indices,
+        vnf_y,
+        marker=VNF_MARKER,
+        linestyle='-',
+        color=VNF_COLOR,
+        linewidth=2.5,
+        markersize=VNF_MARKERSIZE,
+        label='VNF ahead time',
+        zorder=4
+    )
+    
+    ax.plot(
+        x_indices,
+        pnf_y,
+        marker=PNF_MARKER,
+        linestyle='--',
+        color=PNF_COLOR,
+        linewidth=2.5,
+        markersize=PNF_MARKERSIZE,
+        label=r'$\Delta t_{\text{arrive}}$',
+        zorder=3
+    )
+    
+    style_timing_axes(ax, 0, len(x_indices) - 1, y_label)
+    
+    output_img = os.path.join(
+        os.path.dirname(output_prefix) if output_prefix.endswith('.png') else output_prefix,
+        "vnf_pnf_mapping_verification@80pts.png"
+    )
+    
+    safe_tight_layout_and_save(fig, output_img, pad=0.5)
+    plt.close(fig)
+    
+    print(f"Mapping 驗證圖表已儲存為: {output_img}")
+    return output_img
+
+
+def detect_flat_regions(vnf_data, flat_threshold=20, min_length=5):
+    """
+    找出 VNF 平穩的區間。
+    """
+    payloads = [d['payload'] for d in vnf_data]
+    
+    if len(payloads) < 2:
+        return []
+    
+    diffs = [payloads[i] - payloads[i-1] for i in range(1, len(payloads))]
+    
+    flat_regions = []
+    current_flat_start = None
+    
+    for i, diff in enumerate(diffs):
+        if abs(diff) <= flat_threshold:
+            if current_flat_start is None:
+                current_flat_start = i
+        else:
+            if current_flat_start is not None and i - current_flat_start >= min_length:
+                flat_regions.append((current_flat_start, i - 1))
+            current_flat_start = None
+    
+    if current_flat_start is not None and len(diffs) - current_flat_start >= min_length:
+        flat_regions.append((current_flat_start, len(diffs) - 1))
+    
+    return flat_regions
 
 
 def plot_pnf_negative_cumulative_curve(
