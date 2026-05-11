@@ -250,6 +250,14 @@ typedef struct nfapi_vnf_p7_connection_info {
 	 * If unavailable, keep it as 1.
 	 */
 	int32_t recent_msg_per_slot;
+
+	/*
+	* Fields for offered-load-aware peak detection.
+	*/
+	int32_t recent_p7_msg_count;
+	int32_t estimated_offered_load;
+	int32_t offered_load_dev;
+	int32_t peak_offered_load;
 } nfapi_vnf_p7_connection_info_t;
 
 typedef struct vnf_p7_s {

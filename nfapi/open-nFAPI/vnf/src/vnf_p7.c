@@ -307,15 +307,6 @@ static void p7_run_ewma_lab_control(
             p7_info->last_adjustment_slot,
             10 << p7_info->mu);
 
-    /*
-     * If last_adjustment_steps is set to target_s_ahead,
-     * the actual wait becomes:
-     *
-     *   target_s_ahead + config->timing_info_period
-     *
-     * This is intentional. For example:
-     *   UP to 6 => wait 6 + timing_info_period slots
-     */
     int32_t required_wait_slots =
             p7_info->last_adjustment_steps +
             (int32_t)config->timing_info_period;
@@ -334,7 +325,7 @@ static void p7_run_ewma_lab_control(
     int32_t abs_diff = abs_i32(diff);
 
     /*
-     * Update EWMA estimator.
+     * Update EWMA timing estimator.
      */
     p7_info->estimated_mean_late +=
             diff / global_ewma_alpha_denom;
@@ -349,19 +340,10 @@ static void p7_run_ewma_lab_control(
                 global_ewma_beta_denom;
     }
 
-    /*
-     * Make estimated_jitter_var dynamic.
-     * This field was almost static in the log, so it was not helping
-     * UP/DOWN decisions enough.
-     */
     p7_info->estimated_jitter_var +=
             (abs_diff - p7_info->estimated_jitter_var) /
             global_ewma_beta_denom;
 
-    /*
-     * Avoid fixed 3x jitter threshold.
-     * Use current jitter + current jitter variance as adaptive bound.
-     */
     int32_t jitter_up_bound_us =
             p7_info->late_jitter +
             p7_info->estimated_jitter_var;
@@ -371,19 +353,17 @@ static void p7_run_ewma_lab_control(
             p7_info->estimated_jitter_var;
 
     /*
-     * Use the closest observed timing point to the deadline.
-     * Positive means already late.
-     * Negative means still early.
+     * Closest point to deadline.
+     *
+     * Positive: already late.
+     * Negative: early.
      */
     int32_t closest_to_deadline_us =
             stats->worst_late > p7_info->estimated_mean_late ?
             stats->worst_late : p7_info->estimated_mean_late;
 
     /*
-     * Timing uncertainty.
-     *
-     * This is not a hardcoded headroom target.
-     * It is directly derived from measured late-side jitter and variance.
+     * Timing uncertainty from measured late-side behavior.
      */
     int32_t timing_uncertainty_us =
             p7_info->late_jitter +
@@ -393,42 +373,152 @@ static void p7_run_ewma_lab_control(
         timing_uncertainty_us = 0;
 
     /*
-     * Tail risk:
+     * ============================================================
+     * Offered-load estimator
+     * ============================================================
      *
-     * If closest_to_deadline_us + timing_uncertainty_us > 0,
-     * then the current ahead is not enough to cover observed timing risk.
+     * Do not hardcode peak throughput or message count.
+     *
+     * current_offered_load should be collected from actual P7 traffic
+     * during the previous control period.
+     *
+     * Preferred source:
+     *   p7_info->recent_p7_msg_count
+     *
+     * Fallback:
+     *   p7_info->recent_msg_per_slot
      */
-    int32_t timing_tail_risk_us =
-            closest_to_deadline_us +
-            timing_uncertainty_us;
+    int32_t current_offered_load =
+            p7_info->recent_p7_msg_count > 0 ?
+            p7_info->recent_p7_msg_count :
+            p7_info->recent_msg_per_slot;
 
-    if (timing_tail_risk_us < 0)
-        timing_tail_risk_us = 0;
+    if (current_offered_load < 0)
+        current_offered_load = 0;
+
+    if (p7_info->estimated_offered_load == 0)
+        p7_info->estimated_offered_load = current_offered_load;
+
+    int32_t load_diff =
+            current_offered_load - p7_info->estimated_offered_load;
+
+    p7_info->estimated_offered_load +=
+            load_diff / global_ewma_alpha_denom;
+
+    p7_info->offered_load_dev +=
+            (abs_i32(load_diff) - p7_info->offered_load_dev) /
+            global_ewma_beta_denom;
 
     /*
-     * Failure debt:
+     * Learn observed system peak offered load.
      *
-     * This should be collected from PNF TOO_LATE warnings.
-     * Example:
-     *   tx_data_request TOO LATE by 650 us
-     * should update recent_p7_too_late_max_us to at least 650.
+     * This is a high-water mark, not a configured threshold.
+     */
+    if (current_offered_load > p7_info->peak_offered_load)
+        p7_info->peak_offered_load = current_offered_load;
+
+    /*
+     * Peak mode:
+     *
+     * Current load is considered peak if it is statistically
+     * indistinguishable from the observed peak, using measured
+     * offered-load deviation as the tolerance band.
+     *
+     * No hardcoded throughput threshold.
+     */
+    bool peak_offered_load =
+            p7_info->peak_offered_load > 0 &&
+            current_offered_load + p7_info->offered_load_dev >=
+                    p7_info->peak_offered_load;
+
+    /*
+     * Peakness is only for logging / smooth scaling.
+     */
+    int32_t peakness_q10 = 0;
+
+    if (p7_info->peak_offered_load > 0) {
+        peakness_q10 =
+                (int32_t)((int64_t)current_offered_load *
+                          1024 /
+                          p7_info->peak_offered_load);
+
+        if (peakness_q10 > 1024)
+            peakness_q10 = 1024;
+
+        if (peakness_q10 < 0)
+            peakness_q10 = 0;
+    }
+
+    /*
+     * ============================================================
+     * Peak / non-peak timing policy
+     * ============================================================
+     *
+     * Non-peak:
+     *   - latency-first
+     *   - allow edge-walking near deadline
+     *   - tolerate occasional small TOO_LATE
+     *
+     * Peak:
+     *   - reliability-first
+     *   - allowed late = 0
+     *   - closest_to_deadline_us must be pulled earlier
+     */
+
+    int32_t allowed_late_us = 0;
+
+    if (!peak_offered_load && p7_info->peak_offered_load > 0) {
+        int32_t load_gap =
+                p7_info->peak_offered_load - current_offered_load;
+
+        if (load_gap < 0)
+            load_gap = 0;
+
+        /*
+         * Non-peak tolerance is derived from how far current load is
+         * below the learned peak, expressed in slot-duration units.
+         *
+         * No static microsecond threshold.
+         */
+        allowed_late_us =
+                (int32_t)((int64_t)slot_duration_us *
+                          load_gap /
+                          p7_info->peak_offered_load);
+
+        /*
+         * Also allow measured timing uncertainty at non-peak.
+         * This prevents small jitter-caused tail_risk from causing UP.
+         */
+        allowed_late_us += timing_uncertainty_us;
+    }
+
+    /*
+     * Failure debt.
+     *
+     * Peak:
+     *   every TOO_LATE counts.
+     *
+     * Non-peak:
+     *   only the part beyond allowed_late_us counts.
      */
     int32_t failure_debt_us = 0;
 
-    if (p7_info->recent_p7_too_late_max_us > failure_debt_us)
-        failure_debt_us = p7_info->recent_p7_too_late_max_us;
+    if (p7_info->recent_p7_too_late_max_us > 0) {
+        if (peak_offered_load) {
+            failure_debt_us = p7_info->recent_p7_too_late_max_us;
+        } else if (p7_info->recent_p7_too_late_max_us > allowed_late_us) {
+            failure_debt_us =
+                    p7_info->recent_p7_too_late_max_us -
+                    allowed_late_us;
+        }
+    }
 
     /*
-     * Queue/backpressure debt:
+     * Queue/backpressure debt.
      *
-     * Convert RLC reject / HARQ timeout counts into slot-domain debt
-     * using observed message density.
-     *
-     * This avoids hardcoding:
-     *   "high load means add N slots"
-     *
-     * Instead:
-     *   more rejected/timeout events per slot naturally create more debt.
+     * Only peak offered load should be fully protected.
+     * At non-peak, isolated queue/HARQ events should not immediately
+     * force larger ahead unless they also appear as timing debt.
      */
     int32_t msg_per_slot =
             p7_info->recent_msg_per_slot > 0 ?
@@ -441,19 +531,69 @@ static void p7_run_ewma_lab_control(
     if (queue_events < 0)
         queue_events = 0;
 
-    int32_t queue_debt_slots =
-            ceil_div_pos_i32(queue_events, msg_per_slot);
+    int32_t queue_debt_us = 0;
 
-    int32_t queue_debt_us =
-            queue_debt_slots * slot_duration_us;
+    if (peak_offered_load && queue_events > 0) {
+        int32_t queue_debt_slots =
+                ceil_div_pos_i32(queue_events, msg_per_slot);
+
+        queue_debt_us =
+                queue_debt_slots * slot_duration_us;
+    }
 
     /*
-     * Total measured pressure.
+     * Required peak headroom.
      *
-     * This is the only source for UP.
-     * No load_extra_slots.
-     * No positive_diff_us duplication.
-     * No hardcoded target s_ahead.
+     * Peak:
+     *   closest_to_deadline_us should be earlier than:
+     *
+     *     -(timing_uncertainty + failure_debt + queue_debt)
+     *
+     * Non-peak:
+     *   allowed_late_us relaxes the requirement.
+     */
+    int32_t required_headroom_us = 0;
+
+    if (peak_offered_load) {
+        required_headroom_us =
+                timing_uncertainty_us +
+                failure_debt_us +
+                queue_debt_us;
+    }
+
+    /*
+     * Tail risk after applying peak/non-peak policy.
+     *
+     * Peak:
+     *   risk = closest + required_headroom
+     *
+     * Non-peak:
+     *   risk = closest + uncertainty - allowed_late
+     *
+     * Because allowed_late includes uncertainty in non-peak mode,
+     * non-peak effectively tolerates occasional small lateness.
+     */
+    int32_t timing_tail_risk_us = 0;
+
+    if (peak_offered_load) {
+        timing_tail_risk_us =
+                closest_to_deadline_us +
+                required_headroom_us;
+    } else {
+        timing_tail_risk_us =
+                closest_to_deadline_us +
+                timing_uncertainty_us -
+                allowed_late_us;
+    }
+
+    if (timing_tail_risk_us < 0)
+        timing_tail_risk_us = 0;
+
+    /*
+     * Total pressure.
+     *
+     * In peak mode this becomes strict.
+     * In non-peak mode small lateness is absorbed by allowed_late_us.
      */
     int32_t pressure_sample_us =
             timing_tail_risk_us +
@@ -466,22 +606,42 @@ static void p7_run_ewma_lab_control(
     /*
      * Accumulate pressure debt.
      *
-     * If the system reports a large pressure sample, remember it.
-     * This prevents high-load bursts from being forgotten immediately.
+     * Peak pressure should be remembered more strongly.
+     * Non-peak pressure should not cause long-lasting ahead inflation.
      */
-    if (pressure_sample_us > p7_info->pressure_debt_us)
-        p7_info->pressure_debt_us = pressure_sample_us;
+    if (peak_offered_load) {
+        if (pressure_sample_us > p7_info->pressure_debt_us)
+            p7_info->pressure_debt_us = pressure_sample_us;
+    } else {
+        /*
+         * Non-peak: do not preserve small one-shot pressure.
+         * Only keep pressure if it is larger than current debt.
+         * Otherwise release by measured safe surplus below.
+         */
+        if (pressure_sample_us > p7_info->pressure_debt_us)
+            p7_info->pressure_debt_us = pressure_sample_us;
+    }
 
     /*
-     * Debt release:
+     * Debt release.
      *
-     * Only release debt when this control period has no new pressure.
-     * The release amount is not a constant.
-     * It is measured safe surplus.
+     * Non-peak can release debt aggressively because lower offered load
+     * is allowed to operate near the deadline.
+     *
+     * Peak releases only when there is real safe surplus beyond the
+     * required peak headroom.
      */
     if (pressure_sample_us == 0) {
-        int32_t safe_surplus_us =
-                -(closest_to_deadline_us + timing_uncertainty_us);
+        int32_t safe_surplus_us;
+
+        if (peak_offered_load) {
+            safe_surplus_us =
+                    -(closest_to_deadline_us + required_headroom_us);
+        } else {
+            safe_surplus_us =
+                    allowed_late_us -
+                    (closest_to_deadline_us + timing_uncertainty_us);
+        }
 
         if (safe_surplus_us > 0) {
             if (safe_surplus_us >= p7_info->pressure_debt_us)
@@ -494,21 +654,15 @@ static void p7_run_ewma_lab_control(
     int32_t target_s_ahead = s_ahead_env;
 
     /*
-     * =====================
+     * ============================================================
      * UPWARD REACTION
-     * =====================
+     * ============================================================
      *
-     * Important:
-     *   UP is incremental.
+     * Peak:
+     *   increase enough to make closest_to_deadline_us earlier.
      *
-     * Do NOT calculate:
-     *   required_up_s_ahead = ceil(risk_cover_us / slot_duration_us)
-     *
-     * Instead calculate:
-     *   extra_slots = ceil(pressure_debt_us / slot_duration_us)
-     *   target      = current + extra_slots
-     *
-     * This prevents 1->11 overshoot.
+     * Non-peak:
+     *   only increase if pressure remains after allowed_late_us.
      */
     if (p7_info->pressure_debt_us > 0) {
         int32_t extra_slots =
@@ -525,10 +679,10 @@ static void p7_run_ewma_lab_control(
 
         if (target_s_ahead > s_ahead_env) {
             /*
-             * Wait proportional to the target state, not just delta.
+             * Wait proportional to target state.
              *
-             * Example:
-             *   1->6 => wait 6 + timing_info_period slots
+             * This prevents repeated immediate reactions before the
+             * new ahead value has propagated through timing.
              */
             p7_info->last_adjustment_steps = target_s_ahead;
             p7_info->last_adjustment_sfn = p7_info->sfn;
@@ -536,42 +690,53 @@ static void p7_run_ewma_lab_control(
         }
     } else {
         /*
-         * =====================
+         * ============================================================
          * DOWNWARD REACTION
-         * =====================
+         * ============================================================
          *
-         * DOWN is only allowed if one-slot DOWN would still be safe.
+         * Peak:
+         *   only DOWN if post-down state still satisfies required
+         *   peak headroom.
          *
-         * If we reduce s_ahead by one slot, observed timing moves
-         * later by roughly slot_duration_us.
+         * Non-peak:
+         *   can DOWN toward lower latency as long as post-down is
+         *   within allowed lateness.
          */
-        int32_t post_down_tail_risk_us =
+        int32_t post_down_closest_us =
                 closest_to_deadline_us +
-                slot_duration_us +
-                timing_uncertainty_us;
+                slot_duration_us;
+
+        int32_t post_down_risk_us;
+
+        if (peak_offered_load) {
+            post_down_risk_us =
+                    post_down_closest_us +
+                    required_headroom_us;
+        } else {
+            post_down_risk_us =
+                    post_down_closest_us +
+                    timing_uncertainty_us -
+                    allowed_late_us;
+        }
 
         bool pressure_exists =
-                p7_info->recent_p7_too_late_max_us > 0 ||
-                p7_info->recent_rlc_reject_count > 0 ||
-                p7_info->recent_harq_timeout_count > 0 ||
-                p7_info->pressure_debt_us > 0;
+                p7_info->pressure_debt_us > 0 ||
+                (peak_offered_load &&
+                 (p7_info->recent_p7_too_late_max_us > 0 ||
+                  p7_info->recent_rlc_reject_count > 0 ||
+                  p7_info->recent_harq_timeout_count > 0));
 
         if (s_ahead_env > 1 &&
             !pressure_exists &&
-            post_down_tail_risk_us <= 0) {
+            post_down_risk_us <= 0) {
             target_s_ahead = s_ahead_env - 1;
 
-            /*
-             * DOWN also waits based on the new target.
-             *
-             * Example:
-             *   6->5 => wait 5 + timing_info_period slots
-             */
             p7_info->last_adjustment_steps = target_s_ahead;
             p7_info->last_adjustment_sfn = p7_info->sfn;
             p7_info->last_adjustment_slot = p7_info->slot;
         }
     }
+
     if (target_s_ahead > max_s_ahead)
         target_s_ahead = max_s_ahead;
 
@@ -584,52 +749,52 @@ static void p7_run_ewma_lab_control(
         int32_t step_direction =
                 delta_s_ahead > 0 ? 1 : -1;
 
-		/*
-		 * Changing s_ahead shifts the timing coordinate by about one slot
-		 * per step. Compensate EWMA mean immediately; otherwise the next
-		 * sample treats our own actuation as network jitter/load.
-		 *
-		 * UP   +1 slot => messages appear ~slot_duration_us earlier
-		 * DOWN -1 slot => messages appear ~slot_duration_us later
-		 */
-		int64_t mean_shift_64 =
-				(int64_t)delta_s_ahead * slot_duration_us;
+        /*
+         * Changing s_ahead shifts timing coordinate.
+         *
+         * UP   +1 slot => messages appear earlier.
+         * DOWN -1 slot => messages appear later.
+         */
+        int64_t mean_shift_64 =
+                (int64_t)delta_s_ahead * slot_duration_us;
 
-		int64_t compensated_mean_64 =
-				(int64_t)p7_info->estimated_mean_late - mean_shift_64;
+        int64_t compensated_mean_64 =
+                (int64_t)p7_info->estimated_mean_late -
+                mean_shift_64;
 
-		if (compensated_mean_64 > INT32_MAX)
-			compensated_mean_64 = INT32_MAX;
+        if (compensated_mean_64 > INT32_MAX)
+            compensated_mean_64 = INT32_MAX;
 
-		if (compensated_mean_64 < INT32_MIN)
-			compensated_mean_64 = INT32_MIN;
+        if (compensated_mean_64 < INT32_MIN)
+            compensated_mean_64 = INT32_MIN;
 
-		p7_info->estimated_mean_late =
-				(int32_t)compensated_mean_64;
+        p7_info->estimated_mean_late =
+                (int32_t)compensated_mean_64;
 
-		/*
-		 * Keep some memory, but do not let a large actuation permanently
-		 * inflate the jitter estimator.
-		 */
-		if (abs_i32(delta_s_ahead) >= 2) {
-			p7_info->estimated_jitter_var =
-					p7_info->estimated_jitter_var / 2;
+        /*
+         * Large actuation should not permanently inflate jitter.
+         */
+        if (abs_i32(delta_s_ahead) >= 2) {
+            p7_info->estimated_jitter_var =
+                    p7_info->estimated_jitter_var / 2;
 
-			p7_info->late_jitter =
-					p7_info->late_jitter / 2;
+            p7_info->late_jitter =
+                    p7_info->late_jitter / 2;
 
-			p7_info->early_jitter =
-					p7_info->early_jitter / 2;
-		}
+            p7_info->early_jitter =
+                    p7_info->early_jitter / 2;
+        }
 
         NFAPI_TRACE(NFAPI_TRACE_INFO,
             "[P7_SYNC][EWMA_LAB] α=1/%d β=1/%d %s: %d→%d | "
             "worst_late=%d mean=%d var=%d diff=%d "
             "late_jitter=%d early_jitter=%d "
             "up_bound=%d down_bound=%d "
-            "tail_risk=%d failure_debt=%d queue_debt=%d "
-            "pressure_debt=%d msg_per_slot=%d "
-            "too_late_max=%d rlc_rej=%d harq_to=%d "
+            "closest=%d uncertainty=%d "
+            "offered=%d est_load=%d dev_load=%d peak_load=%d peak=%d peakness=%d "
+            "allowed_late=%d required_headroom=%d "
+            "tail_risk=%d failure_debt=%d queue_debt=%d pressure_debt=%d "
+            "msg_per_slot=%d too_late_max=%d rlc_rej=%d harq_to=%d "
             "delta=%d mean_shift=%ld wait_steps=%d",
             global_ewma_alpha_denom,
             global_ewma_beta_denom,
@@ -644,6 +809,16 @@ static void p7_run_ewma_lab_control(
             p7_info->early_jitter,
             jitter_up_bound_us,
             jitter_down_bound_us,
+            closest_to_deadline_us,
+            timing_uncertainty_us,
+            current_offered_load,
+            p7_info->estimated_offered_load,
+            p7_info->offered_load_dev,
+            p7_info->peak_offered_load,
+            peak_offered_load,
+            peakness_q10,
+            allowed_late_us,
+            required_headroom_us,
             timing_tail_risk_us,
             failure_debt_us,
             queue_debt_us,
@@ -665,9 +840,11 @@ static void p7_run_ewma_lab_control(
             "[P7_SYNC][EWMA_LAB] stable s_ahead=%d "
             "worst_late=%d mean=%d var=%d diff=%d "
             "late_jitter=%d early_jitter=%d "
-            "tail_risk=%d failure_debt=%d queue_debt=%d "
-            "pressure_debt=%d msg_per_slot=%d "
-            "alpha=1/%d beta=1/%d",
+            "closest=%d uncertainty=%d "
+            "offered=%d est_load=%d dev_load=%d peak_load=%d peak=%d peakness=%d "
+            "allowed_late=%d required_headroom=%d "
+            "tail_risk=%d failure_debt=%d queue_debt=%d pressure_debt=%d "
+            "msg_per_slot=%d alpha=1/%d beta=1/%d",
             s_ahead_env,
             stats->worst_late,
             p7_info->estimated_mean_late,
@@ -675,6 +852,16 @@ static void p7_run_ewma_lab_control(
             diff,
             p7_info->late_jitter,
             p7_info->early_jitter,
+            closest_to_deadline_us,
+            timing_uncertainty_us,
+            current_offered_load,
+            p7_info->estimated_offered_load,
+            p7_info->offered_load_dev,
+            p7_info->peak_offered_load,
+            peak_offered_load,
+            peakness_q10,
+            allowed_late_us,
+            required_headroom_us,
             timing_tail_risk_us,
             failure_debt_us,
             queue_debt_us,
@@ -687,12 +874,12 @@ static void p7_run_ewma_lab_control(
     /*
      * Consume one-period event counters.
      *
-     * These counters should be refilled by the collectors before the
-     * next control decision.
+     * These counters must be filled by collectors before next decision.
      */
     p7_info->recent_p7_too_late_max_us = 0;
     p7_info->recent_rlc_reject_count = 0;
     p7_info->recent_harq_timeout_count = 0;
+    p7_info->recent_p7_msg_count = 0;
 
     return;
 }
