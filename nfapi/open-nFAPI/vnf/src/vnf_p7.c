@@ -416,6 +416,7 @@ static void p7_run_ewma_lab_control(
 					slot_duration_us;
 
 			target_s_ahead -= down_steps;
+			target_s_ahead --;
 
 			p7_info->last_adjustment_steps = down_steps;
 			p7_info->last_adjustment_sfn = p7_info->sfn;
