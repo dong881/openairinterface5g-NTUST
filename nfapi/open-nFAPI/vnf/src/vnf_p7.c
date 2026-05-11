@@ -264,38 +264,19 @@ static int32_t ceil_div_pos_i32(int32_t num, int32_t den)
     return (num + den - 1) / den;
 }
 
-static int32_t clamp_i32(int32_t v, int32_t lo, int32_t hi)
-{
-    if (v < lo)
-        return lo;
-    if (v > hi)
-        return hi;
-    return v;
-}
-
 static int32_t max_i32(int32_t a, int32_t b)
 {
     return a > b ? a : b;
 }
 
+static int32_t min_i32(int32_t a, int32_t b)
+{
+    return a < b ? a : b;
+}
+
 static int32_t abs_i32(int32_t v)
 {
     return v < 0 ? -v : v;
-}
-
-int32_t ceil_div(int32_t x, int32_t d)
-{
-    if (d > 0) {
-        if (x >= 0)
-            return (x + d - 1) / d;
-        else
-            return x / d; 
-    } else {
-        if (x >= 0)
-            return x / d;
-        else
-            return (x + d + 1) / d;
-    }
 }
 
 static void p7_run_ewma_lab_control(
@@ -305,6 +286,9 @@ static void p7_run_ewma_lab_control(
     int32_t max_s_ahead)
 {
     nfapi_vnf_config_t *config = get_config();
+
+    if (slot_duration_us <= 0 || max_s_ahead <= 0)
+        return;
 
     int32_t elapsed_slots = calculate_slot_distance(
             p7_info->sfn,
@@ -318,159 +302,258 @@ static void p7_run_ewma_lab_control(
             (int32_t)config->timing_info_period;
 
     if (elapsed_slots < required_wait_slots)
-            return;
+        return;
 
     if (p7_info->estimated_mean_late == 0) {
-            p7_info->estimated_mean_late = stats->worst_late;
-            p7_info->estimated_jitter_var = abs(stats->worst_late) / 2;
-            p7_info->last_adjustment_sfn = p7_info->sfn;
-            p7_info->last_adjustment_slot = p7_info->slot;
+        p7_info->estimated_mean_late = stats->worst_late;
+        p7_info->estimated_jitter_var = abs_i32(stats->worst_late) / 2;
+        p7_info->last_adjustment_sfn = p7_info->sfn;
+        p7_info->last_adjustment_slot = p7_info->slot;
     }
 
     int32_t diff = stats->worst_late - p7_info->estimated_mean_late;
-    int32_t abs_diff = diff < 0 ? -diff : diff;
+    int32_t abs_diff = abs_i32(diff);
 
     /*
      * Update EWMA estimator.
-     * stats->worst_late is only used as measurement input.
      */
-    p7_info->estimated_mean_late += diff / global_ewma_alpha_denom;
+    p7_info->estimated_mean_late +=
+            diff / global_ewma_alpha_denom;
 
-    if (diff > 0)
-            p7_info->late_jitter +=
-                    (diff - p7_info->late_jitter) /
-                    global_ewma_beta_denom;
-    else
-            p7_info->early_jitter +=
-                    ((-diff) - p7_info->early_jitter) /
-                    global_ewma_beta_denom;
+    if (diff > 0) {
+        p7_info->late_jitter +=
+                (diff - p7_info->late_jitter) /
+                global_ewma_beta_denom;
+    } else {
+        p7_info->early_jitter +=
+                ((-diff) - p7_info->early_jitter) /
+                global_ewma_beta_denom;
+    }
 
-    int32_t jitter_up_bound_us = p7_info->late_jitter * 3;
-    int32_t jitter_down_bound_us = p7_info->early_jitter * 3;
+    /*
+     * Make estimated_jitter_var dynamic.
+     * This field was almost static in the log, so it was not helping
+     * UP/DOWN decisions enough.
+     */
+    p7_info->estimated_jitter_var +=
+            (abs_diff - p7_info->estimated_jitter_var) /
+            global_ewma_beta_denom;
 
-    bool late_anomaly = diff > jitter_up_bound_us;
+    /*
+     * Avoid fixed 3x jitter threshold.
+     * Use current jitter + current jitter variance as adaptive bound.
+     */
+    int32_t jitter_up_bound_us =
+            p7_info->late_jitter +
+            p7_info->estimated_jitter_var;
+
+    int32_t jitter_down_bound_us =
+            p7_info->early_jitter +
+            p7_info->estimated_jitter_var;
+
+    /*
+     * UP should only happen when there is real deadline pressure.
+     *
+     * This prevents cases like:
+     *   worst_late=-392, mean=-423, diff=35
+     * from triggering UP even though timing is still early.
+     */
+    bool deadline_pressure =
+            stats->worst_late +
+            p7_info->late_jitter +
+            p7_info->estimated_jitter_var > 0;
+
+    bool late_anomaly =
+            diff > jitter_up_bound_us &&
+            deadline_pressure;
+
+    /*
+     * DOWN should reserve late-side guard as well.
+     * Otherwise it goes down too early, then immediately UP again.
+     */
+    int32_t down_guard_us =
+            p7_info->late_jitter +
+            p7_info->estimated_jitter_var;
 
     bool can_down =
             p7_info->estimated_mean_late +
             slot_duration_us +
-            jitter_down_bound_us <= 0;
+            jitter_down_bound_us +
+            down_guard_us <= 0;
 
     int32_t target_s_ahead = s_ahead_env;
 
     // ========== UPWARD REACTION ==========
     if (late_anomaly) {
-            int32_t positive_late_us =
-                    stats->worst_late > 0 ?
-                    stats->worst_late : 0;
+        int32_t positive_late_us =
+                stats->worst_late > 0 ?
+                stats->worst_late : 0;
 
-            int32_t dominant_late_us =
-                    diff > p7_info->late_jitter ?
-                    diff : p7_info->late_jitter;
+        int32_t positive_diff_us =
+                diff > 0 ? diff : 0;
 
-            int64_t risk_cover_us_64 =
-                    (int64_t)positive_late_us +
-                    (int64_t)p7_info->late_jitter +
-                    (int64_t)diff +
-                    (int64_t)dominant_late_us;
+        int32_t dominant_late_us =
+                positive_diff_us > p7_info->late_jitter ?
+                positive_diff_us : p7_info->late_jitter;
 
-            if (risk_cover_us_64 < 0)
-                    risk_cover_us_64 = 0;
+        /*
+         * Required protection derived from current deadline-side risk.
+         *
+         * No hardcoded 2000us.
+         * No hardcoded target 8.
+         *
+         * If risk naturally becomes around:
+         *   4000us with slot_duration_us=500us
+         * then required_up_s_ahead naturally becomes 8.
+         */
+        int64_t risk_cover_us_64 =
+                (int64_t)positive_late_us +
+                (int64_t)p7_info->late_jitter +
+                (int64_t)p7_info->estimated_jitter_var +
+                (int64_t)positive_diff_us +
+                (int64_t)dominant_late_us;
 
-            if (risk_cover_us_64 > INT32_MAX)
-                    risk_cover_us_64 = INT32_MAX;
+        if (risk_cover_us_64 < 0)
+            risk_cover_us_64 = 0;
 
-            int32_t risk_cover_us =
-                    (int32_t)risk_cover_us_64;
+        if (risk_cover_us_64 > INT32_MAX)
+            risk_cover_us_64 = INT32_MAX;
 
-            int32_t required_up_s_ahead =
-                    ceil_div(risk_cover_us, slot_duration_us);
+        int32_t risk_cover_us =
+                (int32_t)risk_cover_us_64;
 
-            if (required_up_s_ahead < 1)
-                    required_up_s_ahead = 1;
+        int32_t required_up_s_ahead =
+                ceil_div_pos_i32(risk_cover_us, slot_duration_us);
 
-            /*
-             * required_up_s_ahead is an absolute target.
-             * Convert it to adjustment steps.
-             */
+        if (required_up_s_ahead < 1)
+            required_up_s_ahead = 1;
+
+        if (required_up_s_ahead > max_s_ahead)
+            required_up_s_ahead = max_s_ahead;
+
+        /*
+         * Treat required_up_s_ahead as absolute target.
+         * Do not add repeatedly if current s_ahead is already enough.
+         */
+        if (required_up_s_ahead > target_s_ahead) {
             int32_t adjustment =
                     required_up_s_ahead - target_s_ahead;
 
-            if (adjustment < 1)
-                    adjustment = 1;
-
-            target_s_ahead += adjustment;
+            target_s_ahead = required_up_s_ahead;
 
             p7_info->last_adjustment_steps = adjustment;
             p7_info->last_adjustment_sfn = p7_info->sfn;
             p7_info->last_adjustment_slot = p7_info->slot;
+        }
     }
     // ========== DOWNWARD REACTION ==========
     else if (can_down) {
-		int32_t safe_early_headroom_us =
-			-(p7_info->estimated_mean_late +
-				jitter_down_bound_us);
+        int32_t safe_early_headroom_us =
+                -(p7_info->estimated_mean_late +
+                  jitter_down_bound_us +
+                  down_guard_us);
 
-		if (safe_early_headroom_us >= slot_duration_us) {
-			int32_t down_steps =
-					safe_early_headroom_us /
-					slot_duration_us;
+        if (safe_early_headroom_us >= slot_duration_us) {
+            /*
+             * Proportional DOWN.
+             *
+             * The denominator includes down_guard_us, so when late-side
+             * uncertainty is large, DOWN becomes naturally slower.
+             *
+             * No new hyperparameter.
+             */
+            int32_t down_denom_us =
+                    slot_duration_us + down_guard_us;
 
-			target_s_ahead -= down_steps;
-			target_s_ahead --;
+            if (down_denom_us <= 0)
+                down_denom_us = slot_duration_us;
 
-			p7_info->last_adjustment_steps = down_steps;
-			p7_info->last_adjustment_sfn = p7_info->sfn;
-			p7_info->last_adjustment_slot = p7_info->slot;
-		}
+            int32_t down_steps =
+                    safe_early_headroom_us / down_denom_us;
+
+            /*
+             * Do not go below the protection required by late-side guard.
+             */
+            int32_t min_s_ahead_by_late_guard =
+                    ceil_div_pos_i32(down_guard_us, slot_duration_us);
+
+            if (min_s_ahead_by_late_guard < 1)
+                min_s_ahead_by_late_guard = 1;
+
+            if (min_s_ahead_by_late_guard > target_s_ahead)
+                min_s_ahead_by_late_guard = target_s_ahead;
+
+            int32_t max_down_steps =
+                    target_s_ahead - min_s_ahead_by_late_guard;
+
+            if (down_steps > max_down_steps)
+                down_steps = max_down_steps;
+
+            if (down_steps > 0) {
+                target_s_ahead -= down_steps;
+
+                /*
+                 * Important:
+                 * Do NOT do target_s_ahead-- here.
+                 * That extra decrement caused untracked aggressive DOWN.
+                 */
+                p7_info->last_adjustment_steps = down_steps;
+                p7_info->last_adjustment_sfn = p7_info->sfn;
+                p7_info->last_adjustment_slot = p7_info->slot;
+            }
+        }
     }
 
     if (target_s_ahead > max_s_ahead)
-		target_s_ahead = max_s_ahead;
+        target_s_ahead = max_s_ahead;
 
     if (target_s_ahead < 1)
-		target_s_ahead = 1;
+        target_s_ahead = 1;
 
     if (target_s_ahead != s_ahead_env) {
-		int32_t step_direction =
-				target_s_ahead > s_ahead_env ? 1 : -1;
+        int32_t step_direction =
+                target_s_ahead > s_ahead_env ? 1 : -1;
 
-		NFAPI_TRACE(NFAPI_TRACE_INFO,
-			"[P7_SYNC][EWMA_LAB] α=1/%d β=1/%d %s: %d→%d | "
-			"worst_late=%d mean=%d var=%d diff=%d "
-			"late_jitter=%d early_jitter=%d up_bound=%d down_bound=%d",
-			global_ewma_alpha_denom,
-			global_ewma_beta_denom,
-			(step_direction > 0 ? "UP" : "DOWN"),
-			s_ahead_env,
-			target_s_ahead,
-			stats->worst_late,
-			p7_info->estimated_mean_late,
-			p7_info->estimated_jitter_var,
-			diff,
-			p7_info->late_jitter,
-			p7_info->early_jitter,
-			jitter_up_bound_us,
-			jitter_down_bound_us);
+        NFAPI_TRACE(NFAPI_TRACE_INFO,
+            "[P7_SYNC][EWMA_LAB] α=1/%d β=1/%d %s: %d→%d | "
+            "worst_late=%d mean=%d var=%d diff=%d "
+            "late_jitter=%d early_jitter=%d up_bound=%d down_bound=%d "
+            "deadline_pressure=%d down_guard=%d",
+            global_ewma_alpha_denom,
+            global_ewma_beta_denom,
+            (step_direction > 0 ? "UP" : "DOWN"),
+            s_ahead_env,
+            target_s_ahead,
+            stats->worst_late,
+            p7_info->estimated_mean_late,
+            p7_info->estimated_jitter_var,
+            diff,
+            p7_info->late_jitter,
+            p7_info->early_jitter,
+            jitter_up_bound_us,
+            jitter_down_bound_us,
+            deadline_pressure,
+            down_guard_us);
 
-		p7_info->last_total_advanced_us =
-				p7_info->total_advanced_us;
+        p7_info->last_total_advanced_us =
+                p7_info->total_advanced_us;
 
-		s_ahead_env = target_s_ahead;
+        s_ahead_env = target_s_ahead;
     } else if (p7_info->sfn % 256 == 0 && p7_info->slot == 0) {
-            NFAPI_TRACE(NFAPI_TRACE_INFO,
-                    "[P7_SYNC][EWMA_LAB] stable s_ahead=%d "
-                    "worst_late=%d mean=%d var=%d diff=%d "
-                    "late_jitter=%d early_jitter=%d "
-                    "alpha=1/%d beta=1/%d",
-                    s_ahead_env,
-                    stats->worst_late,
-                    p7_info->estimated_mean_late,
-                    p7_info->estimated_jitter_var,
-                    diff,
-                    p7_info->late_jitter,
-                    p7_info->early_jitter,
-                    global_ewma_alpha_denom,
-                    global_ewma_beta_denom);
+        NFAPI_TRACE(NFAPI_TRACE_INFO,
+            "[P7_SYNC][EWMA_LAB] stable s_ahead=%d "
+            "worst_late=%d mean=%d var=%d diff=%d "
+            "late_jitter=%d early_jitter=%d "
+            "alpha=1/%d beta=1/%d",
+            s_ahead_env,
+            stats->worst_late,
+            p7_info->estimated_mean_late,
+            p7_info->estimated_jitter_var,
+            diff,
+            p7_info->late_jitter,
+            p7_info->early_jitter,
+            global_ewma_alpha_denom,
+            global_ewma_beta_denom);
     }
 
     return;
