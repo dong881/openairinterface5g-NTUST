@@ -358,14 +358,53 @@ static void p7_run_ewma_lab_control(
      *   worst_late=-392, mean=-423, diff=35
      * from triggering UP even though timing is still early.
      */
-    bool deadline_pressure =
-            stats->worst_late +
-            p7_info->late_jitter +
-            p7_info->estimated_jitter_var > 0;
+	int32_t closest_to_deadline_us =
+			stats->worst_late > p7_info->estimated_mean_late ?
+			stats->worst_late : p7_info->estimated_mean_late;
+
+	int32_t early_headroom_us =
+			closest_to_deadline_us < 0 ?
+			-closest_to_deadline_us : 0;
+
+	/*
+	* If early_headroom_us is smaller than one slot, we are already
+	* near deadline even if worst_late is still negative.
+	*/
+	int32_t deadline_deficit_us =
+			early_headroom_us < slot_duration_us ?
+			slot_duration_us - early_headroom_us : 0;
+
+	bool deadline_pressure =
+			stats->worst_late +
+			p7_info->late_jitter +
+			p7_info->estimated_jitter_var >= 0 ||
+			(deadline_deficit_us > 0 && diff > jitter_up_bound_us);
 
     bool late_anomaly =
             diff > jitter_up_bound_us &&
             deadline_pressure;
+
+	/*
+	* This is the minimum s_ahead floor derived from current measured
+	* timing uncertainty.
+	*
+	* It prevents going back to s_ahead=1 while the system still has
+	* near-deadline swing.
+	*/
+	int32_t hold_guard_us =
+			p7_info->late_jitter +
+			p7_info->early_jitter +
+			p7_info->estimated_jitter_var +
+			slot_duration_us;
+
+	int32_t min_s_ahead_by_guard =
+			ceil_div_pos_i32(hold_guard_us, slot_duration_us);
+
+	if (min_s_ahead_by_guard < 1)
+			min_s_ahead_by_guard = 1;
+
+	if (min_s_ahead_by_guard > max_s_ahead)
+			min_s_ahead_by_guard = max_s_ahead;
 
     /*
      * DOWN should reserve late-side guard as well.
@@ -375,13 +414,14 @@ static void p7_run_ewma_lab_control(
             p7_info->late_jitter +
             p7_info->estimated_jitter_var;
 
-    bool can_down =
-            p7_info->estimated_mean_late +
-            slot_duration_us +
-            jitter_down_bound_us +
-            down_guard_us <= 0;
+	bool can_down =
+			s_ahead_env > min_s_ahead_by_guard &&
+			p7_info->estimated_mean_late +
+			jitter_down_bound_us +
+			down_guard_us <= 0;
 
     int32_t target_s_ahead = s_ahead_env;
+	
 
     // ========== UPWARD REACTION ==========
     if (late_anomaly) {
@@ -406,12 +446,13 @@ static void p7_run_ewma_lab_control(
          *   4000us with slot_duration_us=500us
          * then required_up_s_ahead naturally becomes 8.
          */
-        int64_t risk_cover_us_64 =
-                (int64_t)positive_late_us +
-                (int64_t)p7_info->late_jitter +
-                (int64_t)p7_info->estimated_jitter_var +
-                (int64_t)positive_diff_us +
-                (int64_t)dominant_late_us;
+		int64_t risk_cover_us_64 =
+				(int64_t)positive_late_us +
+				(int64_t)p7_info->late_jitter +
+				(int64_t)p7_info->estimated_jitter_var +
+				(int64_t)positive_diff_us +
+				(int64_t)dominant_late_us +
+				(int64_t)deadline_deficit_us;
 
         if (risk_cover_us_64 < 0)
             risk_cover_us_64 = 0;
@@ -447,62 +488,52 @@ static void p7_run_ewma_lab_control(
         }
     }
     // ========== DOWNWARD REACTION ==========
-    else if (can_down) {
-        int32_t safe_early_headroom_us =
-                -(p7_info->estimated_mean_late +
-                  jitter_down_bound_us +
-                  down_guard_us);
+	else if (can_down) {
+		int32_t safe_early_headroom_us =
+				-(p7_info->estimated_mean_late +
+				jitter_down_bound_us +
+				down_guard_us);
 
-        if (safe_early_headroom_us >= slot_duration_us) {
-            /*
-             * Proportional DOWN.
-             *
-             * The denominator includes down_guard_us, so when late-side
-             * uncertainty is large, DOWN becomes naturally slower.
-             *
-             * No new hyperparameter.
-             */
-            int32_t down_denom_us =
-                    slot_duration_us + down_guard_us;
+		/*
+		* DOWN denominator includes hold_guard_us.
+		* If jitter/swing is still large, DOWN becomes naturally slower.
+		*/
+		int32_t down_denom_us =
+				slot_duration_us + hold_guard_us;
 
-            if (down_denom_us <= 0)
-                down_denom_us = slot_duration_us;
+		if (down_denom_us <= 0)
+				down_denom_us = slot_duration_us;
 
-            int32_t down_steps =
-                    safe_early_headroom_us / down_denom_us;
+		int32_t down_steps =
+				safe_early_headroom_us / down_denom_us;
 
-            /*
-             * Do not go below the protection required by late-side guard.
-             */
-            int32_t min_s_ahead_by_late_guard =
-                    ceil_div_pos_i32(down_guard_us, slot_duration_us);
+		int32_t max_down_steps =
+				target_s_ahead - min_s_ahead_by_guard;
 
-            if (min_s_ahead_by_late_guard < 1)
-                min_s_ahead_by_late_guard = 1;
+		if (down_steps > max_down_steps)
+				down_steps = max_down_steps;
 
-            if (min_s_ahead_by_late_guard > target_s_ahead)
-                min_s_ahead_by_late_guard = target_s_ahead;
+		/*
+		* DOWN release should be gradual.
+		* UP can be large, DOWN should not dump multiple slots during burst recovery.
+		*/
+		if (down_steps > 1)
+				down_steps = 1;
 
-            int32_t max_down_steps =
-                    target_s_ahead - min_s_ahead_by_late_guard;
+		if (down_steps > 0) {
+				target_s_ahead -= down_steps;
 
-            if (down_steps > max_down_steps)
-                down_steps = max_down_steps;
+				/*
+				* Make DOWN wait proportional to the remaining s_ahead.
+				* This prevents 8→7→6→5→4 from happening too quickly.
+				*/
+				p7_info->last_adjustment_steps =
+						down_steps + target_s_ahead;
 
-            if (down_steps > 0) {
-                target_s_ahead -= down_steps;
-
-                /*
-                 * Important:
-                 * Do NOT do target_s_ahead-- here.
-                 * That extra decrement caused untracked aggressive DOWN.
-                 */
-                p7_info->last_adjustment_steps = down_steps;
-                p7_info->last_adjustment_sfn = p7_info->sfn;
-                p7_info->last_adjustment_slot = p7_info->slot;
-            }
-        }
-    }
+				p7_info->last_adjustment_sfn = p7_info->sfn;
+				p7_info->last_adjustment_slot = p7_info->slot;
+		}
+	}
 
     if (target_s_ahead > max_s_ahead)
         target_s_ahead = max_s_ahead;
