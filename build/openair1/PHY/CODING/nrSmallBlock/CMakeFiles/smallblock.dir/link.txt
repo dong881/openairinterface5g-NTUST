@@ -1,0 +1,2 @@
+/usr/bin/ar qc libsmallblock.a CMakeFiles/smallblock.dir/encodeSmallBlock.c.o CMakeFiles/smallblock.dir/decodeSmallBlock.c.o
+/usr/bin/ranlib libsmallblock.a

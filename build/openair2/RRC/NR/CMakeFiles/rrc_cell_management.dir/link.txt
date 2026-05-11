@@ -1,0 +1,2 @@
+/usr/bin/ar qc librrc_cell_management.a CMakeFiles/rrc_cell_management.dir/rrc_cell_management.c.o
+/usr/bin/ranlib librrc_cell_management.a

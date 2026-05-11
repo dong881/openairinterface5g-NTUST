@@ -233,6 +233,23 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t last_adjustment_steps;  // How many slots we increased in last adjustment
 	int32_t last_adjustment_sfn;    // SFN when we made the last upward adjustment
 	int32_t last_adjustment_slot;   // Slot when we made the last upward adjustment
+
+	/* Pressure Debt Model for UP/DOWN Control */
+	int32_t pressure_debt_us;
+
+	/*
+	 * Collected during the last control period.
+	 * Reset after p7_run_ewma_lab_control() consumes them.
+	 */
+	int32_t recent_p7_too_late_max_us;
+	int32_t recent_rlc_reject_count;
+	int32_t recent_harq_timeout_count;
+
+	/*
+	 * Recent average number of P7 messages per slot.
+	 * If unavailable, keep it as 1.
+	 */
+	int32_t recent_msg_per_slot;
 } nfapi_vnf_p7_connection_info_t;
 
 typedef struct vnf_p7_s {

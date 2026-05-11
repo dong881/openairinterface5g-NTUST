@@ -1,0 +1,2 @@
+/usr/bin/ar qc libL2_LTE_NR.a CMakeFiles/L2_LTE_NR.dir/openair2/LAYER2/MAC/dummy_functions.c.o CMakeFiles/L2_LTE_NR.dir/openair2/ENB_APP/enb_app.c.o CMakeFiles/L2_LTE_NR.dir/openair2/ENB_APP/enb_config.c.o CMakeFiles/L2_LTE_NR.dir/openair2/ENB_APP/enb_config_SL.c.o CMakeFiles/L2_LTE_NR.dir/openair2/ENB_APP/enb_config_eMTC.c.o CMakeFiles/L2_LTE_NR.dir/openair2/ENB_APP/RRC_config_tools.c.o
+/usr/bin/ranlib libL2_LTE_NR.a

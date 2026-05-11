@@ -1,0 +1,2 @@
+/usr/bin/ar qc libnfapi_socket_lib.a CMakeFiles/nfapi_socket_lib.dir/socket_pnf.c.o CMakeFiles/nfapi_socket_lib.dir/socket_vnf.c.o CMakeFiles/nfapi_socket_lib.dir/socket_common.c.o
+/usr/bin/ranlib libnfapi_socket_lib.a

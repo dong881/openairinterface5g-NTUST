@@ -1,0 +1,2 @@
+/usr/bin/ar qc libtime_management.a CMakeFiles/time_management.dir/time_manager.c.o CMakeFiles/time_management_core.dir/time_source.c.o CMakeFiles/time_management_core.dir/time_server.c.o CMakeFiles/time_management_core.dir/time_client.c.o
+/usr/bin/ranlib libtime_management.a

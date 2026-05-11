@@ -1,0 +1,321 @@
+ASN_MODULE_SRCS=	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_M3AP-PDU.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_InitiatingMessage.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_SuccessfulOutcome.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_UnsuccessfulOutcome.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSSessionStartRequest.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSSessionStartResponse.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSSessionStartFailure.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSSessionStopRequest.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSSessionStopResponse.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSSessionUpdateRequest.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSSessionUpdateResponse.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSSessionUpdateFailure.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ErrorIndication.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_Reset.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ResetType.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ResetAll.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMS-Service-associatedLogicalM3-ConnectionListRes.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ResetAcknowledge.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMS-Service-associatedLogicalM3-ConnectionListResAck.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_PrivateMessage.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_M3SetupRequest.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSServiceAreaListItem.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_M3SetupResponse.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_M3SetupFailure.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MCEConfigurationUpdate.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MCEConfigurationUpdateAcknowledge.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MCEConfigurationUpdateFailure.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_Absolute-Time-ofMBMS-Data.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_AllocationAndRetentionPriority.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_BitRate.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_Cause.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_CauseMisc.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_CauseNAS.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_CauseProtocol.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_CauseRadioNetwork.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_CauseTransport.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_CriticalityDiagnostics.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_CriticalityDiagnostics-IE-List.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ECGI.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_EUTRANCellIdentifier.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ExtendedMCE-ID.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_Global-MCE-ID.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_GBR-QosInformation.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_GTP-TEID.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_IPAddress.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMS-Cell-List.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMS-E-RAB-QoS-Parameters.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMS-Service-associatedLogicalM3-ConnectionItem.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSServiceArea1.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMS-Service-Area.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMS-Session-Duration.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMS-Session-ID.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MCE-MBMS-M3AP-ID.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MCE-ID.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MCEname.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MinimumTimeToMBMSDataTransfer.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MME-MBMS-M3AP-ID.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_Pre-emptionCapability.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_Pre-emptionVulnerability.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_PriorityLevel.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_PLMN-Identity.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_QCI.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_Reestablishment.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_TimeToWait.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_TMGI.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_TNL-Information.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_TypeOfError.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_Criticality.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_Presence.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_PrivateIE-ID.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProcedureCode.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolIE-ID.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_TriggeringMessage.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolIE-Container.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolIE-Single-Container.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolIE-Field.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolIE-ContainerPair.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolIE-FieldPair.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolIE-ContainerList.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolIE-ContainerPairList.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolExtensionContainer.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolExtensionField.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_PrivateIE-Container.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_PrivateIE-Field.c	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_EXTERNAL.c
+
+ASN_MODULE_HDRS=	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_M3AP-PDU.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_InitiatingMessage.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_SuccessfulOutcome.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_UnsuccessfulOutcome.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSSessionStartRequest.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSSessionStartResponse.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSSessionStartFailure.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSSessionStopRequest.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSSessionStopResponse.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSSessionUpdateRequest.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSSessionUpdateResponse.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSSessionUpdateFailure.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ErrorIndication.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_Reset.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ResetType.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ResetAll.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMS-Service-associatedLogicalM3-ConnectionListRes.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ResetAcknowledge.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMS-Service-associatedLogicalM3-ConnectionListResAck.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_PrivateMessage.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_M3SetupRequest.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSServiceAreaListItem.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_M3SetupResponse.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_M3SetupFailure.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MCEConfigurationUpdate.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MCEConfigurationUpdateAcknowledge.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MCEConfigurationUpdateFailure.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_Absolute-Time-ofMBMS-Data.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_AllocationAndRetentionPriority.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_BitRate.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_Cause.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_CauseMisc.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_CauseNAS.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_CauseProtocol.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_CauseRadioNetwork.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_CauseTransport.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_CriticalityDiagnostics.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_CriticalityDiagnostics-IE-List.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ECGI.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_EUTRANCellIdentifier.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ExtendedMCE-ID.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_Global-MCE-ID.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_GBR-QosInformation.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_GTP-TEID.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_IPAddress.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMS-Cell-List.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMS-E-RAB-QoS-Parameters.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMS-Service-associatedLogicalM3-ConnectionItem.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMSServiceArea1.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMS-Service-Area.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMS-Session-Duration.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MBMS-Session-ID.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MCE-MBMS-M3AP-ID.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MCE-ID.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MCEname.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MinimumTimeToMBMSDataTransfer.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_MME-MBMS-M3AP-ID.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_Pre-emptionCapability.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_Pre-emptionVulnerability.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_PriorityLevel.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_PLMN-Identity.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_QCI.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_Reestablishment.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_TimeToWait.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_TMGI.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_TNL-Information.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_TypeOfError.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_Criticality.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_Presence.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_PrivateIE-ID.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProcedureCode.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolIE-ID.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_TriggeringMessage.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolIE-Container.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolIE-Single-Container.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolIE-Field.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolIE-ContainerPair.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolIE-FieldPair.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolIE-ContainerList.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolIE-ContainerPairList.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolExtensionContainer.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_ProtocolExtensionField.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_PrivateIE-Container.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_PrivateIE-Field.h	\
+	/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/M3AP_EXTERNAL.h
+
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/ANY.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/ANY.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/OCTET_STRING.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/OPEN_TYPE.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/OPEN_TYPE.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_CHOICE.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/ENUMERATED.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/ENUMERATED.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/INTEGER.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/NativeEnumerated.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/GraphicString.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/GraphicString.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/INTEGER.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/NativeEnumerated.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/NativeInteger.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/NativeInteger.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/OBJECT_IDENTIFIER.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/OBJECT_IDENTIFIER.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/asn_codecs_prim.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/ObjectDescriptor.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/ObjectDescriptor.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/PrintableString.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/PrintableString.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/asn_SEQUENCE_OF.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/asn_SEQUENCE_OF.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/asn_SET_OF.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/asn_SET_OF.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_CHOICE.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SEQUENCE.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SEQUENCE.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SEQUENCE_OF.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SEQUENCE_OF.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SET_OF.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SET_OF.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/asn_application.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/asn_application.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/asn_ioc.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/asn_system.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/asn_codecs.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/asn_internal.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/asn_internal.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/asn_bit_data.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/asn_bit_data.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/OCTET_STRING.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/BIT_STRING.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/BIT_STRING.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/asn_codecs_prim.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/ber_tlv_length.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/ber_tlv_length.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/ber_tlv_tag.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/ber_tlv_tag.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_TYPE.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_TYPE.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constraints.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constraints.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/xer_support.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/xer_decoder.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/xer_encoder.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/xer_support.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/xer_decoder.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/xer_encoder.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/ANY_xer.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/BIT_STRING_xer.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/INTEGER_xer.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/NativeEnumerated_xer.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/NativeInteger_xer.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/OBJECT_IDENTIFIER_xer.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/OCTET_STRING_xer.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/OPEN_TYPE_xer.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/asn_codecs_prim_xer.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_CHOICE_xer.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SEQUENCE_OF_xer.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SEQUENCE_xer.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SET_OF_xer.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/per_decoder.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/per_encoder.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/per_support.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/per_opentype.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/per_decoder.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/per_encoder.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/per_support.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/per_opentype.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/uper_decoder.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/uper_encoder.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/uper_support.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/uper_opentype.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/uper_decoder.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/uper_encoder.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/uper_support.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/uper_opentype.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/ANY_uper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/BIT_STRING_uper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/ENUMERATED_uper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/INTEGER_uper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/NativeEnumerated_uper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/NativeInteger_uper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/OCTET_STRING_uper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/OPEN_TYPE_uper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_CHOICE_uper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SEQUENCE_OF_uper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SEQUENCE_uper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SET_OF_uper.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/aper_decoder.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/aper_encoder.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/aper_support.h
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/aper_opentype.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/aper_decoder.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/aper_encoder.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/aper_support.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/aper_opentype.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/ANY_aper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/ENUMERATED_aper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/INTEGER_aper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/NativeEnumerated_aper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/NativeInteger_aper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/OCTET_STRING_aper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/OPEN_TYPE_aper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_CHOICE_aper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SEQUENCE_OF_aper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SEQUENCE_aper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SET_OF_aper.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/BIT_STRING_print.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/INTEGER_print.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/NativeInteger_print.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/OBJECT_IDENTIFIER_print.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/OCTET_STRING_print.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_CHOICE_print.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SEQUENCE_print.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SET_OF_print.c
+ASN_MODULE_HDRS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/asn_random_fill.h
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/asn_random_fill.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/BIT_STRING_rfill.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/INTEGER_rfill.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/NativeInteger_rfill.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/OBJECT_IDENTIFIER_rfill.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/OCTET_STRING_rfill.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_CHOICE_rfill.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SEQUENCE_rfill.c
+ASN_MODULE_SRCS+=/home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/constr_SET_OF_rfill.c
+
+ASN_MODULE_CFLAGS=-DASN_DISABLE_BER_SUPPORT -DASN_DISABLE_OER_SUPPORT 
+
+lib_LTLIBRARIES+=libasncodec.la
+libasncodec_la_SOURCES=$(ASN_MODULE_SRCS) $(ASN_MODULE_HDRS)
+libasncodec_la_CPPFLAGS=-I$(top_srcdir)//home/hpe/openairinterface5g/build/openair3/M3AP/MESSAGES/
+libasncodec_la_CFLAGS=$(ASN_MODULE_CFLAGS)
+libasncodec_la_LDFLAGS=-lm

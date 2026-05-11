@@ -1,0 +1,2 @@
+/usr/bin/ar qc libnrppa.a CMakeFiles/nrppa.dir/nrppa_gNB.c.o CMakeFiles/nrppa.dir/nrppa_gNB_config.c.o CMakeFiles/nrppa.dir/nrppa_gNB_handlers.c.o CMakeFiles/nrppa.dir/nrppa_gNB_decoder.c.o CMakeFiles/nrppa.dir/nrppa_gNB_ue_context.c.o CMakeFiles/nrppa.dir/nrppa_gNB_location_information_transfer.c.o CMakeFiles/nrppa.dir/nrppa_gNB_encoder.c.o CMakeFiles/nrppa.dir/nrppa_gNB_measurement_information_transfer.c.o
+/usr/bin/ranlib libnrppa.a

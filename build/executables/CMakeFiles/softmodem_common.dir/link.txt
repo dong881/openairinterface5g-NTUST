@@ -1,0 +1,2 @@
+/usr/bin/ar qc libsoftmodem_common.a CMakeFiles/softmodem_common.dir/softmodem-common.c.o ../CMakeFiles/shlib_loader.dir/common/utils/load_module_shlib.c.o
+/usr/bin/ranlib libsoftmodem_common.a

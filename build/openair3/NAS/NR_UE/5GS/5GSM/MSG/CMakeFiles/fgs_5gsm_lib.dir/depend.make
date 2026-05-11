@@ -1,0 +1,2 @@
+# Empty dependencies file for fgs_5gsm_lib.
+# This may be replaced when dependencies are built.

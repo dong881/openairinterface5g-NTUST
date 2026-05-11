@@ -307,6 +307,15 @@ static void p7_run_ewma_lab_control(
             p7_info->last_adjustment_slot,
             10 << p7_info->mu);
 
+    /*
+     * If last_adjustment_steps is set to target_s_ahead,
+     * the actual wait becomes:
+     *
+     *   target_s_ahead + config->timing_info_period
+     *
+     * This is intentional. For example:
+     *   UP to 6 => wait 6 + timing_info_period slots
+     */
     int32_t required_wait_slots =
             p7_info->last_adjustment_steps +
             (int32_t)config->timing_info_period;
@@ -361,325 +370,208 @@ static void p7_run_ewma_lab_control(
             p7_info->early_jitter +
             p7_info->estimated_jitter_var;
 
-	/*
-	* Estimate offered-load pressure from timing behavior.
-	*
-	* 0    = latency-first mode
-	* 1024 = reliability/throughput-first mode
-	*
-	* Low load in your logs:
-	*   late_jitter ~= 10~20, var ~= 6~20, diff small
-	*
-	* High load in your logs:
-	*   late_jitter ~= 150~500, var ~= 200~500, diff can be 700~1400
-	*/
-	int32_t positive_diff_us = diff > 0 ? diff : 0;
+    /*
+     * Use the closest observed timing point to the deadline.
+     * Positive means already late.
+     * Negative means still early.
+     */
+    int32_t closest_to_deadline_us =
+            stats->worst_late > p7_info->estimated_mean_late ?
+            stats->worst_late : p7_info->estimated_mean_late;
 
-	/*
-	 * Do NOT use raw positive diff as offered-load pressure.
-	 * A large diff is often caused by our own s_ahead actuation.
-	 *
-	 * Use persistent jitter memory instead.
-	 */
-	int32_t late_side_pressure =
-			clamp_i32((int32_t)(((int64_t)p7_info->late_jitter +
-						p7_info->estimated_jitter_var) *
-						1024 / slot_duration_us),
-					0, 1024);
+    /*
+     * Timing uncertainty.
+     *
+     * This is not a hardcoded headroom target.
+     * It is directly derived from measured late-side jitter and variance.
+     */
+    int32_t timing_uncertainty_us =
+            p7_info->late_jitter +
+            p7_info->estimated_jitter_var;
 
-	int32_t early_side_pressure =
-			clamp_i32((int32_t)(((int64_t)p7_info->early_jitter +
-						p7_info->estimated_jitter_var) *
-						1024 / slot_duration_us),
-					0, 1024);
+    if (timing_uncertainty_us < 0)
+        timing_uncertainty_us = 0;
 
-	/*
-	 * early_jitter matters during recovery from high s_ahead.
-	 * In your log, early_jitter=300+ means the system is still swinging.
-	 */
-	int32_t load_pressure =
-			late_side_pressure > early_side_pressure ?
-			late_side_pressure : early_side_pressure;
+    /*
+     * Tail risk:
+     *
+     * If closest_to_deadline_us + timing_uncertainty_us > 0,
+     * then the current ahead is not enough to cover observed timing risk.
+     */
+    int32_t timing_tail_risk_us =
+            closest_to_deadline_us +
+            timing_uncertainty_us;
 
-	int32_t closest_to_deadline_us =
-			stats->worst_late > p7_info->estimated_mean_late ?
-			stats->worst_late : p7_info->estimated_mean_late;
+    if (timing_tail_risk_us < 0)
+        timing_tail_risk_us = 0;
 
-	int32_t early_headroom_us =
-			closest_to_deadline_us < 0 ?
-			-closest_to_deadline_us : 0;
+    /*
+     * Failure debt:
+     *
+     * This should be collected from PNF TOO_LATE warnings.
+     * Example:
+     *   tx_data_request TOO LATE by 650 us
+     * should update recent_p7_too_late_max_us to at least 650.
+     */
+    int32_t failure_debt_us = 0;
 
-	int32_t deadline_deficit_us =
-			early_headroom_us < slot_duration_us ?
-			slot_duration_us - early_headroom_us : 0;
+    if (p7_info->recent_p7_too_late_max_us > failure_debt_us)
+        failure_debt_us = p7_info->recent_p7_too_late_max_us;
 
-	/*
-	* Low load: allow tiny lateness/retransmission.
-	* High load: allow almost no lateness.
-	*
-	* Example with 500us slot:
-	*   load_pressure=0    => allow about 62us
-	*   load_pressure=1024 => allow 0us
-	*/
-	int32_t allowed_late_us =
-			(slot_duration_us / 8) *
-			(1024 - load_pressure) / 1024;
+    /*
+     * Queue/backpressure debt:
+     *
+     * Convert RLC reject / HARQ timeout counts into slot-domain debt
+     * using observed message density.
+     *
+     * This avoids hardcoding:
+     *   "high load means add N slots"
+     *
+     * Instead:
+     *   more rejected/timeout events per slot naturally create more debt.
+     */
+    int32_t msg_per_slot =
+            p7_info->recent_msg_per_slot > 0 ?
+            p7_info->recent_msg_per_slot : 1;
 
-	/*
-	* Load-adaptive safe early headroom.
-	*
-	* Low load:
-	*   target_safe_headroom_us ~= 0
-	*
-	* High load:
-	*   target_safe_headroom_us approaches 1.5~2 slots.
-	*
-	* Quadratic mapping keeps low-load latency aggressive,
-	* but high-load protection aggressive.
-	*/
-	int32_t max_safe_headroom_us = 2 * slot_duration_us;
+    int32_t queue_events =
+            p7_info->recent_rlc_reject_count +
+            p7_info->recent_harq_timeout_count;
 
-	int32_t target_safe_headroom_us =
-			(int32_t)((int64_t)load_pressure *
-					load_pressure *
-					max_safe_headroom_us /
-					(1024LL * 1024LL));
+    if (queue_events < 0)
+        queue_events = 0;
 
-	/*
-	* Load-adaptive minimum floor.
-	*
-	* Low load: floor = 1
-	* High load: floor gradually rises.
-	*
-	* This prevents high-load DOWN from collapsing to 2/3,
-	* but still allows low-load minimum latency.
-	*/
-	int32_t max_guard_floor =
-			max_s_ahead >= 8 ? 4 :
-			max_s_ahead / 2;
+    int32_t queue_debt_slots =
+            ceil_div_pos_i32(queue_events, msg_per_slot);
 
-	if (max_guard_floor < 1)
-			max_guard_floor = 1;
+    int32_t queue_debt_us =
+            queue_debt_slots * slot_duration_us;
 
-	int32_t min_s_ahead_by_guard =
-			1 + (int32_t)((int64_t)load_pressure *
-						load_pressure *
-						(max_guard_floor - 1) /
-						(1024LL * 1024LL));
+    /*
+     * Total measured pressure.
+     *
+     * This is the only source for UP.
+     * No load_extra_slots.
+     * No positive_diff_us duplication.
+     * No hardcoded target s_ahead.
+     */
+    int32_t pressure_sample_us =
+            timing_tail_risk_us +
+            failure_debt_us +
+            queue_debt_us;
 
-	if (min_s_ahead_by_guard > max_s_ahead)
-			min_s_ahead_by_guard = max_s_ahead;
+    if (pressure_sample_us < 0)
+        pressure_sample_us = 0;
 
-	int32_t recovery_floor = 1;
+    /*
+     * Accumulate pressure debt.
+     *
+     * If the system reports a large pressure sample, remember it.
+     * This prevents high-load bursts from being forgotten immediately.
+     */
+    if (pressure_sample_us > p7_info->pressure_debt_us)
+        p7_info->pressure_debt_us = pressure_sample_us;
 
-	if (p7_info->early_jitter > slot_duration_us / 2)
-		recovery_floor = 2;
+    /*
+     * Debt release:
+     *
+     * Only release debt when this control period has no new pressure.
+     * The release amount is not a constant.
+     * It is measured safe surplus.
+     */
+    if (pressure_sample_us == 0) {
+        int32_t safe_surplus_us =
+                -(closest_to_deadline_us + timing_uncertainty_us);
 
-	if (p7_info->early_jitter + p7_info->estimated_jitter_var > slot_duration_us)
-		recovery_floor = 3;
+        if (safe_surplus_us > 0) {
+            if (safe_surplus_us >= p7_info->pressure_debt_us)
+                p7_info->pressure_debt_us = 0;
+            else
+                p7_info->pressure_debt_us -= safe_surplus_us;
+        }
+    }
 
-	if (min_s_ahead_by_guard < recovery_floor)
-			min_s_ahead_by_guard = recovery_floor;
+    int32_t target_s_ahead = s_ahead_env;
 
-	int32_t down_guard_us =
-			p7_info->late_jitter +
-			p7_info->estimated_jitter_var;
+    /*
+     * =====================
+     * UPWARD REACTION
+     * =====================
+     *
+     * Important:
+     *   UP is incremental.
+     *
+     * Do NOT calculate:
+     *   required_up_s_ahead = ceil(risk_cover_us / slot_duration_us)
+     *
+     * Instead calculate:
+     *   extra_slots = ceil(pressure_debt_us / slot_duration_us)
+     *   target      = current + extra_slots
+     *
+     * This prevents 1->11 overshoot.
+     */
+    if (p7_info->pressure_debt_us > 0) {
+        int32_t extra_slots =
+                ceil_div_pos_i32(p7_info->pressure_debt_us,
+                                 slot_duration_us);
 
-	int32_t down_hysteresis_us =
-			slot_duration_us / 4 +
-			(int32_t)((int64_t)target_safe_headroom_us *
-					load_pressure / 1024);
+        if (extra_slots < 1)
+            extra_slots = 1;
 
-	int32_t current_early_headroom_us =
-			-(p7_info->estimated_mean_late +
-			jitter_down_bound_us +
-			down_guard_us);
+        target_s_ahead = s_ahead_env + extra_slots;
 
-	int32_t headroom_deficit_us =
-			target_safe_headroom_us - current_early_headroom_us;
+        if (target_s_ahead > max_s_ahead)
+            target_s_ahead = max_s_ahead;
 
-	if (headroom_deficit_us < 0)
-		headroom_deficit_us = 0;
-
-	bool actual_late =
-			stats->worst_late >= allowed_late_us;
-
-	bool soft_headroom_pressure =
-			headroom_deficit_us > 0;
-
-	bool deadline_pressure =
-			actual_late || soft_headroom_pressure;
-
-	bool late_anomaly =
-			deadline_pressure &&
-			(actual_late ||
-			 diff > jitter_up_bound_us ||
-			 headroom_deficit_us > slot_duration_us / 4);
-
-	bool can_down =
-			s_ahead_env > min_s_ahead_by_guard &&
-			current_early_headroom_us >
-				target_safe_headroom_us + down_hysteresis_us;
-	int32_t target_s_ahead = s_ahead_env;
-
-
-    // ========== UPWARD REACTION ==========
-    if (late_anomaly) {
-        int32_t positive_late_us =
-                stats->worst_late > 0 ?
-                stats->worst_late : 0;
-
-        int32_t positive_diff_us =
-                diff > 0 ? diff : 0;
-
-        int32_t dominant_late_us =
-                positive_diff_us > p7_info->late_jitter ?
-                positive_diff_us : p7_info->late_jitter;
-
+        if (target_s_ahead > s_ahead_env) {
+            /*
+             * Wait proportional to the target state, not just delta.
+             *
+             * Example:
+             *   1->6 => wait 6 + timing_info_period slots
+             */
+            p7_info->last_adjustment_steps = target_s_ahead;
+            p7_info->last_adjustment_sfn = p7_info->sfn;
+            p7_info->last_adjustment_slot = p7_info->slot;
+        }
+    } else {
         /*
-         * Required protection derived from current deadline-side risk.
+         * =====================
+         * DOWNWARD REACTION
+         * =====================
          *
-         * No hardcoded 2000us.
-         * No hardcoded target 8.
+         * DOWN is only allowed if one-slot DOWN would still be safe.
          *
-         * If risk naturally becomes around:
-         *   4000us with slot_duration_us=500us
-         * then required_up_s_ahead naturally becomes 8.
+         * If we reduce s_ahead by one slot, observed timing moves
+         * later by roughly slot_duration_us.
          */
-		int64_t risk_cover_us_64 =
-				(int64_t)positive_late_us +
-				(int64_t)p7_info->late_jitter +
-				(int64_t)p7_info->estimated_jitter_var +
-				(int64_t)positive_diff_us +
-				(int64_t)dominant_late_us +
-				(int64_t)headroom_deficit_us;
+        int32_t post_down_tail_risk_us =
+                closest_to_deadline_us +
+                slot_duration_us +
+                timing_uncertainty_us;
 
-        if (risk_cover_us_64 < 0)
-            risk_cover_us_64 = 0;
+        bool pressure_exists =
+                p7_info->recent_p7_too_late_max_us > 0 ||
+                p7_info->recent_rlc_reject_count > 0 ||
+                p7_info->recent_harq_timeout_count > 0 ||
+                p7_info->pressure_debt_us > 0;
 
-        if (risk_cover_us_64 > INT32_MAX)
-            risk_cover_us_64 = INT32_MAX;
+        if (s_ahead_env > 1 &&
+            !pressure_exists &&
+            post_down_tail_risk_us <= 0) {
+            target_s_ahead = s_ahead_env - 1;
 
-        int32_t risk_cover_us =
-                (int32_t)risk_cover_us_64;
-
-        int32_t required_up_s_ahead =
-                ceil_div_pos_i32(risk_cover_us, slot_duration_us);
-
-        if (required_up_s_ahead < 1)
-            required_up_s_ahead = 1;
-
-		if (!actual_late) {
-			int32_t soft_max_up_target =
-					s_ahead_env + 2;
-
-			if (required_up_s_ahead > soft_max_up_target)
-				required_up_s_ahead = soft_max_up_target;
-		}
-
-		
-		/*
-		* At high offered load, timing risk alone tends to underestimate
-		* needed ahead. Add load-dependent extra slots.
-		*
-		* max extra ~= max_s_ahead / 3
-		*/
-		int32_t max_load_extra_slots = max_s_ahead / 3;
-
-		if (max_load_extra_slots < 1)
-				max_load_extra_slots = 1;
-
-		int32_t load_extra_slots =
-				(int32_t)((int64_t)load_pressure *
-						load_pressure *
-						max_load_extra_slots /
-						(1024LL * 1024LL));
-
-		required_up_s_ahead += load_extra_slots;
-
-
-        if (required_up_s_ahead > max_s_ahead)
-            required_up_s_ahead = max_s_ahead;
-
-        /*
-         * Treat required_up_s_ahead as absolute target.
-         * Do not add repeatedly if current s_ahead is already enough.
-         */
-        if (required_up_s_ahead > target_s_ahead) {
-            int32_t adjustment =
-                    required_up_s_ahead - target_s_ahead;
-
-            target_s_ahead = required_up_s_ahead;
-
-            p7_info->last_adjustment_steps = adjustment;
+            /*
+             * DOWN also waits based on the new target.
+             *
+             * Example:
+             *   6->5 => wait 5 + timing_info_period slots
+             */
+            p7_info->last_adjustment_steps = target_s_ahead;
             p7_info->last_adjustment_sfn = p7_info->sfn;
             p7_info->last_adjustment_slot = p7_info->slot;
         }
     }
-    // ========== DOWNWARD REACTION ==========
-	else if (can_down) {
-			int32_t excess_headroom_us =
-					current_early_headroom_us -
-					target_safe_headroom_us;
-
-			if (excess_headroom_us < 0)
-					excess_headroom_us = 0;
-
-			/*
-			* Low load:
-			*   denominator ~= slot_duration_us
-			*   DOWN can be aggressive.
-			*
-			* High load:
-			*   denominator grows with target_safe_headroom_us
-			*   DOWN becomes conservative.
-			*/
-			int32_t down_denom_us =
-					slot_duration_us + target_safe_headroom_us;
-
-			if (down_denom_us <= 0)
-					down_denom_us = slot_duration_us;
-
-			int32_t down_steps =
-					excess_headroom_us / down_denom_us;
-
-			int32_t max_down_steps =
-					target_s_ahead - min_s_ahead_by_guard;
-
-			if (down_steps > max_down_steps)
-					down_steps = max_down_steps;
-
-			/*
-			* Low load: allow faster latency reduction.
-			* High load: never dump multiple slots at once.
-			*/
-			if (load_pressure < 256) {
-					if (down_steps > 2)
-							down_steps = 2;
-			} else {
-					if (down_steps > 1)
-							down_steps = 1;
-			}
-
-			if (down_steps > 0) {
-					target_s_ahead -= down_steps;
-
-					/*
-					* Load-adaptive DOWN hold.
-					*
-					* Low load: short wait.
-					* High load: long wait.
-					*/
-					int32_t load_down_hold =
-							1 + (load_pressure * max_s_ahead) / 1024;
-
-					p7_info->last_adjustment_steps =
-							down_steps + load_down_hold;
-
-					p7_info->last_adjustment_sfn = p7_info->sfn;
-					p7_info->last_adjustment_slot = p7_info->slot;
-			}
-	}
     if (target_s_ahead > max_s_ahead)
         target_s_ahead = max_s_ahead;
 
@@ -733,13 +625,15 @@ static void p7_run_ewma_lab_control(
         NFAPI_TRACE(NFAPI_TRACE_INFO,
             "[P7_SYNC][EWMA_LAB] α=1/%d β=1/%d %s: %d→%d | "
             "worst_late=%d mean=%d var=%d diff=%d "
-            "late_jitter=%d early_jitter=%d up_bound=%d down_bound=%d "
-            "deadline_pressure=%d down_guard=%d "
-            "load_pressure=%d target_headroom=%d current_headroom=%d floor=%d "
-            "delta=%d mean_shift=%ld",
+            "late_jitter=%d early_jitter=%d "
+            "up_bound=%d down_bound=%d "
+            "tail_risk=%d failure_debt=%d queue_debt=%d "
+            "pressure_debt=%d msg_per_slot=%d "
+            "too_late_max=%d rlc_rej=%d harq_to=%d "
+            "delta=%d mean_shift=%ld wait_steps=%d",
             global_ewma_alpha_denom,
             global_ewma_beta_denom,
-            (step_direction > 0 ? "UP" : "DOWN"),
+            step_direction > 0 ? "UP" : "DOWN",
             old_s_ahead,
             target_s_ahead,
             stats->worst_late,
@@ -750,14 +644,17 @@ static void p7_run_ewma_lab_control(
             p7_info->early_jitter,
             jitter_up_bound_us,
             jitter_down_bound_us,
-            deadline_pressure,
-			down_guard_us,
-			load_pressure,
-			target_safe_headroom_us,
-			current_early_headroom_us,
-			min_s_ahead_by_guard,
-			delta_s_ahead,
-			(long)mean_shift_64);
+            timing_tail_risk_us,
+            failure_debt_us,
+            queue_debt_us,
+            p7_info->pressure_debt_us,
+            msg_per_slot,
+            p7_info->recent_p7_too_late_max_us,
+            p7_info->recent_rlc_reject_count,
+            p7_info->recent_harq_timeout_count,
+            delta_s_ahead,
+            (long)mean_shift_64,
+            p7_info->last_adjustment_steps);
 
         p7_info->last_total_advanced_us =
                 p7_info->total_advanced_us;
@@ -768,6 +665,8 @@ static void p7_run_ewma_lab_control(
             "[P7_SYNC][EWMA_LAB] stable s_ahead=%d "
             "worst_late=%d mean=%d var=%d diff=%d "
             "late_jitter=%d early_jitter=%d "
+            "tail_risk=%d failure_debt=%d queue_debt=%d "
+            "pressure_debt=%d msg_per_slot=%d "
             "alpha=1/%d beta=1/%d",
             s_ahead_env,
             stats->worst_late,
@@ -776,9 +675,24 @@ static void p7_run_ewma_lab_control(
             diff,
             p7_info->late_jitter,
             p7_info->early_jitter,
+            timing_tail_risk_us,
+            failure_debt_us,
+            queue_debt_us,
+            p7_info->pressure_debt_us,
+            msg_per_slot,
             global_ewma_alpha_denom,
             global_ewma_beta_denom);
     }
+
+    /*
+     * Consume one-period event counters.
+     *
+     * These counters should be refilled by the collectors before the
+     * next control decision.
+     */
+    p7_info->recent_p7_too_late_max_us = 0;
+    p7_info->recent_rlc_reject_count = 0;
+    p7_info->recent_harq_timeout_count = 0;
 
     return;
 }

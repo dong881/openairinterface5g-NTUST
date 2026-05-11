@@ -1,0 +1,2 @@
+/usr/bin/ar qc libshm_td_iq_channel.a CMakeFiles/shm_td_iq_channel.dir/shm_td_iq_channel.c.o
+/usr/bin/ranlib libshm_td_iq_channel.a

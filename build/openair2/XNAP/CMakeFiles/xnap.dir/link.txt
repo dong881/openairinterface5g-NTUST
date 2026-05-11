@@ -1,0 +1,2 @@
+/usr/bin/ar qc libxnap.a CMakeFiles/xnap.dir/xnap_common.c.o lib/CMakeFiles/xnap_lib.dir/xnap_lib_common.c.o lib/CMakeFiles/xnap_lib.dir/xnap_gNB_interface_management.c.o
+/usr/bin/ranlib libxnap.a

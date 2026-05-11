@@ -1,0 +1,2 @@
+/usr/bin/ar qc libradio_common.a CMakeFiles/radio_common.dir/common_lib.c.o CMakeFiles/radio_common.dir/record_player.c.o ../../CMakeFiles/shlib_loader.dir/common/utils/load_module_shlib.c.o
+/usr/bin/ranlib libradio_common.a

@@ -1,0 +1,2 @@
+/usr/bin/ar qc libGTPV1U.a CMakeFiles/GTPV1U.dir/gtp_itf.cpp.o CMakeFiles/GTPV1U.dir/gtpu_extensions.c.o ../../common/utils/ds/CMakeFiles/ds.dir/byte_array.c.o ../../common/utils/ds/CMakeFiles/ds.dir/byte_array_producer.c.o ../../common/utils/ds/CMakeFiles/ds.dir/seq_arr.c.o ../../common/utils/ds/CMakeFiles/ds.dir/hashtable.c.o ../../common/utils/ds/CMakeFiles/ds.dir/obj_hashtable.c.o
+/usr/bin/ranlib libGTPV1U.a

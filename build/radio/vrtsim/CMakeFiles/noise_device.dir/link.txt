@@ -1,0 +1,2 @@
+/usr/bin/ar qc libnoise_device.a CMakeFiles/noise_device.dir/noise_device.c.o
+/usr/bin/ranlib libnoise_device.a
