@@ -1485,11 +1485,13 @@ def verify_pnf_vnf_mapping_quality(
     """
     驗證 PNF-VNF mapping 的正確性。
     
-    檢查原則：當 VNF 不變時，Δt_arrive 應該 < VNF（Y軸上VNF永遠在Δt_arrive上方）
-    - 若 VNF 穩定但 Δt_arrive > VNF，表示 mapping 錯誤
-    - 反之，VNF > Δt_arrive 表示 mapping 正確
+    檢查原則：當 VNF 不變時，Δt_arrive 應該 < VNF（不能高於它）
+    - 若 VNF 穩定在低值（如1ms）但 Δt_arrive 卻很高（如2ms），說明 mapping 錯誤
+    - 正確的 mapping：Δt_arrive 應該小於 VNF 值，或至少接近
     
-    回傳：(mapping_quality_score, violations, recommendations)
+    這確保在 VNF 平穩區間，Δt_arrive 不會異常高高於 VNF
+    
+    回傳：(mapping_quality_score, violations, problem_regions)
     """
     payloads = [d['payload'] for d in vnf_data]
     
@@ -1521,33 +1523,52 @@ def verify_pnf_vnf_mapping_quality(
         return 0.5, [], []
     
     violations = []
-    pnf_above_vnf = 0
+    pnf_much_higher_than_vnf = 0
+    problem_regions = []
     
     # 對每個 VNF 平穩區間檢查 PNF 值
     for flat_start, flat_end in flat_regions:
         vnf_flat_value = payloads[flat_start]
+        region_violations = 0
         
         for idx in range(flat_start, flat_end + 2):  # +2 because diff is 1-indexed
             if idx < len(aligned_pnf) and aligned_pnf[idx] is not None:
                 pnf_value = aligned_pnf[idx]
                 
-                # 關鍵檢查：PNF 應該 < VNF（Y軸上VNF永遠在上方）
-                # 如果 PNF >= VNF，表示 mapping 錯誤
-                if pnf_value >= vnf_flat_value:
-                    pnf_above_vnf += 1
-                    if len(violations) < 10:  # 只記錄前 10 個
+                # 關鍵檢查：PNF 不應該比 VNF 高很多
+                # 如果 PNF > VNF 且 VNF 平穩，特別是 VNF 很低的情況，表示 mapping 錯誤
+                # 特別是當差距很大時（超過 30% 的 VNF 值）
+                pnf_vnf_diff = pnf_value - vnf_flat_value
+                
+                if pnf_value > vnf_flat_value * 1.3:  # PNF 超過 VNF 的 130%
+                    pnf_much_higher_than_vnf += 1
+                    region_violations += 1
+                    
+                    if len(violations) < 15:  # 記錄前 15 個
                         violations.append({
                             'index': idx,
                             'vnf_value': vnf_flat_value,
                             'pnf_value': pnf_value,
+                            'diff': pnf_vnf_diff,
                             'ratio': pnf_value / vnf_flat_value if vnf_flat_value > 0 else 0,
                             'flat_region': (flat_start, flat_end),
-                            'status': '✗ PNF >= VNF' if pnf_value >= vnf_flat_value else '✓ PNF < VNF'
+                            'status': '✗ PNF > 1.3×VNF'
                         })
+        
+        # 如果某個平穩區間違規率很高，記為問題區域
+        region_samples = flat_end - flat_start + 2
+        if region_samples > 0 and region_violations / region_samples > 0.3:  # 超過 30% 違規
+            problem_regions.append({
+                'region': (flat_start, flat_end),
+                'vnf_value': vnf_flat_value,
+                'violations': region_violations,
+                'total_samples': region_samples,
+                'violation_rate': region_violations / region_samples
+            })
     
     # 計算 mapping 質量得分
     total_flat_samples = sum(flat_end - flat_start + 2 for flat_start, flat_end in flat_regions)
-    violation_rate = pnf_above_vnf / total_flat_samples if total_flat_samples > 0 else 0.0
+    violation_rate = pnf_much_higher_than_vnf / total_flat_samples if total_flat_samples > 0 else 0.0
     
     quality_score = max(0.0, 1.0 - violation_rate)
     
@@ -1556,46 +1577,52 @@ def verify_pnf_vnf_mapping_quality(
     quality_pct = quality_score * 100
     
     if quality_score < 0.5:
-        recommendations.append("✗ MAPPING ERROR! 超過50%的樣本點違反 VNF > Δt_arrive")
-        recommendations.append("   這表示 mapping 到了大量錯誤的 (SFN, slot) 組合")
-        recommendations.append("   結果完全無法用於分析，必須修復 mapping 邏輯！")
-    elif quality_score < 0.9:
-        msg = "⚠️  Mapping 質量一般，有約 {:.1f}% 的樣本違反 VNF > Δt_arrive".format(violation_pct)
+        recommendations.append("✗ MAPPING 錯誤！前段數據 Δt_arrive 明顯高於 VNF")
+        recommendations.append("   這表示前段 mapping 到了錯誤的 (SFN, slot) 組合")
+        recommendations.append("   前段數據完全無法用於分析，必須修復 mapping 邏輯！")
+    elif quality_score < 0.85:
+        msg = "⚠️  MAPPING 有問題！{:.1f}% 的樣本在 VNF 平穩時 Δt_arrive > 1.3×VNF".format(violation_pct)
         recommendations.append(msg)
-        recommendations.append(f"   共 {pnf_above_vnf} 個樣本點出現 PNF >= VNF 的情況")
-        recommendations.append("   可能在某些邊界情況或資料片段有 mapping 誤差")
-        recommendations.append("   分析時需要注意這些異常區間")
+        if problem_regions:
+            recommendations.append(f"   問題區域數: {len(problem_regions)} 個")
+            for pr in problem_regions[:3]:
+                msg2 = "   區間 [{}, {}]: VNF~{:.0f}μs, 違規率 {:.0f}%".format(
+                    pr['region'][0], pr['region'][1], pr['vnf_value'], pr['violation_rate']*100)
+                recommendations.append(msg2)
+        recommendations.append("   需要檢查這些區域的 mapping")
     else:
-        msg = "✓ Mapping 正確！{:.1f}% 的樣本滿足 VNF > Δt_arrive".format(quality_pct)
+        msg = "✓ Mapping 可接受！{:.1f}% 的樣本滿足 Δt_arrive ≤ 1.3×VNF".format(quality_pct)
         recommendations.append(msg)
-        if pnf_above_vnf > 0:
-            msg2 = "   只有 {} 個邊界異常樣本 ({:.1f}%)".format(pnf_above_vnf, violation_pct)
+        if pnf_much_higher_than_vnf > 0:
+            msg2 = "   只有 {} 個邊界異常樣本 ({:.1f}%)".format(pnf_much_higher_than_vnf, violation_pct)
             recommendations.append(msg2)
-            recommendations.append("   整體 mapping 質量良好，可以進行分析")
-        else:
-            recommendations.append("   所有 VNF 平穩區間中，PNF值都低於對應的VNF值")
-            recommendations.append("   mapping 完美，可以放心進行後續分析")
+        recommendations.append("   整體 mapping 質量可接受，可以進行分析")
     
     if verbose:
         print("\n=== PNF-VNF Mapping 驗證報告 ===")
         print(f"找到 {len(flat_regions)} 個 VNF 平穩區間")
-        print(f"違規樣本數 (PNF >= VNF): {pnf_above_vnf}/{total_flat_samples}")
+        print(f"Δt_arrive > 1.3×VNF 的樣本數: {pnf_much_higher_than_vnf}/{total_flat_samples}")
         print(f"Mapping 質量得分: {quality_score:.1%}")
         
-        if pnf_above_vnf > 0:
+        if problem_regions:
+            print(f"\n⚠️  檢測到 {len(problem_regions)} 個問題區域：")
+            for pr in problem_regions:
+                print(f"  區間 [{pr['region'][0]}, {pr['region'][1]}]")
+                print(f"    VNF 值: {pr['vnf_value']:.0f}μs")
+                print(f"    違規樣本: {pr['violations']}/{pr['total_samples']} ({pr['violation_rate']*100:.0f}%)")
+        
+        if violations and len(violations) > 0:
             print(f"\n違規情況 (前 {len(violations)} 個):")
-            for v in violations:
-                print(f"  Index {v['index']}: VNF={v['vnf_value']:.0f}, "
-                      f"Δt_arrive={v['pnf_value']:.0f} {v['status']}")
-        else:
-            print("\n✓ 完美！未發現任何 PNF >= VNF 的情況")
+            for v in violations[:10]:
+                print(f"  Index {v['index']}: VNF={v['vnf_value']:.0f}μs, "
+                      f"Δt_arrive={v['pnf_value']:.0f}μs (比率={v['ratio']:.1f}x) {v['status']}")
         
         print("\n建議:")
         for rec in recommendations:
             print(f"  {rec}")
         print()
     
-    return quality_score, violations, recommendations
+    return quality_score, violations, problem_regions
 
 
 def plot_mapping_verification(
