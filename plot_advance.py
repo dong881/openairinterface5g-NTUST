@@ -6,6 +6,8 @@ import argparse
 import re
 import time as time_module
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import tempfile
+import shutil
 
 # ============================================================
 # 論文圖表全局設定
@@ -142,6 +144,7 @@ def build_arg_parser():
     parser.add_argument('--output-dir', type=str, default='plot_outputs', help='Output root folder for generated images')
     parser.add_argument('--custom-start', type=int, help='Start index for custom interval plotting')
     parser.add_argument('--custom-end', type=int, help='End index for custom interval plotting')
+    parser.add_argument('--no-parallel', action='store_true', help='Run batch processing in single-threaded mode (for debugging)')
 
     return parser
 
@@ -518,6 +521,39 @@ def tune_timing_layout(fig):
 
 
 # ============================================================
+
+def atomic_save_figure(fig, output_path, **savefig_kwargs):
+    """Save a Matplotlib figure atomically to avoid race/partial-write issues.
+
+    Saves to a temporary file in the target directory then replaces the target.
+    Prints diagnostic info if directory is missing.
+    """
+    output_dir = os.path.dirname(output_path)
+    if output_dir and not os.path.isdir(output_dir):
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+        except Exception as e:
+            print(f"Failed to create directory {output_dir}: {e}")
+    # Use a temp file in the same directory to ensure atomic replace
+    dir_for_tmp = output_dir if output_dir else os.getcwd()
+    fd, tmpname = tempfile.mkstemp(prefix='.tmp_plot_', dir=dir_for_tmp, suffix='.png')
+    os.close(fd)
+    try:
+        fig.savefig(tmpname, **savefig_kwargs)
+        # Ensure data flushed to disk before replace
+        try:
+            shutil.move(tmpname, output_path)
+        except Exception:
+            # fallback to os.replace
+            os.replace(tmpname, output_path)
+    finally:
+        # cleanup if still exists
+        if os.path.exists(tmpname):
+            try:
+                os.remove(tmpname)
+            except Exception:
+                pass
+
 # 自動找出 VNF 上升與下降區間
 # ============================================================
 def find_vnf_intervals(vnf_data, diff_threshold=0, min_points=1):
@@ -761,6 +797,10 @@ def plot_interval(
 
     output_img = f"{output_prefix}_{interval_type}_interval{PTS_MARK}.png"
 
+    output_dir = os.path.dirname(output_img)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+
     if interval_type == "fall":
         add_interval_span(ax, local_start, local_end, FALLING_COLOR)
 
@@ -768,11 +808,11 @@ def plot_interval(
 
     plt.tight_layout(pad=0.5)
 
-    plt.savefig(output_img, dpi=300, bbox_inches='tight')
+    print(f"Saving plot to {output_img} (dir exists: {os.path.isdir(output_dir)})")
+    atomic_save_figure(fig, output_img, dpi=300, bbox_inches='tight')
     plt.close(fig)
 
     print(f"圖表已儲存為: {output_img}")
-
 
 # ============================================================
 # 完整區間繪圖函式：從 rise 到 fall 畫在同一張圖
@@ -855,7 +895,11 @@ def plot_rise_to_fall_interval(
 
     plt.tight_layout(pad=0.5)
 
-    plt.savefig(output_img, dpi=300, bbox_inches='tight')
+    output_dir = os.path.dirname(output_img)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    print(f"Saving plot to {output_img} (dir exists: {os.path.isdir(output_dir)})")
+    atomic_save_figure(fig, output_img, dpi=300, bbox_inches='tight')
     plt.close(fig)
 
     print(f"完整 rise-to-fall 圖表已儲存為: {output_img}")
@@ -1076,19 +1120,13 @@ def plot_summary_overview_with_zoom(
     for ax in [ax_overview, ax_rise, ax_fall]:
         finalize_square_axes(ax)
 
-    plt.savefig(
-        output_img,
-        dpi=300,
-        bbox_inches='tight'
-    )
-
+    output_dir = os.path.dirname(output_img)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    print(f"Saving plot to {output_img} (dir exists: {os.path.isdir(output_dir)})")
+    # Use atomic save to avoid race conditions
+    atomic_save_figure(fig, output_img, dpi=300, bbox_inches='tight')
     plt.close(fig)
-
-    print(f"Overview + zoom summary 圖表已儲存為: {output_img}")
-    
-# ============================================================
-# 主程式
-# ============================================================
 
 
 def plot_custom_interval(
@@ -1174,7 +1212,11 @@ def plot_custom_interval(
     ax.set_ylabel(y_label, fontweight='bold', labelpad=10)
 
     plt.tight_layout(pad=0.5)
-    plt.savefig(output_img, dpi=300, bbox_inches='tight')
+    output_dir = os.path.dirname(output_img)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    print(f"Saving plot to {output_img} (dir exists: {os.path.isdir(output_dir)})")
+    atomic_save_figure(fig, output_img, dpi=300, bbox_inches='tight')
     plt.close(fig)
 
     print(f"自訂區間圖表已儲存為: {output_img}")
@@ -1255,7 +1297,11 @@ def plot_pnf_negative_cumulative_curve(
     finalize_square_axes(ax)
 
     plt.tight_layout(pad=0.5)
-    plt.savefig(output_img, dpi=300, bbox_inches='tight')
+    output_dir = os.path.dirname(output_img)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+    print(f"Saving plot to {output_img} (dir exists: {os.path.isdir(output_dir)})")
+    atomic_save_figure(fig, output_img, dpi=300, bbox_inches='tight')
     plt.close(fig)
 
     print(f"PNF 負值累積曲線圖表已儲存為: {output_img}")
@@ -1457,7 +1503,10 @@ def main():
                 )
 
         # Use ThreadPoolExecutor for parallel processing
-        num_workers = min(os.cpu_count() or 1, len(pairs))
+        if args.no_parallel:
+            num_workers = 1
+        else:
+            num_workers = min(os.cpu_count() or 1, len(pairs))
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             futures = [
                 executor.submit(process_pair_task, label, vnf_file, pnf_file, output_root, args)

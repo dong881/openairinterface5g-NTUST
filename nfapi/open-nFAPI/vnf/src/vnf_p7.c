@@ -202,9 +202,8 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 
 static int32_t global_max_s_ahead = 14;
 static int32_t global_raw_worst_late_control = 0;
-static int32_t global_ewma_only_control = 1;
-static int32_t global_ewma_alpha_denom = 8;    // 1/16 default
-static int32_t global_ewma_beta_denom = 4;     // 1/16 default
+static int32_t global_ewma_alpha_denom = 8;    // 1/8 default
+static int32_t global_ewma_beta_denom = 4;     // 1/4 default
 
 __attribute__((constructor)) static void initialize_max_s_ahead(void) {
     char *env_val = getenv("MAX_S_AHEAD");
@@ -216,12 +215,6 @@ __attribute__((constructor)) static void initialize_max_s_ahead(void) {
 	if (raw_ctrl != NULL) {
 		global_raw_worst_late_control = atoi(raw_ctrl) != 0;
 	}
-
-	char *ewma_only = getenv("EWMA_ONLY_CONTROL");
-	if (ewma_only != NULL) {
-		global_ewma_only_control = atoi(ewma_only) != 0;
-	}
-
 	char *alpha_denom = getenv("EWMA_ALPHA");
 	if (alpha_denom != NULL) {
 		int val = atoi(alpha_denom);
@@ -266,9 +259,8 @@ int32_t ceil_div(int32_t x, int32_t d)
         if (x >= 0)
             return (x + d - 1) / d;
         else
-            return x / d;  // 已經是 ceil（因為 toward 0）
+            return x / d; 
     } else {
-        // 如果 d 可能負，很少見但完整給你
         if (x >= 0)
             return x / d;
         else
@@ -292,7 +284,7 @@ static void p7_run_ewma_lab_control(
 
 	if (p7_info->estimated_mean_late == 0) {
 		p7_info->estimated_mean_late = stats->worst_late;
-		p7_info->estimated_jitter_var = 100;
+		p7_info->estimated_jitter_var = abs(stats->worst_late) / 2;
 		p7_info->last_adjustment_sfn = p7_info->sfn;
 		p7_info->last_adjustment_slot = p7_info->slot;
 	}
@@ -306,35 +298,15 @@ static void p7_run_ewma_lab_control(
 	*/
 	p7_info->estimated_mean_late += diff / global_ewma_alpha_denom;
 
-	int32_t var_diff = abs_diff - p7_info->estimated_jitter_var;
-	p7_info->estimated_jitter_var += var_diff / global_ewma_beta_denom;
+	if (diff > 0)
+		p7_info->late_jitter += (diff - p7_info->late_jitter) / global_ewma_beta_denom;
+	else
+		p7_info->early_jitter += ((-diff) - p7_info->early_jitter) / global_ewma_beta_denom;
 
-	/*
-	* estimated_jitter_var here is actually EWMA mean absolute deviation,
-	* not true variance. But using 3x as safety bound is still acceptable
-	* as a dynamic jitter margin.
-	*/
-	int32_t jitter_bound_us = p7_info->estimated_jitter_var * 3;
-
-	/*
-	* Directional anomaly.
-	* Only positive diff means timing became later than expected.
-	*/
-	bool late_anomaly = diff > jitter_bound_us;
-	/*
-	* Predict what happens if we reduce s_ahead by one slot.
-	*
-	* If we reduce s_ahead by 1, packets effectively become later by
-	* slot_duration_us.
-	*
-	* Downward is allowed only if:
-	*
-	*   estimated_mean_late + slot_duration_us + jitter_bound_us <= 0
-	*
-	* Meaning:
-	*   even after moving one slot later, the EWMA upper bound is still safe.
-	*/
-	bool can_down = p7_info->estimated_mean_late + slot_duration_us + jitter_bound_us <= 0;
+	int32_t jitter_up_bound_us = p7_info->late_jitter * 3;
+	int32_t jitter_down_bound_us = p7_info->early_jitter * 3;
+	bool late_anomaly = diff > jitter_up_bound_us;
+	bool can_down = p7_info->estimated_mean_late + slot_duration_us + jitter_down_bound_us <= 0;
 
 	int32_t target_s_ahead = s_ahead_env;
 
@@ -351,7 +323,7 @@ static void p7_run_ewma_lab_control(
 	// ========== DOWNWARD REACTION ==========
 	else if (can_down){
 			int32_t safe_early_headroom_us =
-					-(p7_info->estimated_mean_late + jitter_bound_us);
+					-(p7_info->estimated_mean_late + jitter_down_bound_us);
 
 			if (safe_early_headroom_us >= slot_duration_us) {
 					int32_t down_steps =
@@ -403,8 +375,6 @@ void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, co
 
     int32_t worst_late = stats->worst_late;
     // uint32_t now_hr = vnf_get_current_time_hr();
-
-    // 固定範圍 1 ~ 8，因為 node sync 會處理預設的 offset
     int32_t max_s_ahead = global_max_s_ahead;
 
     /*

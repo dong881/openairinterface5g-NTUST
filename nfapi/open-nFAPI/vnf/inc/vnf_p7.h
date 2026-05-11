@@ -152,6 +152,8 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t convergence_count;
 	int32_t estimated_mean_late;      // Jacobson/Karels estimated mean delay
 	int32_t estimated_jitter_var;     // Jacobson/Karels estimated jitter variance
+	int32_t late_jitter;            // Separate EWMA for late jitter
+	int32_t early_jitter;           // Separate EWMA for early jitter
 	uint32_t last_adjustment_time_hr; // Time of last adjustment (for Dead Time / RTT masking)
 	int32_t long_ewma_process_us;
 	int32_t short_ewma_process_us;
