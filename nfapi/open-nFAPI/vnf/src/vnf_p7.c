@@ -278,6 +278,16 @@ static int32_t abs_i32(int32_t v)
 {
     return v < 0 ? -v : v;
 }
+static inline int32_t clamp_i32(int32_t v, int32_t lo, int32_t hi)
+{
+    if (v < lo)
+        return lo;
+
+    if (v > hi)
+        return hi;
+
+    return v;
+}
 
 static void p7_run_ewma_lab_control(
     nfapi_vnf_p7_connection_info_t *p7_info,
@@ -351,13 +361,41 @@ static void p7_run_ewma_lab_control(
             p7_info->early_jitter +
             p7_info->estimated_jitter_var;
 
-    /*
-     * UP should only happen when there is real deadline pressure.
-     *
-     * This prevents cases like:
-     *   worst_late=-392, mean=-423, diff=35
-     * from triggering UP even though timing is still early.
-     */
+	/*
+	* Estimate offered-load pressure from timing behavior.
+	*
+	* 0    = latency-first mode
+	* 1024 = reliability/throughput-first mode
+	*
+	* Low load in your logs:
+	*   late_jitter ~= 10~20, var ~= 6~20, diff small
+	*
+	* High load in your logs:
+	*   late_jitter ~= 150~500, var ~= 200~500, diff can be 700~1400
+	*/
+	int32_t positive_diff_us = diff > 0 ? diff : 0;
+
+	int32_t jitter_pressure =
+			clamp_i32((p7_info->late_jitter +
+					p7_info->estimated_jitter_var) *
+					1024 / slot_duration_us,
+					0, 1024);
+
+	int32_t diff_pressure =
+			clamp_i32(positive_diff_us *
+					1024 / slot_duration_us,
+					0, 1024);
+
+	/*
+	* If you later add counters for recent TOO_LATE / HARQ timeout /
+	* RLC reject, OR them into this score.
+	*
+	* For now, use timing-only pressure.
+	*/
+	int32_t load_pressure =
+			jitter_pressure > diff_pressure ?
+			jitter_pressure : diff_pressure;
+
 	int32_t closest_to_deadline_us =
 			stats->worst_late > p7_info->estimated_mean_late ?
 			stats->worst_late : p7_info->estimated_mean_late;
@@ -366,62 +404,101 @@ static void p7_run_ewma_lab_control(
 			closest_to_deadline_us < 0 ?
 			-closest_to_deadline_us : 0;
 
-	/*
-	* If early_headroom_us is smaller than one slot, we are already
-	* near deadline even if worst_late is still negative.
-	*/
 	int32_t deadline_deficit_us =
 			early_headroom_us < slot_duration_us ?
 			slot_duration_us - early_headroom_us : 0;
 
+	/*
+	* Low load: allow tiny lateness/retransmission.
+	* High load: allow almost no lateness.
+	*
+	* Example with 500us slot:
+	*   load_pressure=0    => allow about 62us
+	*   load_pressure=1024 => allow 0us
+	*/
+	int32_t allowed_late_us =
+			(slot_duration_us / 8) *
+			(1024 - load_pressure) / 1024;
+
+	/*
+	* Scale deadline deficit by load pressure.
+	* Low load: deadline_deficit contributes little.
+	* High load: deadline_deficit contributes strongly.
+	*/
+	int32_t load_scaled_deadline_deficit_us =
+			(int32_t)((int64_t)deadline_deficit_us *
+					load_pressure / 1024);
+
 	bool deadline_pressure =
 			stats->worst_late +
 			p7_info->late_jitter +
-			p7_info->estimated_jitter_var >= 0 ||
-			(deadline_deficit_us > 0 && diff > jitter_up_bound_us);
+			p7_info->estimated_jitter_var >= allowed_late_us ||
+			(load_scaled_deadline_deficit_us > 0 &&
+			diff > jitter_up_bound_us);
 
-    bool late_anomaly =
-            diff > jitter_up_bound_us &&
-            deadline_pressure;
+	bool late_anomaly =
+			diff > jitter_up_bound_us &&
+			deadline_pressure;
 
 	/*
-	* This is the minimum s_ahead floor derived from current measured
-	* timing uncertainty.
+	* Load-adaptive safe early headroom.
 	*
-	* It prevents going back to s_ahead=1 while the system still has
-	* near-deadline swing.
+	* Low load:
+	*   target_safe_headroom_us ~= 0
+	*
+	* High load:
+	*   target_safe_headroom_us approaches 1.5~2 slots.
+	*
+	* Quadratic mapping keeps low-load latency aggressive,
+	* but high-load protection aggressive.
 	*/
-	int32_t hold_guard_us =
-			p7_info->late_jitter +
-			p7_info->early_jitter +
-			p7_info->estimated_jitter_var +
-			slot_duration_us;
+	int32_t max_safe_headroom_us = 2 * slot_duration_us;
+
+	int32_t target_safe_headroom_us =
+			(int32_t)((int64_t)load_pressure *
+					load_pressure *
+					max_safe_headroom_us /
+					(1024LL * 1024LL));
+
+	/*
+	* Load-adaptive minimum floor.
+	*
+	* Low load: floor = 1
+	* High load: floor gradually rises.
+	*
+	* This prevents high-load DOWN from collapsing to 2/3,
+	* but still allows low-load minimum latency.
+	*/
+	int32_t max_guard_floor =
+			max_s_ahead >= 8 ? 4 :
+			max_s_ahead / 2;
+
+	if (max_guard_floor < 1)
+			max_guard_floor = 1;
 
 	int32_t min_s_ahead_by_guard =
-			ceil_div_pos_i32(hold_guard_us, slot_duration_us);
-
-	if (min_s_ahead_by_guard < 1)
-			min_s_ahead_by_guard = 1;
+			1 + (int32_t)((int64_t)load_pressure *
+						load_pressure *
+						(max_guard_floor - 1) /
+						(1024LL * 1024LL));
 
 	if (min_s_ahead_by_guard > max_s_ahead)
 			min_s_ahead_by_guard = max_s_ahead;
 
-    /*
-     * DOWN should reserve late-side guard as well.
-     * Otherwise it goes down too early, then immediately UP again.
-     */
-    int32_t down_guard_us =
-            p7_info->late_jitter +
-            p7_info->estimated_jitter_var;
+	int32_t down_guard_us =
+			p7_info->late_jitter +
+			p7_info->estimated_jitter_var;
+
+	int32_t current_early_headroom_us =
+			-(p7_info->estimated_mean_late +
+			jitter_down_bound_us +
+			down_guard_us);
 
 	bool can_down =
 			s_ahead_env > min_s_ahead_by_guard &&
-			p7_info->estimated_mean_late +
-			jitter_down_bound_us +
-			down_guard_us <= 0;
+			current_early_headroom_us > target_safe_headroom_us;
+	int32_t target_s_ahead = s_ahead_env;
 
-    int32_t target_s_ahead = s_ahead_env;
-	
 
     // ========== UPWARD REACTION ==========
     if (late_anomaly) {
@@ -452,7 +529,7 @@ static void p7_run_ewma_lab_control(
 				(int64_t)p7_info->estimated_jitter_var +
 				(int64_t)positive_diff_us +
 				(int64_t)dominant_late_us +
-				(int64_t)deadline_deficit_us;
+				(int64_t)load_scaled_deadline_deficit_us;
 
         if (risk_cover_us_64 < 0)
             risk_cover_us_64 = 0;
@@ -468,6 +545,27 @@ static void p7_run_ewma_lab_control(
 
         if (required_up_s_ahead < 1)
             required_up_s_ahead = 1;
+
+		
+		/*
+		* At high offered load, timing risk alone tends to underestimate
+		* needed ahead. Add load-dependent extra slots.
+		*
+		* max extra ~= max_s_ahead / 3
+		*/
+		int32_t max_load_extra_slots = max_s_ahead / 3;
+
+		if (max_load_extra_slots < 1)
+				max_load_extra_slots = 1;
+
+		int32_t load_extra_slots =
+				(int32_t)((int64_t)load_pressure *
+						load_pressure *
+						max_load_extra_slots /
+						(1024LL * 1024LL));
+
+		required_up_s_ahead += load_extra_slots;
+
 
         if (required_up_s_ahead > max_s_ahead)
             required_up_s_ahead = max_s_ahead;
@@ -489,52 +587,68 @@ static void p7_run_ewma_lab_control(
     }
     // ========== DOWNWARD REACTION ==========
 	else if (can_down) {
-		int32_t safe_early_headroom_us =
-				-(p7_info->estimated_mean_late +
-				jitter_down_bound_us +
-				down_guard_us);
+			int32_t excess_headroom_us =
+					current_early_headroom_us -
+					target_safe_headroom_us;
 
-		/*
-		* DOWN denominator includes hold_guard_us.
-		* If jitter/swing is still large, DOWN becomes naturally slower.
-		*/
-		int32_t down_denom_us =
-				slot_duration_us + hold_guard_us;
+			if (excess_headroom_us < 0)
+					excess_headroom_us = 0;
 
-		if (down_denom_us <= 0)
-				down_denom_us = slot_duration_us;
+			/*
+			* Low load:
+			*   denominator ~= slot_duration_us
+			*   DOWN can be aggressive.
+			*
+			* High load:
+			*   denominator grows with target_safe_headroom_us
+			*   DOWN becomes conservative.
+			*/
+			int32_t down_denom_us =
+					slot_duration_us + target_safe_headroom_us;
 
-		int32_t down_steps =
-				safe_early_headroom_us / down_denom_us;
+			if (down_denom_us <= 0)
+					down_denom_us = slot_duration_us;
 
-		int32_t max_down_steps =
-				target_s_ahead - min_s_ahead_by_guard;
+			int32_t down_steps =
+					excess_headroom_us / down_denom_us;
 
-		if (down_steps > max_down_steps)
-				down_steps = max_down_steps;
+			int32_t max_down_steps =
+					target_s_ahead - min_s_ahead_by_guard;
 
-		/*
-		* DOWN release should be gradual.
-		* UP can be large, DOWN should not dump multiple slots during burst recovery.
-		*/
-		if (down_steps > 1)
-				down_steps = 1;
+			if (down_steps > max_down_steps)
+					down_steps = max_down_steps;
 
-		if (down_steps > 0) {
-				target_s_ahead -= down_steps;
+			/*
+			* Low load: allow faster latency reduction.
+			* High load: never dump multiple slots at once.
+			*/
+			if (load_pressure < 256) {
+					if (down_steps > 2)
+							down_steps = 2;
+			} else {
+					if (down_steps > 1)
+							down_steps = 1;
+			}
 
-				/*
-				* Make DOWN wait proportional to the remaining s_ahead.
-				* This prevents 8→7→6→5→4 from happening too quickly.
-				*/
-				p7_info->last_adjustment_steps =
-						down_steps + target_s_ahead;
+			if (down_steps > 0) {
+					target_s_ahead -= down_steps;
 
-				p7_info->last_adjustment_sfn = p7_info->sfn;
-				p7_info->last_adjustment_slot = p7_info->slot;
-		}
+					/*
+					* Load-adaptive DOWN hold.
+					*
+					* Low load: short wait.
+					* High load: long wait.
+					*/
+					int32_t load_down_hold =
+							1 + (load_pressure * max_s_ahead) / 1024;
+
+					p7_info->last_adjustment_steps =
+							down_steps + load_down_hold;
+
+					p7_info->last_adjustment_sfn = p7_info->sfn;
+					p7_info->last_adjustment_slot = p7_info->slot;
+			}
 	}
-
     if (target_s_ahead > max_s_ahead)
         target_s_ahead = max_s_ahead;
 
