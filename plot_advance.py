@@ -8,6 +8,7 @@ import time as time_module
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import tempfile
 import shutil
+import threading
 
 # ============================================================
 # 論文圖表全局設定
@@ -18,6 +19,23 @@ plt.rcParams['axes.labelsize'] = 16
 plt.rcParams['xtick.labelsize'] = 14
 plt.rcParams['ytick.labelsize'] = 14
 plt.rcParams['legend.fontsize'] = 12
+
+# Matplotlib mathtext/rendering is not thread-safe.
+# Serialize layout/render/save to avoid intermittent ParseException in batch mode.
+PLOT_RENDER_LOCK = threading.Lock()
+
+
+def safe_tight_layout_and_save(fig, output_img, pad=0.5, apply_tight_layout=True):
+    output_dir = os.path.dirname(output_img)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+
+    print(f"Saving plot to {output_img} (dir exists: {os.path.isdir(output_dir)})")
+
+    with PLOT_RENDER_LOCK:
+        if apply_tight_layout:
+            fig.tight_layout(pad=pad)
+        atomic_save_figure(fig, output_img, dpi=300, bbox_inches='tight')
 
 
 # ============================================================
@@ -69,6 +87,14 @@ MIN_CONSECUTIVE_POINTS = 1
 # 是否輸出所有上升/下降區間
 PLOT_ALL_INTERVALS = False
 
+# PNF 壓力響應模式檢測參數
+# 檢測模式：VNF平穩 → PNF下降 → VNF上升
+VNF_FLAT_THRESHOLD = 50  # VNF 變化率門檻 (μs/sample)，低於此值視為平穩
+PNF_DROP_THRESHOLD = -100  # PNF 下降門檻 (μs)，負於此值視為下降
+RISE_START_THRESHOLD = 50  # VNF 開始上升的差分門檻 (μs)，用於檢測響應開始
+PNF_FLAT_WINDOW = 10  # 確認 VNF 平穩的窗口大小（連續點數）
+PNF_RESPONSE_DELAY = 5  # PNF 下降和 VNF 上升之間允許的最大延遲（點數）
+
 # 最多讀取幾筆資料
 MAX_POINTS = 100000
 
@@ -79,10 +105,15 @@ INTERVAL_SELECTION_MODE = "active"
 
 # active 模式下搜尋跳動密集區的窗口大小
 ACTIVE_WINDOW_SIZE = 400
+# PNF-aware 區間選擇時，rise/fall 前後搜尋 PNF 點的範圍
+PNF_MARGIN = 40
 
 # 預設檔名前綴（用於資料夾批次配對）
 VNF_PREFIX = "vnf_advance_time-us.000"
 PNF_PREFIX = "pnf_timing_window-us.000"
+
+# PNF 壓力響應顏色
+PNF_RESPONSE_COLOR = '#2ecc71'  # 綠色用於標示 PNF 壓力響應區間
 
 
 def safe_tag(name):
@@ -180,190 +211,267 @@ def read_packed_log(filepath, max_points=100000):
 
     return data
 
-
 def align_pnf_to_vnf_sequence(vnf_data, pnf_data):
     """
-    Align PNF payloads to the VNF timeline by SFN/slot with wrap-aware distance.
-    Auto-detects and applies best time-shift to maximize mapping rate.
+    Strict exact SFN/slot mapping.
+
+    規則：
+    1. 不允許 arbitrary slot offset。
+    2. 不允許 nearest-neighbor。
+    3. 不允許 per-sample drift。
+    4. 只允許 VNF 和 PNF 有相同 (sfn % 1024, slot) 時才 mapping。
+    5. 如果沒有共同 SFN/slot，就回傳全 None，並明確印出 mapping failed。
     """
-    import bisect
+
+    from collections import defaultdict, deque
     import time as time_module
-    
+
     if not vnf_data or not pnf_data:
         return [None] * len(vnf_data)
 
     t0 = time_module.time()
 
-    # Infer slots per frame
-    max_slot = 0
-    for d in vnf_data:
-        max_slot = max(max_slot, d.get('slot', 0))
-    for d in pnf_data:
-        max_slot = max(max_slot, d.get('slot', 0))
-    slots_per_frame = max_slot + 1 if max_slot >= 0 else 1
-    total_slots_per_cycle = 1024 * slots_per_frame
-    half_cycle_slots = total_slots_per_cycle / 2
+    SLOTS_PER_FRAME_OVERRIDE = 20
 
-    def time_index(entry):
-        return (entry['sfn'] % 1024) * slots_per_frame + entry['slot']
+    if SLOTS_PER_FRAME_OVERRIDE is not None:
+        slots_per_frame = int(SLOTS_PER_FRAME_OVERRIDE)
+    else:
+        max_slot = 0
+        for d in vnf_data:
+            max_slot = max(max_slot, int(d.get('slot', 0)))
+        for d in pnf_data:
+            max_slot = max(max_slot, int(d.get('slot', 0)))
+        slots_per_frame = max_slot + 1
 
-    # Precompute all time indices
-    vnf_times = [time_index(d) for d in vnf_data]
-    pnf_times = [time_index(d) for d in pnf_data]
-    pnf_payloads = [d['payload'] for d in pnf_data]
-    
-    # Create sorted PNF indices once
-    pnf_sorted_idx = sorted(range(len(pnf_times)), key=lambda i: pnf_times[i])
-    pnf_times_sorted = [pnf_times[i] for i in pnf_sorted_idx]
+    print("  正在執行 strict exact (SFN, slot) mapping...")
+    print(f"  slots_per_frame={slots_per_frame}")
 
-    def eval_shift_fast(shift_slots):
-        """Quick evaluate mapping rate with shift (sample-based)"""
-        count = 0
-        sample_step = max(1, len(vnf_times) // 1000)  # Sample ~1000 points max
-        for idx in range(0, len(vnf_times), sample_step):
-            vt = vnf_times[idx]
-            vt_shifted = (vt + shift_slots) % total_slots_per_cycle
-            
-            pos = bisect.bisect_left(pnf_times_sorted, vt_shifted)
-            found = False
-            for offset in [0, -1, 1, -2, 2]:
-                pi = pos + offset
-                if 0 <= pi < len(pnf_times_sorted):
-                    pt = pnf_times_sorted[pi]
-                    diff = abs(pt - vt_shifted)
-                    diff = min(diff, total_slots_per_cycle - diff)
-                    if diff <= half_cycle_slots:
-                        count += 1
-                        found = True
-                        break
-            if not found:
-                # Double-check nearby in smaller range
-                left = max(0, pos - 20)
-                right = min(len(pnf_times_sorted), pos + 20)
-                for pi in range(left, right):
-                    pt = pnf_times_sorted[pi]
-                    diff = abs(pt - vt_shifted)
-                    diff = min(diff, total_slots_per_cycle - diff)
-                    if diff <= half_cycle_slots:
-                        count += 1
-                        break
-        
-        return count
+    print(
+        f"  VNF first: sfn={vnf_data[0]['sfn']} slot={vnf_data[0]['slot']} "
+        f"payload={vnf_data[0]['payload']}"
+    )
+    print(
+        f"  PNF first: sfn={pnf_data[0]['sfn']} slot={pnf_data[0]['slot']} "
+        f"payload={pnf_data[0]['payload']}"
+    )
 
-    # Grid search for best shift in coarse resolution
-    print(f"  正在搜尋最佳時間偏移 (total_slots={total_slots_per_cycle})...")
-    best_shift = 0
-    best_score = eval_shift_fast(0)
-    
-    # Coarse grid search
-    shift_range = min(total_slots_per_cycle // 4, 100000)
-    grid_step = max(1, shift_range // 50)  # 50 points in grid
-    
-    for offset in range(-shift_range, shift_range + 1, grid_step):
-        score = eval_shift_fast(offset)
-        if score > best_score:
-            best_score = score
-            best_shift = offset
-    
-    # Fine-tune around best shift if found
-    if best_shift != 0:
-        fine_range = grid_step * 2
-        for offset in range(best_shift - fine_range, best_shift + fine_range + 1, max(1, grid_step // 10)):
-            score = eval_shift_fast(offset)
-            if score > best_score:
-                best_score = score
-                best_shift = offset
-    
-    if best_shift != 0:
-        print(f"  找到最佳時間偏移: {best_shift} slots (~{best_shift / slots_per_frame * 0.01:.3f}s)，預期改善映射率 ({best_score*100/min(5000, len(vnf_times)):.1f}% 樣本匹配)。")
-        pnf_times = [(pt + best_shift) % total_slots_per_cycle for pt in pnf_times]
-        pnf_times_sorted = [pnf_times[i] for i in pnf_sorted_idx]
+    def key_of(d):
+        return (int(d['sfn']) % 1024, int(d['slot']))
 
-    # Fast greedy matching with precomputed sorted indices
-    used = set()
+    # 建立 PNF exact key map
+    pnf_by_key = defaultdict(deque)
+
+    for pi, d in enumerate(pnf_data):
+        key = key_of(d)
+        pnf_by_key[key].append({
+            'payload': d['payload'],
+            'pnf_index': pi,
+            'sfn': d['sfn'],
+            'slot': d['slot'],
+        })
+
+    # 診斷 common key 數量
+    vnf_keys = [key_of(d) for d in vnf_data]
+    pnf_key_set = set(pnf_by_key.keys())
+    common_key_count = sum(1 for k in vnf_keys if k in pnf_key_set)
+
+    print(
+        f"  VNF samples whose (sfn,slot) exists in PNF key set: "
+        f"{common_key_count}/{len(vnf_data)}"
+    )
+
     aligned_pnf = []
-    mapped_dists = []
+    mapped_count = 0
+    mapped_debug = []
+    unmatched_debug = []
 
-    for vt in vnf_times:
-        best_payload = None
-        best_dist = None
-        best_idx = None
+    for vi, vd in enumerate(vnf_data):
+        key = key_of(vd)
 
-        # Binary search in sorted PNF times
-        pos = bisect.bisect_left(pnf_times_sorted, vt)
-        
-        # Check nearby candidates (limited scan for speed)
-        left = max(0, pos - 300)
-        right = min(len(pnf_sorted_idx), pos + 300)
-        
-        for scan_idx in range(left, right):
-            pi = pnf_sorted_idx[scan_idx]
-            if pi in used:
-                continue
-            
-            diff = abs(pnf_times[pi] - vt)
-            diff = min(diff, total_slots_per_cycle - diff)
-            
-            if diff <= half_cycle_slots:
-                if best_payload is None or diff < best_dist:
-                    best_payload = pnf_payloads[pi]
-                    best_dist = diff
-                    best_idx = pi
+        if pnf_by_key[key]:
+            item = pnf_by_key[key].popleft()
+            aligned_pnf.append(item['payload'])
+            mapped_count += 1
 
-        if best_payload is not None:
-            aligned_pnf.append(best_payload)
-            used.add(best_idx)
-            mapped_dists.append(best_dist)
+            if len(mapped_debug) < 30:
+                mapped_debug.append({
+                    'vnf_index': vi,
+                    'vnf_sfn': vd['sfn'],
+                    'vnf_slot': vd['slot'],
+                    'vnf_payload': vd['payload'],
+                    'pnf_index': item['pnf_index'],
+                    'pnf_sfn': item['sfn'],
+                    'pnf_slot': item['slot'],
+                    'pnf_payload': item['payload'],
+                })
         else:
             aligned_pnf.append(None)
 
-    elapsed = time_module.time() - t0
+            if len(unmatched_debug) < 20:
+                unmatched_debug.append({
+                    'vnf_index': vi,
+                    'vnf_sfn': vd['sfn'],
+                    'vnf_slot': vd['slot'],
+                    'vnf_payload': vd['payload'],
+                })
 
-    # Report stats
-    mapped_count = len([x for x in aligned_pnf if x is not None])
-    total = len(aligned_pnf)
-    rate = (mapped_count / total) if total > 0 else 0.0
-    seconds_per_slot = 0.01 / slots_per_frame
+    total_vnf = len(vnf_data)
+    total_pnf = len(pnf_data)
 
-    max_dist_slots = max(mapped_dists) if mapped_dists else 0
-    mean_dist_slots = (sum(mapped_dists) / len(mapped_dists)) if mapped_dists else 0
-    max_dist_secs = max_dist_slots * seconds_per_slot
-    mean_dist_secs = mean_dist_slots * seconds_per_slot
-
-    shift_info = f" (偏移: {best_shift} slots)" if best_shift != 0 else ""
-    print(f"PNF->VNF 映射: {mapped_count}/{total} ({rate:.2%}){shift_info} ; 最大延遲 {max_dist_slots} slots (~{max_dist_secs:.3f}s) ; 平均延遲 {mean_dist_slots:.1f} slots (~{mean_dist_secs:.3f}s) [{elapsed:.2f}s]")
-
-    if rate < 0.9:
-        print(f"警告: PNF->VNF 映射率低 ({mapped_count}/{total} = {rate:.2%})，可能為啟動時間錯誤或方向相反，請檢查檔案開頭時間。")
-
-    if max_dist_secs > 5.12:
-        print(f"警告: 發現最大映射延遲 {max_dist_secs:.3f}s > 半輪 (5.12s)，映射可能不正確。")
-
-    return aligned_pnf
+    vnf_coverage_rate = mapped_count / total_vnf if total_vnf else 0.0
+    pnf_used_rate = mapped_count / total_pnf if total_pnf else 0.0
 
     elapsed = time_module.time() - t0
 
-    # Report stats
-    mapped_count = len([x for x in aligned_pnf if x is not None])
-    total = len(aligned_pnf)
-    rate = (mapped_count / total) if total > 0 else 0.0
-    seconds_per_slot = 0.01 / slots_per_frame
+    print(
+        f"PNF->VNF strict exact (SFN,slot) 映射: "
+        f"{mapped_count}/{total_vnf} VNF points ({vnf_coverage_rate:.2%}), "
+        f"{mapped_count}/{total_pnf} PNF points used ({pnf_used_rate:.2%}) "
+        f"[{elapsed:.2f}s]"
+    )
 
-    max_dist_slots = max(mapped_dists) if mapped_dists else 0
-    mean_dist_slots = (sum(mapped_dists) / len(mapped_dists)) if mapped_dists else 0
-    max_dist_secs = max_dist_slots * seconds_per_slot
-    mean_dist_secs = mean_dist_slots * seconds_per_slot
+    if mapped_count == 0:
+        print("\n錯誤: strict exact mapping 完全失敗。")
+        print("沒有任何 VNF sample 找到相同的 PNF (sfn, slot)。")
+        print("這代表：")
+        print("1. VNF/PNF 的 SFN/slot 不是同一個時間基準。")
+        print("2. PNF log 的 SFN/slot 不是 event slot，而是另一個 reference slot。")
+        print("3. 兩個檔案不是同一段 run。")
+        print("4. 如果你想 mapping，必須在 log 裡寫入共同 timestamp 或明確定義固定 event offset。")
 
-    shift_info = f" (偏移: {best_shift} slots)" if best_shift != 0 else ""
-    print(f"PNF->VNF 映射: {mapped_count}/{total} ({rate:.2%}){shift_info} ; 最大延遲 {max_dist_slots} slots (~{max_dist_secs:.3f}s) ; 平均延遲 {mean_dist_slots:.1f} slots (~{mean_dist_secs:.3f}s) [{elapsed:.2f}s]")
+        print("\n前 20 筆 unmatched VNF:")
+        for m in unmatched_debug:
+            print(
+                f"    VNF[{m['vnf_index']}] "
+                f"sfn={m['vnf_sfn']} slot={m['vnf_slot']} "
+                f"payload={m['vnf_payload']}"
+            )
 
-    if rate < 0.9:
-        print(f"警告: PNF->VNF 映射率低 ({mapped_count}/{total} = {rate:.2%})，可能為啟動時間錯誤或方向相反，請檢查檔案開頭時間。")
+        print()
+        return aligned_pnf
 
-    if max_dist_secs > 5.12:
-        print(f"警告: 發現最大映射延遲 {max_dist_secs:.3f}s > 半輪 (5.12s)，映射可能不正確。")
+    print("\n  前 30 筆 successful strict exact mapping debug:")
+    for m in mapped_debug:
+        print(
+            f"    VNF[{m['vnf_index']}] "
+            f"sfn={m['vnf_sfn']} slot={m['vnf_slot']} payload={m['vnf_payload']} "
+            f"<-- PNF[{m['pnf_index']}] "
+            f"sfn={m['pnf_sfn']} slot={m['pnf_slot']} payload={m['pnf_payload']}"
+        )
+    print()
 
     return aligned_pnf
+
+
+def count_pnf_points_in_window(aligned_pnf, start_idx, end_idx, margin=40):
+    if not aligned_pnf:
+        return 0
+
+    n = len(aligned_pnf)
+    s = max(0, start_idx - margin)
+    e = min(n - 1, end_idx + margin)
+
+    return sum(1 for x in aligned_pnf[s:e + 1] if x is not None)
+
+def select_intervals_with_pnf_coverage(
+    rise_intervals,
+    fall_intervals,
+    diffs,
+    aligned_pnf,
+    mode="active",
+    active_window_size=400,
+    pnf_margin=40
+):
+    """
+    在原本 active selection 的基礎上，優先選擇附近有 PNF 點的 rise/fall。
+    避免畫出只有 VNF、沒有 PNF 的圖。
+    """
+
+    if not rise_intervals or not fall_intervals:
+        return None, None, None
+
+    active_window = find_most_active_window(diffs, window_size=active_window_size)
+
+    rise_candidates = [
+        it for it in rise_intervals
+        if _overlap_len(it, active_window) > 0
+    ]
+    fall_candidates = [
+        it for it in fall_intervals
+        if _overlap_len(it, active_window) > 0
+    ]
+
+    if not rise_candidates:
+        rise_candidates = rise_intervals
+
+    if not fall_candidates:
+        fall_candidates = fall_intervals
+
+    best_pair = None
+    best_score = None
+
+    for r in rise_candidates:
+        for f in fall_candidates:
+            if f[0] < r[0]:
+                continue
+
+            span = (r[0], f[1])
+            active_overlap = _overlap_len(span, active_window)
+            span_len = span[1] - span[0] + 1
+
+            rise_pnf_count = count_pnf_points_in_window(
+                aligned_pnf,
+                r[0],
+                r[1],
+                margin=pnf_margin
+            )
+            fall_pnf_count = count_pnf_points_in_window(
+                aligned_pnf,
+                f[0],
+                f[1],
+                margin=pnf_margin
+            )
+            span_pnf_count = count_pnf_points_in_window(
+                aligned_pnf,
+                span[0],
+                span[1],
+                margin=pnf_margin
+            )
+
+            # 分數優先順序：
+            # 1. span 裡 PNF 點越多越好
+            # 2. rise/fall 附近都有 PNF 越好
+            # 3. active overlap 越大越好
+            # 4. span 越長越好
+            score = (
+                span_pnf_count,
+                min(rise_pnf_count, fall_pnf_count),
+                rise_pnf_count + fall_pnf_count,
+                active_overlap,
+                span_len
+            )
+
+            if best_score is None or score > best_score:
+                best_score = score
+                best_pair = (r, f)
+
+    if best_pair is not None:
+        r, f = best_pair
+
+        print(
+            f"PNF-aware selection score={best_score}, "
+            f"rise={r}, fall={f}"
+        )
+
+        return r, f, active_window
+
+    return select_intervals(
+        rise_intervals,
+        fall_intervals,
+        diffs,
+        mode=mode,
+        active_window_size=active_window_size
+    )
 
 
 def normalize_timing_values(vnf_values, pnf_values, scale_factor=None):
@@ -626,6 +734,88 @@ def find_vnf_intervals(vnf_data, diff_threshold=0, min_points=1):
     return rise_intervals, fall_intervals, diffs
 
 
+def detect_pnf_pressure_response_intervals(
+    vnf_data,
+    aligned_pnf,
+    vnf_flat_threshold=VNF_FLAT_THRESHOLD,
+    pnf_drop_threshold=PNF_DROP_THRESHOLD,
+    rise_start_threshold=RISE_START_THRESHOLD,
+    flat_window=PNF_FLAT_WINDOW,
+    response_delay=PNF_RESPONSE_DELAY,
+):
+    """
+    偵測 PNF 壓力回應模式：
+    1. VNF 平穩（連續幾點變化小）
+    2. PNF 下降（delta-t arrive 顯著下降）
+    3. VNF 上升（VNF ahead 隨後開始上升）
+    
+    回傳：[(flat_start, pnf_drop_idx, rise_start, rise_end), ...]
+    """
+    if not vnf_data or not aligned_pnf:
+        return []
+    
+    payloads = [d['payload'] for d in vnf_data]
+    n = len(payloads)
+    
+    if n < flat_window + response_delay:
+        return []
+    
+    diffs = [payloads[i] - payloads[i - 1] for i in range(1, n)]
+    
+    patterns = []
+    
+    # 遍歷每個可能的起始點
+    for i in range(n - flat_window - response_delay):
+        # 第1階段：檢查 VNF 平穩 (連續 flat_window 點的變化都小)
+        flat_region = diffs[i:i + flat_window]
+        if not all(abs(d) <= vnf_flat_threshold for d in flat_region):
+            continue
+        
+        flat_start = i
+        flat_end = i + flat_window - 1
+        
+        # 第2階段：在 flat_end 之後查找 PNF 下降
+        pnf_drop_found = False
+        pnf_drop_idx = None
+        
+        for j in range(flat_end + 1, min(flat_end + response_delay + 1, n)):
+            if aligned_pnf[j] is not None and aligned_pnf[j - 1] is not None:
+                pnf_change = aligned_pnf[j] - aligned_pnf[j - 1]
+                if pnf_change <= pnf_drop_threshold:
+                    pnf_drop_found = True
+                    pnf_drop_idx = j
+                    break
+        
+        if not pnf_drop_found:
+            continue
+        
+        # 第3階段：在 PNF 下降之後查找 VNF 上升
+        rise_found = False
+        rise_start = None
+        rise_end = None
+        
+        for k in range(pnf_drop_idx + 1, min(pnf_drop_idx + response_delay + 1, n)):
+            if diffs[k - 1] >= rise_start_threshold:
+                # 找到上升的起點，繼續往前查找上升的端點
+                rise_start = k - 1
+                rise_end = k
+                
+                # 延伸上升區間
+                for m in range(k, n):
+                    if diffs[m - 1] >= rise_start_threshold:
+                        rise_end = m
+                    else:
+                        break
+                
+                rise_found = True
+                break
+        
+        if rise_found:
+            patterns.append((flat_start, pnf_drop_idx, rise_start, rise_end))
+    
+    return patterns
+
+
 def _overlap_len(a, b):
     a0, a1 = a
     b0, b1 = b
@@ -806,10 +996,7 @@ def plot_interval(
 
     style_timing_axes(ax, 0, len(x_indices) - 1, y_label)
 
-    plt.tight_layout(pad=0.5)
-
-    print(f"Saving plot to {output_img} (dir exists: {os.path.isdir(output_dir)})")
-    atomic_save_figure(fig, output_img, dpi=300, bbox_inches='tight')
+    safe_tight_layout_and_save(fig, output_img, pad=0.5)
     plt.close(fig)
 
     print(f"圖表已儲存為: {output_img}")
@@ -893,13 +1080,10 @@ def plot_rise_to_fall_interval(
 
     style_timing_axes(ax, 0, len(x_indices) - 1, y_label)
 
-    plt.tight_layout(pad=0.5)
-
     output_dir = os.path.dirname(output_img)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
-    print(f"Saving plot to {output_img} (dir exists: {os.path.isdir(output_dir)})")
-    atomic_save_figure(fig, output_img, dpi=300, bbox_inches='tight')
+    safe_tight_layout_and_save(fig, output_img, pad=0.5)
     plt.close(fig)
 
     print(f"完整 rise-to-fall 圖表已儲存為: {output_img}")
@@ -1120,12 +1304,7 @@ def plot_summary_overview_with_zoom(
     for ax in [ax_overview, ax_rise, ax_fall]:
         finalize_square_axes(ax)
 
-    output_dir = os.path.dirname(output_img)
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-    print(f"Saving plot to {output_img} (dir exists: {os.path.isdir(output_dir)})")
-    # Use atomic save to avoid race conditions
-    atomic_save_figure(fig, output_img, dpi=300, bbox_inches='tight')
+    safe_tight_layout_and_save(fig, output_img, pad=0.5, apply_tight_layout=False)
     plt.close(fig)
 
 
@@ -1211,15 +1390,127 @@ def plot_custom_interval(
     ax.set_ylim(-1, 5)
     ax.set_ylabel(y_label, fontweight='bold', labelpad=10)
 
-    plt.tight_layout(pad=0.5)
-    output_dir = os.path.dirname(output_img)
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-    print(f"Saving plot to {output_img} (dir exists: {os.path.isdir(output_dir)})")
-    atomic_save_figure(fig, output_img, dpi=300, bbox_inches='tight')
+    safe_tight_layout_and_save(fig, output_img, pad=0.5)
     plt.close(fig)
 
     print(f"自訂區間圖表已儲存為: {output_img}")
+
+
+def plot_pnf_pressure_response_pattern(
+    vnf_data,
+    aligned_pnf,
+    pattern_tuple,
+    display_total_points=DISPLAY_TOTAL_POINTS,
+    output_prefix="vnf_pnf"
+):
+    """
+    繪製 PNF 壓力回應模式。
+    pattern_tuple: (flat_start, pnf_drop_idx, rise_start, rise_end)
+    """
+    flat_start, pnf_drop_idx, rise_start, rise_end = pattern_tuple
+    
+    # 計算合理的視窗範圍
+    first_idx = max(0, flat_start - 5)
+    last_idx = min(len(vnf_data) - 1, rise_end + 5)
+    
+    window_start, window_end = clamp_window_around_interval(
+        first_idx,
+        last_idx,
+        display_total_points,
+        len(vnf_data)
+    )
+    
+    target_vnf = vnf_data[window_start:window_end + 1]
+    x_indices = list(range(len(target_vnf)))
+    
+    vnf_y = [d['payload'] for d in target_vnf]
+    pnf_y = aligned_pnf[window_start:window_end + 1]
+    vnf_y, pnf_y, y_label, _ = normalize_timing_values(vnf_y, pnf_y)
+    
+    fig, ax = plt.subplots(figsize=SQUARE_FIGSIZE)
+    
+    color_vnf = VNF_COLOR
+    color_pnf = PNF_COLOR
+    
+    ax.plot(
+        x_indices,
+        vnf_y,
+        marker=VNF_MARKER,
+        linestyle='-',
+        color=color_vnf,
+        linewidth=2.5,
+        markersize=VNF_MARKERSIZE,
+        label='VNF ahead time',
+        zorder=4
+    )
+    
+    ax.plot(
+        x_indices,
+        pnf_y,
+        marker=PNF_MARKER,
+        linestyle='--',
+        color=color_pnf,
+        linewidth=2.5,
+        markersize=PNF_MARKERSIZE,
+        label=r'$\Delta t_{\text{arrive}}$',
+        zorder=3
+    )
+    
+    # 轉換成局部座標
+    local_flat_start = flat_start - window_start
+    local_flat_end = min(flat_start + PNF_FLAT_WINDOW - 1 - window_start, len(x_indices) - 1)
+    local_pnf_drop = pnf_drop_idx - window_start
+    local_rise_start = rise_start - window_start
+    local_rise_end = rise_end - window_start
+    
+    # 標示三個階段
+    # 1. VNF 平穩區域
+    if 0 <= local_flat_start < len(x_indices):
+        ax.axvspan(
+            local_flat_start,
+            local_flat_end,
+            color=PNF_RESPONSE_COLOR,
+            alpha=0.15,
+            zorder=1,
+            label='VNF flat region'
+        )
+    
+    # 2. PNF 下降點
+    if 0 <= local_pnf_drop < len(x_indices):
+        ax.axvline(
+            local_pnf_drop,
+            color='#e74c3c',
+            linestyle=':',
+            linewidth=2.0,
+            alpha=0.8,
+            zorder=2,
+            label='PNF drop'
+        )
+    
+    # 3. VNF 上升區域
+    if 0 <= local_rise_start < len(x_indices):
+        ax.axvspan(
+            local_rise_start,
+            local_rise_end,
+            color=FALLING_COLOR,
+            alpha=0.20,
+            zorder=1,
+            label='VNF rise response'
+        )
+    
+    style_timing_axes(ax, 0, len(x_indices) - 1, y_label)
+    
+    output_img = os.path.join(
+        os.path.dirname(output_prefix) if output_prefix.endswith('.png') 
+        else output_prefix,
+        "vnf_pnf_pressure_response_pattern" + PTS_MARK + ".png"
+    )
+    
+    safe_tight_layout_and_save(fig, output_img, pad=0.5)
+    plt.close(fig)
+    
+    print(f"PNF 壓力回應模式圖表已儲存為: {output_img}")
+    return output_img
 
 
 def plot_pnf_negative_cumulative_curve(
@@ -1296,12 +1587,7 @@ def plot_pnf_negative_cumulative_curve(
     ax.legend(loc='upper left', framealpha=0.96, edgecolor='#aaaaaa')
     finalize_square_axes(ax)
 
-    plt.tight_layout(pad=0.5)
-    output_dir = os.path.dirname(output_img)
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-    print(f"Saving plot to {output_img} (dir exists: {os.path.isdir(output_dir)})")
-    atomic_save_figure(fig, output_img, dpi=300, bbox_inches='tight')
+    safe_tight_layout_and_save(fig, output_img, pad=0.5)
     plt.close(fig)
 
     print(f"PNF 負值累積曲線圖表已儲存為: {output_img}")
@@ -1335,6 +1621,38 @@ def process_one_pair(vnf_file, pnf_file, output_dir, pair_label='single'):
 
     aligned_pnf = align_pnf_to_vnf_sequence(vnf_data, pnf_data)
 
+    # ========================================================
+    # 新增：PNF 壓力回應模式偵測
+    # ========================================================
+    print("\n執行 PNF 壓力回應模式偵測...")
+    pnf_response_patterns = detect_pnf_pressure_response_intervals(
+        vnf_data=vnf_data,
+        aligned_pnf=aligned_pnf,
+        vnf_flat_threshold=VNF_FLAT_THRESHOLD,
+        pnf_drop_threshold=PNF_DROP_THRESHOLD,
+        rise_start_threshold=RISE_START_THRESHOLD,
+        flat_window=PNF_FLAT_WINDOW,
+        response_delay=PNF_RESPONSE_DELAY
+    )
+    
+    if pnf_response_patterns:
+        print(f"找到 {len(pnf_response_patterns)} 個 PNF 壓力回應模式")
+        print("前 5 個模式:", pnf_response_patterns[:5])
+        
+        # 繪製第一個找到的模式
+        best_pattern = pnf_response_patterns[0]
+        print(f"\n繪製最佳 PNF 壓力回應模式: {best_pattern}")
+        plot_pnf_pressure_response_pattern(
+            vnf_data=vnf_data,
+            aligned_pnf=aligned_pnf,
+            pattern_tuple=best_pattern,
+            display_total_points=DISPLAY_TOTAL_POINTS,
+            output_prefix=os.path.join(output_dir, "vnf_pnf")
+        )
+    else:
+        print("未找到符合條件的 PNF 壓力回應模式")
+    # ========================================================
+
     rise_intervals, fall_intervals, diffs = find_vnf_intervals(
         vnf_data,
         diff_threshold=DIFF_THRESHOLD,
@@ -1361,12 +1679,14 @@ def process_one_pair(vnf_file, pnf_file, output_dir, pair_label='single'):
     non_zero_diffs = sum(1 for d in diffs if d != 0)
     print(f"非零差分點數: {non_zero_diffs} / {len(diffs)}")
 
-    sel_rise, sel_fall, _ = select_intervals(
-        rise_intervals,
-        fall_intervals,
-        diffs,
+    sel_rise, sel_fall, _ = select_intervals_with_pnf_coverage(
+        rise_intervals=rise_intervals,
+        fall_intervals=fall_intervals,
+        diffs=diffs,
+        aligned_pnf=aligned_pnf,
         mode=INTERVAL_SELECTION_MODE,
-        active_window_size=ACTIVE_WINDOW_SIZE
+        active_window_size=ACTIVE_WINDOW_SIZE,
+        pnf_margin=PNF_MARGIN
     )
 
     if sel_rise is None and rise_intervals:
