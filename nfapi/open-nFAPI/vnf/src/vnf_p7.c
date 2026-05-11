@@ -375,26 +375,31 @@ static void p7_run_ewma_lab_control(
 	*/
 	int32_t positive_diff_us = diff > 0 ? diff : 0;
 
-	int32_t jitter_pressure =
-			clamp_i32((p7_info->late_jitter +
-					p7_info->estimated_jitter_var) *
-					1024 / slot_duration_us,
+	/*
+	 * Do NOT use raw positive diff as offered-load pressure.
+	 * A large diff is often caused by our own s_ahead actuation.
+	 *
+	 * Use persistent jitter memory instead.
+	 */
+	int32_t late_side_pressure =
+			clamp_i32((int32_t)(((int64_t)p7_info->late_jitter +
+						p7_info->estimated_jitter_var) *
+						1024 / slot_duration_us),
 					0, 1024);
 
-	int32_t diff_pressure =
-			clamp_i32(positive_diff_us *
-					1024 / slot_duration_us,
+	int32_t early_side_pressure =
+			clamp_i32((int32_t)(((int64_t)p7_info->early_jitter +
+						p7_info->estimated_jitter_var) *
+						1024 / slot_duration_us),
 					0, 1024);
 
 	/*
-	* If you later add counters for recent TOO_LATE / HARQ timeout /
-	* RLC reject, OR them into this score.
-	*
-	* For now, use timing-only pressure.
-	*/
+	 * early_jitter matters during recovery from high s_ahead.
+	 * In your log, early_jitter=300+ means the system is still swinging.
+	 */
 	int32_t load_pressure =
-			jitter_pressure > diff_pressure ?
-			jitter_pressure : diff_pressure;
+			late_side_pressure > early_side_pressure ?
+			late_side_pressure : early_side_pressure;
 
 	int32_t closest_to_deadline_us =
 			stats->worst_late > p7_info->estimated_mean_late ?
@@ -419,26 +424,6 @@ static void p7_run_ewma_lab_control(
 	int32_t allowed_late_us =
 			(slot_duration_us / 8) *
 			(1024 - load_pressure) / 1024;
-
-	/*
-	* Scale deadline deficit by load pressure.
-	* Low load: deadline_deficit contributes little.
-	* High load: deadline_deficit contributes strongly.
-	*/
-	int32_t load_scaled_deadline_deficit_us =
-			(int32_t)((int64_t)deadline_deficit_us *
-					load_pressure / 1024);
-
-	bool deadline_pressure =
-			stats->worst_late +
-			p7_info->late_jitter +
-			p7_info->estimated_jitter_var >= allowed_late_us ||
-			(load_scaled_deadline_deficit_us > 0 &&
-			diff > jitter_up_bound_us);
-
-	bool late_anomaly =
-			diff > jitter_up_bound_us &&
-			deadline_pressure;
 
 	/*
 	* Load-adaptive safe early headroom.
@@ -485,18 +470,56 @@ static void p7_run_ewma_lab_control(
 	if (min_s_ahead_by_guard > max_s_ahead)
 			min_s_ahead_by_guard = max_s_ahead;
 
+	int32_t recovery_floor = 1;
+
+	if (p7_info->early_jitter > slot_duration_us / 2)
+		recovery_floor = 2;
+
+	if (p7_info->early_jitter + p7_info->estimated_jitter_var > slot_duration_us)
+		recovery_floor = 3;
+
+	if (min_s_ahead_by_guard < recovery_floor)
+			min_s_ahead_by_guard = recovery_floor;
+
 	int32_t down_guard_us =
 			p7_info->late_jitter +
 			p7_info->estimated_jitter_var;
+
+	int32_t down_hysteresis_us =
+			slot_duration_us / 4 +
+			(int32_t)((int64_t)target_safe_headroom_us *
+					load_pressure / 1024);
 
 	int32_t current_early_headroom_us =
 			-(p7_info->estimated_mean_late +
 			jitter_down_bound_us +
 			down_guard_us);
 
+	int32_t headroom_deficit_us =
+			target_safe_headroom_us - current_early_headroom_us;
+
+	if (headroom_deficit_us < 0)
+		headroom_deficit_us = 0;
+
+	bool actual_late =
+			stats->worst_late >= allowed_late_us;
+
+	bool soft_headroom_pressure =
+			headroom_deficit_us > 0;
+
+	bool deadline_pressure =
+			actual_late || soft_headroom_pressure;
+
+	bool late_anomaly =
+			deadline_pressure &&
+			(actual_late ||
+			 diff > jitter_up_bound_us ||
+			 headroom_deficit_us > slot_duration_us / 4);
+
 	bool can_down =
 			s_ahead_env > min_s_ahead_by_guard &&
-			current_early_headroom_us > target_safe_headroom_us;
+			current_early_headroom_us >
+				target_safe_headroom_us + down_hysteresis_us;
 	int32_t target_s_ahead = s_ahead_env;
 
 
@@ -529,7 +552,7 @@ static void p7_run_ewma_lab_control(
 				(int64_t)p7_info->estimated_jitter_var +
 				(int64_t)positive_diff_us +
 				(int64_t)dominant_late_us +
-				(int64_t)load_scaled_deadline_deficit_us;
+				(int64_t)headroom_deficit_us;
 
         if (risk_cover_us_64 < 0)
             risk_cover_us_64 = 0;
@@ -545,6 +568,14 @@ static void p7_run_ewma_lab_control(
 
         if (required_up_s_ahead < 1)
             required_up_s_ahead = 1;
+
+		if (!actual_late) {
+			int32_t soft_max_up_target =
+					s_ahead_env + 2;
+
+			if (required_up_s_ahead > soft_max_up_target)
+				required_up_s_ahead = soft_max_up_target;
+		}
 
 		
 		/*
@@ -656,18 +687,60 @@ static void p7_run_ewma_lab_control(
         target_s_ahead = 1;
 
     if (target_s_ahead != s_ahead_env) {
+        int32_t old_s_ahead = s_ahead_env;
+        int32_t delta_s_ahead = target_s_ahead - old_s_ahead;
         int32_t step_direction =
-                target_s_ahead > s_ahead_env ? 1 : -1;
+                delta_s_ahead > 0 ? 1 : -1;
+
+		/*
+		 * Changing s_ahead shifts the timing coordinate by about one slot
+		 * per step. Compensate EWMA mean immediately; otherwise the next
+		 * sample treats our own actuation as network jitter/load.
+		 *
+		 * UP   +1 slot => messages appear ~slot_duration_us earlier
+		 * DOWN -1 slot => messages appear ~slot_duration_us later
+		 */
+		int64_t mean_shift_64 =
+				(int64_t)delta_s_ahead * slot_duration_us;
+
+		int64_t compensated_mean_64 =
+				(int64_t)p7_info->estimated_mean_late - mean_shift_64;
+
+		if (compensated_mean_64 > INT32_MAX)
+			compensated_mean_64 = INT32_MAX;
+
+		if (compensated_mean_64 < INT32_MIN)
+			compensated_mean_64 = INT32_MIN;
+
+		p7_info->estimated_mean_late =
+				(int32_t)compensated_mean_64;
+
+		/*
+		 * Keep some memory, but do not let a large actuation permanently
+		 * inflate the jitter estimator.
+		 */
+		if (abs_i32(delta_s_ahead) >= 2) {
+			p7_info->estimated_jitter_var =
+					p7_info->estimated_jitter_var / 2;
+
+			p7_info->late_jitter =
+					p7_info->late_jitter / 2;
+
+			p7_info->early_jitter =
+					p7_info->early_jitter / 2;
+		}
 
         NFAPI_TRACE(NFAPI_TRACE_INFO,
             "[P7_SYNC][EWMA_LAB] α=1/%d β=1/%d %s: %d→%d | "
             "worst_late=%d mean=%d var=%d diff=%d "
             "late_jitter=%d early_jitter=%d up_bound=%d down_bound=%d "
-            "deadline_pressure=%d down_guard=%d",
+            "deadline_pressure=%d down_guard=%d "
+            "load_pressure=%d target_headroom=%d current_headroom=%d floor=%d "
+            "delta=%d mean_shift=%ld",
             global_ewma_alpha_denom,
             global_ewma_beta_denom,
             (step_direction > 0 ? "UP" : "DOWN"),
-            s_ahead_env,
+            old_s_ahead,
             target_s_ahead,
             stats->worst_late,
             p7_info->estimated_mean_late,
@@ -678,7 +751,13 @@ static void p7_run_ewma_lab_control(
             jitter_up_bound_us,
             jitter_down_bound_us,
             deadline_pressure,
-            down_guard_us);
+			down_guard_us,
+			load_pressure,
+			target_safe_headroom_us,
+			current_early_headroom_us,
+			min_s_ahead_by_guard,
+			delta_s_ahead,
+			(long)mean_shift_64);
 
         p7_info->last_total_advanced_us =
                 p7_info->total_advanced_us;
