@@ -417,6 +417,10 @@ static void p7_run_ewma_lab_control(
      * ============================================================
      * Control pacing
      * ============================================================
+     *
+     * Not a tunable policy hyperparameter.
+     * This follows NFAPI timing_info_period and the previous movement
+     * magnitude, so larger moves naturally require more time to observe.
      */
     int32_t elapsed_slots = calculate_slot_distance(
             p7_info->sfn,
@@ -437,27 +441,45 @@ static void p7_run_ewma_lab_control(
 
     /*
      * ============================================================
-     * EWMA timing estimator
+     * Single-input EWMA estimator
      * ============================================================
      *
-     * Only authoritative timing input:
-     *   stats->worst_late > 0  : deadline violated
-     *   stats->worst_late <= 0 : early / safe candidate
+     * The only external runtime input used by this controller is:
+     *
+     *     stats->worst_late
+     *
+     * Interpretation:
+     *
+     *     worst_late > 0:
+     *         At least one message was late.
+     *
+     *     worst_late <= 0:
+     *         The worst observed message was early by -worst_late us.
      */
     if (p7_info->estimated_mean_late == 0) {
         p7_info->estimated_mean_late = stats->worst_late;
         p7_info->estimated_jitter_var = abs_i32(stats->worst_late) / 2;
+
         p7_info->last_adjustment_sfn = p7_info->sfn;
         p7_info->last_adjustment_slot = p7_info->slot;
     }
 
-    int32_t old_mean_for_diff = p7_info->estimated_mean_late;
-    int32_t diff = stats->worst_late - old_mean_for_diff;
+    int32_t old_mean = p7_info->estimated_mean_late;
+    int32_t diff = stats->worst_late - old_mean;
     int32_t abs_diff = abs_i32(diff);
 
+    /*
+     * EWMA mean of timing residual.
+     */
     p7_info->estimated_mean_late +=
             diff / global_ewma_alpha_denom;
 
+    /*
+     * Directional jitter EWMA.
+     *
+     * Positive diff means timing moved closer to late.
+     * Negative diff means timing moved earlier.
+     */
     if (diff > 0) {
         p7_info->late_jitter +=
                 (diff - p7_info->late_jitter) /
@@ -468,9 +490,43 @@ static void p7_run_ewma_lab_control(
                 global_ewma_beta_denom;
     }
 
+    /*
+     * Absolute deviation EWMA.
+     */
     p7_info->estimated_jitter_var +=
             (abs_diff - p7_info->estimated_jitter_var) /
             global_ewma_beta_denom;
+
+    if (p7_info->estimated_jitter_var < 0)
+        p7_info->estimated_jitter_var = 0;
+
+    if (p7_info->late_jitter < 0)
+        p7_info->late_jitter = 0;
+
+    if (p7_info->early_jitter < 0)
+        p7_info->early_jitter = 0;
+
+    /*
+     * Conservative timing representative.
+     *
+     * closest_to_deadline_us is the more dangerous value between:
+     *   - current worst_late
+     *   - EWMA mean
+     */
+    int32_t closest_to_deadline_us =
+            stats->worst_late > p7_info->estimated_mean_late ?
+            stats->worst_late :
+            p7_info->estimated_mean_late;
+
+    /*
+     * One-sided uncertainty toward late side.
+     */
+    int32_t timing_uncertainty_us =
+            p7_info->late_jitter +
+            p7_info->estimated_jitter_var;
+
+    if (timing_uncertainty_us < 0)
+        timing_uncertainty_us = 0;
 
     int32_t jitter_up_bound_us =
             p7_info->late_jitter +
@@ -480,146 +536,94 @@ static void p7_run_ewma_lab_control(
             p7_info->early_jitter +
             p7_info->estimated_jitter_var;
 
-    int32_t closest_to_deadline_us =
-            stats->worst_late > p7_info->estimated_mean_late ?
-            stats->worst_late :
-            p7_info->estimated_mean_late;
-
-    int32_t timing_uncertainty_us =
-            p7_info->late_jitter +
-            p7_info->estimated_jitter_var;
-
-    if (timing_uncertainty_us < 0)
-        timing_uncertainty_us = 0;
-
     /*
      * ============================================================
-     * Adaptive uncertainty baseline
+     * Single-input risk model
      * ============================================================
      *
-     * Detect high-jitter / unstable timing without hardcoded jitter
-     * threshold.
-     */
-    if (p7_info->ewma_lab_uncertainty_ewma_us == 0) {
-        p7_info->ewma_lab_uncertainty_ewma_us =
-                timing_uncertainty_us;
-        p7_info->ewma_lab_uncertainty_dev_us =
-                timing_uncertainty_us / 2;
-    } else {
-        int32_t uncertainty_diff =
-                timing_uncertainty_us -
-                p7_info->ewma_lab_uncertainty_ewma_us;
-
-        p7_info->ewma_lab_uncertainty_ewma_us +=
-                uncertainty_diff / global_ewma_alpha_denom;
-
-        p7_info->ewma_lab_uncertainty_dev_us +=
-                (abs_i32(uncertainty_diff) -
-                 p7_info->ewma_lab_uncertainty_dev_us) /
-                global_ewma_beta_denom;
-    }
-
-    int32_t uncertainty_adaptive_bound_us =
-            p7_info->ewma_lab_uncertainty_ewma_us +
-            p7_info->ewma_lab_uncertainty_dev_us;
-
-    bool jitter_unstable =
-            timing_uncertainty_us >
-            uncertainty_adaptive_bound_us;
-
-    /*
-     * ============================================================
-     * Offered-load estimator
-     * ============================================================
+     * predicted_risk_us > 0 means:
      *
-     * This must be fed by VNF local P7 message accounting.
+     *     closest_to_deadline + uncertainty already reaches
+     *     or crosses the deadline.
      *
-     * If current_offered_load stays 0, load-aware learning is disabled.
+     * This is the only reason to increase s_ahead.
      */
-    int32_t current_offered_load =
-            p7_info->recent_p7_msg_count > 0 ?
-            p7_info->recent_p7_msg_count :
-            p7_info->recent_msg_per_slot;
+    int32_t predicted_risk_us =
+            closest_to_deadline_us +
+            timing_uncertainty_us;
 
-    if (current_offered_load < 0)
-        current_offered_load = 0;
+    if (predicted_risk_us < 0)
+        predicted_risk_us = 0;
 
-    bool load_observable =
-            current_offered_load > 0;
-
-    if (p7_info->estimated_offered_load == 0)
-        p7_info->estimated_offered_load = current_offered_load;
-
-    int32_t load_diff =
-            current_offered_load - p7_info->estimated_offered_load;
-
-    p7_info->estimated_offered_load +=
-            load_diff / global_ewma_alpha_denom;
-
-    p7_info->offered_load_dev +=
-            (abs_i32(load_diff) - p7_info->offered_load_dev) /
-            global_ewma_beta_denom;
-
-    if (current_offered_load > p7_info->peak_offered_load)
-        p7_info->peak_offered_load = current_offered_load;
-
-    int32_t peakness_q10 = 0;
-
-    if (p7_info->peak_offered_load > 0) {
-        peakness_q10 =
-                (int32_t)((int64_t)current_offered_load *
-                          P7_EWMA_LAB_Q10 /
-                          p7_info->peak_offered_load);
-
-        if (peakness_q10 > P7_EWMA_LAB_Q10)
-            peakness_q10 = P7_EWMA_LAB_Q10;
-
-        if (peakness_q10 < 0)
-            peakness_q10 = 0;
-    }
-
-    /*
-     * ============================================================
-     * Timing pressure model
-     * ============================================================
-     */
     bool hard_late =
             stats->worst_late > 0 ||
             closest_to_deadline_us > 0;
 
-    int32_t timing_tail_risk_us =
-            closest_to_deadline_us +
-            timing_uncertainty_us;
-
-    if (timing_tail_risk_us < 0)
-        timing_tail_risk_us = 0;
-
-    int32_t failure_debt_us = 0;
+    int32_t failure_sample_us = 0;
 
     if (stats->worst_late > 0)
-        failure_debt_us = stats->worst_late;
+        failure_sample_us = stats->worst_late;
+    else if (closest_to_deadline_us > 0)
+        failure_sample_us = closest_to_deadline_us;
 
-    int32_t pressure_sample_us =
-            timing_tail_risk_us +
-            failure_debt_us;
+    if (failure_sample_us < 0)
+        failure_sample_us = 0;
 
-    if (pressure_sample_us < 0)
-        pressure_sample_us = 0;
+    /*
+     * failure_debt:
+     *   EWMA memory of actual late events.
+     *
+     * risk_debt:
+     *   EWMA memory of predicted tail risk.
+     *
+     * safe_margin_ewma:
+     *   EWMA memory of available timing headroom.
+     *
+     * All three use only worst_late-derived quantities.
+     * No extra hyperparameter.
+     */
+    p7_info->ewma_lab_failure_debt_us +=
+            (failure_sample_us -
+             p7_info->ewma_lab_failure_debt_us) /
+            global_ewma_alpha_denom;
+
+    p7_info->ewma_lab_risk_debt_us +=
+            (predicted_risk_us -
+             p7_info->ewma_lab_risk_debt_us) /
+            global_ewma_alpha_denom;
+
+    int32_t safe_margin_sample_us =
+            -(closest_to_deadline_us + timing_uncertainty_us);
+
+    if (safe_margin_sample_us < 0)
+        safe_margin_sample_us = 0;
+
+    p7_info->ewma_lab_safe_margin_ewma_us +=
+            (safe_margin_sample_us -
+             p7_info->ewma_lab_safe_margin_ewma_us) /
+            global_ewma_alpha_denom;
+
+    if (p7_info->ewma_lab_failure_debt_us < 0)
+        p7_info->ewma_lab_failure_debt_us = 0;
+
+    if (p7_info->ewma_lab_risk_debt_us < 0)
+        p7_info->ewma_lab_risk_debt_us = 0;
+
+    if (p7_info->ewma_lab_safe_margin_ewma_us < 0)
+        p7_info->ewma_lab_safe_margin_ewma_us = 0;
 
     bool soft_risk =
             !hard_late &&
-            pressure_sample_us > 0;
+            predicted_risk_us > 0;
 
     bool safe_sample =
             !hard_late &&
-            !soft_risk &&
-            pressure_sample_us == 0 &&
-            closest_to_deadline_us < 0;
+            predicted_risk_us == 0 &&
+            safe_margin_sample_us > 0;
 
     /*
-     * ============================================================
-     * Snapshot counters before update
-     * ============================================================
+     * Counters are only for logging / observability.
+     * They are not used as tunable thresholds.
      */
     int32_t pre_safe_count =
             p7_info->ewma_lab_safe_period_count;
@@ -630,36 +634,16 @@ static void p7_run_ewma_lab_control(
     int32_t pre_risk_count =
             p7_info->ewma_lab_risk_period_count;
 
-    int32_t pre_hold_down =
-            p7_info->ewma_lab_hold_down_count;
-
-    /*
-     * ============================================================
-     * Update hysteresis counters
-     * ============================================================
-     */
     if (hard_late) {
         p7_info->ewma_lab_late_period_count++;
-
-        if (p7_info->ewma_lab_late_period_count < 0)
-            p7_info->ewma_lab_late_period_count = 1;
-
-        p7_info->ewma_lab_risk_period_count = 0;
         p7_info->ewma_lab_safe_period_count = 0;
+        p7_info->ewma_lab_risk_period_count = 0;
     } else if (soft_risk) {
         p7_info->ewma_lab_risk_period_count++;
-
-        if (p7_info->ewma_lab_risk_period_count < 0)
-            p7_info->ewma_lab_risk_period_count = 1;
-
-        p7_info->ewma_lab_late_period_count = 0;
         p7_info->ewma_lab_safe_period_count = 0;
+        p7_info->ewma_lab_late_period_count = 0;
     } else if (safe_sample) {
         p7_info->ewma_lab_safe_period_count++;
-
-        if (p7_info->ewma_lab_safe_period_count < 0)
-            p7_info->ewma_lab_safe_period_count = 1;
-
         p7_info->ewma_lab_late_period_count = 0;
         p7_info->ewma_lab_risk_period_count = 0;
     } else {
@@ -668,433 +652,143 @@ static void p7_run_ewma_lab_control(
         p7_info->ewma_lab_risk_period_count = 0;
     }
 
-    int32_t cur_safe_count =
-            p7_info->ewma_lab_safe_period_count;
-
-    int32_t cur_late_count =
-            p7_info->ewma_lab_late_period_count;
-
-    int32_t cur_risk_count =
-            p7_info->ewma_lab_risk_period_count;
-
     /*
      * ============================================================
-     * Load profile matching / creation
+     * Decision model
      * ============================================================
      *
-     * No hardcoded load bucket.
+     * UP:
+     *   If predicted risk exists, add enough slots to cover it.
      *
-     * If load is observable, create or match a learned load profile.
-     */
-    int32_t current_profile = -1;
-    int32_t learned_best_s_ahead = 0;
-    int32_t profile_load_center = 0;
-    int32_t profile_load_dev = 0;
-
-    if (load_observable) {
-        int32_t best_profile = -1;
-        int64_t best_dist = INT64_MAX;
-
-        for (int i = 0; i < P7_EWMA_LAB_MAX_LOAD_PROFILES; ++i) {
-            if (!p7_info->ewma_lab_load_profile[i].valid)
-                continue;
-
-            int64_t dist =
-                    (int64_t)current_offered_load -
-                    (int64_t)p7_info->ewma_lab_load_profile[i].load_center;
-
-            if (dist < 0)
-                dist = -dist;
-
-            if (dist < best_dist) {
-                best_dist = dist;
-                best_profile = i;
-            }
-        }
-
-        bool create_new_profile = false;
-
-        if (best_profile < 0) {
-            create_new_profile = true;
-        } else {
-            int32_t dev =
-                    p7_info->ewma_lab_load_profile[best_profile].load_dev;
-
-            /*
-             * dev==0 means the profile is still narrow.
-             * Use one load unit as minimum resolution guard, not as a
-             * policy threshold.
-             */
-            int32_t min_profile_span = dev > 0 ? dev : 1;
-
-            if (best_dist > (int64_t)min_profile_span) {
-                for (int i = 0; i < P7_EWMA_LAB_MAX_LOAD_PROFILES; ++i) {
-                    if (!p7_info->ewma_lab_load_profile[i].valid) {
-                        create_new_profile = true;
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (create_new_profile) {
-            for (int i = 0; i < P7_EWMA_LAB_MAX_LOAD_PROFILES; ++i) {
-                if (!p7_info->ewma_lab_load_profile[i].valid) {
-                    p7_info->ewma_lab_load_profile[i].valid = 1;
-                    p7_info->ewma_lab_load_profile[i].load_center =
-                            current_offered_load;
-                    p7_info->ewma_lab_load_profile[i].load_ewma =
-                            current_offered_load;
-                    p7_info->ewma_lab_load_profile[i].load_dev = 0;
-                    p7_info->ewma_lab_load_profile[i].learned_best_s_ahead = 0;
-                    best_profile = i;
-                    break;
-                }
-            }
-        }
-
-        if (best_profile >= 0 &&
-            best_profile < P7_EWMA_LAB_MAX_LOAD_PROFILES &&
-            p7_info->ewma_lab_load_profile[best_profile].valid) {
-
-            current_profile = best_profile;
-            p7_info->ewma_lab_current_load_profile = current_profile;
-
-            p7_ewma_lab_load_profile_t *profile =
-                    &p7_info->ewma_lab_load_profile[current_profile];
-
-            int32_t profile_load_diff =
-                    current_offered_load - profile->load_ewma;
-
-            profile->load_ewma +=
-                    profile_load_diff / global_ewma_alpha_denom;
-
-            profile->load_dev +=
-                    (abs_i32(profile_load_diff) - profile->load_dev) /
-                    global_ewma_beta_denom;
-
-            profile->load_center = profile->load_ewma;
-
-            profile_load_center = profile->load_center;
-            profile_load_dev = profile->load_dev;
-            learned_best_s_ahead = profile->learned_best_s_ahead;
-        }
-    }
-
-    /*
-     * ============================================================
-     * Per-load / per-s_ahead learning update
-     * ============================================================
+     * DOWN:
+     *   Only if all EWMA debts are gone and EWMA safe margin is large
+     *   enough to remove one full slot while remaining safe.
      *
-     * Learning is frozen when:
-     *   - load is not observable
-     *   - jitter is unstable
-     *
-     * This prevents high-jitter / unknown-load samples from poisoning
-     * the learned best state.
-     */
-    int32_t learning_state = s_ahead_env;
-
-    if (learning_state < 1)
-        learning_state = 1;
-
-    if (learning_state > P7_EWMA_LAB_MAX_STATES)
-        learning_state = P7_EWMA_LAB_MAX_STATES;
-
-    int32_t learning_required_samples =
-            p7_info->last_adjustment_steps +
-            (int32_t)config->timing_info_period;
-
-    if (learning_required_samples < 1)
-        learning_required_samples = 1;
-
-    if (load_observable &&
-        current_profile >= 0 &&
-        current_profile < P7_EWMA_LAB_MAX_LOAD_PROFILES &&
-        p7_info->ewma_lab_load_profile[current_profile].valid &&
-        !jitter_unstable) {
-
-        p7_ewma_lab_load_profile_t *profile =
-                &p7_info->ewma_lab_load_profile[current_profile];
-
-        p7_ewma_lab_state_score_t *score =
-                &profile->state[learning_state];
-
-        score->valid = 1;
-        score->sample_count++;
-
-        if (score->sample_count < 0)
-            score->sample_count = 1;
-
-        int32_t late_sample_q10 =
-                hard_late ? P7_EWMA_LAB_Q10 : 0;
-
-        score->late_ewma_q10 +=
-                (late_sample_q10 - score->late_ewma_q10) /
-                global_ewma_alpha_denom;
-
-        score->risk_ewma_us +=
-                (pressure_sample_us - score->risk_ewma_us) /
-                global_ewma_alpha_denom;
-
-        /*
-         * Latency cost proxy:
-         *
-         * Smaller s_ahead is lower base latency.
-         * Risk and uncertainty increase effective latency cost.
-         */
-        int32_t latency_cost_us =
-                learning_state * slot_duration_us +
-                pressure_sample_us +
-                timing_uncertainty_us;
-
-        score->latency_cost_ewma_us +=
-                (latency_cost_us - score->latency_cost_ewma_us) /
-                global_ewma_alpha_denom;
-
-        score->jitter_ewma_us +=
-                (timing_uncertainty_us - score->jitter_ewma_us) /
-                global_ewma_alpha_denom;
-
-        if (safe_sample && !hard_late) {
-            score->consecutive_safe_count++;
-
-            if (score->consecutive_safe_count < 0)
-                score->consecutive_safe_count = 1;
-        } else {
-            score->consecutive_safe_count = 0;
-        }
-
-        /*
-         * If the current learned best becomes late, forget it.
-         */
-        if (hard_late &&
-            profile->learned_best_s_ahead == learning_state) {
-            profile->learned_best_s_ahead = 0;
-        }
-
-        /*
-         * Recompute learned_best_s_ahead:
-         *
-         * Candidate must:
-         *   - be valid
-         *   - have enough samples
-         *   - have enough consecutive safe samples
-         *   - have no recent late EWMA
-         *
-         * Among safe candidates, choose lowest latency cost.
-         */
-        int32_t best_s = 0;
-        int32_t best_cost = INT32_MAX;
-
-        int32_t max_state =
-                max_s_ahead < P7_EWMA_LAB_MAX_STATES ?
-                max_s_ahead :
-                P7_EWMA_LAB_MAX_STATES;
-
-        for (int s = 1; s <= max_state; ++s) {
-            p7_ewma_lab_state_score_t *candidate =
-                    &profile->state[s];
-
-            if (!candidate->valid)
-                continue;
-
-            if (candidate->sample_count < learning_required_samples)
-                continue;
-
-            if (candidate->consecutive_safe_count <
-                learning_required_samples)
-                continue;
-
-            if (candidate->late_ewma_q10 != 0)
-                continue;
-
-            if (candidate->latency_cost_ewma_us < best_cost) {
-                best_cost = candidate->latency_cost_ewma_us;
-                best_s = s;
-            }
-        }
-
-        if (best_s > 0)
-            profile->learned_best_s_ahead = best_s;
-
-        learned_best_s_ahead = profile->learned_best_s_ahead;
-    }
-
-    /*
-     * ============================================================
-     * Decision thresholds
-     * ============================================================
-     */
-    int32_t down_required_safe_periods =
-            s_ahead_env +
-            (int32_t)config->timing_info_period;
-
-    if (down_required_safe_periods < required_wait_slots)
-        down_required_safe_periods = required_wait_slots;
-
-    if (down_required_safe_periods < 1)
-        down_required_safe_periods = 1;
-
-    int32_t risk_required_periods =
-            (int32_t)config->timing_info_period;
-
-    if (risk_required_periods < 1)
-        risk_required_periods = 1;
-
-    int32_t post_down_closest_us =
-            closest_to_deadline_us +
-            slot_duration_us;
-
-    int32_t post_down_risk_us =
-            post_down_closest_us +
-            timing_uncertainty_us;
-
-    bool timing_down_safe =
-            post_down_risk_us <= 0;
-
-    /*
-     * UP decision:
-     *   1 = hard late
-     *   2 = persistent soft risk
-     *   3 = below learned best for current load
-     */
-    bool immediate_up_required =
-            hard_late;
-
-    bool risk_up_required =
-            soft_risk &&
-            cur_risk_count >= risk_required_periods &&
-            !jitter_unstable;
-
-    bool learned_target_up_required =
-            load_observable &&
-            learned_best_s_ahead > 0 &&
-            s_ahead_env < learned_best_s_ahead &&
-            !jitter_unstable;
-
-    bool up_required =
-            immediate_up_required ||
-            risk_up_required ||
-            learned_target_up_required;
-
-    /*
-     * DOWN decision:
-     *
-     * If load is observable:
-     *   only move down toward learned_best_s_ahead.
-     *   If learned_best is unknown, do not aggressively explore down
-     *   during traffic; this prevents peak load from collapsing back
-     *   to too-small s_ahead.
-     *
-     * If load is not observable:
-     *   timing-only fallback is allowed, but still requires strict
-     *   safe_count and post_down_risk.
-     */
-    bool learned_target_down_allowed =
-            load_observable &&
-            learned_best_s_ahead > 0 &&
-            s_ahead_env > learned_best_s_ahead;
-
-    bool timing_only_down_allowed =
-            !load_observable &&
-            s_ahead_env > 1;
-
-    bool down_allowed =
-            pre_hold_down <= 0 &&
-            cur_safe_count >= down_required_safe_periods &&
-            timing_down_safe &&
-            !jitter_unstable &&
-            (learned_target_down_allowed ||
-             timing_only_down_allowed);
-
-    /*
-     * ============================================================
-     * Target decision
-     * ============================================================
+     * This makes DOWN naturally slower than UP without introducing a
+     * tunable down-hysteresis parameter.
      */
     int32_t target_s_ahead = s_ahead_env;
     int32_t up_reason = 0;
     int32_t down_reason = 0;
 
+    bool up_required =
+            predicted_risk_us > 0;
+
+    int32_t post_down_predicted_risk_us =
+            closest_to_deadline_us +
+            slot_duration_us +
+            timing_uncertainty_us;
+
+    bool down_safe_after_one_slot =
+            post_down_predicted_risk_us <= 0;
+
+    bool debt_free =
+            p7_info->ewma_lab_failure_debt_us == 0 &&
+            p7_info->ewma_lab_risk_debt_us == 0;
+
+    bool enough_ewma_safe_margin_for_down =
+            p7_info->ewma_lab_safe_margin_ewma_us >=
+            slot_duration_us;
+
+    bool down_allowed =
+            !up_required &&
+            debt_free &&
+            enough_ewma_safe_margin_for_down &&
+            down_safe_after_one_slot &&
+            s_ahead_env > 1;
+
     if (up_required) {
-        if (immediate_up_required || risk_up_required) {
-            int32_t pressure_for_up_us = pressure_sample_us;
+        int32_t pressure_for_up_us =
+                predicted_risk_us +
+                failure_sample_us;
 
-            if (pressure_for_up_us <= 0 && stats->worst_late > 0)
-                pressure_for_up_us = stats->worst_late;
+        if (pressure_for_up_us < 1)
+            pressure_for_up_us = 1;
 
-            int32_t extra_slots =
-                    ceil_div_pos_i32(pressure_for_up_us,
-                                     slot_duration_us);
+        int32_t extra_slots =
+                ceil_div_pos_i32(pressure_for_up_us,
+                                 slot_duration_us);
 
-            if (extra_slots < 1)
-                extra_slots = 1;
+        if (extra_slots < 1)
+            extra_slots = 1;
 
-            target_s_ahead = s_ahead_env + extra_slots;
-
-            up_reason =
-                    immediate_up_required ? 1 : 2;
-        } else if (learned_target_up_required) {
-            target_s_ahead = s_ahead_env + 1;
-            up_reason = 3;
-        }
+        target_s_ahead = s_ahead_env + extra_slots;
 
         if (target_s_ahead > max_s_ahead)
             target_s_ahead = max_s_ahead;
 
-        if (target_s_ahead > s_ahead_env) {
-            p7_info->last_adjustment_steps = target_s_ahead;
-            p7_info->last_adjustment_sfn = p7_info->sfn;
-            p7_info->last_adjustment_slot = p7_info->slot;
-
-            p7_info->ewma_lab_hold_down_count =
-                    target_s_ahead +
-                    (int32_t)config->timing_info_period;
-
-            if (p7_info->ewma_lab_hold_down_count < 1)
-                p7_info->ewma_lab_hold_down_count = 1;
-
-            p7_info->ewma_lab_safe_period_count = 0;
-            p7_info->ewma_lab_risk_period_count = 0;
-
-            p7_info->ewma_lab_last_direction = 1;
-            p7_info->ewma_lab_last_target_s_ahead = target_s_ahead;
-        }
+        up_reason = hard_late ? 1 : 2;
     } else if (down_allowed) {
         target_s_ahead = s_ahead_env - 1;
-
-        if (load_observable &&
-            learned_best_s_ahead > 0 &&
-            target_s_ahead < learned_best_s_ahead) {
-            target_s_ahead = learned_best_s_ahead;
-        }
 
         if (target_s_ahead < 1)
             target_s_ahead = 1;
 
-        if (target_s_ahead < s_ahead_env) {
-            down_reason =
-                    load_observable ? 1 : 2;
-
-            p7_info->last_adjustment_steps = target_s_ahead;
-            p7_info->last_adjustment_sfn = p7_info->sfn;
-            p7_info->last_adjustment_slot = p7_info->slot;
-
-            p7_info->ewma_lab_hold_down_count =
-                    target_s_ahead +
-                    (int32_t)config->timing_info_period;
-
-            if (p7_info->ewma_lab_hold_down_count < 1)
-                p7_info->ewma_lab_hold_down_count = 1;
-
-            p7_info->ewma_lab_safe_period_count = 0;
-            p7_info->ewma_lab_risk_period_count = 0;
-
-            p7_info->ewma_lab_last_direction = -1;
-            p7_info->ewma_lab_last_target_s_ahead = target_s_ahead;
-        }
+        down_reason = 1;
     }
+
+    /*
+     * No movement.
+     */
+    if (target_s_ahead == s_ahead_env) {
+        if (p7_info->sfn % 256 == 0 && p7_info->slot == 0) {
+            NFAPI_TRACE(NFAPI_TRACE_INFO,
+                "[P7_SYNC][EWMA_LAB] stable s_ahead=%d "
+                "worst_late=%d mean=%d var=%d diff=%d "
+                "late_jitter=%d early_jitter=%d "
+                "up_bound=%d down_bound=%d "
+                "closest=%d uncertainty=%d "
+                "predicted_risk=%d failure_sample=%d "
+                "failure_debt=%d risk_debt=%d safe_margin=%d safe_margin_ewma=%d "
+                "hard_late=%d soft_risk=%d safe_sample=%d "
+                "safe_cnt=%d late_cnt=%d risk_cnt=%d "
+                "post_down_risk=%d debt_free=%d down_allowed=%d "
+                "alpha=1/%d beta=1/%d",
+                s_ahead_env,
+                stats->worst_late,
+                p7_info->estimated_mean_late,
+                p7_info->estimated_jitter_var,
+                diff,
+                p7_info->late_jitter,
+                p7_info->early_jitter,
+                jitter_up_bound_us,
+                jitter_down_bound_us,
+                closest_to_deadline_us,
+                timing_uncertainty_us,
+                predicted_risk_us,
+                failure_sample_us,
+                p7_info->ewma_lab_failure_debt_us,
+                p7_info->ewma_lab_risk_debt_us,
+                safe_margin_sample_us,
+                p7_info->ewma_lab_safe_margin_ewma_us,
+                hard_late,
+                soft_risk,
+                safe_sample,
+                p7_info->ewma_lab_safe_period_count,
+                p7_info->ewma_lab_late_period_count,
+                p7_info->ewma_lab_risk_period_count,
+                post_down_predicted_risk_us,
+                debt_free,
+                down_allowed,
+                global_ewma_alpha_denom,
+                global_ewma_beta_denom);
+        }
+
+        p7_info->recent_p7_too_late_max_us = 0;
+        p7_info->recent_rlc_reject_count = 0;
+        p7_info->recent_harq_timeout_count = 0;
+        p7_info->recent_p7_msg_count = 0;
+
+        return;
+    }
+
+    /*
+     * ============================================================
+     * Apply actuation
+     * ============================================================
+     */
+    int32_t old_s_ahead = s_ahead_env;
+    int32_t delta_s_ahead = target_s_ahead - old_s_ahead;
 
     if (target_s_ahead > max_s_ahead)
         target_s_ahead = max_s_ahead;
@@ -1102,191 +796,135 @@ static void p7_run_ewma_lab_control(
     if (target_s_ahead < 1)
         target_s_ahead = 1;
 
-    /*
-     * Decrement hold-down only when there is no actuation.
-     */
-    if (target_s_ahead == s_ahead_env &&
-        p7_info->ewma_lab_hold_down_count > 0) {
-        p7_info->ewma_lab_hold_down_count--;
+    delta_s_ahead = target_s_ahead - old_s_ahead;
+
+    if (delta_s_ahead == 0) {
+        p7_info->recent_p7_too_late_max_us = 0;
+        p7_info->recent_rlc_reject_count = 0;
+        p7_info->recent_harq_timeout_count = 0;
+        p7_info->recent_p7_msg_count = 0;
+        return;
     }
 
     /*
-     * ============================================================
-     * Apply actuation and compensate estimator
-     * ============================================================
+     * Compensate mean after changing s_ahead.
+     *
+     * Increasing s_ahead makes future arrivals earlier, therefore
+     * estimated_mean_late shifts down by delta * slot_duration.
      */
-    if (target_s_ahead != s_ahead_env) {
-        int32_t old_s_ahead = s_ahead_env;
-        int32_t delta_s_ahead = target_s_ahead - old_s_ahead;
-        int32_t step_direction =
-                delta_s_ahead > 0 ? 1 : -1;
+    int64_t mean_shift_64 =
+            (int64_t)delta_s_ahead * slot_duration_us;
 
-        int64_t mean_shift_64 =
-                (int64_t)delta_s_ahead * slot_duration_us;
+    int64_t compensated_mean_64 =
+            (int64_t)p7_info->estimated_mean_late -
+            mean_shift_64;
 
-        int64_t compensated_mean_64 =
-                (int64_t)p7_info->estimated_mean_late -
-                mean_shift_64;
+    if (compensated_mean_64 > INT32_MAX)
+        compensated_mean_64 = INT32_MAX;
 
-        if (compensated_mean_64 > INT32_MAX)
-            compensated_mean_64 = INT32_MAX;
+    if (compensated_mean_64 < INT32_MIN)
+        compensated_mean_64 = INT32_MIN;
 
-        if (compensated_mean_64 < INT32_MIN)
-            compensated_mean_64 = INT32_MIN;
-
-        p7_info->estimated_mean_late =
-                (int32_t)compensated_mean_64;
-
-        /*
-         * Large actuation should not permanently inflate jitter.
-         */
-        if (abs_i32(delta_s_ahead) >= 2) {
-            p7_info->estimated_jitter_var =
-                    p7_info->estimated_jitter_var / 2;
-
-            p7_info->late_jitter =
-                    p7_info->late_jitter / 2;
-
-            p7_info->early_jitter =
-                    p7_info->early_jitter / 2;
-        }
-
-        NFAPI_TRACE(NFAPI_TRACE_INFO,
-            "[P7_SYNC][EWMA_LAB] α=1/%d β=1/%d %s: %d→%d | "
-            "worst_late=%d mean=%d var=%d diff=%d "
-            "late_jitter=%d early_jitter=%d "
-            "up_bound=%d down_bound=%d "
-            "closest=%d uncertainty=%d uncertainty_ewma=%d uncertainty_dev=%d "
-            "jitter_unstable=%d "
-            "tail_risk=%d failure_debt=%d pressure_sample=%d "
-            "hard_late=%d soft_risk=%d safe_sample=%d "
-            "pre_safe=%d pre_late=%d pre_risk=%d pre_hold=%d "
-            "safe_cnt=%d late_cnt=%d risk_cnt=%d hold_down=%d "
-            "risk_req=%d down_req=%d "
-            "load_obs=%d load=%d est_load=%d dev_load=%d peak_load=%d peakness=%d "
-            "profile=%d load_center=%d load_dev=%d learned_best=%d "
-            "up_reason=%d down_reason=%d down_allowed=%d post_down_risk=%d "
-            "delta=%d mean_shift=%ld wait_steps=%d",
-            global_ewma_alpha_denom,
-            global_ewma_beta_denom,
-            step_direction > 0 ? "UP" : "DOWN",
-            old_s_ahead,
-            target_s_ahead,
-            stats->worst_late,
-            p7_info->estimated_mean_late,
-            p7_info->estimated_jitter_var,
-            diff,
-            p7_info->late_jitter,
-            p7_info->early_jitter,
-            jitter_up_bound_us,
-            jitter_down_bound_us,
-            closest_to_deadline_us,
-            timing_uncertainty_us,
-            p7_info->ewma_lab_uncertainty_ewma_us,
-            p7_info->ewma_lab_uncertainty_dev_us,
-            jitter_unstable,
-            timing_tail_risk_us,
-            failure_debt_us,
-            pressure_sample_us,
-            hard_late,
-            soft_risk,
-            safe_sample,
-            pre_safe_count,
-            pre_late_count,
-            pre_risk_count,
-            pre_hold_down,
-            p7_info->ewma_lab_safe_period_count,
-            p7_info->ewma_lab_late_period_count,
-            p7_info->ewma_lab_risk_period_count,
-            p7_info->ewma_lab_hold_down_count,
-            risk_required_periods,
-            down_required_safe_periods,
-            load_observable,
-            current_offered_load,
-            p7_info->estimated_offered_load,
-            p7_info->offered_load_dev,
-            p7_info->peak_offered_load,
-            peakness_q10,
-            current_profile,
-            profile_load_center,
-            profile_load_dev,
-            learned_best_s_ahead,
-            up_reason,
-            down_reason,
-            down_allowed,
-            post_down_risk_us,
-            delta_s_ahead,
-            (long)mean_shift_64,
-            p7_info->last_adjustment_steps);
-
-        p7_info->last_total_advanced_us =
-                p7_info->total_advanced_us;
-
-        s_ahead_env = target_s_ahead;
-    } else if (p7_info->sfn % 256 == 0 && p7_info->slot == 0) {
-        NFAPI_TRACE(NFAPI_TRACE_INFO,
-            "[P7_SYNC][EWMA_LAB] stable s_ahead=%d "
-            "worst_late=%d mean=%d var=%d diff=%d "
-            "late_jitter=%d early_jitter=%d "
-            "closest=%d uncertainty=%d uncertainty_ewma=%d uncertainty_dev=%d "
-            "jitter_unstable=%d "
-            "tail_risk=%d failure_debt=%d pressure_sample=%d "
-            "hard_late=%d soft_risk=%d safe_sample=%d "
-            "pre_safe=%d pre_late=%d pre_risk=%d pre_hold=%d "
-            "safe_cnt=%d late_cnt=%d risk_cnt=%d hold_down=%d "
-            "risk_req=%d down_req=%d "
-            "load_obs=%d load=%d est_load=%d dev_load=%d peak_load=%d peakness=%d "
-            "profile=%d load_center=%d load_dev=%d learned_best=%d "
-            "down_allowed=%d post_down_risk=%d "
-            "alpha=1/%d beta=1/%d",
-            s_ahead_env,
-            stats->worst_late,
-            p7_info->estimated_mean_late,
-            p7_info->estimated_jitter_var,
-            diff,
-            p7_info->late_jitter,
-            p7_info->early_jitter,
-            closest_to_deadline_us,
-            timing_uncertainty_us,
-            p7_info->ewma_lab_uncertainty_ewma_us,
-            p7_info->ewma_lab_uncertainty_dev_us,
-            jitter_unstable,
-            timing_tail_risk_us,
-            failure_debt_us,
-            pressure_sample_us,
-            hard_late,
-            soft_risk,
-            safe_sample,
-            pre_safe_count,
-            pre_late_count,
-            pre_risk_count,
-            pre_hold_down,
-            p7_info->ewma_lab_safe_period_count,
-            p7_info->ewma_lab_late_period_count,
-            p7_info->ewma_lab_risk_period_count,
-            p7_info->ewma_lab_hold_down_count,
-            risk_required_periods,
-            down_required_safe_periods,
-            load_observable,
-            current_offered_load,
-            p7_info->estimated_offered_load,
-            p7_info->offered_load_dev,
-            p7_info->peak_offered_load,
-            peakness_q10,
-            current_profile,
-            profile_load_center,
-            profile_load_dev,
-            learned_best_s_ahead,
-            down_allowed,
-            post_down_risk_us,
-            global_ewma_alpha_denom,
-            global_ewma_beta_denom);
-    }
+    p7_info->estimated_mean_late =
+            (int32_t)compensated_mean_64;
 
     /*
-     * ============================================================
-     * Consume per-period counters
-     * ============================================================
+     * Large actuation changes the operating point.
+     * Keep uncertainty memory, but avoid carrying the full old
+     * transient spike into the new operating point.
+     *
+     * No new hyperparameter: divide by EWMA beta denominator.
+     */
+    if (abs_i32(delta_s_ahead) > 1) {
+        p7_info->estimated_jitter_var =
+                p7_info->estimated_jitter_var /
+                global_ewma_beta_denom;
+
+        p7_info->late_jitter =
+                p7_info->late_jitter /
+                global_ewma_beta_denom;
+
+        p7_info->early_jitter =
+                p7_info->early_jitter /
+                global_ewma_beta_denom;
+    }
+
+    p7_info->last_adjustment_steps =
+            abs_i32(delta_s_ahead);
+
+    if (p7_info->last_adjustment_steps < 1)
+        p7_info->last_adjustment_steps = 1;
+
+    p7_info->last_adjustment_sfn = p7_info->sfn;
+    p7_info->last_adjustment_slot = p7_info->slot;
+
+    p7_info->ewma_lab_last_target_s_ahead = target_s_ahead;
+    p7_info->ewma_lab_last_direction =
+            delta_s_ahead > 0 ? 1 : -1;
+
+    NFAPI_TRACE(NFAPI_TRACE_INFO,
+        "[P7_SYNC][EWMA_LAB] α=1/%d β=1/%d %s: %d→%d | "
+        "worst_late=%d mean=%d var=%d diff=%d "
+        "late_jitter=%d early_jitter=%d "
+        "up_bound=%d down_bound=%d "
+        "closest=%d uncertainty=%d "
+        "predicted_risk=%d failure_sample=%d "
+        "failure_debt=%d risk_debt=%d safe_margin=%d safe_margin_ewma=%d "
+        "hard_late=%d soft_risk=%d safe_sample=%d "
+        "pre_safe=%d pre_late=%d pre_risk=%d "
+        "safe_cnt=%d late_cnt=%d risk_cnt=%d "
+        "post_down_risk=%d debt_free=%d down_allowed=%d "
+        "up_reason=%d down_reason=%d "
+        "delta=%d mean_shift=%ld wait_steps=%d",
+        global_ewma_alpha_denom,
+        global_ewma_beta_denom,
+        delta_s_ahead > 0 ? "UP" : "DOWN",
+        old_s_ahead,
+        target_s_ahead,
+        stats->worst_late,
+        p7_info->estimated_mean_late,
+        p7_info->estimated_jitter_var,
+        diff,
+        p7_info->late_jitter,
+        p7_info->early_jitter,
+        jitter_up_bound_us,
+        jitter_down_bound_us,
+        closest_to_deadline_us,
+        timing_uncertainty_us,
+        predicted_risk_us,
+        failure_sample_us,
+        p7_info->ewma_lab_failure_debt_us,
+        p7_info->ewma_lab_risk_debt_us,
+        safe_margin_sample_us,
+        p7_info->ewma_lab_safe_margin_ewma_us,
+        hard_late,
+        soft_risk,
+        safe_sample,
+        pre_safe_count,
+        pre_late_count,
+        pre_risk_count,
+        p7_info->ewma_lab_safe_period_count,
+        p7_info->ewma_lab_late_period_count,
+        p7_info->ewma_lab_risk_period_count,
+        post_down_predicted_risk_us,
+        debt_free,
+        down_allowed,
+        up_reason,
+        down_reason,
+        delta_s_ahead,
+        (long)mean_shift_64,
+        p7_info->last_adjustment_steps);
+
+    p7_info->last_total_advanced_us =
+            p7_info->total_advanced_us;
+
+    s_ahead_env = target_s_ahead;
+
+    /*
+     * Consume period counters.
+     *
+     * These counters are not used for decision in this single-input
+     * version. Keep reset for compatibility with existing code.
      */
     p7_info->recent_p7_too_late_max_us = 0;
     p7_info->recent_rlc_reject_count = 0;

@@ -391,12 +391,9 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t ewma_lab_hold_down_count;
 	int32_t ewma_lab_last_direction;
 	int32_t ewma_lab_last_target_s_ahead;
-
-	int32_t ewma_lab_uncertainty_ewma_us;
-	int32_t ewma_lab_uncertainty_dev_us;
-
-	int32_t ewma_lab_current_load_profile;
-
+	int32_t ewma_lab_failure_debt_us;
+	int32_t ewma_lab_risk_debt_us;
+	int32_t ewma_lab_safe_margin_ewma_us;
 	p7_ewma_lab_load_profile_t ewma_lab_load_profile[P7_EWMA_LAB_MAX_LOAD_PROFILES];
 	
 } nfapi_vnf_p7_connection_info_t;
