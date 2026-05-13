@@ -399,6 +399,61 @@ static inline int32_t clamp_i32(int32_t v, int32_t lo, int32_t hi)
     return v;
 }
 
+/*
+ * Integer EWMA helper.
+ *
+ * This avoids the integer-division dead-zone:
+ *
+ *   cur += (target - cur) / denom
+ *
+ * would never converge when abs(target - cur) < denom.
+ *
+ * No additional tunable parameter is introduced.
+ * The minimum +/-1 movement is purely an integer quantization fix.
+ */
+static inline int32_t p7_ewma_step_i32(
+    int32_t cur,
+    int32_t target,
+    int32_t denom)
+{
+    int32_t diff;
+    int32_t step;
+
+    if (denom <= 1)
+        return target;
+
+    diff = target - cur;
+
+    if (diff == 0)
+        return cur;
+
+    step = diff / denom;
+
+    if (step == 0)
+        step = diff > 0 ? 1 : -1;
+
+    return cur + step;
+}
+
+/*
+ * EWMA integer zero-resolution check.
+ *
+ * This is not a policy hyperparameter.
+ * It is the quantization resolution implied by alpha denominator.
+ */
+static inline int p7_ewma_effectively_zero_i32(
+    int32_t value,
+    int32_t denom)
+{
+    if (value <= 0)
+        return 1;
+
+    if (denom <= 1)
+        return value == 0;
+
+    return value <= denom;
+}
+
 static void p7_run_ewma_lab_control(
     nfapi_vnf_p7_connection_info_t *p7_info,
     const vnf_timing_stats_t *stats,
@@ -418,9 +473,9 @@ static void p7_run_ewma_lab_control(
      * Control pacing
      * ============================================================
      *
-     * Not a tunable policy hyperparameter.
-     * This follows NFAPI timing_info_period and the previous movement
-     * magnitude, so larger moves naturally require more time to observe.
+     * No new hyperparameter:
+     * wait time is derived from last movement size and NFAPI
+     * timing_info_period.
      */
     int32_t elapsed_slots = calculate_slot_distance(
             p7_info->sfn,
@@ -444,17 +499,15 @@ static void p7_run_ewma_lab_control(
      * Single-input EWMA estimator
      * ============================================================
      *
-     * The only external runtime input used by this controller is:
+     * The only external runtime input used here:
      *
      *     stats->worst_late
      *
-     * Interpretation:
+     * worst_late > 0:
+     *     already late
      *
-     *     worst_late > 0:
-     *         At least one message was late.
-     *
-     *     worst_late <= 0:
-     *         The worst observed message was early by -worst_late us.
+     * worst_late <= 0:
+     *     still early
      */
     if (p7_info->estimated_mean_late == 0) {
         p7_info->estimated_mean_late = stats->worst_late;
@@ -469,16 +522,16 @@ static void p7_run_ewma_lab_control(
     int32_t abs_diff = abs_i32(diff);
 
     /*
-     * EWMA mean of timing residual.
+     * Mean EWMA.
+     *
+     * Keep normal integer EWMA here.
+     * The zero-dead-zone issue is critical for debts, not for mean.
      */
     p7_info->estimated_mean_late +=
             diff / global_ewma_alpha_denom;
 
     /*
      * Directional jitter EWMA.
-     *
-     * Positive diff means timing moved closer to late.
-     * Negative diff means timing moved earlier.
      */
     if (diff > 0) {
         p7_info->late_jitter +=
@@ -491,7 +544,7 @@ static void p7_run_ewma_lab_control(
     }
 
     /*
-     * Absolute deviation EWMA.
+     * Absolute jitter EWMA.
      */
     p7_info->estimated_jitter_var +=
             (abs_diff - p7_info->estimated_jitter_var) /
@@ -507,11 +560,7 @@ static void p7_run_ewma_lab_control(
         p7_info->early_jitter = 0;
 
     /*
-     * Conservative timing representative.
-     *
-     * closest_to_deadline_us is the more dangerous value between:
-     *   - current worst_late
-     *   - EWMA mean
+     * The more dangerous timing representative.
      */
     int32_t closest_to_deadline_us =
             stats->worst_late > p7_info->estimated_mean_late ?
@@ -519,7 +568,7 @@ static void p7_run_ewma_lab_control(
             p7_info->estimated_mean_late;
 
     /*
-     * One-sided uncertainty toward late side.
+     * Late-side uncertainty.
      */
     int32_t timing_uncertainty_us =
             p7_info->late_jitter +
@@ -540,13 +589,6 @@ static void p7_run_ewma_lab_control(
      * ============================================================
      * Single-input risk model
      * ============================================================
-     *
-     * predicted_risk_us > 0 means:
-     *
-     *     closest_to_deadline + uncertainty already reaches
-     *     or crosses the deadline.
-     *
-     * This is the only reason to increase s_ahead.
      */
     int32_t predicted_risk_us =
             closest_to_deadline_us +
@@ -570,38 +612,43 @@ static void p7_run_ewma_lab_control(
         failure_sample_us = 0;
 
     /*
-     * failure_debt:
-     *   EWMA memory of actual late events.
+     * Safe margin sample:
      *
-     * risk_debt:
-     *   EWMA memory of predicted tail risk.
-     *
-     * safe_margin_ewma:
-     *   EWMA memory of available timing headroom.
-     *
-     * All three use only worst_late-derived quantities.
-     * No extra hyperparameter.
+     * How much time remains after accounting for worst/mean timing
+     * and late-side uncertainty.
      */
-    p7_info->ewma_lab_failure_debt_us +=
-            (failure_sample_us -
-             p7_info->ewma_lab_failure_debt_us) /
-            global_ewma_alpha_denom;
-
-    p7_info->ewma_lab_risk_debt_us +=
-            (predicted_risk_us -
-             p7_info->ewma_lab_risk_debt_us) /
-            global_ewma_alpha_denom;
-
     int32_t safe_margin_sample_us =
             -(closest_to_deadline_us + timing_uncertainty_us);
 
     if (safe_margin_sample_us < 0)
         safe_margin_sample_us = 0;
 
-    p7_info->ewma_lab_safe_margin_ewma_us +=
-            (safe_margin_sample_us -
-             p7_info->ewma_lab_safe_margin_ewma_us) /
-            global_ewma_alpha_denom;
+    /*
+     * ============================================================
+     * EWMA debts / margin
+     * ============================================================
+     *
+     * These are still derived only from worst_late.
+     *
+     * Use p7_ewma_step_i32() to avoid integer EWMA dead-zone.
+     */
+    p7_info->ewma_lab_failure_debt_us =
+            p7_ewma_step_i32(
+                    p7_info->ewma_lab_failure_debt_us,
+                    failure_sample_us,
+                    global_ewma_alpha_denom);
+
+    p7_info->ewma_lab_risk_debt_us =
+            p7_ewma_step_i32(
+                    p7_info->ewma_lab_risk_debt_us,
+                    predicted_risk_us,
+                    global_ewma_alpha_denom);
+
+    p7_info->ewma_lab_safe_margin_ewma_us =
+            p7_ewma_step_i32(
+                    p7_info->ewma_lab_safe_margin_ewma_us,
+                    safe_margin_sample_us,
+                    global_ewma_alpha_denom);
 
     if (p7_info->ewma_lab_failure_debt_us < 0)
         p7_info->ewma_lab_failure_debt_us = 0;
@@ -622,8 +669,8 @@ static void p7_run_ewma_lab_control(
             safe_margin_sample_us > 0;
 
     /*
-     * Counters are only for logging / observability.
-     * They are not used as tunable thresholds.
+     * Counters are observability only.
+     * No threshold depends on them.
      */
     int32_t pre_safe_count =
             p7_info->ewma_lab_safe_period_count;
@@ -658,22 +705,21 @@ static void p7_run_ewma_lab_control(
      * ============================================================
      *
      * UP:
-     *   If predicted risk exists, add enough slots to cover it.
+     *   If predicted_risk > 0, increase enough slots.
      *
      * DOWN:
-     *   Only if all EWMA debts are gone and EWMA safe margin is large
-     *   enough to remove one full slot while remaining safe.
+     *   Allow down only if:
+     *     - current sample has no predicted risk
+     *     - current sample has no failure
+     *     - EWMA debts are effectively zero under integer resolution
+     *     - EWMA safe margin can cover one slot
+     *     - post-down predicted risk remains <= 0
      *
-     * This makes DOWN naturally slower than UP without introducing a
-     * tunable down-hysteresis parameter.
+     * No hardcoded 3/4/8.
+     * No offered load.
+     * No prior.
+     * No HARQ/RLC/retrans.
      */
-    int32_t target_s_ahead = s_ahead_env;
-    int32_t up_reason = 0;
-    int32_t down_reason = 0;
-
-    bool up_required =
-            predicted_risk_us > 0;
-
     int32_t post_down_predicted_risk_us =
             closest_to_deadline_us +
             slot_duration_us +
@@ -682,13 +728,28 @@ static void p7_run_ewma_lab_control(
     bool down_safe_after_one_slot =
             post_down_predicted_risk_us <= 0;
 
+    bool failure_debt_free =
+            p7_ewma_effectively_zero_i32(
+                    p7_info->ewma_lab_failure_debt_us,
+                    global_ewma_alpha_denom);
+
+    bool risk_debt_free =
+            p7_ewma_effectively_zero_i32(
+                    p7_info->ewma_lab_risk_debt_us,
+                    global_ewma_alpha_denom);
+
     bool debt_free =
-            p7_info->ewma_lab_failure_debt_us == 0 &&
-            p7_info->ewma_lab_risk_debt_us == 0;
+            failure_sample_us == 0 &&
+            predicted_risk_us == 0 &&
+            failure_debt_free &&
+            risk_debt_free;
 
     bool enough_ewma_safe_margin_for_down =
             p7_info->ewma_lab_safe_margin_ewma_us >=
             slot_duration_us;
+
+    bool up_required =
+            predicted_risk_us > 0;
 
     bool down_allowed =
             !up_required &&
@@ -696,6 +757,10 @@ static void p7_run_ewma_lab_control(
             enough_ewma_safe_margin_for_down &&
             down_safe_after_one_slot &&
             s_ahead_env > 1;
+
+    int32_t target_s_ahead = s_ahead_env;
+    int32_t up_reason = 0;
+    int32_t down_reason = 0;
 
     if (up_required) {
         int32_t pressure_for_up_us =
@@ -706,13 +771,15 @@ static void p7_run_ewma_lab_control(
             pressure_for_up_us = 1;
 
         int32_t extra_slots =
-                ceil_div_pos_i32(pressure_for_up_us,
-                                 slot_duration_us);
+                ceil_div_pos_i32(
+                        pressure_for_up_us,
+                        slot_duration_us);
 
         if (extra_slots < 1)
             extra_slots = 1;
 
-        target_s_ahead = s_ahead_env + extra_slots;
+        target_s_ahead =
+                s_ahead_env + extra_slots;
 
         if (target_s_ahead > max_s_ahead)
             target_s_ahead = max_s_ahead;
@@ -728,7 +795,9 @@ static void p7_run_ewma_lab_control(
     }
 
     /*
-     * No movement.
+     * ============================================================
+     * No movement path
+     * ============================================================
      */
     if (target_s_ahead == s_ahead_env) {
         if (p7_info->sfn % 256 == 0 && p7_info->slot == 0) {
@@ -739,10 +808,13 @@ static void p7_run_ewma_lab_control(
                 "up_bound=%d down_bound=%d "
                 "closest=%d uncertainty=%d "
                 "predicted_risk=%d failure_sample=%d "
-                "failure_debt=%d risk_debt=%d safe_margin=%d safe_margin_ewma=%d "
+                "failure_debt=%d risk_debt=%d "
+                "failure_debt_free=%d risk_debt_free=%d "
+                "safe_margin=%d safe_margin_ewma=%d "
                 "hard_late=%d soft_risk=%d safe_sample=%d "
                 "safe_cnt=%d late_cnt=%d risk_cnt=%d "
-                "post_down_risk=%d debt_free=%d down_allowed=%d "
+                "post_down_risk=%d debt_free=%d "
+                "enough_margin=%d down_allowed=%d "
                 "alpha=1/%d beta=1/%d",
                 s_ahead_env,
                 stats->worst_late,
@@ -759,6 +831,8 @@ static void p7_run_ewma_lab_control(
                 failure_sample_us,
                 p7_info->ewma_lab_failure_debt_us,
                 p7_info->ewma_lab_risk_debt_us,
+                failure_debt_free,
+                risk_debt_free,
                 safe_margin_sample_us,
                 p7_info->ewma_lab_safe_margin_ewma_us,
                 hard_late,
@@ -769,11 +843,16 @@ static void p7_run_ewma_lab_control(
                 p7_info->ewma_lab_risk_period_count,
                 post_down_predicted_risk_us,
                 debt_free,
+                enough_ewma_safe_margin_for_down,
                 down_allowed,
                 global_ewma_alpha_denom,
                 global_ewma_beta_denom);
         }
 
+        /*
+         * Compatibility reset only.
+         * These are not used by this single-input controller.
+         */
         p7_info->recent_p7_too_late_max_us = 0;
         p7_info->recent_rlc_reject_count = 0;
         p7_info->recent_harq_timeout_count = 0;
@@ -788,7 +867,6 @@ static void p7_run_ewma_lab_control(
      * ============================================================
      */
     int32_t old_s_ahead = s_ahead_env;
-    int32_t delta_s_ahead = target_s_ahead - old_s_ahead;
 
     if (target_s_ahead > max_s_ahead)
         target_s_ahead = max_s_ahead;
@@ -796,7 +874,8 @@ static void p7_run_ewma_lab_control(
     if (target_s_ahead < 1)
         target_s_ahead = 1;
 
-    delta_s_ahead = target_s_ahead - old_s_ahead;
+    int32_t delta_s_ahead =
+            target_s_ahead - old_s_ahead;
 
     if (delta_s_ahead == 0) {
         p7_info->recent_p7_too_late_max_us = 0;
@@ -807,10 +886,10 @@ static void p7_run_ewma_lab_control(
     }
 
     /*
-     * Compensate mean after changing s_ahead.
+     * Compensate estimator after changing s_ahead.
      *
      * Increasing s_ahead makes future arrivals earlier, therefore
-     * estimated_mean_late shifts down by delta * slot_duration.
+     * estimated_mean_late shifts down.
      */
     int64_t mean_shift_64 =
             (int64_t)delta_s_ahead * slot_duration_us;
@@ -829,11 +908,10 @@ static void p7_run_ewma_lab_control(
             (int32_t)compensated_mean_64;
 
     /*
-     * Large actuation changes the operating point.
-     * Keep uncertainty memory, but avoid carrying the full old
-     * transient spike into the new operating point.
+     * Large actuation changes operating point.
+     * Reduce transient jitter memory using beta denominator.
      *
-     * No new hyperparameter: divide by EWMA beta denominator.
+     * No new hyperparameter.
      */
     if (abs_i32(delta_s_ahead) > 1) {
         p7_info->estimated_jitter_var =
@@ -858,7 +936,9 @@ static void p7_run_ewma_lab_control(
     p7_info->last_adjustment_sfn = p7_info->sfn;
     p7_info->last_adjustment_slot = p7_info->slot;
 
-    p7_info->ewma_lab_last_target_s_ahead = target_s_ahead;
+    p7_info->ewma_lab_last_target_s_ahead =
+            target_s_ahead;
+
     p7_info->ewma_lab_last_direction =
             delta_s_ahead > 0 ? 1 : -1;
 
@@ -869,11 +949,14 @@ static void p7_run_ewma_lab_control(
         "up_bound=%d down_bound=%d "
         "closest=%d uncertainty=%d "
         "predicted_risk=%d failure_sample=%d "
-        "failure_debt=%d risk_debt=%d safe_margin=%d safe_margin_ewma=%d "
+        "failure_debt=%d risk_debt=%d "
+        "failure_debt_free=%d risk_debt_free=%d "
+        "safe_margin=%d safe_margin_ewma=%d "
         "hard_late=%d soft_risk=%d safe_sample=%d "
         "pre_safe=%d pre_late=%d pre_risk=%d "
         "safe_cnt=%d late_cnt=%d risk_cnt=%d "
-        "post_down_risk=%d debt_free=%d down_allowed=%d "
+        "post_down_risk=%d debt_free=%d "
+        "enough_margin=%d down_allowed=%d "
         "up_reason=%d down_reason=%d "
         "delta=%d mean_shift=%ld wait_steps=%d",
         global_ewma_alpha_denom,
@@ -895,6 +978,8 @@ static void p7_run_ewma_lab_control(
         failure_sample_us,
         p7_info->ewma_lab_failure_debt_us,
         p7_info->ewma_lab_risk_debt_us,
+        failure_debt_free,
+        risk_debt_free,
         safe_margin_sample_us,
         p7_info->ewma_lab_safe_margin_ewma_us,
         hard_late,
@@ -908,6 +993,7 @@ static void p7_run_ewma_lab_control(
         p7_info->ewma_lab_risk_period_count,
         post_down_predicted_risk_us,
         debt_free,
+        enough_ewma_safe_margin_for_down,
         down_allowed,
         up_reason,
         down_reason,
@@ -921,10 +1007,8 @@ static void p7_run_ewma_lab_control(
     s_ahead_env = target_s_ahead;
 
     /*
-     * Consume period counters.
-     *
-     * These counters are not used for decision in this single-input
-     * version. Keep reset for compatibility with existing code.
+     * Compatibility reset only.
+     * This controller does not use these as inputs.
      */
     p7_info->recent_p7_too_late_max_us = 0;
     p7_info->recent_rlc_reject_count = 0;
