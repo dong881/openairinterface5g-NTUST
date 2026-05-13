@@ -66,104 +66,224 @@ int vnf_p7_extract_timing_info(const nfapi_nr_timing_info_t *ind,
                                vnf_timing_stats_t *out_stats,
                                int max_stats)
 {
-  // 8 timing data points: (dl_tti, tx_data, ul_tti, ul_dci) x (latest_delay & earliest_arrival)
-  struct {
-    int32_t value;
-  } raw_data[8] = {
-    {ind->dl_tti_latest_delay},
-    {ind->tx_data_latest_delay},
-    {ind->ul_tti_latest_delay},
-    {ind->ul_dci_latest_delay},
-    {ind->dl_tti_earliest_arrival},
-    {ind->tx_data_earliest_arrival},
-    {ind->ul_tti_earliest_arrival},
-    {ind->ul_dci_earliest_arrival}
-  };
-
-  int count = 0;
-  uint32_t slot_duration_us = 1000 >> p7_info->mu; // 500us for mu=1, 1000us for mu=0
-  uint32_t max_slot_dec = NFAPI_MAX_SFNSLOTDEC(p7_info->mu);
-
-  // PNF sends last_sfn/last_slot as (current - 1)
-  uint32_t base_slot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, ind->last_sfn, ind->last_slot);
-  uint32_t current_slot_dec = (base_slot_dec + 1) % max_slot_dec;
-
-  // Expand the valid range to include the configured timing window plus a slot margin.
-  // This prevents discarding legitimate too-early / too-late reports when timing_window is > 5ms.
-  nfapi_vnf_config_t *config = get_config();
-  int32_t timing_window_us = (int32_t)config->timing_window;
-  const int32_t TIMING_VALUE_MIN = -150000;
-  const int32_t TIMING_VALUE_MAX = timing_window_us + (int32_t)slot_duration_us * 2 + 2000;
-
-  for (int i = 0; i < 8; i++) {
-    if (raw_data[i].value == 0)
-      continue; // Skip zero values
-
-    // Discard abnormal values outside valid range
-    if (raw_data[i].value < TIMING_VALUE_MIN || raw_data[i].value > TIMING_VALUE_MAX){
-      continue;
+    if (ind == NULL || p7_info == NULL || out_stats == NULL) {
+        return 0;
     }
 
-    // Calculate packet slot properties
-    int32_t slot_offset = raw_data[i].value / (int32_t)slot_duration_us;
-    // Calculate absolute slot in the hyperframe cycle (0..max_slot_dec-1)
-    uint32_t true_abs_slot = (current_slot_dec - slot_offset - (raw_data[i].value > 0) + max_slot_dec) % max_slot_dec;
-    // Map to local buffer index
-    uint32_t ps = true_abs_slot % SLOT_ARRAY_SIZE;
-
-    // --- History Aggregation Logic ---
-    if (p7_info->slot_history[ps].abs_slot == true_abs_slot) {
-        // MATCH: Merge with existing history for this slot
-        if (raw_data[i].value > p7_info->slot_history[ps].max_late)
-            p7_info->slot_history[ps].max_late = raw_data[i].value;
-        if (raw_data[i].value < p7_info->slot_history[ps].max_early)
-            p7_info->slot_history[ps].max_early = raw_data[i].value;
-    } else {
-        // MISMATCH: New slot detected, reset history
-        p7_info->slot_history[ps].abs_slot = true_abs_slot;
-        p7_info->slot_history[ps].max_late = raw_data[i].value;
-        p7_info->slot_history[ps].max_early = raw_data[i].value;
+    if (max_stats <= 0) {
+        return 0;
     }
 
-    // --- Prepare Output Stats (merged values) ---
-    // Check if we already have this slot in out_stats to allow multiple updates in one pass if needed
-    // (though usually strict aggregation suggests we just output the latest merged state)
-    int found = -1;
-    for (int j = 0; j < count; j++) {
-      if (out_stats[j].packet_slot == ps) {
-        found = j;
-        break;
-      }
+    /*
+     * slot_duration_us:
+     *   mu=0 -> 1000us
+     *   mu=1 -> 500us
+     *   mu=2 -> 250us
+     *
+     * Guard against invalid mu producing zero.
+     */
+    int32_t slot_duration_us = 1000 >> p7_info->mu;
+
+    if (slot_duration_us <= 0) {
+        return 0;
     }
 
-    if (found >= 0) {
-      // Update existing entry in this batch with latest from history
-      out_stats[found].worst_late = p7_info->slot_history[ps].max_late;
-      out_stats[found].worst_early = p7_info->slot_history[ps].max_early;
-      
-      uint32_t max_jitter = 0;
-      if (ind->dl_tti_jitter > max_jitter) max_jitter = ind->dl_tti_jitter;
-      if (ind->tx_data_jitter > max_jitter) max_jitter = ind->tx_data_jitter;
-      if (ind->ul_tti_jitter > max_jitter) max_jitter = ind->ul_tti_jitter;
-      if (ind->ul_dci_jitter > max_jitter) max_jitter = ind->ul_dci_jitter;
-      out_stats[found].pnf_reported_jitter = max_jitter;
-    } else if (count < max_stats) {
-      // New entry in this batch
-      out_stats[count].packet_slot = ps;
-      out_stats[count].worst_late = p7_info->slot_history[ps].max_late;
-      out_stats[count].worst_early = p7_info->slot_history[ps].max_early;
-      
-      // Calculate Jitter comprehensively here instead of in handle_dynamic_timing_info
-      uint32_t max_jitter = 0;
-      if (ind->dl_tti_jitter > max_jitter) max_jitter = ind->dl_tti_jitter;
-      if (ind->tx_data_jitter > max_jitter) max_jitter = ind->tx_data_jitter;
-      if (ind->ul_tti_jitter > max_jitter) max_jitter = ind->ul_tti_jitter;
-      if (ind->ul_dci_jitter > max_jitter) max_jitter = ind->ul_dci_jitter;
-      out_stats[count].pnf_reported_jitter = max_jitter;
-      count++;
+    nfapi_vnf_config_t *config = get_config();
+
+    if (config == NULL) {
+        return 0;
     }
-  }
-  return count;
+
+    /*
+     * Build a dynamic validity window from runtime configuration.
+     *
+     * Do not use hardcoded microsecond thresholds here.
+     *
+     * The timing info should normally be within timing_window plus
+     * several slot durations.  We allow one frame duration as the
+     * maximum dynamic span so that valid large delay/jitter experiments
+     * are not accidentally discarded.
+     */
+    int32_t slots_per_frame = 10 << p7_info->mu;
+    int64_t frame_duration_us =
+            (int64_t)slots_per_frame * (int64_t)slot_duration_us;
+
+    int64_t timing_window_us = (int64_t)config->timing_window;
+
+    if (timing_window_us < 0) {
+        timing_window_us = 0;
+    }
+
+    int64_t valid_span_us =
+            timing_window_us + frame_duration_us;
+
+    if (valid_span_us <= 0) {
+        valid_span_us = frame_duration_us;
+    }
+
+    /*
+     * Latest delay values:
+     *
+     * These are the most important values for no-drop policy.
+     * A positive latest_delay means the message was late.
+     * A negative latest_delay means the message arrived before deadline.
+     */
+    int32_t latest_delay_values[4] = {
+        ind->dl_tti_latest_delay,
+        ind->tx_data_latest_delay,
+        ind->ul_tti_latest_delay,
+        ind->ul_dci_latest_delay
+    };
+
+    /*
+     * Earliest arrival values:
+     *
+     * These are useful to know how early messages are arriving.
+     * They should not override a positive latest_delay.
+     */
+    int32_t earliest_arrival_values[4] = {
+        ind->dl_tti_earliest_arrival,
+        ind->tx_data_earliest_arrival,
+        ind->ul_tti_earliest_arrival,
+        ind->ul_dci_earliest_arrival
+    };
+
+    int32_t worst_late = INT32_MIN;
+    int32_t worst_early = INT32_MAX;
+
+    bool have_latest_delay = false;
+    bool have_any_sample = false;
+
+    /*
+     * First pass:
+     *   use latest_delay fields as primary control input.
+     *
+     * This avoids an early-arrival value masking a real late sample.
+     */
+    for (int i = 0; i < 4; ++i) {
+        int32_t value = latest_delay_values[i];
+
+        /*
+         * In current nFAPI timing_info usage, zero is treated as
+         * "not reported".  If the PNF implementation later defines
+         * zero as an explicit exact-deadline sample, this condition
+         * should be revisited.
+         */
+        if (value == 0) {
+            continue;
+        }
+
+        if ((int64_t)value > valid_span_us ||
+            (int64_t)value < -valid_span_us) {
+            continue;
+        }
+
+        have_latest_delay = true;
+        have_any_sample = true;
+
+        if (value > worst_late) {
+            worst_late = value;
+        }
+
+        if (value < worst_early) {
+            worst_early = value;
+        }
+    }
+
+    /*
+     * Second pass:
+     *   collect earliest_arrival for diagnostics / fallback.
+     *
+     * If there were no latest_delay samples at all, the closest
+     * earliest_arrival becomes worst_late.  This keeps the controller
+     * informed that packets are early, without inventing late pressure.
+     */
+    int32_t closest_early_to_deadline = INT32_MIN;
+
+    for (int i = 0; i < 4; ++i) {
+        int32_t value = earliest_arrival_values[i];
+
+        if (value == 0) {
+            continue;
+        }
+
+        if ((int64_t)value > valid_span_us ||
+            (int64_t)value < -valid_span_us) {
+            continue;
+        }
+
+        have_any_sample = true;
+
+        if (value < worst_early) {
+            worst_early = value;
+        }
+
+        /*
+         * For early samples, the largest value is closest to deadline.
+         * Example:
+         *   -100us is closer / riskier than -900us.
+         */
+        if (value > closest_early_to_deadline) {
+            closest_early_to_deadline = value;
+        }
+    }
+
+    if (!have_any_sample) {
+        return 0;
+    }
+
+    if (!have_latest_delay) {
+        if (closest_early_to_deadline == INT32_MIN) {
+            return 0;
+        }
+
+        worst_late = closest_early_to_deadline;
+    }
+
+    if (worst_late == INT32_MIN) {
+        return 0;
+    }
+
+    if (worst_early == INT32_MAX) {
+        worst_early = worst_late;
+    }
+
+    uint32_t max_jitter = 0;
+
+    if (ind->dl_tti_jitter > max_jitter) {
+        max_jitter = ind->dl_tti_jitter;
+    }
+
+    if (ind->tx_data_jitter > max_jitter) {
+        max_jitter = ind->tx_data_jitter;
+    }
+
+    if (ind->ul_tti_jitter > max_jitter) {
+        max_jitter = ind->ul_tti_jitter;
+    }
+
+    if (ind->ul_dci_jitter > max_jitter) {
+        max_jitter = ind->ul_dci_jitter;
+    }
+
+    /*
+     * One indication produces exactly one merged timing stat.
+     *
+     * packet_slot is intentionally set to current slot modulo local
+     * history size only for compatibility/logging.  The controller
+     * should not use packet_slot for decision making.
+     */
+    out_stats[0].packet_slot =
+            NFAPI_SFNSLOT2DEC(p7_info->mu,
+                               p7_info->sfn,
+                               p7_info->slot) %
+            SLOT_ARRAY_SIZE;
+
+    out_stats[0].worst_late = worst_late;
+    out_stats[0].worst_early = worst_early;
+    out_stats[0].pnf_reported_jitter = max_jitter;
+
+    return 1;
 }
 
 /*
@@ -287,17 +407,26 @@ static void p7_run_ewma_lab_control(
 {
     nfapi_vnf_config_t *config = get_config();
 
-    if (slot_duration_us <= 0 || max_s_ahead <= 0 || p7_info == NULL || stats == NULL)
+    if (p7_info == NULL || stats == NULL || config == NULL)
         return;
 
-    int32_t slots_per_frame = 10 << p7_info->mu;
+    if (slot_duration_us <= 0 || max_s_ahead <= 0)
+        return;
 
+    /*
+     * ============================================================
+     * Control pacing
+     * ============================================================
+     *
+     * This prevents the controller from reacting before previous
+     * s_ahead actuation has propagated through P7 timing.
+     */
     int32_t elapsed_slots = calculate_slot_distance(
             p7_info->sfn,
             p7_info->slot,
             p7_info->last_adjustment_sfn,
             p7_info->last_adjustment_slot,
-            slots_per_frame);
+            10 << p7_info->mu);
 
     int32_t required_wait_slots =
             p7_info->last_adjustment_steps +
@@ -310,6 +439,16 @@ static void p7_run_ewma_lab_control(
      * ============================================================
      * EWMA timing estimator
      * ============================================================
+     *
+     * Input contract:
+     *
+     *   stats->worst_late > 0
+     *      At least one message in this timing period was late.
+     *      Reliability / no-drop policy must dominate.
+     *
+     *   stats->worst_late <= 0
+     *      This period was early or exactly on deadline.
+     *      This does NOT immediately mean it is safe to DOWN.
      */
     if (p7_info->estimated_mean_late == 0) {
         p7_info->estimated_mean_late = stats->worst_late;
@@ -318,7 +457,8 @@ static void p7_run_ewma_lab_control(
         p7_info->last_adjustment_slot = p7_info->slot;
     }
 
-    int32_t diff = stats->worst_late - p7_info->estimated_mean_late;
+    int32_t old_mean_for_diff = p7_info->estimated_mean_late;
+    int32_t diff = stats->worst_late - old_mean_for_diff;
     int32_t abs_diff = abs_i32(diff);
 
     p7_info->estimated_mean_late +=
@@ -346,6 +486,12 @@ static void p7_run_ewma_lab_control(
             p7_info->early_jitter +
             p7_info->estimated_jitter_var;
 
+    /*
+     * Closest point to deadline.
+     *
+     * Positive: already late.
+     * Negative: early.
+     */
     int32_t closest_to_deadline_us =
             stats->worst_late > p7_info->estimated_mean_late ?
             stats->worst_late : p7_info->estimated_mean_late;
@@ -362,9 +508,11 @@ static void p7_run_ewma_lab_control(
      * Offered-load estimator
      * ============================================================
      *
-     * This remains non-hardcoded. However, if collectors do not feed
-     * recent_p7_msg_count / recent_msg_per_slot, load is unobservable.
-     * In that case, do NOT use load to justify aggressive edge-walking.
+     * Kept only for logging / diagnostics.
+     *
+     * This controller version does NOT use offered load as a control
+     * decision input, because current nFAPI timing path only provides
+     * stats->worst_late reliably.
      */
     int32_t current_offered_load =
             p7_info->recent_p7_msg_count > 0 ?
@@ -373,8 +521,6 @@ static void p7_run_ewma_lab_control(
 
     if (current_offered_load < 0)
         current_offered_load = 0;
-
-    bool load_observable = current_offered_load > 0;
 
     if (p7_info->estimated_offered_load == 0)
         p7_info->estimated_offered_load = current_offered_load;
@@ -392,150 +538,16 @@ static void p7_run_ewma_lab_control(
     if (current_offered_load > p7_info->peak_offered_load)
         p7_info->peak_offered_load = current_offered_load;
 
-    /*
-     * ============================================================
-     * PNF / MAC feedback
-     * ============================================================
-     *
-     * These signals are the guardrail. Non-peak does not mean
-     * "allow drops"; non-peak only means "try lower latency if PNF
-     * margin and MAC reliability stay healthy".
-     */
-    int32_t pnf_margin_floor_us = 0;
-
-    if (p7_info->sync_fb.recent_pnf_margin_ewma_us > 0) {
-        pnf_margin_floor_us =
-                p7_info->sync_fb.recent_pnf_margin_ewma_us -
-                p7_info->sync_fb.recent_pnf_margin_dev_us;
-    } else if (p7_info->sync_fb.recent_pnf_margin_min_us > 0) {
-        pnf_margin_floor_us =
-                p7_info->sync_fb.recent_pnf_margin_min_us;
-    }
-
-    if (pnf_margin_floor_us < 0)
-        pnf_margin_floor_us = 0;
-
-    bool pnf_or_mac_distress =
-            p7_info->sync_fb.recent_pnf_too_late_max_us > 0 ||
-            p7_info->sync_fb.recent_pnf_too_late_count > 0 ||
-            p7_info->sync_fb.recent_pnf_no_tx_data_count > 0 ||
-            p7_info->sync_fb.recent_mac_harq_feedback_timeout_count > 0 ||
-            p7_info->sync_fb.recent_mac_retx_abort_count > 0 ||
-            p7_info->recent_p7_too_late_max_us > 0 ||
-            p7_info->recent_harq_timeout_count > 0 ||
-            p7_info->recent_rlc_reject_count > 0 ||
-            stats->worst_late > 0 ||
-            closest_to_deadline_us > 0;
-
-    /*
-     * ============================================================
-     * Learned / baseline reference
-     * ============================================================
-     *
-     * reference_s_ahead may be 4 if fixed-4 baseline is best,
-     * but this function never hardcodes that value.
-     */
-    int32_t reference_s_ahead =
-            p7_info->sync_ref.reference_s_ahead > 0 ?
-            p7_info->sync_ref.reference_s_ahead :
-            p7_info->learned_good_s_ahead;
-
-    if (reference_s_ahead > max_s_ahead)
-        reference_s_ahead = max_s_ahead;
-
-    if (reference_s_ahead < 0)
-        reference_s_ahead = 0;
-
-    int32_t reference_latency_us =
-            p7_info->sync_ref.reference_latency_us > 0 ?
-            p7_info->sync_ref.reference_latency_us :
-            p7_info->learned_good_latency_us;
-
-    int32_t reference_margin_floor_us =
-            p7_info->sync_ref.reference_margin_floor_us > 0 ?
-            p7_info->sync_ref.reference_margin_floor_us :
-            p7_info->learned_good_margin_floor_us;
-
-    bool pnf_margin_worse_than_reference =
-            reference_margin_floor_us > 0 &&
-            pnf_margin_floor_us > 0 &&
-            pnf_margin_floor_us < reference_margin_floor_us;
-
-    bool latency_worse_than_reference =
-            reference_latency_us > 0 &&
-            p7_info->sync_fb.recent_effective_latency_ewma_us > 0 &&
-            p7_info->sync_fb.recent_effective_latency_ewma_us >
-                    reference_latency_us;
-
-    /*
-     * Learn good states only when there is no PNF/MAC distress.
-     *
-     * This lets the controller discover a better-than-baseline state,
-     * but never learns from a period that has TOO_LATE / HARQ timeout /
-     * tx_data miss / retransmission abort.
-     */
-    if (!pnf_or_mac_distress &&
-        pnf_margin_floor_us > 0 &&
-        p7_info->sync_fb.recent_effective_latency_ewma_us > 0) {
-
-        bool first_good_state =
-                p7_info->learned_good_s_ahead <= 0 ||
-                p7_info->learned_good_latency_us <= 0 ||
-                p7_info->learned_good_margin_floor_us <= 0;
-
-        bool better_latency =
-                p7_info->learned_good_latency_us > 0 &&
-                p7_info->sync_fb.recent_effective_latency_ewma_us <
-                        p7_info->learned_good_latency_us;
-
-        bool better_margin =
-                p7_info->learned_good_margin_floor_us > 0 &&
-                pnf_margin_floor_us >
-                        p7_info->learned_good_margin_floor_us;
-
-        if (first_good_state || better_latency || better_margin) {
-            p7_info->learned_good_s_ahead = s_ahead_env;
-            p7_info->learned_good_latency_us =
-                    p7_info->sync_fb.recent_effective_latency_ewma_us;
-            p7_info->learned_good_margin_floor_us =
-                    pnf_margin_floor_us;
-        }
-    }
-
-    /*
-     * ============================================================
-     * Peak detection
-     * ============================================================
-     *
-     * Peak is not "current load is close to high-water mark".
-     * Peak requires load observability and distress.
-     *
-     * For the current 400Mbps non-peak scenario, offered load is not
-     * observable in the logs, so this will remain false.
-     */
-    bool near_observed_peak = false;
-
-    if (load_observable && p7_info->peak_offered_load > 0) {
-        near_observed_peak =
-                current_offered_load + p7_info->offered_load_dev >=
-                p7_info->peak_offered_load;
-    }
-
-    bool peak_offered_load =
-            load_observable &&
-            near_observed_peak &&
-            pnf_or_mac_distress;
-
     int32_t peakness_q10 = 0;
 
     if (p7_info->peak_offered_load > 0) {
         peakness_q10 =
                 (int32_t)((int64_t)current_offered_load *
-                          P7_Q10_ONE /
+                          1024 /
                           p7_info->peak_offered_load);
 
-        if (peakness_q10 > P7_Q10_ONE)
-            peakness_q10 = P7_Q10_ONE;
+        if (peakness_q10 > 1024)
+            peakness_q10 = 1024;
 
         if (peakness_q10 < 0)
             peakness_q10 = 0;
@@ -543,163 +555,142 @@ static void p7_run_ewma_lab_control(
 
     /*
      * ============================================================
-     * Non-peak / peak pressure model
+     * No-drop first policy
      * ============================================================
      *
-     * Important change:
-     *   Non-peak no longer means "edge-walk freely".
-     *   Non-peak means "latency optimization under PNF no-drop guardrail".
+     * This version intentionally does NOT use peak/non-peak branching.
+     *
+     * Rationale:
+     *   - Current valid control input is only stats->worst_late.
+     *   - A positive worst_late means the PNF deadline was violated.
+     *   - Even at low offered load, late means possible loss/retransmit.
+     *
+     * Therefore:
+     *   - any positive worst_late is reliability pressure.
+     *   - DOWN requires repeated safe periods.
      */
-    int32_t allowed_late_us = 0;
 
-    if (!peak_offered_load &&
-        p7_info->peak_offered_load > 0 &&
-        current_offered_load > 0) {
-
-        int32_t load_gap =
-                p7_info->peak_offered_load - current_offered_load;
-
-        if (load_gap < 0)
-            load_gap = 0;
-
-        allowed_late_us =
-                (int32_t)((int64_t)slot_duration_us *
-                          load_gap /
-                          p7_info->peak_offered_load);
-
-        allowed_late_us += timing_uncertainty_us;
-    }
-
-    int32_t failure_debt_us = 0;
+    bool sample_late =
+            stats->worst_late > 0 ||
+            closest_to_deadline_us > 0;
 
     /*
-     * Prefer PNF-reported TOO_LATE because PNF is the real deadline owner.
+     * Tail risk is the risk that current timing plus uncertainty
+     * reaches or crosses deadline.
      */
-    if (p7_info->sync_fb.recent_pnf_too_late_max_us > 0) {
-        failure_debt_us =
-                p7_info->sync_fb.recent_pnf_too_late_max_us;
-    } else if (p7_info->recent_p7_too_late_max_us > 0) {
-        if (peak_offered_load) {
-            failure_debt_us = p7_info->recent_p7_too_late_max_us;
-        } else if (p7_info->recent_p7_too_late_max_us > allowed_late_us) {
-            failure_debt_us =
-                    p7_info->recent_p7_too_late_max_us -
-                    allowed_late_us;
-        }
-    }
-
-    int32_t msg_per_slot =
-            p7_info->recent_msg_per_slot > 0 ?
-            p7_info->recent_msg_per_slot : 1;
-
-    int32_t queue_events =
-            p7_info->recent_rlc_reject_count +
-            p7_info->recent_harq_timeout_count +
-            p7_info->sync_fb.recent_mac_harq_feedback_timeout_count +
-            p7_info->sync_fb.recent_mac_retx_abort_count +
-            p7_info->sync_fb.recent_pnf_no_tx_data_count;
-
-    if (queue_events < 0)
-        queue_events = 0;
-
-    int32_t queue_debt_us = 0;
-
-    /*
-     * Queue / retransmission / no_tx_data are reliability signals.
-     * They are no longer ignored in non-peak, because non-peak must
-     * still preserve no-drop behavior.
-     */
-    if (queue_events > 0) {
-        int32_t queue_debt_slots =
-                ceil_div_pos_i32(queue_events, msg_per_slot);
-
-        queue_debt_us =
-                queue_debt_slots * slot_duration_us;
-    }
-
-    int32_t required_headroom_us = 0;
-
-    if (peak_offered_load) {
-        required_headroom_us =
-                timing_uncertainty_us +
-                failure_debt_us +
-                queue_debt_us;
-    }
-
-    int32_t timing_tail_risk_us = 0;
-
-    if (peak_offered_load) {
-        timing_tail_risk_us =
-                closest_to_deadline_us +
-                required_headroom_us;
-    } else {
-        timing_tail_risk_us =
-                closest_to_deadline_us +
-                timing_uncertainty_us -
-                allowed_late_us;
-    }
+    int32_t timing_tail_risk_us =
+            closest_to_deadline_us +
+            timing_uncertainty_us;
 
     if (timing_tail_risk_us < 0)
         timing_tail_risk_us = 0;
 
     /*
-     * PNF margin debt relative to learned/reference healthy floor.
+     * Failure debt:
+     *
+     * Since we only trust stats->worst_late, positive worst_late itself
+     * becomes the reliability debt.
      */
-    int32_t pnf_margin_debt_us = 0;
+    int32_t failure_debt_us = 0;
 
-    if (reference_margin_floor_us > 0 &&
-        pnf_margin_floor_us > 0 &&
-        pnf_margin_floor_us < reference_margin_floor_us) {
-        pnf_margin_debt_us =
-                reference_margin_floor_us - pnf_margin_floor_us;
-    }
+    if (stats->worst_late > 0)
+        failure_debt_us = stats->worst_late;
 
+    /*
+     * Total pressure:
+     *
+     * A positive timing_tail_risk already says we are too close to
+     * deadline after considering jitter.
+     *
+     * A positive failure_debt says we already missed deadline.
+     */
     int32_t pressure_sample_us =
             timing_tail_risk_us +
-            failure_debt_us +
-            queue_debt_us +
-            pnf_margin_debt_us;
+            failure_debt_us;
 
     if (pressure_sample_us < 0)
         pressure_sample_us = 0;
 
     /*
-     * Accumulate pressure debt.
+     * ============================================================
+     * Internal hysteresis state
+     * ============================================================
      *
-     * Reliability pressure is sticky. If there is PNF/MAC distress,
-     * do not erase it immediately by one early sample.
+     * safe_period_count:
+     *   counts consecutive control periods that are safely early.
+     *
+     * late_period_count:
+     *   counts consecutive periods with positive worst_late or risk.
+     *
+     * hold_down_count:
+     *   prevents immediate DOWN after UP. This is critical to avoid
+     *   2<->4, 4<->5, 5<->6 oscillation.
+     *
+     * The thresholds below are derived from runtime pacing:
+     *   - timing_info_period
+     *   - last_adjustment_steps
+     *
+     * No fixed "4 slots" or fixed throughput threshold is used.
      */
-    if (pressure_sample_us > p7_info->pressure_debt_us)
-        p7_info->pressure_debt_us = pressure_sample_us;
+    bool safe_sample =
+            !sample_late &&
+            pressure_sample_us == 0 &&
+            closest_to_deadline_us < 0;
+
+    if (sample_late || pressure_sample_us > 0) {
+        p7_info->ewma_lab_late_period_count++;
+
+        if (p7_info->ewma_lab_late_period_count < 0)
+            p7_info->ewma_lab_late_period_count = 1;
+
+        p7_info->ewma_lab_safe_period_count = 0;
+    } else if (safe_sample) {
+        p7_info->ewma_lab_safe_period_count++;
+
+        if (p7_info->ewma_lab_safe_period_count < 0)
+            p7_info->ewma_lab_safe_period_count = 1;
+
+        p7_info->ewma_lab_late_period_count = 0;
+    } else {
+        /*
+         * Neutral sample: do not accumulate DOWN confidence.
+         */
+        p7_info->ewma_lab_safe_period_count = 0;
+        p7_info->ewma_lab_late_period_count = 0;
+    }
+
+    if (p7_info->ewma_lab_hold_down_count > 0)
+        p7_info->ewma_lab_hold_down_count--;
 
     /*
-     * Release debt only when PNF and MAC are also healthy.
+     * DOWN confidence requirement.
+     *
+     * This is derived from configured timing_info_period and current
+     * actuator propagation wait. It is not a hardcoded slot-ahead value.
      */
-    if (pressure_sample_us == 0 && !pnf_or_mac_distress) {
-        int32_t safe_surplus_us;
+    int32_t down_required_safe_periods =
+            p7_info->last_adjustment_steps +
+            (int32_t)config->timing_info_period;
 
-        if (peak_offered_load) {
-            safe_surplus_us =
-                    -(closest_to_deadline_us + required_headroom_us);
-        } else {
-            safe_surplus_us =
-                    allowed_late_us -
-                    (closest_to_deadline_us + timing_uncertainty_us);
-        }
+    if (down_required_safe_periods < 1)
+        down_required_safe_periods = 1;
 
-        if (reference_margin_floor_us > 0 &&
-            pnf_margin_floor_us > reference_margin_floor_us) {
-            safe_surplus_us +=
-                    pnf_margin_floor_us - reference_margin_floor_us;
-        }
+    /*
+     * UP confidence:
+     *
+     * We allow immediate UP when a sample is late or at risk, because
+     * no-drop is the core principle.
+     *
+     * DOWN is slow. UP is fast.
+     */
+    bool up_required =
+            sample_late ||
+            pressure_sample_us > 0;
 
-        if (safe_surplus_us > 0) {
-            if (safe_surplus_us >= p7_info->pressure_debt_us)
-                p7_info->pressure_debt_us = 0;
-            else
-                p7_info->pressure_debt_us -= safe_surplus_us;
-        }
-    }
+    bool down_allowed =
+            p7_info->ewma_lab_hold_down_count == 0 &&
+            p7_info->ewma_lab_safe_period_count >=
+                    down_required_safe_periods;
 
     /*
      * ============================================================
@@ -708,44 +699,16 @@ static void p7_run_ewma_lab_control(
      */
     int32_t target_s_ahead = s_ahead_env;
 
-    bool rollback_to_reference =
-            !peak_offered_load &&
-            reference_s_ahead > 0 &&
-            (
-                pnf_or_mac_distress ||
-                pnf_margin_worse_than_reference ||
-                latency_worse_than_reference
-            );
-
-    /*
-     * If dynamic tuning is worse than the known-good fixed baseline,
-     * return to the learned/reference slot ahead.
-     *
-     * This is not hardcoded 4. If fixed 4 is best, the baseline loader
-     * should set sync_ref.reference_s_ahead = 4.
-     */
-    if (rollback_to_reference) {
-        if (s_ahead_env < reference_s_ahead) {
-            target_s_ahead = reference_s_ahead;
-        } else if (latency_worse_than_reference &&
-                   !pnf_or_mac_distress &&
-                   s_ahead_env > reference_s_ahead) {
-            target_s_ahead = reference_s_ahead;
-        } else {
-            target_s_ahead = s_ahead_env;
-        }
-
-        p7_info->last_adjustment_steps = target_s_ahead;
-        p7_info->last_adjustment_sfn = p7_info->sfn;
-        p7_info->last_adjustment_slot = p7_info->slot;
-    } else if (p7_info->pressure_debt_us > 0) {
-        /*
-         * UP reaction.
-         */
+    if (up_required) {
         int32_t extra_slots =
-                ceil_div_pos_i32(p7_info->pressure_debt_us,
+                ceil_div_pos_i32(pressure_sample_us,
                                  slot_duration_us);
 
+        /*
+         * If the sample is already late but pressure computed to zero
+         * due to rounding or negative EWMA compensation, still move
+         * earlier by one slot.
+         */
         if (extra_slots < 1)
             extra_slots = 1;
 
@@ -758,74 +721,57 @@ static void p7_run_ewma_lab_control(
             p7_info->last_adjustment_steps = target_s_ahead;
             p7_info->last_adjustment_sfn = p7_info->sfn;
             p7_info->last_adjustment_slot = p7_info->slot;
+
+            /*
+             * After an UP, block DOWN long enough for timing to settle.
+             * Use the target state itself as propagation horizon.
+             */
+            p7_info->ewma_lab_hold_down_count =
+                    target_s_ahead +
+                    (int32_t)config->timing_info_period;
+
+            if (p7_info->ewma_lab_hold_down_count < 1)
+                p7_info->ewma_lab_hold_down_count = 1;
+
+            p7_info->ewma_lab_last_direction = 1;
+            p7_info->ewma_lab_last_target_s_ahead = target_s_ahead;
         }
-    } else {
+    } else if (s_ahead_env > 1 && down_allowed) {
         /*
-         * DOWN reaction.
+         * Conservative DOWN:
          *
-         * This is now much stricter:
-         *
-         * DOWN is allowed only if the post-down PNF margin would still
-         * be no worse than the learned/reference margin floor.
-         *
-         * This directly prevents the 2~4 slot oscillation that looked
-         * good in ahead-time but caused PNF misses/retransmissions.
+         * Before reducing one slot, predict whether one-slot later
+         * timing would still remain before deadline.
          */
         int32_t post_down_closest_us =
                 closest_to_deadline_us +
                 slot_duration_us;
 
-        int32_t post_down_risk_us;
+        int32_t post_down_risk_us =
+                post_down_closest_us +
+                timing_uncertainty_us;
 
-        if (peak_offered_load) {
-            post_down_risk_us =
-                    post_down_closest_us +
-                    required_headroom_us;
-        } else {
-            post_down_risk_us =
-                    post_down_closest_us +
-                    timing_uncertainty_us -
-                    allowed_late_us;
-        }
-
-        int32_t post_down_pnf_margin_floor_us = 0;
-
-        if (pnf_margin_floor_us > 0)
-            post_down_pnf_margin_floor_us =
-                    pnf_margin_floor_us - slot_duration_us;
-
-        bool pnf_safe_after_down = true;
-
-        if (reference_margin_floor_us > 0) {
-            pnf_safe_after_down =
-                    post_down_pnf_margin_floor_us >=
-                    reference_margin_floor_us;
-        }
-
-        bool latency_safe_after_down = true;
-
-        if (reference_latency_us > 0 &&
-            p7_info->sync_fb.recent_effective_latency_ewma_us > 0) {
-            latency_safe_after_down =
-                    p7_info->sync_fb.recent_effective_latency_ewma_us <=
-                    reference_latency_us;
-        }
-
-        bool pressure_exists =
-                p7_info->pressure_debt_us > 0 ||
-                pnf_or_mac_distress;
-
-        if (s_ahead_env > 1 &&
-            !pressure_exists &&
-            post_down_risk_us <= 0 &&
-            pnf_safe_after_down &&
-            latency_safe_after_down) {
-
+        if (post_down_risk_us <= 0) {
             target_s_ahead = s_ahead_env - 1;
 
             p7_info->last_adjustment_steps = target_s_ahead;
             p7_info->last_adjustment_sfn = p7_info->sfn;
             p7_info->last_adjustment_slot = p7_info->slot;
+
+            /*
+             * After DOWN, also hold briefly. This prevents immediate
+             * DOWN chains caused by one early period.
+             */
+            p7_info->ewma_lab_hold_down_count =
+                    target_s_ahead +
+                    (int32_t)config->timing_info_period;
+
+            if (p7_info->ewma_lab_hold_down_count < 1)
+                p7_info->ewma_lab_hold_down_count = 1;
+
+            p7_info->ewma_lab_safe_period_count = 0;
+            p7_info->ewma_lab_last_direction = -1;
+            p7_info->ewma_lab_last_target_s_ahead = target_s_ahead;
         }
     }
 
@@ -837,7 +783,7 @@ static void p7_run_ewma_lab_control(
 
     /*
      * ============================================================
-     * Actuation and estimator compensation
+     * Apply actuation and compensate estimator
      * ============================================================
      */
     if (target_s_ahead != s_ahead_env) {
@@ -846,6 +792,12 @@ static void p7_run_ewma_lab_control(
         int32_t step_direction =
                 delta_s_ahead > 0 ? 1 : -1;
 
+        /*
+         * Changing s_ahead shifts timing coordinate.
+         *
+         * UP   +1 slot => messages appear earlier.
+         * DOWN -1 slot => messages appear later.
+         */
         int64_t mean_shift_64 =
                 (int64_t)delta_s_ahead * slot_duration_us;
 
@@ -882,12 +834,10 @@ static void p7_run_ewma_lab_control(
             "late_jitter=%d early_jitter=%d "
             "up_bound=%d down_bound=%d "
             "closest=%d uncertainty=%d "
-            "offered=%d est_load=%d dev_load=%d peak_load=%d peak=%d peakness=%d "
-            "allowed_late=%d required_headroom=%d "
-            "tail_risk=%d failure_debt=%d queue_debt=%d pnf_margin_debt=%d pressure_debt=%d "
-            "pnf_margin_floor=%d ref_s=%d ref_margin=%d ref_latency=%d latency=%d "
-            "pnf_late_max=%d pnf_late_cnt=%d no_tx=%d mac_harq_to=%d mac_retx_abort=%d "
-            "rollback=%d delta=%d mean_shift=%ld wait_steps=%d",
+            "tail_risk=%d failure_debt=%d pressure_sample=%d "
+            "safe_cnt=%d late_cnt=%d hold_down=%d "
+            "offered=%d est_load=%d dev_load=%d peak_load=%d peakness=%d "
+            "delta=%d mean_shift=%ld wait_steps=%d",
             global_ewma_alpha_denom,
             global_ewma_beta_denom,
             step_direction > 0 ? "UP" : "DOWN",
@@ -903,30 +853,17 @@ static void p7_run_ewma_lab_control(
             jitter_down_bound_us,
             closest_to_deadline_us,
             timing_uncertainty_us,
+            timing_tail_risk_us,
+            failure_debt_us,
+            pressure_sample_us,
+            p7_info->ewma_lab_safe_period_count,
+            p7_info->ewma_lab_late_period_count,
+            p7_info->ewma_lab_hold_down_count,
             current_offered_load,
             p7_info->estimated_offered_load,
             p7_info->offered_load_dev,
             p7_info->peak_offered_load,
-            peak_offered_load,
             peakness_q10,
-            allowed_late_us,
-            required_headroom_us,
-            timing_tail_risk_us,
-            failure_debt_us,
-            queue_debt_us,
-            pnf_margin_debt_us,
-            p7_info->pressure_debt_us,
-            pnf_margin_floor_us,
-            reference_s_ahead,
-            reference_margin_floor_us,
-            reference_latency_us,
-            p7_info->sync_fb.recent_effective_latency_ewma_us,
-            p7_info->sync_fb.recent_pnf_too_late_max_us,
-            p7_info->sync_fb.recent_pnf_too_late_count,
-            p7_info->sync_fb.recent_pnf_no_tx_data_count,
-            p7_info->sync_fb.recent_mac_harq_feedback_timeout_count,
-            p7_info->sync_fb.recent_mac_retx_abort_count,
-            rollback_to_reference,
             delta_s_ahead,
             (long)mean_shift_64,
             p7_info->last_adjustment_steps);
@@ -941,10 +878,9 @@ static void p7_run_ewma_lab_control(
             "worst_late=%d mean=%d var=%d diff=%d "
             "late_jitter=%d early_jitter=%d "
             "closest=%d uncertainty=%d "
-            "offered=%d est_load=%d dev_load=%d peak_load=%d peak=%d peakness=%d "
-            "tail_risk=%d failure_debt=%d queue_debt=%d pressure_debt=%d "
-            "pnf_margin_floor=%d ref_s=%d ref_margin=%d ref_latency=%d latency=%d "
-            "pnf_late_max=%d pnf_late_cnt=%d no_tx=%d mac_harq_to=%d mac_retx_abort=%d "
+            "tail_risk=%d failure_debt=%d pressure_sample=%d "
+            "safe_cnt=%d late_cnt=%d hold_down=%d "
+            "offered=%d est_load=%d dev_load=%d peak_load=%d peakness=%d "
             "alpha=1/%d beta=1/%d",
             s_ahead_env,
             stats->worst_late,
@@ -955,49 +891,37 @@ static void p7_run_ewma_lab_control(
             p7_info->early_jitter,
             closest_to_deadline_us,
             timing_uncertainty_us,
+            timing_tail_risk_us,
+            failure_debt_us,
+            pressure_sample_us,
+            p7_info->ewma_lab_safe_period_count,
+            p7_info->ewma_lab_late_period_count,
+            p7_info->ewma_lab_hold_down_count,
             current_offered_load,
             p7_info->estimated_offered_load,
             p7_info->offered_load_dev,
             p7_info->peak_offered_load,
-            peak_offered_load,
             peakness_q10,
-            timing_tail_risk_us,
-            failure_debt_us,
-            queue_debt_us,
-            p7_info->pressure_debt_us,
-            pnf_margin_floor_us,
-            reference_s_ahead,
-            reference_margin_floor_us,
-            reference_latency_us,
-            p7_info->sync_fb.recent_effective_latency_ewma_us,
-            p7_info->sync_fb.recent_pnf_too_late_max_us,
-            p7_info->sync_fb.recent_pnf_too_late_count,
-            p7_info->sync_fb.recent_pnf_no_tx_data_count,
-            p7_info->sync_fb.recent_mac_harq_feedback_timeout_count,
-            p7_info->sync_fb.recent_mac_retx_abort_count,
             global_ewma_alpha_denom,
             global_ewma_beta_denom);
     }
 
     /*
      * ============================================================
-     * Consume one-period counters
+     * Consume per-period counters
      * ============================================================
+     *
+     * These are kept for compatibility/logging.
+     * This controller version does not rely on them for decisions.
      */
     p7_info->recent_p7_too_late_max_us = 0;
     p7_info->recent_rlc_reject_count = 0;
     p7_info->recent_harq_timeout_count = 0;
     p7_info->recent_p7_msg_count = 0;
 
-    p7_info->sync_fb.recent_pnf_margin_min_us = 0;
-    p7_info->sync_fb.recent_pnf_too_late_max_us = 0;
-    p7_info->sync_fb.recent_pnf_too_late_count = 0;
-    p7_info->sync_fb.recent_pnf_no_tx_data_count = 0;
-    p7_info->sync_fb.recent_mac_harq_feedback_timeout_count = 0;
-    p7_info->sync_fb.recent_mac_retx_abort_count = 0;
-
     return;
 }
+
 
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
 {
@@ -1444,40 +1368,93 @@ void vnf_p7_codec_free(vnf_p7_t* vnf_p7, void* ptr)
 	}
 }
 
-void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t* p7_info, void *void_ind)
+void handle_dynamic_timing_info(nfapi_vnf_p7_connection_info_t *p7_info,
+                                void *void_ind)
 {
-	if (p7_info == NULL || void_ind == NULL) {
-		return;
-	}
+    if (p7_info == NULL || void_ind == NULL) {
+        return;
+    }
 
-	const nfapi_nr_timing_info_t* ind = (const nfapi_nr_timing_info_t*)void_ind;
-	vnf_timing_stats_t stats[8];
-	int count = vnf_p7_extract_timing_info(ind, p7_info, stats, 8);
+    const nfapi_nr_timing_info_t *ind =
+            (const nfapi_nr_timing_info_t *)void_ind;
 
-	if (count <= 0) {
-		return;
-	}
+    /*
+     * The extractor is intentionally simplified:
+     *
+     *   one timing_info indication -> one merged timing sample
+     *
+     * Do not create multiple per-slot samples here.  The controller
+     * should react to the worst timing condition observed in this
+     * reporting period only.
+     */
+    vnf_timing_stats_t stats[1];
 
-	vnf_timing_stats_t merged = {
-		.worst_late = INT32_MIN,
-		.worst_early = INT32_MAX,
-		.packet_slot = 0,
-		.pnf_reported_jitter = 0
-	};
+    int count = vnf_p7_extract_timing_info(ind, p7_info, stats, 1);
 
-	for (int i = 0; i < count; ++i) {
-		if (stats[i].worst_late > merged.worst_late) {
-			merged.worst_late = stats[i].worst_late;
-		}
-		if (stats[i].worst_early < merged.worst_early) {
-			merged.worst_early = stats[i].worst_early;
-		}
-		if (stats[i].pnf_reported_jitter > merged.pnf_reported_jitter) {
-			merged.pnf_reported_jitter = stats[i].pnf_reported_jitter;
-		}
-	}
+    if (count <= 0) {
+        return;
+    }
 
-	vnf_p7_convergence_optimization(p7_info, &merged);
+    vnf_timing_stats_t merged;
+
+    merged.worst_late = INT32_MIN;
+    merged.worst_early = INT32_MAX;
+    merged.packet_slot = 0;
+    merged.pnf_reported_jitter = 0;
+
+    for (int i = 0; i < count; ++i) {
+        if (stats[i].worst_late > merged.worst_late) {
+            merged.worst_late = stats[i].worst_late;
+        }
+
+        if (stats[i].worst_early < merged.worst_early) {
+            merged.worst_early = stats[i].worst_early;
+        }
+
+        if (stats[i].pnf_reported_jitter > merged.pnf_reported_jitter) {
+            merged.pnf_reported_jitter = stats[i].pnf_reported_jitter;
+        }
+    }
+
+    if (merged.worst_late == INT32_MIN) {
+        return;
+    }
+
+    if (merged.worst_early == INT32_MAX) {
+        merged.worst_early = merged.worst_late;
+    }
+
+    /*
+     * Important:
+     *
+     * p7_run_ewma_lab_control() must treat merged.worst_late as the
+     * only authoritative timing input for this period.
+     *
+     * Positive worst_late means reliability failure / no-drop guardrail
+     * should dominate.
+     *
+     * Negative worst_late means there is timing headroom, but DOWN
+     * should still be conservative to avoid oscillation.
+     */
+    int32_t slot_duration_us = 1000 >> p7_info->mu;
+
+    if (slot_duration_us <= 0) {
+        return;
+    }
+
+    nfapi_vnf_config_t *config = get_config();
+
+    if (config == NULL) {
+        return;
+    }
+
+    p7_run_ewma_lab_control(
+            p7_info,
+            &merged,
+            slot_duration_us,
+            global_max_s_ahead);
+
+    return;
 }
 
 uint32_t vnf_get_current_time_hr()

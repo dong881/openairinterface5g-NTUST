@@ -334,6 +334,17 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t learned_good_s_ahead;
 	int32_t learned_good_latency_us;
 	int32_t learned_good_margin_floor_us;
+	/*
+	* EWMA LAB timing controller internal state.
+	*
+	* These are NOT external nFAPI inputs.
+	* They are internal controller memory used to avoid oscillation.
+	*/
+	int32_t ewma_lab_safe_period_count;
+	int32_t ewma_lab_late_period_count;
+	int32_t ewma_lab_hold_down_count;
+	int32_t ewma_lab_last_direction;      /* -1 DOWN, 0 NONE, +1 UP */
+	int32_t ewma_lab_last_target_s_ahead;
 } nfapi_vnf_p7_connection_info_t;
 
 typedef struct vnf_p7_s {
