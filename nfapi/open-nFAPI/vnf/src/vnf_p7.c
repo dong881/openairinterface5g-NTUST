@@ -477,8 +477,10 @@ static void p7_run_ewma_lab_control(
      * ============================================================
      *
      * No extra hyperparameter.
-     * Pacing comes from previous adjustment magnitude and
-     * NFAPI timing_info_period.
+     *
+     * Pacing is derived from:
+     *   - previous movement magnitude
+     *   - NFAPI timing_info_period
      */
     int32_t elapsed_slots = calculate_slot_distance(
             p7_info->sfn,
@@ -499,12 +501,18 @@ static void p7_run_ewma_lab_control(
 
     /*
      * ============================================================
-     * Single input EWMA estimator
+     * Single-input EWMA estimator
      * ============================================================
      *
      * The only runtime input:
      *
      *     stats->worst_late
+     *
+     * worst_late > 0:
+     *     at least one P7 message was already late.
+     *
+     * worst_late <= 0:
+     *     worst observed P7 message was still early by -worst_late us.
      */
     if (p7_info->estimated_mean_late == 0) {
         p7_info->estimated_mean_late = stats->worst_late;
@@ -518,9 +526,15 @@ static void p7_run_ewma_lab_control(
     int32_t diff = stats->worst_late - old_mean;
     int32_t abs_diff = abs_i32(diff);
 
+    /*
+     * EWMA mean.
+     */
     p7_info->estimated_mean_late +=
             diff / global_ewma_alpha_denom;
 
+    /*
+     * Directional jitter EWMA.
+     */
     if (diff > 0) {
         p7_info->late_jitter +=
                 (diff - p7_info->late_jitter) /
@@ -531,6 +545,9 @@ static void p7_run_ewma_lab_control(
                 global_ewma_beta_denom;
     }
 
+    /*
+     * Absolute jitter EWMA.
+     */
     p7_info->estimated_jitter_var +=
             (abs_diff - p7_info->estimated_jitter_var) /
             global_ewma_beta_denom;
@@ -545,7 +562,11 @@ static void p7_run_ewma_lab_control(
         p7_info->early_jitter = 0;
 
     /*
-     * Most dangerous timing representative.
+     * The most dangerous timing representative.
+     *
+     * Use the later one between:
+     *   - current worst_late
+     *   - EWMA mean
      */
     int32_t closest_to_deadline_us =
             stats->worst_late > p7_info->estimated_mean_late ?
@@ -553,7 +574,12 @@ static void p7_run_ewma_lab_control(
             p7_info->estimated_mean_late;
 
     /*
-     * Late-side and early-side uncertainty.
+     * Late-side uncertainty:
+     *   Used for UP risk.
+     *
+     * Early-side uncertainty:
+     *   Used as DOWN guard, because high early jitter means timing
+     *   is unstable and should not aggressively reduce s_ahead.
      */
     int32_t late_side_uncertainty_us =
             p7_info->late_jitter +
@@ -569,17 +595,14 @@ static void p7_run_ewma_lab_control(
     if (early_side_uncertainty_us < 0)
         early_side_uncertainty_us = 0;
 
-    /*
-     * Used for UP risk.
-     */
     int32_t timing_uncertainty_us =
             late_side_uncertainty_us;
 
     /*
-     * Used for DOWN guard.
+     * Adaptive jitter guard.
      *
-     * This is adaptive and derived only from EWMA.
-     * No extra parameter.
+     * No new hyperparameter:
+     * guard is derived from EWMA late/early uncertainty.
      */
     int32_t adaptive_jitter_guard_us =
             p7_max_i32(late_side_uncertainty_us,
@@ -589,6 +612,9 @@ static void p7_run_ewma_lab_control(
      * ============================================================
      * Risk model
      * ============================================================
+     *
+     * predicted_risk_us > 0 means current boundary estimate plus
+     * late-side uncertainty crosses the deadline.
      */
     int32_t predicted_risk_us =
             closest_to_deadline_us +
@@ -611,6 +637,9 @@ static void p7_run_ewma_lab_control(
     if (failure_sample_us < 0)
         failure_sample_us = 0;
 
+    /*
+     * Safe margin after considering late-side uncertainty.
+     */
     int32_t safe_margin_sample_us =
             -(closest_to_deadline_us + timing_uncertainty_us);
 
@@ -669,7 +698,16 @@ static void p7_run_ewma_lab_control(
             safe_margin_sample_us > 0;
 
     /*
-     * Counters for observability only.
+     * ============================================================
+     * Fresh evidence counters
+     * ============================================================
+     *
+     * These counters are derived only from worst_late classification.
+     *
+     * Important:
+     *   After any actuation, these counters are reset.
+     *   Therefore every later UP/DOWN decision must use fresh evidence
+     *   collected at the new s_ahead.
      */
     int32_t pre_safe_count =
             p7_info->ewma_lab_safe_period_count;
@@ -699,19 +737,34 @@ static void p7_run_ewma_lab_control(
     }
 
     /*
+     * Fresh evidence requirements.
+     *
+     * Not new hyperparameters:
+     *   - DOWN evidence window comes from alpha denominator.
+     *   - soft UP evidence window comes from beta denominator.
+     */
+    bool enough_fresh_safe_evidence_for_down =
+            p7_info->ewma_lab_safe_period_count >=
+            global_ewma_alpha_denom;
+
+    bool enough_fresh_risk_evidence_for_soft_up =
+            p7_info->ewma_lab_risk_period_count >=
+            global_ewma_beta_denom;
+
+    /*
      * ============================================================
      * Decision model
      * ============================================================
      *
      * Hard UP:
-     *   actual late or mean crossing deadline.
+     *   Immediate, because actual lateness was observed.
      *
      * Soft UP:
-     *   only if risk debt is not effectively zero.
-     *   This prevents tiny predicted_risk from causing 5<->6 flapping.
+     *   Requires fresh accumulated risk evidence to avoid one-sample
+     *   jitter triggering 5<->6 / 6<->7 flapping.
      *
      * DOWN:
-     *   only if removing one slot still leaves adaptive jitter guard.
+     *   Requires fresh accumulated safe evidence to avoid cascade down.
      */
     bool hard_up_required =
             hard_late;
@@ -719,14 +772,15 @@ static void p7_run_ewma_lab_control(
     bool soft_up_required =
             !hard_late &&
             predicted_risk_us > 0 &&
-            !risk_debt_free;
+            !risk_debt_free &&
+            enough_fresh_risk_evidence_for_soft_up;
 
     bool up_required =
             hard_up_required ||
             soft_up_required;
 
     /*
-     * After one DOWN, risk must still be negative.
+     * Risk if we remove one slot.
      */
     int32_t post_down_predicted_risk_us =
             closest_to_deadline_us +
@@ -737,20 +791,12 @@ static void p7_run_ewma_lab_control(
             post_down_predicted_risk_us <= 0;
 
     /*
-     * Stronger DOWN condition:
-     *
-     * safe_margin_ewma must be enough to remove one slot and still
-     * retain the adaptive jitter guard.
-     *
-     * This directly fixes high-jitter 5<->6 oscillation.
+     * DOWN must leave one adaptive jitter guard after removing one slot.
      */
     bool enough_ewma_safe_margin_for_down =
             p7_info->ewma_lab_safe_margin_ewma_us >=
             slot_duration_us + adaptive_jitter_guard_us;
 
-    /*
-     * Also require instantaneous post-down margin to retain jitter guard.
-     */
     bool post_down_guarded_safe =
             post_down_predicted_risk_us +
             adaptive_jitter_guard_us <= 0;
@@ -764,6 +810,7 @@ static void p7_run_ewma_lab_control(
     bool down_allowed =
             !up_required &&
             debt_free &&
+            enough_fresh_safe_evidence_for_down &&
             enough_ewma_safe_margin_for_down &&
             down_safe_after_one_slot &&
             post_down_guarded_safe &&
@@ -774,6 +821,10 @@ static void p7_run_ewma_lab_control(
     int32_t down_reason = 0;
 
     if (hard_up_required) {
+        /*
+         * Hard UP may jump multiple slots because deadline was already
+         * crossed.
+         */
         int32_t pressure_for_up_us =
                 predicted_risk_us +
                 failure_sample_us;
@@ -798,10 +849,8 @@ static void p7_run_ewma_lab_control(
         up_reason = 1;
     } else if (soft_up_required) {
         /*
-         * Soft UP is always one step.
-         * Reason:
-         *   soft risk is predictive, not an actual failure.
-         *   It should not jump multiple slots from small EWMA risk.
+         * Soft UP is predictive, not actual failure.
+         * Move one slot only.
          */
         target_s_ahead = s_ahead_env + 1;
 
@@ -811,7 +860,7 @@ static void p7_run_ewma_lab_control(
         up_reason = 2;
     } else if (down_allowed) {
         /*
-         * DOWN is always one step.
+         * DOWN is always one slot.
          */
         target_s_ahead = s_ahead_env - 1;
 
@@ -839,6 +888,7 @@ static void p7_run_ewma_lab_control(
                 "safe_margin=%d safe_margin_ewma=%d "
                 "hard_late=%d soft_risk=%d safe_sample=%d "
                 "safe_cnt=%d late_cnt=%d risk_cnt=%d "
+                "fresh_safe_down=%d fresh_risk_up=%d "
                 "hard_up=%d soft_up=%d "
                 "post_down_risk=%d post_down_guarded_risk=%d "
                 "debt_free=%d enough_margin=%d guarded_safe=%d down_allowed=%d "
@@ -868,6 +918,8 @@ static void p7_run_ewma_lab_control(
                 p7_info->ewma_lab_safe_period_count,
                 p7_info->ewma_lab_late_period_count,
                 p7_info->ewma_lab_risk_period_count,
+                enough_fresh_safe_evidence_for_down,
+                enough_fresh_risk_evidence_for_soft_up,
                 hard_up_required,
                 soft_up_required,
                 post_down_predicted_risk_us,
@@ -882,7 +934,7 @@ static void p7_run_ewma_lab_control(
 
         /*
          * Compatibility reset only.
-         * These are not decision inputs.
+         * These fields are not decision inputs in this controller.
          */
         p7_info->recent_p7_too_late_max_us = 0;
         p7_info->recent_rlc_reject_count = 0;
@@ -917,7 +969,10 @@ static void p7_run_ewma_lab_control(
     }
 
     /*
-     * Compensate mean after changing s_ahead.
+     * Compensate estimator after changing s_ahead.
+     *
+     * Increasing s_ahead makes future messages earlier.
+     * Therefore estimated_mean_late shifts down.
      */
     int64_t mean_shift_64 =
             (int64_t)delta_s_ahead * slot_duration_us;
@@ -956,8 +1011,7 @@ static void p7_run_ewma_lab_control(
     }
 
     /*
-     * Preserve pacing based on actual movement size.
-     * No hardcoded hold-down.
+     * Pacing based on actual movement size.
      */
     p7_info->last_adjustment_steps =
             abs_i32(delta_s_ahead);
@@ -974,6 +1028,17 @@ static void p7_run_ewma_lab_control(
     p7_info->ewma_lab_last_direction =
             delta_s_ahead > 0 ? 1 : -1;
 
+    /*
+     * Critical fix:
+     *
+     * Evidence collected at the old s_ahead is invalid after actuation.
+     * Reset fresh counters to prevent cascade down and single-sample
+     * oscillation based on stale evidence.
+     */
+    p7_info->ewma_lab_safe_period_count = 0;
+    p7_info->ewma_lab_late_period_count = 0;
+    p7_info->ewma_lab_risk_period_count = 0;
+
     NFAPI_TRACE(NFAPI_TRACE_INFO,
         "[P7_SYNC][EWMA_LAB] α=1/%d β=1/%d %s: %d→%d | "
         "worst_late=%d mean=%d var=%d diff=%d "
@@ -986,6 +1051,7 @@ static void p7_run_ewma_lab_control(
         "hard_late=%d soft_risk=%d safe_sample=%d "
         "pre_safe=%d pre_late=%d pre_risk=%d "
         "safe_cnt=%d late_cnt=%d risk_cnt=%d "
+        "fresh_safe_down=%d fresh_risk_up=%d "
         "hard_up=%d soft_up=%d "
         "post_down_risk=%d post_down_guarded_risk=%d "
         "debt_free=%d enough_margin=%d guarded_safe=%d down_allowed=%d "
@@ -1023,6 +1089,8 @@ static void p7_run_ewma_lab_control(
         p7_info->ewma_lab_safe_period_count,
         p7_info->ewma_lab_late_period_count,
         p7_info->ewma_lab_risk_period_count,
+        enough_fresh_safe_evidence_for_down,
+        enough_fresh_risk_evidence_for_soft_up,
         hard_up_required,
         soft_up_required,
         post_down_predicted_risk_us,
@@ -1044,6 +1112,7 @@ static void p7_run_ewma_lab_control(
 
     /*
      * Compatibility reset only.
+     * This controller does not use these as decision inputs.
      */
     p7_info->recent_p7_too_late_max_us = 0;
     p7_info->recent_rlc_reject_count = 0;
@@ -1052,6 +1121,7 @@ static void p7_run_ewma_lab_control(
 
     return;
 }
+
 
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
 {
