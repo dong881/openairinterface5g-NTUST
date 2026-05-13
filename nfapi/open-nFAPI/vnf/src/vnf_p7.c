@@ -417,9 +417,6 @@ static void p7_run_ewma_lab_control(
      * ============================================================
      * Control pacing
      * ============================================================
-     *
-     * This prevents the controller from reacting before previous
-     * s_ahead actuation has propagated through P7 timing.
      */
     int32_t elapsed_slots = calculate_slot_distance(
             p7_info->sfn,
@@ -432,6 +429,9 @@ static void p7_run_ewma_lab_control(
             p7_info->last_adjustment_steps +
             (int32_t)config->timing_info_period;
 
+    if (required_wait_slots < 1)
+        required_wait_slots = 1;
+
     if (elapsed_slots < required_wait_slots)
         return;
 
@@ -440,15 +440,10 @@ static void p7_run_ewma_lab_control(
      * EWMA timing estimator
      * ============================================================
      *
-     * Input contract:
+     * Only authoritative control input:
      *
-     *   stats->worst_late > 0
-     *      At least one message in this timing period was late.
-     *      Reliability / no-drop policy must dominate.
-     *
-     *   stats->worst_late <= 0
-     *      This period was early or exactly on deadline.
-     *      This does NOT immediately mean it is safe to DOWN.
+     *   stats->worst_late > 0  : deadline violated
+     *   stats->worst_late <= 0 : early / safe sample candidate
      */
     if (p7_info->estimated_mean_late == 0) {
         p7_info->estimated_mean_late = stats->worst_late;
@@ -494,7 +489,8 @@ static void p7_run_ewma_lab_control(
      */
     int32_t closest_to_deadline_us =
             stats->worst_late > p7_info->estimated_mean_late ?
-            stats->worst_late : p7_info->estimated_mean_late;
+            stats->worst_late :
+            p7_info->estimated_mean_late;
 
     int32_t timing_uncertainty_us =
             p7_info->late_jitter +
@@ -508,11 +504,7 @@ static void p7_run_ewma_lab_control(
      * Offered-load estimator
      * ============================================================
      *
-     * Kept only for logging / diagnostics.
-     *
-     * This controller version does NOT use offered load as a control
-     * decision input, because current nFAPI timing path only provides
-     * stats->worst_late reliably.
+     * Diagnostic only. This controller does not depend on offered load.
      */
     int32_t current_offered_load =
             p7_info->recent_p7_msg_count > 0 ?
@@ -555,29 +547,21 @@ static void p7_run_ewma_lab_control(
 
     /*
      * ============================================================
-     * No-drop first policy
+     * No-drop first pressure model
      * ============================================================
      *
-     * This version intentionally does NOT use peak/non-peak branching.
+     * Important policy change:
      *
-     * Rationale:
-     *   - Current valid control input is only stats->worst_late.
-     *   - A positive worst_late means the PNF deadline was violated.
-     *   - Even at low offered load, late means possible loss/retransmit.
+     *   - Positive worst_late triggers immediate UP.
+     *   - Positive tail_risk with negative worst_late does NOT
+     *     trigger immediate UP. It must persist for several periods.
      *
-     * Therefore:
-     *   - any positive worst_late is reliability pressure.
-     *   - DOWN requires repeated safe periods.
+     * This prevents 4<->5 oscillation caused by tiny risk values.
      */
-
-    bool sample_late =
+    bool hard_late =
             stats->worst_late > 0 ||
             closest_to_deadline_us > 0;
 
-    /*
-     * Tail risk is the risk that current timing plus uncertainty
-     * reaches or crosses deadline.
-     */
     int32_t timing_tail_risk_us =
             closest_to_deadline_us +
             timing_uncertainty_us;
@@ -585,25 +569,11 @@ static void p7_run_ewma_lab_control(
     if (timing_tail_risk_us < 0)
         timing_tail_risk_us = 0;
 
-    /*
-     * Failure debt:
-     *
-     * Since we only trust stats->worst_late, positive worst_late itself
-     * becomes the reliability debt.
-     */
     int32_t failure_debt_us = 0;
 
     if (stats->worst_late > 0)
         failure_debt_us = stats->worst_late;
 
-    /*
-     * Total pressure:
-     *
-     * A positive timing_tail_risk already says we are too close to
-     * deadline after considering jitter.
-     *
-     * A positive failure_debt says we already missed deadline.
-     */
     int32_t pressure_sample_us =
             timing_tail_risk_us +
             failure_debt_us;
@@ -611,38 +581,56 @@ static void p7_run_ewma_lab_control(
     if (pressure_sample_us < 0)
         pressure_sample_us = 0;
 
-    /*
-     * ============================================================
-     * Internal hysteresis state
-     * ============================================================
-     *
-     * safe_period_count:
-     *   counts consecutive control periods that are safely early.
-     *
-     * late_period_count:
-     *   counts consecutive periods with positive worst_late or risk.
-     *
-     * hold_down_count:
-     *   prevents immediate DOWN after UP. This is critical to avoid
-     *   2<->4, 4<->5, 5<->6 oscillation.
-     *
-     * The thresholds below are derived from runtime pacing:
-     *   - timing_info_period
-     *   - last_adjustment_steps
-     *
-     * No fixed "4 slots" or fixed throughput threshold is used.
-     */
+    bool soft_risk =
+            !hard_late &&
+            pressure_sample_us > 0;
+
     bool safe_sample =
-            !sample_late &&
+            !hard_late &&
+            !soft_risk &&
             pressure_sample_us == 0 &&
             closest_to_deadline_us < 0;
 
-    if (sample_late || pressure_sample_us > 0) {
+    /*
+     * ============================================================
+     * Snapshot counters BEFORE decision
+     * ============================================================
+     *
+     * These are used for decision and logging, so the log tells us
+     * the actual gate state that allowed or blocked UP/DOWN.
+     */
+    int32_t pre_safe_count =
+            p7_info->ewma_lab_safe_period_count;
+
+    int32_t pre_late_count =
+            p7_info->ewma_lab_late_period_count;
+
+    int32_t pre_risk_count =
+            p7_info->ewma_lab_risk_period_count;
+
+    int32_t pre_hold_down =
+            p7_info->ewma_lab_hold_down_count;
+
+    /*
+     * ============================================================
+     * Update hysteresis counters
+     * ============================================================
+     */
+    if (hard_late) {
         p7_info->ewma_lab_late_period_count++;
 
         if (p7_info->ewma_lab_late_period_count < 0)
             p7_info->ewma_lab_late_period_count = 1;
 
+        p7_info->ewma_lab_risk_period_count = 0;
+        p7_info->ewma_lab_safe_period_count = 0;
+    } else if (soft_risk) {
+        p7_info->ewma_lab_risk_period_count++;
+
+        if (p7_info->ewma_lab_risk_period_count < 0)
+            p7_info->ewma_lab_risk_period_count = 1;
+
+        p7_info->ewma_lab_late_period_count = 0;
         p7_info->ewma_lab_safe_period_count = 0;
     } else if (safe_sample) {
         p7_info->ewma_lab_safe_period_count++;
@@ -651,22 +639,56 @@ static void p7_run_ewma_lab_control(
             p7_info->ewma_lab_safe_period_count = 1;
 
         p7_info->ewma_lab_late_period_count = 0;
+        p7_info->ewma_lab_risk_period_count = 0;
     } else {
         /*
-         * Neutral sample: do not accumulate DOWN confidence.
+         * Neutral sample.
          */
         p7_info->ewma_lab_safe_period_count = 0;
         p7_info->ewma_lab_late_period_count = 0;
+        p7_info->ewma_lab_risk_period_count = 0;
     }
 
-    if (p7_info->ewma_lab_hold_down_count > 0)
-        p7_info->ewma_lab_hold_down_count--;
+    /*
+     * Use updated counters for current decision.
+     */
+    int32_t cur_safe_count =
+            p7_info->ewma_lab_safe_period_count;
+
+    int32_t cur_late_count =
+            p7_info->ewma_lab_late_period_count;
+
+    int32_t cur_risk_count =
+            p7_info->ewma_lab_risk_period_count;
 
     /*
-     * DOWN confidence requirement.
+     * ============================================================
+     * Dynamic thresholds
+     * ============================================================
      *
-     * This is derived from configured timing_info_period and current
-     * actuator propagation wait. It is not a hardcoded slot-ahead value.
+     * No hardcoded "4 slots".
+     *
+     * If fixed 4 slots ahead is known best, set:
+     *
+     *   p7_info->ewma_lab_min_s_ahead = 4
+     *
+     * externally during init/config/baseline load.
+     */
+    int32_t dynamic_floor_s_ahead = 1;
+
+    if (p7_info->ewma_lab_min_s_ahead > dynamic_floor_s_ahead)
+        dynamic_floor_s_ahead = p7_info->ewma_lab_min_s_ahead;
+
+    if (dynamic_floor_s_ahead > max_s_ahead)
+        dynamic_floor_s_ahead = max_s_ahead;
+
+    if (dynamic_floor_s_ahead < 1)
+        dynamic_floor_s_ahead = 1;
+
+    /*
+     * DOWN requires enough consecutive safe timing-info periods.
+     *
+     * Use runtime pacing as hysteresis length.
      */
     int32_t down_required_safe_periods =
             p7_info->last_adjustment_steps +
@@ -676,21 +698,32 @@ static void p7_run_ewma_lab_control(
         down_required_safe_periods = 1;
 
     /*
-     * UP confidence:
+     * Soft risk should persist before UP.
      *
-     * We allow immediate UP when a sample is late or at risk, because
-     * no-drop is the core principle.
-     *
-     * DOWN is slow. UP is fast.
+     * This prevents tiny tail_risk such as 5us / 20us / 50us from
+     * causing 4->5 immediately.
      */
+    int32_t risk_required_periods =
+            (int32_t)config->timing_info_period;
+
+    if (risk_required_periods < 1)
+        risk_required_periods = 1;
+
+    bool immediate_up_required =
+            hard_late;
+
+    bool risk_up_required =
+            soft_risk &&
+            cur_risk_count >= risk_required_periods;
+
     bool up_required =
-            sample_late ||
-            pressure_sample_us > 0;
+            immediate_up_required ||
+            risk_up_required;
 
     bool down_allowed =
-            p7_info->ewma_lab_hold_down_count == 0 &&
-            p7_info->ewma_lab_safe_period_count >=
-                    down_required_safe_periods;
+            pre_hold_down <= 0 &&
+            cur_safe_count >= down_required_safe_periods &&
+            s_ahead_env > dynamic_floor_s_ahead;
 
     /*
      * ============================================================
@@ -699,16 +732,36 @@ static void p7_run_ewma_lab_control(
      */
     int32_t target_s_ahead = s_ahead_env;
 
+    int32_t post_down_closest_us =
+            closest_to_deadline_us +
+            slot_duration_us;
+
+    int32_t post_down_risk_us =
+            post_down_closest_us +
+            timing_uncertainty_us;
+
+    int32_t up_reason = 0;
+    int32_t down_reason = 0;
+
+    /*
+     * UP is blocked only by max_s_ahead.
+     *
+     * DOWN is blocked by:
+     *   - hold_down
+     *   - safe counter
+     *   - dynamic floor
+     *   - post-down risk
+     */
     if (up_required) {
+        int32_t pressure_for_up_us = pressure_sample_us;
+
+        if (pressure_for_up_us <= 0 && stats->worst_late > 0)
+            pressure_for_up_us = stats->worst_late;
+
         int32_t extra_slots =
-                ceil_div_pos_i32(pressure_sample_us,
+                ceil_div_pos_i32(pressure_for_up_us,
                                  slot_duration_us);
 
-        /*
-         * If the sample is already late but pressure computed to zero
-         * due to rounding or negative EWMA compensation, still move
-         * earlier by one slot.
-         */
         if (extra_slots < 1)
             extra_slots = 1;
 
@@ -718,49 +771,15 @@ static void p7_run_ewma_lab_control(
             target_s_ahead = max_s_ahead;
 
         if (target_s_ahead > s_ahead_env) {
-            p7_info->last_adjustment_steps = target_s_ahead;
-            p7_info->last_adjustment_sfn = p7_info->sfn;
-            p7_info->last_adjustment_slot = p7_info->slot;
-
-            /*
-             * After an UP, block DOWN long enough for timing to settle.
-             * Use the target state itself as propagation horizon.
-             */
-            p7_info->ewma_lab_hold_down_count =
-                    target_s_ahead +
-                    (int32_t)config->timing_info_period;
-
-            if (p7_info->ewma_lab_hold_down_count < 1)
-                p7_info->ewma_lab_hold_down_count = 1;
-
-            p7_info->ewma_lab_last_direction = 1;
-            p7_info->ewma_lab_last_target_s_ahead = target_s_ahead;
-        }
-    } else if (s_ahead_env > 1 && down_allowed) {
-        /*
-         * Conservative DOWN:
-         *
-         * Before reducing one slot, predict whether one-slot later
-         * timing would still remain before deadline.
-         */
-        int32_t post_down_closest_us =
-                closest_to_deadline_us +
-                slot_duration_us;
-
-        int32_t post_down_risk_us =
-                post_down_closest_us +
-                timing_uncertainty_us;
-
-        if (post_down_risk_us <= 0) {
-            target_s_ahead = s_ahead_env - 1;
+            up_reason =
+                    immediate_up_required ? 1 : 2;
 
             p7_info->last_adjustment_steps = target_s_ahead;
             p7_info->last_adjustment_sfn = p7_info->sfn;
             p7_info->last_adjustment_slot = p7_info->slot;
 
             /*
-             * After DOWN, also hold briefly. This prevents immediate
-             * DOWN chains caused by one early period.
+             * After UP, block DOWN until timing has settled.
              */
             p7_info->ewma_lab_hold_down_count =
                     target_s_ahead +
@@ -770,16 +789,64 @@ static void p7_run_ewma_lab_control(
                 p7_info->ewma_lab_hold_down_count = 1;
 
             p7_info->ewma_lab_safe_period_count = 0;
-            p7_info->ewma_lab_last_direction = -1;
+            p7_info->ewma_lab_risk_period_count = 0;
+
+            p7_info->ewma_lab_last_direction = 1;
             p7_info->ewma_lab_last_target_s_ahead = target_s_ahead;
+        }
+    } else if (down_allowed) {
+        if (post_down_risk_us <= 0) {
+            target_s_ahead = s_ahead_env - 1;
+
+            if (target_s_ahead < dynamic_floor_s_ahead)
+                target_s_ahead = dynamic_floor_s_ahead;
+
+            if (target_s_ahead < s_ahead_env) {
+                down_reason = 1;
+
+                p7_info->last_adjustment_steps = target_s_ahead;
+                p7_info->last_adjustment_sfn = p7_info->sfn;
+                p7_info->last_adjustment_slot = p7_info->slot;
+
+                /*
+                 * After DOWN, also hold. This prevents DOWN chains.
+                 */
+                p7_info->ewma_lab_hold_down_count =
+                        target_s_ahead +
+                        (int32_t)config->timing_info_period;
+
+                if (p7_info->ewma_lab_hold_down_count < 1)
+                    p7_info->ewma_lab_hold_down_count = 1;
+
+                p7_info->ewma_lab_safe_period_count = 0;
+                p7_info->ewma_lab_risk_period_count = 0;
+
+                p7_info->ewma_lab_last_direction = -1;
+                p7_info->ewma_lab_last_target_s_ahead = target_s_ahead;
+            }
         }
     }
 
     if (target_s_ahead > max_s_ahead)
         target_s_ahead = max_s_ahead;
 
+    if (target_s_ahead < dynamic_floor_s_ahead)
+        target_s_ahead = dynamic_floor_s_ahead;
+
     if (target_s_ahead < 1)
         target_s_ahead = 1;
+
+    /*
+     * Decrement hold-down only when no actuation happened.
+     *
+     * Important:
+     *   Do NOT decrement before decision. Otherwise decision/logging
+     *   becomes confusing and can allow premature DOWN.
+     */
+    if (target_s_ahead == s_ahead_env &&
+        p7_info->ewma_lab_hold_down_count > 0) {
+        p7_info->ewma_lab_hold_down_count--;
+    }
 
     /*
      * ============================================================
@@ -835,7 +902,11 @@ static void p7_run_ewma_lab_control(
             "up_bound=%d down_bound=%d "
             "closest=%d uncertainty=%d "
             "tail_risk=%d failure_debt=%d pressure_sample=%d "
-            "safe_cnt=%d late_cnt=%d hold_down=%d "
+            "hard_late=%d soft_risk=%d safe_sample=%d "
+            "pre_safe=%d pre_late=%d pre_risk=%d pre_hold=%d "
+            "safe_cnt=%d late_cnt=%d risk_cnt=%d hold_down=%d "
+            "risk_req=%d down_req=%d floor=%d "
+            "up_reason=%d down_reason=%d down_allowed=%d post_down_risk=%d "
             "offered=%d est_load=%d dev_load=%d peak_load=%d peakness=%d "
             "delta=%d mean_shift=%ld wait_steps=%d",
             global_ewma_alpha_denom,
@@ -856,9 +927,24 @@ static void p7_run_ewma_lab_control(
             timing_tail_risk_us,
             failure_debt_us,
             pressure_sample_us,
+            hard_late,
+            soft_risk,
+            safe_sample,
+            pre_safe_count,
+            pre_late_count,
+            pre_risk_count,
+            pre_hold_down,
             p7_info->ewma_lab_safe_period_count,
             p7_info->ewma_lab_late_period_count,
+            p7_info->ewma_lab_risk_period_count,
             p7_info->ewma_lab_hold_down_count,
+            risk_required_periods,
+            down_required_safe_periods,
+            dynamic_floor_s_ahead,
+            up_reason,
+            down_reason,
+            down_allowed,
+            post_down_risk_us,
             current_offered_load,
             p7_info->estimated_offered_load,
             p7_info->offered_load_dev,
@@ -879,7 +965,11 @@ static void p7_run_ewma_lab_control(
             "late_jitter=%d early_jitter=%d "
             "closest=%d uncertainty=%d "
             "tail_risk=%d failure_debt=%d pressure_sample=%d "
-            "safe_cnt=%d late_cnt=%d hold_down=%d "
+            "hard_late=%d soft_risk=%d safe_sample=%d "
+            "pre_safe=%d pre_late=%d pre_risk=%d pre_hold=%d "
+            "safe_cnt=%d late_cnt=%d risk_cnt=%d hold_down=%d "
+            "risk_req=%d down_req=%d floor=%d "
+            "down_allowed=%d post_down_risk=%d "
             "offered=%d est_load=%d dev_load=%d peak_load=%d peakness=%d "
             "alpha=1/%d beta=1/%d",
             s_ahead_env,
@@ -894,9 +984,22 @@ static void p7_run_ewma_lab_control(
             timing_tail_risk_us,
             failure_debt_us,
             pressure_sample_us,
+            hard_late,
+            soft_risk,
+            safe_sample,
+            pre_safe_count,
+            pre_late_count,
+            pre_risk_count,
+            pre_hold_down,
             p7_info->ewma_lab_safe_period_count,
             p7_info->ewma_lab_late_period_count,
+            p7_info->ewma_lab_risk_period_count,
             p7_info->ewma_lab_hold_down_count,
+            risk_required_periods,
+            down_required_safe_periods,
+            dynamic_floor_s_ahead,
+            down_allowed,
+            post_down_risk_us,
             current_offered_load,
             p7_info->estimated_offered_load,
             p7_info->offered_load_dev,
@@ -910,9 +1013,6 @@ static void p7_run_ewma_lab_control(
      * ============================================================
      * Consume per-period counters
      * ============================================================
-     *
-     * These are kept for compatibility/logging.
-     * This controller version does not rely on them for decisions.
      */
     p7_info->recent_p7_too_late_max_us = 0;
     p7_info->recent_rlc_reject_count = 0;

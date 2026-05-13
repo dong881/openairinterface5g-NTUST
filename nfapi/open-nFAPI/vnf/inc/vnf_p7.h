@@ -342,9 +342,11 @@ typedef struct nfapi_vnf_p7_connection_info {
 	*/
 	int32_t ewma_lab_safe_period_count;
 	int32_t ewma_lab_late_period_count;
+	int32_t ewma_lab_risk_period_count;
 	int32_t ewma_lab_hold_down_count;
-	int32_t ewma_lab_last_direction;      /* -1 DOWN, 0 NONE, +1 UP */
+	int32_t ewma_lab_last_direction;
 	int32_t ewma_lab_last_target_s_ahead;
+	int32_t ewma_lab_min_s_ahead;
 } nfapi_vnf_p7_connection_info_t;
 
 typedef struct vnf_p7_s {
