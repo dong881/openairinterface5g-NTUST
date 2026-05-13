@@ -440,13 +440,9 @@ static void p7_run_ewma_lab_control(
      * EWMA timing estimator
      * ============================================================
      *
-     * Authoritative timing input:
-     *
-     *   stats->worst_late > 0
-     *      deadline violation
-     *
-     *   stats->worst_late <= 0
-     *      early / safe candidate
+     * Only authoritative timing input:
+     *   stats->worst_late > 0  : deadline violated
+     *   stats->worst_late <= 0 : early / safe candidate
      */
     if (p7_info->estimated_mean_late == 0) {
         p7_info->estimated_mean_late = stats->worst_late;
@@ -501,9 +497,8 @@ static void p7_run_ewma_lab_control(
      * Adaptive uncertainty baseline
      * ============================================================
      *
-     * Used to detect large jitter / unstable timing.
-     *
-     * No fixed jitter threshold is used.
+     * Detect high-jitter / unstable timing without hardcoded jitter
+     * threshold.
      */
     if (p7_info->ewma_lab_uncertainty_ewma_us == 0) {
         p7_info->ewma_lab_uncertainty_ewma_us =
@@ -537,10 +532,9 @@ static void p7_run_ewma_lab_control(
      * Offered-load estimator
      * ============================================================
      *
-     * This is VNF local observable.
+     * This must be fed by VNF local P7 message accounting.
      *
-     * If this stays 0, the controller cannot perform load-aware
-     * learning and will fall back to timing-only mode.
+     * If current_offered_load stays 0, load-aware learning is disabled.
      */
     int32_t current_offered_load =
             p7_info->recent_p7_msg_count > 0 ?
@@ -688,10 +682,9 @@ static void p7_run_ewma_lab_control(
      * Load profile matching / creation
      * ============================================================
      *
-     * No hardcoded load buckets.
+     * No hardcoded load bucket.
      *
-     * New profile is created when current load is farther than the
-     * nearest profile's learned deviation and there is free space.
+     * If load is observable, create or match a learned load profile.
      */
     int32_t current_profile = -1;
     int32_t learned_best_s_ahead = 0;
@@ -728,10 +721,13 @@ static void p7_run_ewma_lab_control(
                     p7_info->ewma_lab_load_profile[best_profile].load_dev;
 
             /*
-             * If dev is zero, any non-zero distance indicates that
-             * this profile has not learned load spread yet.
+             * dev==0 means the profile is still narrow.
+             * Use one load unit as minimum resolution guard, not as a
+             * policy threshold.
              */
-            if (best_dist > (int64_t)dev) {
+            int32_t min_profile_span = dev > 0 ? dev : 1;
+
+            if (best_dist > (int64_t)min_profile_span) {
                 for (int i = 0; i < P7_EWMA_LAB_MAX_LOAD_PROFILES; ++i) {
                     if (!p7_info->ewma_lab_load_profile[i].valid) {
                         create_new_profile = true;
@@ -757,16 +753,16 @@ static void p7_run_ewma_lab_control(
             }
         }
 
-        if (best_profile < 0)
-            best_profile = 0;
+        if (best_profile >= 0 &&
+            best_profile < P7_EWMA_LAB_MAX_LOAD_PROFILES &&
+            p7_info->ewma_lab_load_profile[best_profile].valid) {
 
-        current_profile = best_profile;
-        p7_info->ewma_lab_current_load_profile = current_profile;
+            current_profile = best_profile;
+            p7_info->ewma_lab_current_load_profile = current_profile;
 
-        p7_ewma_lab_load_profile_t *profile =
-                &p7_info->ewma_lab_load_profile[current_profile];
+            p7_ewma_lab_load_profile_t *profile =
+                    &p7_info->ewma_lab_load_profile[current_profile];
 
-        if (profile->valid) {
             int32_t profile_load_diff =
                     current_offered_load - profile->load_ewma;
 
@@ -781,6 +777,7 @@ static void p7_run_ewma_lab_control(
 
             profile_load_center = profile->load_center;
             profile_load_dev = profile->load_dev;
+            learned_best_s_ahead = profile->learned_best_s_ahead;
         }
     }
 
@@ -789,9 +786,12 @@ static void p7_run_ewma_lab_control(
      * Per-load / per-s_ahead learning update
      * ============================================================
      *
-     * Learning is frozen during jitter unstable periods.
-     * This prevents high jitter periods from poisoning the learned
-     * best state.
+     * Learning is frozen when:
+     *   - load is not observable
+     *   - jitter is unstable
+     *
+     * This prevents high-jitter / unknown-load samples from poisoning
+     * the learned best state.
      */
     int32_t learning_state = s_ahead_env;
 
@@ -808,7 +808,8 @@ static void p7_run_ewma_lab_control(
     if (learning_required_samples < 1)
         learning_required_samples = 1;
 
-    if (current_profile >= 0 &&
+    if (load_observable &&
+        current_profile >= 0 &&
         current_profile < P7_EWMA_LAB_MAX_LOAD_PROFILES &&
         p7_info->ewma_lab_load_profile[current_profile].valid &&
         !jitter_unstable) {
@@ -839,10 +840,8 @@ static void p7_run_ewma_lab_control(
         /*
          * Latency cost proxy:
          *
-         * Lower s_ahead is lower base latency.
-         * Timing risk / uncertainty increases effective cost.
-         *
-         * No hardcoded preference for 3 or 4.
+         * Smaller s_ahead is lower base latency.
+         * Risk and uncertainty increase effective latency cost.
          */
         int32_t latency_cost_us =
                 learning_state * slot_duration_us +
@@ -867,13 +866,21 @@ static void p7_run_ewma_lab_control(
         }
 
         /*
-         * Recompute learned_best_s_ahead.
+         * If the current learned best becomes late, forget it.
+         */
+        if (hard_late &&
+            profile->learned_best_s_ahead == learning_state) {
+            profile->learned_best_s_ahead = 0;
+        }
+
+        /*
+         * Recompute learned_best_s_ahead:
          *
-         * Candidate must be:
-         *   - valid
-         *   - enough samples
-         *   - enough consecutive safe observations
-         *   - no recent late EWMA
+         * Candidate must:
+         *   - be valid
+         *   - have enough samples
+         *   - have enough consecutive safe samples
+         *   - have no recent late EWMA
          *
          * Among safe candidates, choose lowest latency cost.
          */
@@ -912,22 +919,19 @@ static void p7_run_ewma_lab_control(
             profile->learned_best_s_ahead = best_s;
 
         learned_best_s_ahead = profile->learned_best_s_ahead;
-    } else if (current_profile >= 0 &&
-               current_profile < P7_EWMA_LAB_MAX_LOAD_PROFILES &&
-               p7_info->ewma_lab_load_profile[current_profile].valid) {
-        learned_best_s_ahead =
-                p7_info->ewma_lab_load_profile[current_profile].
-                learned_best_s_ahead;
     }
 
     /*
      * ============================================================
-     * Dynamic decision thresholds
+     * Decision thresholds
      * ============================================================
      */
     int32_t down_required_safe_periods =
-            p7_info->last_adjustment_steps +
+            s_ahead_env +
             (int32_t)config->timing_info_period;
+
+    if (down_required_safe_periods < required_wait_slots)
+        down_required_safe_periods = required_wait_slots;
 
     if (down_required_safe_periods < 1)
         down_required_safe_periods = 1;
@@ -937,24 +941,6 @@ static void p7_run_ewma_lab_control(
 
     if (risk_required_periods < 1)
         risk_required_periods = 1;
-
-    bool immediate_up_required =
-            hard_late;
-
-    bool risk_up_required =
-            soft_risk &&
-            cur_risk_count >= risk_required_periods &&
-            !jitter_unstable;
-
-    bool learned_target_up_required =
-            learned_best_s_ahead > 0 &&
-            s_ahead_env < learned_best_s_ahead &&
-            !jitter_unstable;
-
-    bool up_required =
-            immediate_up_required ||
-            risk_up_required ||
-            learned_target_up_required;
 
     int32_t post_down_closest_us =
             closest_to_deadline_us +
@@ -967,19 +953,58 @@ static void p7_run_ewma_lab_control(
     bool timing_down_safe =
             post_down_risk_us <= 0;
 
+    /*
+     * UP decision:
+     *   1 = hard late
+     *   2 = persistent soft risk
+     *   3 = below learned best for current load
+     */
+    bool immediate_up_required =
+            hard_late;
+
+    bool risk_up_required =
+            soft_risk &&
+            cur_risk_count >= risk_required_periods &&
+            !jitter_unstable;
+
+    bool learned_target_up_required =
+            load_observable &&
+            learned_best_s_ahead > 0 &&
+            s_ahead_env < learned_best_s_ahead &&
+            !jitter_unstable;
+
+    bool up_required =
+            immediate_up_required ||
+            risk_up_required ||
+            learned_target_up_required;
+
+    /*
+     * DOWN decision:
+     *
+     * If load is observable:
+     *   only move down toward learned_best_s_ahead.
+     *   If learned_best is unknown, do not aggressively explore down
+     *   during traffic; this prevents peak load from collapsing back
+     *   to too-small s_ahead.
+     *
+     * If load is not observable:
+     *   timing-only fallback is allowed, but still requires strict
+     *   safe_count and post_down_risk.
+     */
     bool learned_target_down_allowed =
+            load_observable &&
             learned_best_s_ahead > 0 &&
             s_ahead_env > learned_best_s_ahead;
 
     bool timing_only_down_allowed =
-            learned_best_s_ahead <= 0;
+            !load_observable &&
+            s_ahead_env > 1;
 
     bool down_allowed =
             pre_hold_down <= 0 &&
             cur_safe_count >= down_required_safe_periods &&
             timing_down_safe &&
             !jitter_unstable &&
-            s_ahead_env > 1 &&
             (learned_target_down_allowed ||
              timing_only_down_allowed);
 
@@ -1011,9 +1036,6 @@ static void p7_run_ewma_lab_control(
             up_reason =
                     immediate_up_required ? 1 : 2;
         } else if (learned_target_up_required) {
-            /*
-             * Move slowly toward learned target.
-             */
             target_s_ahead = s_ahead_env + 1;
             up_reason = 3;
         }
@@ -1042,16 +1064,18 @@ static void p7_run_ewma_lab_control(
     } else if (down_allowed) {
         target_s_ahead = s_ahead_env - 1;
 
-        if (learned_best_s_ahead > 0 &&
-            target_s_ahead < learned_best_s_ahead)
+        if (load_observable &&
+            learned_best_s_ahead > 0 &&
+            target_s_ahead < learned_best_s_ahead) {
             target_s_ahead = learned_best_s_ahead;
+        }
 
         if (target_s_ahead < 1)
             target_s_ahead = 1;
 
         if (target_s_ahead < s_ahead_env) {
             down_reason =
-                    learned_best_s_ahead > 0 ? 1 : 2;
+                    load_observable ? 1 : 2;
 
             p7_info->last_adjustment_steps = target_s_ahead;
             p7_info->last_adjustment_sfn = p7_info->sfn;
@@ -1113,6 +1137,9 @@ static void p7_run_ewma_lab_control(
         p7_info->estimated_mean_late =
                 (int32_t)compensated_mean_64;
 
+        /*
+         * Large actuation should not permanently inflate jitter.
+         */
         if (abs_i32(delta_s_ahead) >= 2) {
             p7_info->estimated_jitter_var =
                     p7_info->estimated_jitter_var / 2;
