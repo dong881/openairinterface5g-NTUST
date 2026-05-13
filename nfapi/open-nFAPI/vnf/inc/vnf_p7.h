@@ -178,7 +178,52 @@ typedef struct p7_sync_runtime_feedback_s {
     int32_t recent_effective_latency_ewma_us;
 } p7_sync_runtime_feedback_t;
 
+#define P7_EWMA_LAB_MAX_STATES        16
+#define P7_EWMA_LAB_MAX_LOAD_PROFILES 8
+#define P7_EWMA_LAB_Q10               1024
 
+typedef struct {
+    int32_t valid;
+
+    int32_t sample_count;
+
+    /*
+     * EWMA probability of late sample.
+     * Q10 scale:
+     *   0    = no recent late
+     *   1024 = always late
+     */
+    int32_t late_ewma_q10;
+
+    int32_t risk_ewma_us;
+    int32_t latency_cost_ewma_us;
+    int32_t jitter_ewma_us;
+
+    /*
+     * Consecutive samples that were safe under this s_ahead.
+     */
+    int32_t consecutive_safe_count;
+} p7_ewma_lab_state_score_t;
+
+typedef struct {
+    int32_t valid;
+
+    /*
+     * Learned load region.
+     * Unit should match recent_p7_msg_count / recent_msg_per_slot.
+     */
+    int32_t load_center;
+    int32_t load_ewma;
+    int32_t load_dev;
+
+    /*
+     * Learned best s_ahead for this load region.
+     * 0 means not learned yet.
+     */
+    int32_t learned_best_s_ahead;
+
+    p7_ewma_lab_state_score_t state[P7_EWMA_LAB_MAX_STATES + 1];
+} p7_ewma_lab_load_profile_t;
 typedef struct nfapi_vnf_p7_connection_info {
 
 	/*! The PHY id */
@@ -346,7 +391,14 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t ewma_lab_hold_down_count;
 	int32_t ewma_lab_last_direction;
 	int32_t ewma_lab_last_target_s_ahead;
-	int32_t ewma_lab_min_s_ahead;
+
+	int32_t ewma_lab_uncertainty_ewma_us;
+	int32_t ewma_lab_uncertainty_dev_us;
+
+	int32_t ewma_lab_current_load_profile;
+
+	p7_ewma_lab_load_profile_t ewma_lab_load_profile[P7_EWMA_LAB_MAX_LOAD_PROFILES];
+	
 } nfapi_vnf_p7_connection_info_t;
 
 typedef struct vnf_p7_s {

@@ -440,10 +440,13 @@ static void p7_run_ewma_lab_control(
      * EWMA timing estimator
      * ============================================================
      *
-     * Only authoritative control input:
+     * Authoritative timing input:
      *
-     *   stats->worst_late > 0  : deadline violated
-     *   stats->worst_late <= 0 : early / safe sample candidate
+     *   stats->worst_late > 0
+     *      deadline violation
+     *
+     *   stats->worst_late <= 0
+     *      early / safe candidate
      */
     if (p7_info->estimated_mean_late == 0) {
         p7_info->estimated_mean_late = stats->worst_late;
@@ -481,12 +484,6 @@ static void p7_run_ewma_lab_control(
             p7_info->early_jitter +
             p7_info->estimated_jitter_var;
 
-    /*
-     * Closest point to deadline.
-     *
-     * Positive: already late.
-     * Negative: early.
-     */
     int32_t closest_to_deadline_us =
             stats->worst_late > p7_info->estimated_mean_late ?
             stats->worst_late :
@@ -501,10 +498,49 @@ static void p7_run_ewma_lab_control(
 
     /*
      * ============================================================
+     * Adaptive uncertainty baseline
+     * ============================================================
+     *
+     * Used to detect large jitter / unstable timing.
+     *
+     * No fixed jitter threshold is used.
+     */
+    if (p7_info->ewma_lab_uncertainty_ewma_us == 0) {
+        p7_info->ewma_lab_uncertainty_ewma_us =
+                timing_uncertainty_us;
+        p7_info->ewma_lab_uncertainty_dev_us =
+                timing_uncertainty_us / 2;
+    } else {
+        int32_t uncertainty_diff =
+                timing_uncertainty_us -
+                p7_info->ewma_lab_uncertainty_ewma_us;
+
+        p7_info->ewma_lab_uncertainty_ewma_us +=
+                uncertainty_diff / global_ewma_alpha_denom;
+
+        p7_info->ewma_lab_uncertainty_dev_us +=
+                (abs_i32(uncertainty_diff) -
+                 p7_info->ewma_lab_uncertainty_dev_us) /
+                global_ewma_beta_denom;
+    }
+
+    int32_t uncertainty_adaptive_bound_us =
+            p7_info->ewma_lab_uncertainty_ewma_us +
+            p7_info->ewma_lab_uncertainty_dev_us;
+
+    bool jitter_unstable =
+            timing_uncertainty_us >
+            uncertainty_adaptive_bound_us;
+
+    /*
+     * ============================================================
      * Offered-load estimator
      * ============================================================
      *
-     * Diagnostic only. This controller does not depend on offered load.
+     * This is VNF local observable.
+     *
+     * If this stays 0, the controller cannot perform load-aware
+     * learning and will fall back to timing-only mode.
      */
     int32_t current_offered_load =
             p7_info->recent_p7_msg_count > 0 ?
@@ -513,6 +549,9 @@ static void p7_run_ewma_lab_control(
 
     if (current_offered_load < 0)
         current_offered_load = 0;
+
+    bool load_observable =
+            current_offered_load > 0;
 
     if (p7_info->estimated_offered_load == 0)
         p7_info->estimated_offered_load = current_offered_load;
@@ -535,11 +574,11 @@ static void p7_run_ewma_lab_control(
     if (p7_info->peak_offered_load > 0) {
         peakness_q10 =
                 (int32_t)((int64_t)current_offered_load *
-                          1024 /
+                          P7_EWMA_LAB_Q10 /
                           p7_info->peak_offered_load);
 
-        if (peakness_q10 > 1024)
-            peakness_q10 = 1024;
+        if (peakness_q10 > P7_EWMA_LAB_Q10)
+            peakness_q10 = P7_EWMA_LAB_Q10;
 
         if (peakness_q10 < 0)
             peakness_q10 = 0;
@@ -547,16 +586,8 @@ static void p7_run_ewma_lab_control(
 
     /*
      * ============================================================
-     * No-drop first pressure model
+     * Timing pressure model
      * ============================================================
-     *
-     * Important policy change:
-     *
-     *   - Positive worst_late triggers immediate UP.
-     *   - Positive tail_risk with negative worst_late does NOT
-     *     trigger immediate UP. It must persist for several periods.
-     *
-     * This prevents 4<->5 oscillation caused by tiny risk values.
      */
     bool hard_late =
             stats->worst_late > 0 ||
@@ -593,11 +624,8 @@ static void p7_run_ewma_lab_control(
 
     /*
      * ============================================================
-     * Snapshot counters BEFORE decision
+     * Snapshot counters before update
      * ============================================================
-     *
-     * These are used for decision and logging, so the log tells us
-     * the actual gate state that allowed or blocked UP/DOWN.
      */
     int32_t pre_safe_count =
             p7_info->ewma_lab_safe_period_count;
@@ -641,17 +669,11 @@ static void p7_run_ewma_lab_control(
         p7_info->ewma_lab_late_period_count = 0;
         p7_info->ewma_lab_risk_period_count = 0;
     } else {
-        /*
-         * Neutral sample.
-         */
         p7_info->ewma_lab_safe_period_count = 0;
         p7_info->ewma_lab_late_period_count = 0;
         p7_info->ewma_lab_risk_period_count = 0;
     }
 
-    /*
-     * Use updated counters for current decision.
-     */
     int32_t cur_safe_count =
             p7_info->ewma_lab_safe_period_count;
 
@@ -663,32 +685,245 @@ static void p7_run_ewma_lab_control(
 
     /*
      * ============================================================
-     * Dynamic thresholds
+     * Load profile matching / creation
      * ============================================================
      *
-     * No hardcoded "4 slots".
+     * No hardcoded load buckets.
      *
-     * If fixed 4 slots ahead is known best, set:
-     *
-     *   p7_info->ewma_lab_min_s_ahead = 4
-     *
-     * externally during init/config/baseline load.
+     * New profile is created when current load is farther than the
+     * nearest profile's learned deviation and there is free space.
      */
-    int32_t dynamic_floor_s_ahead = 1;
+    int32_t current_profile = -1;
+    int32_t learned_best_s_ahead = 0;
+    int32_t profile_load_center = 0;
+    int32_t profile_load_dev = 0;
 
-    if (p7_info->ewma_lab_min_s_ahead > dynamic_floor_s_ahead)
-        dynamic_floor_s_ahead = p7_info->ewma_lab_min_s_ahead;
+    if (load_observable) {
+        int32_t best_profile = -1;
+        int64_t best_dist = INT64_MAX;
 
-    if (dynamic_floor_s_ahead > max_s_ahead)
-        dynamic_floor_s_ahead = max_s_ahead;
+        for (int i = 0; i < P7_EWMA_LAB_MAX_LOAD_PROFILES; ++i) {
+            if (!p7_info->ewma_lab_load_profile[i].valid)
+                continue;
 
-    if (dynamic_floor_s_ahead < 1)
-        dynamic_floor_s_ahead = 1;
+            int64_t dist =
+                    (int64_t)current_offered_load -
+                    (int64_t)p7_info->ewma_lab_load_profile[i].load_center;
+
+            if (dist < 0)
+                dist = -dist;
+
+            if (dist < best_dist) {
+                best_dist = dist;
+                best_profile = i;
+            }
+        }
+
+        bool create_new_profile = false;
+
+        if (best_profile < 0) {
+            create_new_profile = true;
+        } else {
+            int32_t dev =
+                    p7_info->ewma_lab_load_profile[best_profile].load_dev;
+
+            /*
+             * If dev is zero, any non-zero distance indicates that
+             * this profile has not learned load spread yet.
+             */
+            if (best_dist > (int64_t)dev) {
+                for (int i = 0; i < P7_EWMA_LAB_MAX_LOAD_PROFILES; ++i) {
+                    if (!p7_info->ewma_lab_load_profile[i].valid) {
+                        create_new_profile = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (create_new_profile) {
+            for (int i = 0; i < P7_EWMA_LAB_MAX_LOAD_PROFILES; ++i) {
+                if (!p7_info->ewma_lab_load_profile[i].valid) {
+                    p7_info->ewma_lab_load_profile[i].valid = 1;
+                    p7_info->ewma_lab_load_profile[i].load_center =
+                            current_offered_load;
+                    p7_info->ewma_lab_load_profile[i].load_ewma =
+                            current_offered_load;
+                    p7_info->ewma_lab_load_profile[i].load_dev = 0;
+                    p7_info->ewma_lab_load_profile[i].learned_best_s_ahead = 0;
+                    best_profile = i;
+                    break;
+                }
+            }
+        }
+
+        if (best_profile < 0)
+            best_profile = 0;
+
+        current_profile = best_profile;
+        p7_info->ewma_lab_current_load_profile = current_profile;
+
+        p7_ewma_lab_load_profile_t *profile =
+                &p7_info->ewma_lab_load_profile[current_profile];
+
+        if (profile->valid) {
+            int32_t profile_load_diff =
+                    current_offered_load - profile->load_ewma;
+
+            profile->load_ewma +=
+                    profile_load_diff / global_ewma_alpha_denom;
+
+            profile->load_dev +=
+                    (abs_i32(profile_load_diff) - profile->load_dev) /
+                    global_ewma_beta_denom;
+
+            profile->load_center = profile->load_ewma;
+
+            profile_load_center = profile->load_center;
+            profile_load_dev = profile->load_dev;
+        }
+    }
 
     /*
-     * DOWN requires enough consecutive safe timing-info periods.
+     * ============================================================
+     * Per-load / per-s_ahead learning update
+     * ============================================================
      *
-     * Use runtime pacing as hysteresis length.
+     * Learning is frozen during jitter unstable periods.
+     * This prevents high jitter periods from poisoning the learned
+     * best state.
+     */
+    int32_t learning_state = s_ahead_env;
+
+    if (learning_state < 1)
+        learning_state = 1;
+
+    if (learning_state > P7_EWMA_LAB_MAX_STATES)
+        learning_state = P7_EWMA_LAB_MAX_STATES;
+
+    int32_t learning_required_samples =
+            p7_info->last_adjustment_steps +
+            (int32_t)config->timing_info_period;
+
+    if (learning_required_samples < 1)
+        learning_required_samples = 1;
+
+    if (current_profile >= 0 &&
+        current_profile < P7_EWMA_LAB_MAX_LOAD_PROFILES &&
+        p7_info->ewma_lab_load_profile[current_profile].valid &&
+        !jitter_unstable) {
+
+        p7_ewma_lab_load_profile_t *profile =
+                &p7_info->ewma_lab_load_profile[current_profile];
+
+        p7_ewma_lab_state_score_t *score =
+                &profile->state[learning_state];
+
+        score->valid = 1;
+        score->sample_count++;
+
+        if (score->sample_count < 0)
+            score->sample_count = 1;
+
+        int32_t late_sample_q10 =
+                hard_late ? P7_EWMA_LAB_Q10 : 0;
+
+        score->late_ewma_q10 +=
+                (late_sample_q10 - score->late_ewma_q10) /
+                global_ewma_alpha_denom;
+
+        score->risk_ewma_us +=
+                (pressure_sample_us - score->risk_ewma_us) /
+                global_ewma_alpha_denom;
+
+        /*
+         * Latency cost proxy:
+         *
+         * Lower s_ahead is lower base latency.
+         * Timing risk / uncertainty increases effective cost.
+         *
+         * No hardcoded preference for 3 or 4.
+         */
+        int32_t latency_cost_us =
+                learning_state * slot_duration_us +
+                pressure_sample_us +
+                timing_uncertainty_us;
+
+        score->latency_cost_ewma_us +=
+                (latency_cost_us - score->latency_cost_ewma_us) /
+                global_ewma_alpha_denom;
+
+        score->jitter_ewma_us +=
+                (timing_uncertainty_us - score->jitter_ewma_us) /
+                global_ewma_alpha_denom;
+
+        if (safe_sample && !hard_late) {
+            score->consecutive_safe_count++;
+
+            if (score->consecutive_safe_count < 0)
+                score->consecutive_safe_count = 1;
+        } else {
+            score->consecutive_safe_count = 0;
+        }
+
+        /*
+         * Recompute learned_best_s_ahead.
+         *
+         * Candidate must be:
+         *   - valid
+         *   - enough samples
+         *   - enough consecutive safe observations
+         *   - no recent late EWMA
+         *
+         * Among safe candidates, choose lowest latency cost.
+         */
+        int32_t best_s = 0;
+        int32_t best_cost = INT32_MAX;
+
+        int32_t max_state =
+                max_s_ahead < P7_EWMA_LAB_MAX_STATES ?
+                max_s_ahead :
+                P7_EWMA_LAB_MAX_STATES;
+
+        for (int s = 1; s <= max_state; ++s) {
+            p7_ewma_lab_state_score_t *candidate =
+                    &profile->state[s];
+
+            if (!candidate->valid)
+                continue;
+
+            if (candidate->sample_count < learning_required_samples)
+                continue;
+
+            if (candidate->consecutive_safe_count <
+                learning_required_samples)
+                continue;
+
+            if (candidate->late_ewma_q10 != 0)
+                continue;
+
+            if (candidate->latency_cost_ewma_us < best_cost) {
+                best_cost = candidate->latency_cost_ewma_us;
+                best_s = s;
+            }
+        }
+
+        if (best_s > 0)
+            profile->learned_best_s_ahead = best_s;
+
+        learned_best_s_ahead = profile->learned_best_s_ahead;
+    } else if (current_profile >= 0 &&
+               current_profile < P7_EWMA_LAB_MAX_LOAD_PROFILES &&
+               p7_info->ewma_lab_load_profile[current_profile].valid) {
+        learned_best_s_ahead =
+                p7_info->ewma_lab_load_profile[current_profile].
+                learned_best_s_ahead;
+    }
+
+    /*
+     * ============================================================
+     * Dynamic decision thresholds
+     * ============================================================
      */
     int32_t down_required_safe_periods =
             p7_info->last_adjustment_steps +
@@ -697,12 +932,6 @@ static void p7_run_ewma_lab_control(
     if (down_required_safe_periods < 1)
         down_required_safe_periods = 1;
 
-    /*
-     * Soft risk should persist before UP.
-     *
-     * This prevents tiny tail_risk such as 5us / 20us / 50us from
-     * causing 4->5 immediately.
-     */
     int32_t risk_required_periods =
             (int32_t)config->timing_info_period;
 
@@ -714,23 +943,18 @@ static void p7_run_ewma_lab_control(
 
     bool risk_up_required =
             soft_risk &&
-            cur_risk_count >= risk_required_periods;
+            cur_risk_count >= risk_required_periods &&
+            !jitter_unstable;
+
+    bool learned_target_up_required =
+            learned_best_s_ahead > 0 &&
+            s_ahead_env < learned_best_s_ahead &&
+            !jitter_unstable;
 
     bool up_required =
             immediate_up_required ||
-            risk_up_required;
-
-    bool down_allowed =
-            pre_hold_down <= 0 &&
-            cur_safe_count >= down_required_safe_periods &&
-            s_ahead_env > dynamic_floor_s_ahead;
-
-    /*
-     * ============================================================
-     * Target decision
-     * ============================================================
-     */
-    int32_t target_s_ahead = s_ahead_env;
+            risk_up_required ||
+            learned_target_up_required;
 
     int32_t post_down_closest_us =
             closest_to_deadline_us +
@@ -740,47 +964,68 @@ static void p7_run_ewma_lab_control(
             post_down_closest_us +
             timing_uncertainty_us;
 
+    bool timing_down_safe =
+            post_down_risk_us <= 0;
+
+    bool learned_target_down_allowed =
+            learned_best_s_ahead > 0 &&
+            s_ahead_env > learned_best_s_ahead;
+
+    bool timing_only_down_allowed =
+            learned_best_s_ahead <= 0;
+
+    bool down_allowed =
+            pre_hold_down <= 0 &&
+            cur_safe_count >= down_required_safe_periods &&
+            timing_down_safe &&
+            !jitter_unstable &&
+            s_ahead_env > 1 &&
+            (learned_target_down_allowed ||
+             timing_only_down_allowed);
+
+    /*
+     * ============================================================
+     * Target decision
+     * ============================================================
+     */
+    int32_t target_s_ahead = s_ahead_env;
     int32_t up_reason = 0;
     int32_t down_reason = 0;
 
-    /*
-     * UP is blocked only by max_s_ahead.
-     *
-     * DOWN is blocked by:
-     *   - hold_down
-     *   - safe counter
-     *   - dynamic floor
-     *   - post-down risk
-     */
     if (up_required) {
-        int32_t pressure_for_up_us = pressure_sample_us;
+        if (immediate_up_required || risk_up_required) {
+            int32_t pressure_for_up_us = pressure_sample_us;
 
-        if (pressure_for_up_us <= 0 && stats->worst_late > 0)
-            pressure_for_up_us = stats->worst_late;
+            if (pressure_for_up_us <= 0 && stats->worst_late > 0)
+                pressure_for_up_us = stats->worst_late;
 
-        int32_t extra_slots =
-                ceil_div_pos_i32(pressure_for_up_us,
-                                 slot_duration_us);
+            int32_t extra_slots =
+                    ceil_div_pos_i32(pressure_for_up_us,
+                                     slot_duration_us);
 
-        if (extra_slots < 1)
-            extra_slots = 1;
+            if (extra_slots < 1)
+                extra_slots = 1;
 
-        target_s_ahead = s_ahead_env + extra_slots;
+            target_s_ahead = s_ahead_env + extra_slots;
+
+            up_reason =
+                    immediate_up_required ? 1 : 2;
+        } else if (learned_target_up_required) {
+            /*
+             * Move slowly toward learned target.
+             */
+            target_s_ahead = s_ahead_env + 1;
+            up_reason = 3;
+        }
 
         if (target_s_ahead > max_s_ahead)
             target_s_ahead = max_s_ahead;
 
         if (target_s_ahead > s_ahead_env) {
-            up_reason =
-                    immediate_up_required ? 1 : 2;
-
             p7_info->last_adjustment_steps = target_s_ahead;
             p7_info->last_adjustment_sfn = p7_info->sfn;
             p7_info->last_adjustment_slot = p7_info->slot;
 
-            /*
-             * After UP, block DOWN until timing has settled.
-             */
             p7_info->ewma_lab_hold_down_count =
                     target_s_ahead +
                     (int32_t)config->timing_info_period;
@@ -795,53 +1040,46 @@ static void p7_run_ewma_lab_control(
             p7_info->ewma_lab_last_target_s_ahead = target_s_ahead;
         }
     } else if (down_allowed) {
-        if (post_down_risk_us <= 0) {
-            target_s_ahead = s_ahead_env - 1;
+        target_s_ahead = s_ahead_env - 1;
 
-            if (target_s_ahead < dynamic_floor_s_ahead)
-                target_s_ahead = dynamic_floor_s_ahead;
+        if (learned_best_s_ahead > 0 &&
+            target_s_ahead < learned_best_s_ahead)
+            target_s_ahead = learned_best_s_ahead;
 
-            if (target_s_ahead < s_ahead_env) {
-                down_reason = 1;
+        if (target_s_ahead < 1)
+            target_s_ahead = 1;
 
-                p7_info->last_adjustment_steps = target_s_ahead;
-                p7_info->last_adjustment_sfn = p7_info->sfn;
-                p7_info->last_adjustment_slot = p7_info->slot;
+        if (target_s_ahead < s_ahead_env) {
+            down_reason =
+                    learned_best_s_ahead > 0 ? 1 : 2;
 
-                /*
-                 * After DOWN, also hold. This prevents DOWN chains.
-                 */
-                p7_info->ewma_lab_hold_down_count =
-                        target_s_ahead +
-                        (int32_t)config->timing_info_period;
+            p7_info->last_adjustment_steps = target_s_ahead;
+            p7_info->last_adjustment_sfn = p7_info->sfn;
+            p7_info->last_adjustment_slot = p7_info->slot;
 
-                if (p7_info->ewma_lab_hold_down_count < 1)
-                    p7_info->ewma_lab_hold_down_count = 1;
+            p7_info->ewma_lab_hold_down_count =
+                    target_s_ahead +
+                    (int32_t)config->timing_info_period;
 
-                p7_info->ewma_lab_safe_period_count = 0;
-                p7_info->ewma_lab_risk_period_count = 0;
+            if (p7_info->ewma_lab_hold_down_count < 1)
+                p7_info->ewma_lab_hold_down_count = 1;
 
-                p7_info->ewma_lab_last_direction = -1;
-                p7_info->ewma_lab_last_target_s_ahead = target_s_ahead;
-            }
+            p7_info->ewma_lab_safe_period_count = 0;
+            p7_info->ewma_lab_risk_period_count = 0;
+
+            p7_info->ewma_lab_last_direction = -1;
+            p7_info->ewma_lab_last_target_s_ahead = target_s_ahead;
         }
     }
 
     if (target_s_ahead > max_s_ahead)
         target_s_ahead = max_s_ahead;
 
-    if (target_s_ahead < dynamic_floor_s_ahead)
-        target_s_ahead = dynamic_floor_s_ahead;
-
     if (target_s_ahead < 1)
         target_s_ahead = 1;
 
     /*
-     * Decrement hold-down only when no actuation happened.
-     *
-     * Important:
-     *   Do NOT decrement before decision. Otherwise decision/logging
-     *   becomes confusing and can allow premature DOWN.
+     * Decrement hold-down only when there is no actuation.
      */
     if (target_s_ahead == s_ahead_env &&
         p7_info->ewma_lab_hold_down_count > 0) {
@@ -859,12 +1097,6 @@ static void p7_run_ewma_lab_control(
         int32_t step_direction =
                 delta_s_ahead > 0 ? 1 : -1;
 
-        /*
-         * Changing s_ahead shifts timing coordinate.
-         *
-         * UP   +1 slot => messages appear earlier.
-         * DOWN -1 slot => messages appear later.
-         */
         int64_t mean_shift_64 =
                 (int64_t)delta_s_ahead * slot_duration_us;
 
@@ -881,9 +1113,6 @@ static void p7_run_ewma_lab_control(
         p7_info->estimated_mean_late =
                 (int32_t)compensated_mean_64;
 
-        /*
-         * Large actuation should not permanently inflate jitter.
-         */
         if (abs_i32(delta_s_ahead) >= 2) {
             p7_info->estimated_jitter_var =
                     p7_info->estimated_jitter_var / 2;
@@ -900,14 +1129,16 @@ static void p7_run_ewma_lab_control(
             "worst_late=%d mean=%d var=%d diff=%d "
             "late_jitter=%d early_jitter=%d "
             "up_bound=%d down_bound=%d "
-            "closest=%d uncertainty=%d "
+            "closest=%d uncertainty=%d uncertainty_ewma=%d uncertainty_dev=%d "
+            "jitter_unstable=%d "
             "tail_risk=%d failure_debt=%d pressure_sample=%d "
             "hard_late=%d soft_risk=%d safe_sample=%d "
             "pre_safe=%d pre_late=%d pre_risk=%d pre_hold=%d "
             "safe_cnt=%d late_cnt=%d risk_cnt=%d hold_down=%d "
-            "risk_req=%d down_req=%d floor=%d "
+            "risk_req=%d down_req=%d "
+            "load_obs=%d load=%d est_load=%d dev_load=%d peak_load=%d peakness=%d "
+            "profile=%d load_center=%d load_dev=%d learned_best=%d "
             "up_reason=%d down_reason=%d down_allowed=%d post_down_risk=%d "
-            "offered=%d est_load=%d dev_load=%d peak_load=%d peakness=%d "
             "delta=%d mean_shift=%ld wait_steps=%d",
             global_ewma_alpha_denom,
             global_ewma_beta_denom,
@@ -924,6 +1155,9 @@ static void p7_run_ewma_lab_control(
             jitter_down_bound_us,
             closest_to_deadline_us,
             timing_uncertainty_us,
+            p7_info->ewma_lab_uncertainty_ewma_us,
+            p7_info->ewma_lab_uncertainty_dev_us,
+            jitter_unstable,
             timing_tail_risk_us,
             failure_debt_us,
             pressure_sample_us,
@@ -940,16 +1174,20 @@ static void p7_run_ewma_lab_control(
             p7_info->ewma_lab_hold_down_count,
             risk_required_periods,
             down_required_safe_periods,
-            dynamic_floor_s_ahead,
-            up_reason,
-            down_reason,
-            down_allowed,
-            post_down_risk_us,
+            load_observable,
             current_offered_load,
             p7_info->estimated_offered_load,
             p7_info->offered_load_dev,
             p7_info->peak_offered_load,
             peakness_q10,
+            current_profile,
+            profile_load_center,
+            profile_load_dev,
+            learned_best_s_ahead,
+            up_reason,
+            down_reason,
+            down_allowed,
+            post_down_risk_us,
             delta_s_ahead,
             (long)mean_shift_64,
             p7_info->last_adjustment_steps);
@@ -963,14 +1201,16 @@ static void p7_run_ewma_lab_control(
             "[P7_SYNC][EWMA_LAB] stable s_ahead=%d "
             "worst_late=%d mean=%d var=%d diff=%d "
             "late_jitter=%d early_jitter=%d "
-            "closest=%d uncertainty=%d "
+            "closest=%d uncertainty=%d uncertainty_ewma=%d uncertainty_dev=%d "
+            "jitter_unstable=%d "
             "tail_risk=%d failure_debt=%d pressure_sample=%d "
             "hard_late=%d soft_risk=%d safe_sample=%d "
             "pre_safe=%d pre_late=%d pre_risk=%d pre_hold=%d "
             "safe_cnt=%d late_cnt=%d risk_cnt=%d hold_down=%d "
-            "risk_req=%d down_req=%d floor=%d "
+            "risk_req=%d down_req=%d "
+            "load_obs=%d load=%d est_load=%d dev_load=%d peak_load=%d peakness=%d "
+            "profile=%d load_center=%d load_dev=%d learned_best=%d "
             "down_allowed=%d post_down_risk=%d "
-            "offered=%d est_load=%d dev_load=%d peak_load=%d peakness=%d "
             "alpha=1/%d beta=1/%d",
             s_ahead_env,
             stats->worst_late,
@@ -981,6 +1221,9 @@ static void p7_run_ewma_lab_control(
             p7_info->early_jitter,
             closest_to_deadline_us,
             timing_uncertainty_us,
+            p7_info->ewma_lab_uncertainty_ewma_us,
+            p7_info->ewma_lab_uncertainty_dev_us,
+            jitter_unstable,
             timing_tail_risk_us,
             failure_debt_us,
             pressure_sample_us,
@@ -997,14 +1240,18 @@ static void p7_run_ewma_lab_control(
             p7_info->ewma_lab_hold_down_count,
             risk_required_periods,
             down_required_safe_periods,
-            dynamic_floor_s_ahead,
-            down_allowed,
-            post_down_risk_us,
+            load_observable,
             current_offered_load,
             p7_info->estimated_offered_load,
             p7_info->offered_load_dev,
             p7_info->peak_offered_load,
             peakness_q10,
+            current_profile,
+            profile_load_center,
+            profile_load_dev,
+            learned_best_s_ahead,
+            down_allowed,
+            post_down_risk_us,
             global_ewma_alpha_denom,
             global_ewma_beta_denom);
     }
@@ -1021,7 +1268,6 @@ static void p7_run_ewma_lab_control(
 
     return;
 }
-
 
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
 {
