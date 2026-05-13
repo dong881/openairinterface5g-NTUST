@@ -109,6 +109,76 @@ typedef struct {
 
 } vnf_p7_rx_reassembly_queue_t;
 
+
+#define P7_Q10_ONE 1024
+
+/*
+ * Runtime-learned / baseline-provided reference.
+ *
+ * These values must be filled from:
+ *   - fixed-slot baseline experiment,
+ *   - runtime config,
+ *   - previous known-good learned state.
+ *
+ * Do NOT hardcode "4 slots" or a static margin threshold in controller.
+ */
+typedef struct p7_sync_reference_profile_s {
+    /*
+     * Baseline slot-ahead that produced best known result.
+     * Example: fixed 4 slots ahead may set this to 4 externally.
+     */
+    int32_t reference_s_ahead;
+
+    /*
+     * Baseline effective latency in us.
+     * This should come from the same comparison metric used in plots.
+     */
+    int32_t reference_latency_us;
+
+    /*
+     * Baseline PNF margin floor in us.
+     * Recommended source:
+     *   margin_floor = margin_ewma - margin_dev
+     * from fixed baseline run.
+     */
+    int32_t reference_margin_floor_us;
+} p7_sync_reference_profile_t;
+
+/*
+ * Runtime PNF/MAC feedback collected during previous control period.
+ *
+ * These must be updated by collectors before p7_run_ewma_lab_control().
+ */
+typedef struct p7_sync_runtime_feedback_s {
+    /*
+     * PNF timing margin statistics from check_nr_p7_timing().
+     * margin = delay_to_msg_slot - time_since_slot_start.
+     */
+    int32_t recent_pnf_margin_min_us;
+    int32_t recent_pnf_margin_ewma_us;
+    int32_t recent_pnf_margin_dev_us;
+
+    /*
+     * PNF timing failures.
+     */
+    int32_t recent_pnf_too_late_max_us;
+    int32_t recent_pnf_too_late_count;
+    int32_t recent_pnf_no_tx_data_count;
+
+    /*
+     * MAC reliability symptoms.
+     */
+    int32_t recent_mac_harq_feedback_timeout_count;
+    int32_t recent_mac_retx_abort_count;
+
+    /*
+     * Effective latency estimator used to compare against baseline.
+     * Unit: us.
+     */
+    int32_t recent_effective_latency_ewma_us;
+} p7_sync_runtime_feedback_t;
+
+
 typedef struct nfapi_vnf_p7_connection_info {
 
 	/*! The PHY id */
@@ -258,6 +328,12 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t estimated_offered_load;
 	int32_t offered_load_dev;
 	int32_t peak_offered_load;
+
+	p7_sync_reference_profile_t sync_ref;
+	p7_sync_runtime_feedback_t  sync_fb;
+	int32_t learned_good_s_ahead;
+	int32_t learned_good_latency_us;
+	int32_t learned_good_margin_floor_us;
 } nfapi_vnf_p7_connection_info_t;
 
 typedef struct vnf_p7_s {

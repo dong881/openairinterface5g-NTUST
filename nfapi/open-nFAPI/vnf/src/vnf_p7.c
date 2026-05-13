@@ -264,16 +264,6 @@ static int32_t ceil_div_pos_i32(int32_t num, int32_t den)
     return (num + den - 1) / den;
 }
 
-static int32_t max_i32(int32_t a, int32_t b)
-{
-    return a > b ? a : b;
-}
-
-static int32_t min_i32(int32_t a, int32_t b)
-{
-    return a < b ? a : b;
-}
-
 static int32_t abs_i32(int32_t v)
 {
     return v < 0 ? -v : v;
@@ -297,15 +287,17 @@ static void p7_run_ewma_lab_control(
 {
     nfapi_vnf_config_t *config = get_config();
 
-    if (slot_duration_us <= 0 || max_s_ahead <= 0)
+    if (slot_duration_us <= 0 || max_s_ahead <= 0 || p7_info == NULL || stats == NULL)
         return;
+
+    int32_t slots_per_frame = 10 << p7_info->mu;
 
     int32_t elapsed_slots = calculate_slot_distance(
             p7_info->sfn,
             p7_info->slot,
             p7_info->last_adjustment_sfn,
             p7_info->last_adjustment_slot,
-            10 << p7_info->mu);
+            slots_per_frame);
 
     int32_t required_wait_slots =
             p7_info->last_adjustment_steps +
@@ -314,6 +306,11 @@ static void p7_run_ewma_lab_control(
     if (elapsed_slots < required_wait_slots)
         return;
 
+    /*
+     * ============================================================
+     * EWMA timing estimator
+     * ============================================================
+     */
     if (p7_info->estimated_mean_late == 0) {
         p7_info->estimated_mean_late = stats->worst_late;
         p7_info->estimated_jitter_var = abs_i32(stats->worst_late) / 2;
@@ -324,9 +321,6 @@ static void p7_run_ewma_lab_control(
     int32_t diff = stats->worst_late - p7_info->estimated_mean_late;
     int32_t abs_diff = abs_i32(diff);
 
-    /*
-     * Update EWMA timing estimator.
-     */
     p7_info->estimated_mean_late +=
             diff / global_ewma_alpha_denom;
 
@@ -352,19 +346,10 @@ static void p7_run_ewma_lab_control(
             p7_info->early_jitter +
             p7_info->estimated_jitter_var;
 
-    /*
-     * Closest point to deadline.
-     *
-     * Positive: already late.
-     * Negative: early.
-     */
     int32_t closest_to_deadline_us =
             stats->worst_late > p7_info->estimated_mean_late ?
             stats->worst_late : p7_info->estimated_mean_late;
 
-    /*
-     * Timing uncertainty from measured late-side behavior.
-     */
     int32_t timing_uncertainty_us =
             p7_info->late_jitter +
             p7_info->estimated_jitter_var;
@@ -377,16 +362,9 @@ static void p7_run_ewma_lab_control(
      * Offered-load estimator
      * ============================================================
      *
-     * Do not hardcode peak throughput or message count.
-     *
-     * current_offered_load should be collected from actual P7 traffic
-     * during the previous control period.
-     *
-     * Preferred source:
-     *   p7_info->recent_p7_msg_count
-     *
-     * Fallback:
-     *   p7_info->recent_msg_per_slot
+     * This remains non-hardcoded. However, if collectors do not feed
+     * recent_p7_msg_count / recent_msg_per_slot, load is unobservable.
+     * In that case, do NOT use load to justify aggressive edge-walking.
      */
     int32_t current_offered_load =
             p7_info->recent_p7_msg_count > 0 ?
@@ -395,6 +373,8 @@ static void p7_run_ewma_lab_control(
 
     if (current_offered_load < 0)
         current_offered_load = 0;
+
+    bool load_observable = current_offered_load > 0;
 
     if (p7_info->estimated_offered_load == 0)
         p7_info->estimated_offered_load = current_offered_load;
@@ -409,41 +389,153 @@ static void p7_run_ewma_lab_control(
             (abs_i32(load_diff) - p7_info->offered_load_dev) /
             global_ewma_beta_denom;
 
-    /*
-     * Learn observed system peak offered load.
-     *
-     * This is a high-water mark, not a configured threshold.
-     */
     if (current_offered_load > p7_info->peak_offered_load)
         p7_info->peak_offered_load = current_offered_load;
 
     /*
-     * Peak mode:
+     * ============================================================
+     * PNF / MAC feedback
+     * ============================================================
      *
-     * Current load is considered peak if it is statistically
-     * indistinguishable from the observed peak, using measured
-     * offered-load deviation as the tolerance band.
-     *
-     * No hardcoded throughput threshold.
+     * These signals are the guardrail. Non-peak does not mean
+     * "allow drops"; non-peak only means "try lower latency if PNF
+     * margin and MAC reliability stay healthy".
      */
-    bool peak_offered_load =
-            p7_info->peak_offered_load > 0 &&
-            current_offered_load + p7_info->offered_load_dev >=
-                    p7_info->peak_offered_load;
+    int32_t pnf_margin_floor_us = 0;
+
+    if (p7_info->sync_fb.recent_pnf_margin_ewma_us > 0) {
+        pnf_margin_floor_us =
+                p7_info->sync_fb.recent_pnf_margin_ewma_us -
+                p7_info->sync_fb.recent_pnf_margin_dev_us;
+    } else if (p7_info->sync_fb.recent_pnf_margin_min_us > 0) {
+        pnf_margin_floor_us =
+                p7_info->sync_fb.recent_pnf_margin_min_us;
+    }
+
+    if (pnf_margin_floor_us < 0)
+        pnf_margin_floor_us = 0;
+
+    bool pnf_or_mac_distress =
+            p7_info->sync_fb.recent_pnf_too_late_max_us > 0 ||
+            p7_info->sync_fb.recent_pnf_too_late_count > 0 ||
+            p7_info->sync_fb.recent_pnf_no_tx_data_count > 0 ||
+            p7_info->sync_fb.recent_mac_harq_feedback_timeout_count > 0 ||
+            p7_info->sync_fb.recent_mac_retx_abort_count > 0 ||
+            p7_info->recent_p7_too_late_max_us > 0 ||
+            p7_info->recent_harq_timeout_count > 0 ||
+            p7_info->recent_rlc_reject_count > 0 ||
+            stats->worst_late > 0 ||
+            closest_to_deadline_us > 0;
 
     /*
-     * Peakness is only for logging / smooth scaling.
+     * ============================================================
+     * Learned / baseline reference
+     * ============================================================
+     *
+     * reference_s_ahead may be 4 if fixed-4 baseline is best,
+     * but this function never hardcodes that value.
      */
+    int32_t reference_s_ahead =
+            p7_info->sync_ref.reference_s_ahead > 0 ?
+            p7_info->sync_ref.reference_s_ahead :
+            p7_info->learned_good_s_ahead;
+
+    if (reference_s_ahead > max_s_ahead)
+        reference_s_ahead = max_s_ahead;
+
+    if (reference_s_ahead < 0)
+        reference_s_ahead = 0;
+
+    int32_t reference_latency_us =
+            p7_info->sync_ref.reference_latency_us > 0 ?
+            p7_info->sync_ref.reference_latency_us :
+            p7_info->learned_good_latency_us;
+
+    int32_t reference_margin_floor_us =
+            p7_info->sync_ref.reference_margin_floor_us > 0 ?
+            p7_info->sync_ref.reference_margin_floor_us :
+            p7_info->learned_good_margin_floor_us;
+
+    bool pnf_margin_worse_than_reference =
+            reference_margin_floor_us > 0 &&
+            pnf_margin_floor_us > 0 &&
+            pnf_margin_floor_us < reference_margin_floor_us;
+
+    bool latency_worse_than_reference =
+            reference_latency_us > 0 &&
+            p7_info->sync_fb.recent_effective_latency_ewma_us > 0 &&
+            p7_info->sync_fb.recent_effective_latency_ewma_us >
+                    reference_latency_us;
+
+    /*
+     * Learn good states only when there is no PNF/MAC distress.
+     *
+     * This lets the controller discover a better-than-baseline state,
+     * but never learns from a period that has TOO_LATE / HARQ timeout /
+     * tx_data miss / retransmission abort.
+     */
+    if (!pnf_or_mac_distress &&
+        pnf_margin_floor_us > 0 &&
+        p7_info->sync_fb.recent_effective_latency_ewma_us > 0) {
+
+        bool first_good_state =
+                p7_info->learned_good_s_ahead <= 0 ||
+                p7_info->learned_good_latency_us <= 0 ||
+                p7_info->learned_good_margin_floor_us <= 0;
+
+        bool better_latency =
+                p7_info->learned_good_latency_us > 0 &&
+                p7_info->sync_fb.recent_effective_latency_ewma_us <
+                        p7_info->learned_good_latency_us;
+
+        bool better_margin =
+                p7_info->learned_good_margin_floor_us > 0 &&
+                pnf_margin_floor_us >
+                        p7_info->learned_good_margin_floor_us;
+
+        if (first_good_state || better_latency || better_margin) {
+            p7_info->learned_good_s_ahead = s_ahead_env;
+            p7_info->learned_good_latency_us =
+                    p7_info->sync_fb.recent_effective_latency_ewma_us;
+            p7_info->learned_good_margin_floor_us =
+                    pnf_margin_floor_us;
+        }
+    }
+
+    /*
+     * ============================================================
+     * Peak detection
+     * ============================================================
+     *
+     * Peak is not "current load is close to high-water mark".
+     * Peak requires load observability and distress.
+     *
+     * For the current 400Mbps non-peak scenario, offered load is not
+     * observable in the logs, so this will remain false.
+     */
+    bool near_observed_peak = false;
+
+    if (load_observable && p7_info->peak_offered_load > 0) {
+        near_observed_peak =
+                current_offered_load + p7_info->offered_load_dev >=
+                p7_info->peak_offered_load;
+    }
+
+    bool peak_offered_load =
+            load_observable &&
+            near_observed_peak &&
+            pnf_or_mac_distress;
+
     int32_t peakness_q10 = 0;
 
     if (p7_info->peak_offered_load > 0) {
         peakness_q10 =
                 (int32_t)((int64_t)current_offered_load *
-                          1024 /
+                          P7_Q10_ONE /
                           p7_info->peak_offered_load);
 
-        if (peakness_q10 > 1024)
-            peakness_q10 = 1024;
+        if (peakness_q10 > P7_Q10_ONE)
+            peakness_q10 = P7_Q10_ONE;
 
         if (peakness_q10 < 0)
             peakness_q10 = 0;
@@ -451,59 +543,42 @@ static void p7_run_ewma_lab_control(
 
     /*
      * ============================================================
-     * Peak / non-peak timing policy
+     * Non-peak / peak pressure model
      * ============================================================
      *
-     * Non-peak:
-     *   - latency-first
-     *   - allow edge-walking near deadline
-     *   - tolerate occasional small TOO_LATE
-     *
-     * Peak:
-     *   - reliability-first
-     *   - allowed late = 0
-     *   - closest_to_deadline_us must be pulled earlier
+     * Important change:
+     *   Non-peak no longer means "edge-walk freely".
+     *   Non-peak means "latency optimization under PNF no-drop guardrail".
      */
-
     int32_t allowed_late_us = 0;
 
-    if (!peak_offered_load && p7_info->peak_offered_load > 0) {
+    if (!peak_offered_load &&
+        p7_info->peak_offered_load > 0 &&
+        current_offered_load > 0) {
+
         int32_t load_gap =
                 p7_info->peak_offered_load - current_offered_load;
 
         if (load_gap < 0)
             load_gap = 0;
 
-        /*
-         * Non-peak tolerance is derived from how far current load is
-         * below the learned peak, expressed in slot-duration units.
-         *
-         * No static microsecond threshold.
-         */
         allowed_late_us =
                 (int32_t)((int64_t)slot_duration_us *
                           load_gap /
                           p7_info->peak_offered_load);
 
-        /*
-         * Also allow measured timing uncertainty at non-peak.
-         * This prevents small jitter-caused tail_risk from causing UP.
-         */
         allowed_late_us += timing_uncertainty_us;
     }
 
-    /*
-     * Failure debt.
-     *
-     * Peak:
-     *   every TOO_LATE counts.
-     *
-     * Non-peak:
-     *   only the part beyond allowed_late_us counts.
-     */
     int32_t failure_debt_us = 0;
 
-    if (p7_info->recent_p7_too_late_max_us > 0) {
+    /*
+     * Prefer PNF-reported TOO_LATE because PNF is the real deadline owner.
+     */
+    if (p7_info->sync_fb.recent_pnf_too_late_max_us > 0) {
+        failure_debt_us =
+                p7_info->sync_fb.recent_pnf_too_late_max_us;
+    } else if (p7_info->recent_p7_too_late_max_us > 0) {
         if (peak_offered_load) {
             failure_debt_us = p7_info->recent_p7_too_late_max_us;
         } else if (p7_info->recent_p7_too_late_max_us > allowed_late_us) {
@@ -513,27 +588,28 @@ static void p7_run_ewma_lab_control(
         }
     }
 
-    /*
-     * Queue/backpressure debt.
-     *
-     * Only peak offered load should be fully protected.
-     * At non-peak, isolated queue/HARQ events should not immediately
-     * force larger ahead unless they also appear as timing debt.
-     */
     int32_t msg_per_slot =
             p7_info->recent_msg_per_slot > 0 ?
             p7_info->recent_msg_per_slot : 1;
 
     int32_t queue_events =
             p7_info->recent_rlc_reject_count +
-            p7_info->recent_harq_timeout_count;
+            p7_info->recent_harq_timeout_count +
+            p7_info->sync_fb.recent_mac_harq_feedback_timeout_count +
+            p7_info->sync_fb.recent_mac_retx_abort_count +
+            p7_info->sync_fb.recent_pnf_no_tx_data_count;
 
     if (queue_events < 0)
         queue_events = 0;
 
     int32_t queue_debt_us = 0;
 
-    if (peak_offered_load && queue_events > 0) {
+    /*
+     * Queue / retransmission / no_tx_data are reliability signals.
+     * They are no longer ignored in non-peak, because non-peak must
+     * still preserve no-drop behavior.
+     */
+    if (queue_events > 0) {
         int32_t queue_debt_slots =
                 ceil_div_pos_i32(queue_events, msg_per_slot);
 
@@ -541,17 +617,6 @@ static void p7_run_ewma_lab_control(
                 queue_debt_slots * slot_duration_us;
     }
 
-    /*
-     * Required peak headroom.
-     *
-     * Peak:
-     *   closest_to_deadline_us should be earlier than:
-     *
-     *     -(timing_uncertainty + failure_debt + queue_debt)
-     *
-     * Non-peak:
-     *   allowed_late_us relaxes the requirement.
-     */
     int32_t required_headroom_us = 0;
 
     if (peak_offered_load) {
@@ -561,18 +626,6 @@ static void p7_run_ewma_lab_control(
                 queue_debt_us;
     }
 
-    /*
-     * Tail risk after applying peak/non-peak policy.
-     *
-     * Peak:
-     *   risk = closest + required_headroom
-     *
-     * Non-peak:
-     *   risk = closest + uncertainty - allowed_late
-     *
-     * Because allowed_late includes uncertainty in non-peak mode,
-     * non-peak effectively tolerates occasional small lateness.
-     */
     int32_t timing_tail_risk_us = 0;
 
     if (peak_offered_load) {
@@ -590,15 +643,22 @@ static void p7_run_ewma_lab_control(
         timing_tail_risk_us = 0;
 
     /*
-     * Total pressure.
-     *
-     * In peak mode this becomes strict.
-     * In non-peak mode small lateness is absorbed by allowed_late_us.
+     * PNF margin debt relative to learned/reference healthy floor.
      */
+    int32_t pnf_margin_debt_us = 0;
+
+    if (reference_margin_floor_us > 0 &&
+        pnf_margin_floor_us > 0 &&
+        pnf_margin_floor_us < reference_margin_floor_us) {
+        pnf_margin_debt_us =
+                reference_margin_floor_us - pnf_margin_floor_us;
+    }
+
     int32_t pressure_sample_us =
             timing_tail_risk_us +
             failure_debt_us +
-            queue_debt_us;
+            queue_debt_us +
+            pnf_margin_debt_us;
 
     if (pressure_sample_us < 0)
         pressure_sample_us = 0;
@@ -606,32 +666,16 @@ static void p7_run_ewma_lab_control(
     /*
      * Accumulate pressure debt.
      *
-     * Peak pressure should be remembered more strongly.
-     * Non-peak pressure should not cause long-lasting ahead inflation.
+     * Reliability pressure is sticky. If there is PNF/MAC distress,
+     * do not erase it immediately by one early sample.
      */
-    if (peak_offered_load) {
-        if (pressure_sample_us > p7_info->pressure_debt_us)
-            p7_info->pressure_debt_us = pressure_sample_us;
-    } else {
-        /*
-         * Non-peak: do not preserve small one-shot pressure.
-         * Only keep pressure if it is larger than current debt.
-         * Otherwise release by measured safe surplus below.
-         */
-        if (pressure_sample_us > p7_info->pressure_debt_us)
-            p7_info->pressure_debt_us = pressure_sample_us;
-    }
+    if (pressure_sample_us > p7_info->pressure_debt_us)
+        p7_info->pressure_debt_us = pressure_sample_us;
 
     /*
-     * Debt release.
-     *
-     * Non-peak can release debt aggressively because lower offered load
-     * is allowed to operate near the deadline.
-     *
-     * Peak releases only when there is real safe surplus beyond the
-     * required peak headroom.
+     * Release debt only when PNF and MAC are also healthy.
      */
-    if (pressure_sample_us == 0) {
+    if (pressure_sample_us == 0 && !pnf_or_mac_distress) {
         int32_t safe_surplus_us;
 
         if (peak_offered_load) {
@@ -643,6 +687,12 @@ static void p7_run_ewma_lab_control(
                     (closest_to_deadline_us + timing_uncertainty_us);
         }
 
+        if (reference_margin_floor_us > 0 &&
+            pnf_margin_floor_us > reference_margin_floor_us) {
+            safe_surplus_us +=
+                    pnf_margin_floor_us - reference_margin_floor_us;
+        }
+
         if (safe_surplus_us > 0) {
             if (safe_surplus_us >= p7_info->pressure_debt_us)
                 p7_info->pressure_debt_us = 0;
@@ -651,20 +701,47 @@ static void p7_run_ewma_lab_control(
         }
     }
 
-    int32_t target_s_ahead = s_ahead_env;
-
     /*
      * ============================================================
-     * UPWARD REACTION
+     * Target decision
      * ============================================================
-     *
-     * Peak:
-     *   increase enough to make closest_to_deadline_us earlier.
-     *
-     * Non-peak:
-     *   only increase if pressure remains after allowed_late_us.
      */
-    if (p7_info->pressure_debt_us > 0) {
+    int32_t target_s_ahead = s_ahead_env;
+
+    bool rollback_to_reference =
+            !peak_offered_load &&
+            reference_s_ahead > 0 &&
+            (
+                pnf_or_mac_distress ||
+                pnf_margin_worse_than_reference ||
+                latency_worse_than_reference
+            );
+
+    /*
+     * If dynamic tuning is worse than the known-good fixed baseline,
+     * return to the learned/reference slot ahead.
+     *
+     * This is not hardcoded 4. If fixed 4 is best, the baseline loader
+     * should set sync_ref.reference_s_ahead = 4.
+     */
+    if (rollback_to_reference) {
+        if (s_ahead_env < reference_s_ahead) {
+            target_s_ahead = reference_s_ahead;
+        } else if (latency_worse_than_reference &&
+                   !pnf_or_mac_distress &&
+                   s_ahead_env > reference_s_ahead) {
+            target_s_ahead = reference_s_ahead;
+        } else {
+            target_s_ahead = s_ahead_env;
+        }
+
+        p7_info->last_adjustment_steps = target_s_ahead;
+        p7_info->last_adjustment_sfn = p7_info->sfn;
+        p7_info->last_adjustment_slot = p7_info->slot;
+    } else if (p7_info->pressure_debt_us > 0) {
+        /*
+         * UP reaction.
+         */
         int32_t extra_slots =
                 ceil_div_pos_i32(p7_info->pressure_debt_us,
                                  slot_duration_us);
@@ -678,29 +755,21 @@ static void p7_run_ewma_lab_control(
             target_s_ahead = max_s_ahead;
 
         if (target_s_ahead > s_ahead_env) {
-            /*
-             * Wait proportional to target state.
-             *
-             * This prevents repeated immediate reactions before the
-             * new ahead value has propagated through timing.
-             */
             p7_info->last_adjustment_steps = target_s_ahead;
             p7_info->last_adjustment_sfn = p7_info->sfn;
             p7_info->last_adjustment_slot = p7_info->slot;
         }
     } else {
         /*
-         * ============================================================
-         * DOWNWARD REACTION
-         * ============================================================
+         * DOWN reaction.
          *
-         * Peak:
-         *   only DOWN if post-down state still satisfies required
-         *   peak headroom.
+         * This is now much stricter:
          *
-         * Non-peak:
-         *   can DOWN toward lower latency as long as post-down is
-         *   within allowed lateness.
+         * DOWN is allowed only if the post-down PNF margin would still
+         * be no worse than the learned/reference margin floor.
+         *
+         * This directly prevents the 2~4 slot oscillation that looked
+         * good in ahead-time but caused PNF misses/retransmissions.
          */
         int32_t post_down_closest_us =
                 closest_to_deadline_us +
@@ -719,16 +788,39 @@ static void p7_run_ewma_lab_control(
                     allowed_late_us;
         }
 
+        int32_t post_down_pnf_margin_floor_us = 0;
+
+        if (pnf_margin_floor_us > 0)
+            post_down_pnf_margin_floor_us =
+                    pnf_margin_floor_us - slot_duration_us;
+
+        bool pnf_safe_after_down = true;
+
+        if (reference_margin_floor_us > 0) {
+            pnf_safe_after_down =
+                    post_down_pnf_margin_floor_us >=
+                    reference_margin_floor_us;
+        }
+
+        bool latency_safe_after_down = true;
+
+        if (reference_latency_us > 0 &&
+            p7_info->sync_fb.recent_effective_latency_ewma_us > 0) {
+            latency_safe_after_down =
+                    p7_info->sync_fb.recent_effective_latency_ewma_us <=
+                    reference_latency_us;
+        }
+
         bool pressure_exists =
                 p7_info->pressure_debt_us > 0 ||
-                (peak_offered_load &&
-                 (p7_info->recent_p7_too_late_max_us > 0 ||
-                  p7_info->recent_rlc_reject_count > 0 ||
-                  p7_info->recent_harq_timeout_count > 0));
+                pnf_or_mac_distress;
 
         if (s_ahead_env > 1 &&
             !pressure_exists &&
-            post_down_risk_us <= 0) {
+            post_down_risk_us <= 0 &&
+            pnf_safe_after_down &&
+            latency_safe_after_down) {
+
             target_s_ahead = s_ahead_env - 1;
 
             p7_info->last_adjustment_steps = target_s_ahead;
@@ -743,18 +835,17 @@ static void p7_run_ewma_lab_control(
     if (target_s_ahead < 1)
         target_s_ahead = 1;
 
+    /*
+     * ============================================================
+     * Actuation and estimator compensation
+     * ============================================================
+     */
     if (target_s_ahead != s_ahead_env) {
         int32_t old_s_ahead = s_ahead_env;
         int32_t delta_s_ahead = target_s_ahead - old_s_ahead;
         int32_t step_direction =
                 delta_s_ahead > 0 ? 1 : -1;
 
-        /*
-         * Changing s_ahead shifts timing coordinate.
-         *
-         * UP   +1 slot => messages appear earlier.
-         * DOWN -1 slot => messages appear later.
-         */
         int64_t mean_shift_64 =
                 (int64_t)delta_s_ahead * slot_duration_us;
 
@@ -793,9 +884,10 @@ static void p7_run_ewma_lab_control(
             "closest=%d uncertainty=%d "
             "offered=%d est_load=%d dev_load=%d peak_load=%d peak=%d peakness=%d "
             "allowed_late=%d required_headroom=%d "
-            "tail_risk=%d failure_debt=%d queue_debt=%d pressure_debt=%d "
-            "msg_per_slot=%d too_late_max=%d rlc_rej=%d harq_to=%d "
-            "delta=%d mean_shift=%ld wait_steps=%d",
+            "tail_risk=%d failure_debt=%d queue_debt=%d pnf_margin_debt=%d pressure_debt=%d "
+            "pnf_margin_floor=%d ref_s=%d ref_margin=%d ref_latency=%d latency=%d "
+            "pnf_late_max=%d pnf_late_cnt=%d no_tx=%d mac_harq_to=%d mac_retx_abort=%d "
+            "rollback=%d delta=%d mean_shift=%ld wait_steps=%d",
             global_ewma_alpha_denom,
             global_ewma_beta_denom,
             step_direction > 0 ? "UP" : "DOWN",
@@ -822,11 +914,19 @@ static void p7_run_ewma_lab_control(
             timing_tail_risk_us,
             failure_debt_us,
             queue_debt_us,
+            pnf_margin_debt_us,
             p7_info->pressure_debt_us,
-            msg_per_slot,
-            p7_info->recent_p7_too_late_max_us,
-            p7_info->recent_rlc_reject_count,
-            p7_info->recent_harq_timeout_count,
+            pnf_margin_floor_us,
+            reference_s_ahead,
+            reference_margin_floor_us,
+            reference_latency_us,
+            p7_info->sync_fb.recent_effective_latency_ewma_us,
+            p7_info->sync_fb.recent_pnf_too_late_max_us,
+            p7_info->sync_fb.recent_pnf_too_late_count,
+            p7_info->sync_fb.recent_pnf_no_tx_data_count,
+            p7_info->sync_fb.recent_mac_harq_feedback_timeout_count,
+            p7_info->sync_fb.recent_mac_retx_abort_count,
+            rollback_to_reference,
             delta_s_ahead,
             (long)mean_shift_64,
             p7_info->last_adjustment_steps);
@@ -842,9 +942,10 @@ static void p7_run_ewma_lab_control(
             "late_jitter=%d early_jitter=%d "
             "closest=%d uncertainty=%d "
             "offered=%d est_load=%d dev_load=%d peak_load=%d peak=%d peakness=%d "
-            "allowed_late=%d required_headroom=%d "
             "tail_risk=%d failure_debt=%d queue_debt=%d pressure_debt=%d "
-            "msg_per_slot=%d alpha=1/%d beta=1/%d",
+            "pnf_margin_floor=%d ref_s=%d ref_margin=%d ref_latency=%d latency=%d "
+            "pnf_late_max=%d pnf_late_cnt=%d no_tx=%d mac_harq_to=%d mac_retx_abort=%d "
+            "alpha=1/%d beta=1/%d",
             s_ahead_env,
             stats->worst_late,
             p7_info->estimated_mean_late,
@@ -860,26 +961,40 @@ static void p7_run_ewma_lab_control(
             p7_info->peak_offered_load,
             peak_offered_load,
             peakness_q10,
-            allowed_late_us,
-            required_headroom_us,
             timing_tail_risk_us,
             failure_debt_us,
             queue_debt_us,
             p7_info->pressure_debt_us,
-            msg_per_slot,
+            pnf_margin_floor_us,
+            reference_s_ahead,
+            reference_margin_floor_us,
+            reference_latency_us,
+            p7_info->sync_fb.recent_effective_latency_ewma_us,
+            p7_info->sync_fb.recent_pnf_too_late_max_us,
+            p7_info->sync_fb.recent_pnf_too_late_count,
+            p7_info->sync_fb.recent_pnf_no_tx_data_count,
+            p7_info->sync_fb.recent_mac_harq_feedback_timeout_count,
+            p7_info->sync_fb.recent_mac_retx_abort_count,
             global_ewma_alpha_denom,
             global_ewma_beta_denom);
     }
 
     /*
-     * Consume one-period event counters.
-     *
-     * These counters must be filled by collectors before next decision.
+     * ============================================================
+     * Consume one-period counters
+     * ============================================================
      */
     p7_info->recent_p7_too_late_max_us = 0;
     p7_info->recent_rlc_reject_count = 0;
     p7_info->recent_harq_timeout_count = 0;
     p7_info->recent_p7_msg_count = 0;
+
+    p7_info->sync_fb.recent_pnf_margin_min_us = 0;
+    p7_info->sync_fb.recent_pnf_too_late_max_us = 0;
+    p7_info->sync_fb.recent_pnf_too_late_count = 0;
+    p7_info->sync_fb.recent_pnf_no_tx_data_count = 0;
+    p7_info->sync_fb.recent_mac_harq_feedback_timeout_count = 0;
+    p7_info->sync_fb.recent_mac_retx_abort_count = 0;
 
     return;
 }
