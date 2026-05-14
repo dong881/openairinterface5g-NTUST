@@ -631,10 +631,11 @@ static void p7_run_ewma_lab_control(
     /*
      * Adaptive jitter guard for DOWN.
      *
-     * guard = late_uncertainty + early_uncertainty
+     * Full envelope:
      *
-     * This captures the full oscillation envelope under peak/high-jitter
-     * conditions.
+     *     full_guard = late_uncertainty + early_uncertainty
+     *
+     * DOWN decision below uses a compressed middle-ground version.
      */
     int64_t adaptive_jitter_guard_64 =
             (int64_t)late_side_uncertainty_us +
@@ -801,14 +802,16 @@ static void p7_run_ewma_lab_control(
     /*
      * Soft UP stale-jitter guard.
      *
-     * The 500M log showed soft UP after the system was already early:
+     * Soft UP is allowed only when:
+     *   - no hard late
+     *   - predicted risk exists
+     *   - closest timing representative is genuinely near deadline
+     *   - predicted risk is at least one slot
+     *   - risk debt is not free
+     *   - there is enough fresh risk evidence
      *
-     *     worst_late < 0
-     *     predicted_risk > 0 only because late_uncertainty was still high
-     *
-     * A soft predictive UP is now allowed only when the timing
-     * representative is genuinely near the deadline and the predicted
-     * pressure is at least one slot.
+     * This prevents stale jitter memory from pushing unnecessary UP when
+     * the actual sample is already safely early.
      */
     int32_t soft_up_boundary_guard_us =
             slot_duration_us / 2;
@@ -822,15 +825,6 @@ static void p7_run_ewma_lab_control(
     bool soft_up_risk_large_enough =
             predicted_risk_us >= slot_duration_us;
 
-    /*
-     * Soft UP:
-     *   Predictive only.
-     *
-     * It cannot be triggered by:
-     *   - one single soft-risk sample
-     *   - stale jitter alone
-     *   - tiny residual predicted_risk after a previous actuation
-     */
     bool soft_up_required =
             !hard_late &&
             predicted_risk_us > 0 &&
@@ -855,30 +849,57 @@ static void p7_run_ewma_lab_control(
             post_down_predicted_risk_us <= 0;
 
     /*
-     * DOWN must leave one full slot of residual guarded margin.
+     * ============================================================
+     * Re-balanced latency DOWN margin model
+     * ============================================================
      *
-     * Old rule:
+     * Too conservative previous-safe model:
      *
-     *     required_margin = 1 slot + jitter_guard
+     *     required_margin = 2 * slot + full_jitter_guard
      *
-     * That allowed the controller to walk down to the timing edge. In the
-     * 500M log, this produced a DOWN cascade:
+     * Too aggressive low-latency model:
      *
-     *     5->4->3->2->1
+     *     required_margin = slot + slot / beta + jitter / beta
      *
-     * followed by another hard late.
+     * New middle-ground model:
      *
-     * New rule:
+     *     required_margin = slot + slot / 2 + jitter / 2
      *
-     *     required_margin = 2 slots + jitter_guard
+     * With slot=500us:
      *
-     * One slot is the slot being removed.
-     * One slot remains as residual margin after DOWN.
+     *     required_margin = 750us + jitter/2
+     *
+     * This should prevent the "大量 late" caused by over-cutting while
+     * still allowing latency improvement when margin is truly stable.
+     *
+     * No new external knob:
+     *     denominator is derived from beta_denom / 2.
+     *     With beta=4, down_guard_denom=2.
      */
+    int32_t down_guard_denom =
+            global_ewma_beta_denom / 2;
+
+    if (down_guard_denom < 1)
+        down_guard_denom = 1;
+
+    int32_t compressed_jitter_guard_us =
+            adaptive_jitter_guard_us /
+            down_guard_denom;
+
+    if (compressed_jitter_guard_us < 0)
+        compressed_jitter_guard_us = 0;
+
+    int32_t residual_down_guard_us =
+            slot_duration_us /
+            down_guard_denom;
+
+    if (residual_down_guard_us < 1)
+        residual_down_guard_us = 1;
+
     int64_t required_safe_margin_for_down_64 =
             (int64_t)slot_duration_us +
-            (int64_t)slot_duration_us +
-            (int64_t)adaptive_jitter_guard_us;
+            (int64_t)residual_down_guard_us +
+            (int64_t)compressed_jitter_guard_us;
 
     if (required_safe_margin_for_down_64 > INT32_MAX)
         required_safe_margin_for_down_64 = INT32_MAX;
@@ -893,16 +914,32 @@ static void p7_run_ewma_lab_control(
             p7_info->ewma_lab_safe_margin_ewma_us >=
             required_safe_margin_for_down;
 
-    int32_t post_down_guarded_risk_us =
-            post_down_predicted_risk_us +
-            adaptive_jitter_guard_us;
+    /*
+     * Anti-over-cut rule:
+     *
+     * EWMA alone is not enough.
+     *
+     * The current timing sample must also show enough safe margin. This
+     * prevents old/stale safe EWMA from allowing DOWN during a bursty
+     * offered-jitter period.
+     */
+    bool enough_sample_safe_margin_for_down =
+            safe_margin_sample_us >=
+            required_safe_margin_for_down;
 
     /*
-     * After removing one slot, still require at least one-slot residual
-     * guarded safety.
+     * Guarded post-DOWN risk uses the compressed jitter guard.
+     */
+    int32_t post_down_guarded_risk_us =
+            post_down_predicted_risk_us +
+            compressed_jitter_guard_us;
+
+    /*
+     * After removing one slot, still require residual guard.
      */
     bool post_down_guarded_safe =
-            post_down_guarded_risk_us <= -slot_duration_us;
+            post_down_guarded_risk_us <=
+            -residual_down_guard_us;
 
     bool debt_free =
             failure_sample_us == 0 &&
@@ -915,6 +952,7 @@ static void p7_run_ewma_lab_control(
             debt_free &&
             enough_fresh_safe_evidence_for_down &&
             enough_ewma_safe_margin_for_down &&
+            enough_sample_safe_margin_for_down &&
             down_safe_after_one_slot &&
             post_down_guarded_safe &&
             s_ahead_env > 1;
@@ -930,11 +968,7 @@ static void p7_run_ewma_lab_control(
          * React immediately to actual lateness / deadline crossing, but do
          * not convert the whole lateness pressure directly into slots.
          *
-         * The 500M log showed that beta_denom / 2 still allowed:
-         *
-         *     UP: 2->4
-         *
-         * Therefore hard late is strictly limited to one-slot actuation.
+         * Hard late is strictly limited to one-slot actuation.
          */
         int32_t pressure_for_up_us =
                 p7_max_i32(predicted_risk_us,
@@ -943,13 +977,6 @@ static void p7_run_ewma_lab_control(
         if (pressure_for_up_us < 1)
             pressure_for_up_us = 1;
 
-        /*
-         * Damped quantum.
-         *
-         * Use int64 to avoid overflow from:
-         *
-         *     slot_duration_us * global_ewma_beta_denom
-         */
         int64_t hard_up_quantum_64 =
                 (int64_t)slot_duration_us *
                 (int64_t)global_ewma_beta_denom;
@@ -973,14 +1000,9 @@ static void p7_run_ewma_lab_control(
 
         /*
          * Hard UP must be strictly bounded.
-         *
-         * No matter how large a single late spike is, one control actuation
-         * may advance by one slot only.
          */
-        int32_t max_hard_up_step = 1;
-
-        if (extra_slots > max_hard_up_step)
-            extra_slots = max_hard_up_step;
+        if (extra_slots > 1)
+            extra_slots = 1;
 
         target_s_ahead =
                 s_ahead_env + extra_slots;
@@ -1032,8 +1054,10 @@ static void p7_run_ewma_lab_control(
                 "fresh_safe_down=%d fresh_risk_up=%d "
                 "hard_up=%d soft_up=%d "
                 "post_down_risk=%d post_down_guarded_risk=%d "
-                "debt_free=%d enough_margin=%d guarded_safe=%d down_allowed=%d "
-                "required_margin=%d up_reason=%d down_reason=%d "
+                "debt_free=%d enough_margin=%d enough_sample_margin=%d "
+                "guarded_safe=%d down_allowed=%d "
+                "required_margin=%d residual_guard=%d compressed_jitter=%d "
+                "up_reason=%d down_reason=%d "
                 "delta=0 mean_shift=0 wait_steps=%d",
                 s_ahead_env,
                 global_ewma_alpha_denom,
@@ -1073,9 +1097,12 @@ static void p7_run_ewma_lab_control(
                 post_down_guarded_risk_us,
                 debt_free,
                 enough_ewma_safe_margin_for_down,
+                enough_sample_safe_margin_for_down,
                 post_down_guarded_safe,
                 down_allowed,
                 required_safe_margin_for_down,
+                residual_down_guard_us,
+                compressed_jitter_guard_us,
                 up_reason,
                 down_reason,
                 p7_info->last_adjustment_steps);
@@ -1141,7 +1168,6 @@ static void p7_run_ewma_lab_control(
      * Large actuation changes operating point.
      *
      * Reduce transient jitter memory using beta denominator.
-     * This is not a new hyperparameter.
      */
     if (abs_i32(delta_s_ahead) > 1) {
         p7_info->estimated_jitter_var =
@@ -1160,15 +1186,11 @@ static void p7_run_ewma_lab_control(
     /*
      * Actuation settle time.
      *
-     * The previous alpha-only settle window was too short for bursty 500M.
-     * The log showed repeated UP/DOWN decisions before the estimator fully
-     * settled at the new operating point.
-     *
-     * Use alpha-by-beta settle window:
+     * Keep alpha-by-beta settle window:
      *
      *     settle = abs(delta) * alpha_denom * beta_denom
      *
-     * This introduces no new tunable parameter.
+     * This avoids rapid UP/DOWN oscillation and prevents DOWN cascade.
      */
     int64_t settle_steps_64 =
             (int64_t)abs_i32(delta_s_ahead) *
@@ -1220,8 +1242,9 @@ static void p7_run_ewma_lab_control(
         "fresh_safe_down=%d fresh_risk_up=%d "
         "hard_up=%d soft_up=%d "
         "post_down_risk=%d post_down_guarded_risk=%d "
-        "debt_free=%d enough_margin=%d guarded_safe=%d down_allowed=%d "
-        "required_margin=%d "
+        "debt_free=%d enough_margin=%d enough_sample_margin=%d "
+        "guarded_safe=%d down_allowed=%d "
+        "required_margin=%d residual_guard=%d compressed_jitter=%d "
         "up_reason=%d down_reason=%d "
         "delta=%d mean_shift=%lld wait_steps=%d",
         global_ewma_alpha_denom,
@@ -1264,9 +1287,12 @@ static void p7_run_ewma_lab_control(
         post_down_guarded_risk_us,
         debt_free,
         enough_ewma_safe_margin_for_down,
+        enough_sample_safe_margin_for_down,
         post_down_guarded_safe,
         down_allowed,
         required_safe_margin_for_down,
+        residual_down_guard_us,
+        compressed_jitter_guard_us,
         up_reason,
         down_reason,
         delta_s_ahead,
@@ -1289,6 +1315,7 @@ static void p7_run_ewma_lab_control(
 
     return;
 }
+
 
 void vnf_p7_convergence_optimization(nfapi_vnf_p7_connection_info_t *p7_info, const vnf_timing_stats_t *stats)
 {
