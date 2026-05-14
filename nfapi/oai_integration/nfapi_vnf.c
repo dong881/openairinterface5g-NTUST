@@ -2091,7 +2091,7 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   uint8_t timing_info_mode = timing_info_mode_env ? (uint8_t)atoi(timing_info_mode_env) : 1;
   vnf->p7_vnfs[0].periodic_timing_enabled = timing_info_mode & 0x1;
   vnf->p7_vnfs[0].aperiodic_timing_enabled = (timing_info_mode >> 1) & 0x1;
-  vnf->p7_vnfs[0].periodic_timing_period = timing_info_period_env ? atoi(timing_info_period_env) : 3;
+  vnf->p7_vnfs[0].periodic_timing_period = timing_info_period_env ? atoi(timing_info_period_env) : 1;
 
   LOG_I(NFAPI_VNF,
         "[DYNAMIC TIMING PRINT] TIMING_WINDOW=%u TIMING_INFO_MODE=%u (periodic=%u aperiodic=%u) TIMING_INFO_PERIOD=%u\n",
