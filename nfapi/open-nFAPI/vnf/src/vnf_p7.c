@@ -483,11 +483,6 @@ static void p7_run_ewma_lab_control(
      *     stats->worst_late
      *
      * Pacing uses only previously selected actuation settle window.
-     * last_adjustment_steps is set after actuation as:
-     *
-     *     abs(delta_s_ahead) * global_ewma_alpha_denom
-     *
-     * This makes the settle time directly derived from EWMA alpha.
      */
     int32_t elapsed_slots = calculate_slot_distance(
             p7_info->sfn,
@@ -636,11 +631,7 @@ static void p7_run_ewma_lab_control(
     /*
      * Adaptive jitter guard for DOWN.
      *
-     * Important fix:
-     *
-     *     guard = late_uncertainty + early_uncertainty
-     *
-     * not max().
+     * guard = late_uncertainty + early_uncertainty
      *
      * This captures the full oscillation envelope under peak/high-jitter
      * conditions.
@@ -808,13 +799,43 @@ static void p7_run_ewma_lab_control(
             hard_late;
 
     /*
+     * Soft UP stale-jitter guard.
+     *
+     * The 500M log showed soft UP after the system was already early:
+     *
+     *     worst_late < 0
+     *     predicted_risk > 0 only because late_uncertainty was still high
+     *
+     * A soft predictive UP is now allowed only when the timing
+     * representative is genuinely near the deadline and the predicted
+     * pressure is at least one slot.
+     */
+    int32_t soft_up_boundary_guard_us =
+            slot_duration_us / 2;
+
+    if (soft_up_boundary_guard_us < 1)
+        soft_up_boundary_guard_us = 1;
+
+    bool soft_up_has_real_boundary_pressure =
+            closest_to_deadline_us >= -soft_up_boundary_guard_us;
+
+    bool soft_up_risk_large_enough =
+            predicted_risk_us >= slot_duration_us;
+
+    /*
      * Soft UP:
-     *   Predictive only. It cannot be triggered by a single soft-risk
-     *   sample. It requires fresh beta-window risk evidence.
+     *   Predictive only.
+     *
+     * It cannot be triggered by:
+     *   - one single soft-risk sample
+     *   - stale jitter alone
+     *   - tiny residual predicted_risk after a previous actuation
      */
     bool soft_up_required =
             !hard_late &&
             predicted_risk_us > 0 &&
+            soft_up_has_real_boundary_pressure &&
+            soft_up_risk_large_enough &&
             !risk_debt_free &&
             enough_fresh_risk_evidence_for_soft_up;
 
@@ -833,12 +854,40 @@ static void p7_run_ewma_lab_control(
     bool down_safe_after_one_slot =
             post_down_predicted_risk_us <= 0;
 
-    int32_t required_safe_margin_for_down =
-            slot_duration_us +
-            adaptive_jitter_guard_us;
+    /*
+     * DOWN must leave one full slot of residual guarded margin.
+     *
+     * Old rule:
+     *
+     *     required_margin = 1 slot + jitter_guard
+     *
+     * That allowed the controller to walk down to the timing edge. In the
+     * 500M log, this produced a DOWN cascade:
+     *
+     *     5->4->3->2->1
+     *
+     * followed by another hard late.
+     *
+     * New rule:
+     *
+     *     required_margin = 2 slots + jitter_guard
+     *
+     * One slot is the slot being removed.
+     * One slot remains as residual margin after DOWN.
+     */
+    int64_t required_safe_margin_for_down_64 =
+            (int64_t)slot_duration_us +
+            (int64_t)slot_duration_us +
+            (int64_t)adaptive_jitter_guard_us;
 
-    if (required_safe_margin_for_down < slot_duration_us)
-        required_safe_margin_for_down = INT32_MAX;
+    if (required_safe_margin_for_down_64 > INT32_MAX)
+        required_safe_margin_for_down_64 = INT32_MAX;
+
+    if (required_safe_margin_for_down_64 < slot_duration_us)
+        required_safe_margin_for_down_64 = INT32_MAX;
+
+    int32_t required_safe_margin_for_down =
+            (int32_t)required_safe_margin_for_down_64;
 
     bool enough_ewma_safe_margin_for_down =
             p7_info->ewma_lab_safe_margin_ewma_us >=
@@ -848,8 +897,12 @@ static void p7_run_ewma_lab_control(
             post_down_predicted_risk_us +
             adaptive_jitter_guard_us;
 
+    /*
+     * After removing one slot, still require at least one-slot residual
+     * guarded safety.
+     */
     bool post_down_guarded_safe =
-            post_down_guarded_risk_us <= 0;
+            post_down_guarded_risk_us <= -slot_duration_us;
 
     bool debt_free =
             failure_sample_us == 0 &&
@@ -872,13 +925,16 @@ static void p7_run_ewma_lab_control(
 
     if (hard_up_required) {
         /*
-         * Critical fix:
+         * Hard UP damping.
          *
-         * Do not double-count lateness.
+         * React immediately to actual lateness / deadline crossing, but do
+         * not convert the whole lateness pressure directly into slots.
          *
-         * predicted_risk_us already contains closest_to_deadline_us,
-         * which may already include worst_late. Therefore use max(),
-         * not predicted_risk_us + failure_sample_us.
+         * The 500M log showed that beta_denom / 2 still allowed:
+         *
+         *     UP: 2->4
+         *
+         * Therefore hard late is strictly limited to one-slot actuation.
          */
         int32_t pressure_for_up_us =
                 p7_max_i32(predicted_risk_us,
@@ -887,13 +943,44 @@ static void p7_run_ewma_lab_control(
         if (pressure_for_up_us < 1)
             pressure_for_up_us = 1;
 
+        /*
+         * Damped quantum.
+         *
+         * Use int64 to avoid overflow from:
+         *
+         *     slot_duration_us * global_ewma_beta_denom
+         */
+        int64_t hard_up_quantum_64 =
+                (int64_t)slot_duration_us *
+                (int64_t)global_ewma_beta_denom;
+
+        if (hard_up_quantum_64 < slot_duration_us)
+            hard_up_quantum_64 = slot_duration_us;
+
+        if (hard_up_quantum_64 > INT32_MAX)
+            hard_up_quantum_64 = INT32_MAX;
+
+        int32_t hard_up_quantum_us =
+                (int32_t)hard_up_quantum_64;
+
         int32_t extra_slots =
                 ceil_div_pos_i32(
                         pressure_for_up_us,
-                        slot_duration_us);
+                        hard_up_quantum_us);
 
         if (extra_slots < 1)
             extra_slots = 1;
+
+        /*
+         * Hard UP must be strictly bounded.
+         *
+         * No matter how large a single late spike is, one control actuation
+         * may advance by one slot only.
+         */
+        int32_t max_hard_up_step = 1;
+
+        if (extra_slots > max_hard_up_step)
+            extra_slots = max_hard_up_step;
 
         target_s_ahead =
                 s_ahead_env + extra_slots;
@@ -1071,17 +1158,28 @@ static void p7_run_ewma_lab_control(
     }
 
     /*
-     * Critical settle-time fix:
+     * Actuation settle time.
      *
-     * Do not use only abs(delta_s_ahead).
+     * The previous alpha-only settle window was too short for bursty 500M.
+     * The log showed repeated UP/DOWN decisions before the estimator fully
+     * settled at the new operating point.
      *
-     * Wait for an alpha evidence window per moved slot so that the EWMA
-     * estimator can settle at the new operating point and does not turn
-     * mean compensation into controller-induced jitter.
+     * Use alpha-by-beta settle window:
+     *
+     *     settle = abs(delta) * alpha_denom * beta_denom
+     *
+     * This introduces no new tunable parameter.
      */
+    int64_t settle_steps_64 =
+            (int64_t)abs_i32(delta_s_ahead) *
+            (int64_t)global_ewma_alpha_denom *
+            (int64_t)global_ewma_beta_denom;
+
+    if (settle_steps_64 > INT32_MAX)
+        settle_steps_64 = INT32_MAX;
+
     p7_info->last_adjustment_steps =
-            abs_i32(delta_s_ahead) *
-            global_ewma_alpha_denom;
+            (int32_t)settle_steps_64;
 
     if (p7_info->last_adjustment_steps < 1)
         p7_info->last_adjustment_steps = 1;
