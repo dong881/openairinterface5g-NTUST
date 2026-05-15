@@ -475,15 +475,6 @@ static void p7_run_ewma_lab_control(
      * ============================================================
      * Control pacing state
      * ============================================================
-     *
-     * Runtime raw timing input:
-     *
-     *     stats->worst_late
-     *
-     * Jitter is learned from EWMA movement of worst_late.
-     *
-     * Important:
-     *   Do NOT return before EWMA update.
      */
     int32_t elapsed_slots = calculate_slot_distance(
             p7_info->sfn,
@@ -506,6 +497,8 @@ static void p7_run_ewma_lab_control(
      * ============================================================
      * Single-input EWMA estimator
      * ============================================================
+     *
+     * Do not return before EWMA update.
      */
     if (p7_info->estimated_mean_late == 0) {
         p7_info->estimated_mean_late = stats->worst_late;
@@ -554,9 +547,6 @@ static void p7_run_ewma_lab_control(
     if (p7_info->early_jitter < 0)
         p7_info->early_jitter = 0;
 
-    /*
-     * Most dangerous timing representative.
-     */
     int32_t closest_to_deadline_us =
             stats->worst_late > p7_info->estimated_mean_late ?
             stats->worst_late :
@@ -596,10 +586,6 @@ static void p7_run_ewma_lab_control(
      * ============================================================
      * Risk / debt / safe-margin model
      * ============================================================
-     *
-     * This is intentionally placed before jitter lookahead mapping,
-     * because deadline tail risk is part of the mathematical jitter
-     * distance formula.
      */
     int32_t predicted_risk_us =
             closest_to_deadline_us +
@@ -686,36 +672,6 @@ static void p7_run_ewma_lab_control(
      * ============================================================
      * Critical-point jitter-to-deadline-distance mapping
      * ============================================================
-     *
-     * Goal:
-     *
-     *   500M / low jitter:
-     *       stay close to deadline, preferably 3 slots ahead.
-     *
-     *   1000M / high jitter:
-     *       once jitter pressure crosses a critical point,
-     *       move far away from deadline, preferably around 8 slots ahead.
-     *
-     * This is NOT hardcoded by throughput.
-     * It is purely based on jitter pressure:
-     *
-     *   jitter_pressure =
-     *       effective_jitter_guard + deadline_tail_risk
-     *
-     * Behavior:
-     *
-     *   Below critical point:
-     *       low-slope region, capped at beta-1 slots.
-     *
-     *   Above critical point:
-     *       cliff-like transition, adding up to beta+1 slots.
-     *
-     * With beta=4:
-     *
-     *   low-jitter base cap = beta - 1 = 3 slots
-     *   cliff extra max     = beta + 1 = 5 slots
-     *
-     *   3 + 5 = 8 slots
      */
     int32_t jitter_gain_denom =
             global_ewma_alpha_denom;
@@ -729,13 +685,6 @@ static void p7_run_ewma_lab_control(
     if (jitter_beta_denom < 1)
         jitter_beta_denom = 1;
 
-    /*
-     * Small jitter allowance.
-     *
-     * With beta=4 and slot=500us:
-     *
-     *   allowance = 125us
-     */
     int32_t jitter_free_allowance_us =
             slot_duration_us / jitter_beta_denom;
 
@@ -749,11 +698,6 @@ static void p7_run_ewma_lab_control(
     if (effective_jitter_guard_us < 0)
         effective_jitter_guard_us = 0;
 
-    /*
-     * Tail risk.
-     *
-     * This keeps the mapping jitter/risk based, not throughput based.
-     */
     int32_t persistent_failure_tail_us =
             p7_max_i32(failure_sample_us,
                        p7_info->ewma_lab_failure_debt_us);
@@ -789,13 +733,7 @@ static void p7_run_ewma_lab_control(
             (int32_t)jitter_pressure_64;
 
     /*
-     * -------------------------------
-     * Low-jitter base region
-     * -------------------------------
-     *
-     * base_slots = 1 + floor(effective_guard / slot)
-     *
-     * But cap it at beta-1.
+     * Low-jitter base region.
      */
     int32_t jitter_base_slots =
             1 + (effective_jitter_guard_us / slot_duration_us);
@@ -816,15 +754,7 @@ static void p7_run_ewma_lab_control(
         jitter_base_slots = jitter_low_region_cap_slots;
 
     /*
-     * -------------------------------
-     * Critical cliff region
-     * -------------------------------
-     *
-     * critical = (beta - 1) slots + 0.5 slot
-     *
-     * With beta=4 and slot=500us:
-     *
-     *   critical = 1750us
+     * Critical cliff region.
      */
     int64_t jitter_critical_pressure_64 =
             ((int64_t)jitter_low_region_cap_slots *
@@ -872,9 +802,6 @@ static void p7_run_ewma_lab_control(
         if (cliff_den_64 < 1)
             cliff_den_64 = 1;
 
-        /*
-         * ceil(num / den)
-         */
         int64_t cliff_extra_64 =
                 (cliff_num_64 + cliff_den_64 - 1) /
                 cliff_den_64;
@@ -889,9 +816,6 @@ static void p7_run_ewma_lab_control(
                 (int32_t)cliff_extra_64;
     }
 
-    /*
-     * Instantaneous required slots from critical mapping.
-     */
     int32_t jitter_instant_required_s_ahead =
             jitter_base_slots +
             jitter_cliff_extra_slots;
@@ -913,34 +837,83 @@ static void p7_run_ewma_lab_control(
             (int32_t)jitter_instant_required_ahead_64;
 
     /*
-     * -------------------------------
+     * ============================================================
+     * Cliff hold floor
+     * ============================================================
+     *
+     * This is a slot-domain hold budget, not sleep().
+     *
+     * If slot=500us:
+     *   3000000 / 500 = 6000 slots ~= 3 seconds.
+     *
+     * Each control invocation consumes timing_info_period slots.
+     */
+    int32_t jitter_pressure_hold_duration_slots =
+            3000000 / slot_duration_us;
+
+    if (jitter_pressure_hold_duration_slots < 1)
+        jitter_pressure_hold_duration_slots = 1;
+
+    if (p7_info->ewma_lab_jitter_pressure_hold_slots > 0) {
+        int32_t hold_decay_slots =
+                (int32_t)config->timing_info_period;
+
+        if (hold_decay_slots < 1)
+            hold_decay_slots = 1;
+
+        if (hold_decay_slots >=
+            p7_info->ewma_lab_jitter_pressure_hold_slots) {
+            p7_info->ewma_lab_jitter_pressure_hold_slots = 0;
+        } else {
+            p7_info->ewma_lab_jitter_pressure_hold_slots -=
+                    hold_decay_slots;
+        }
+    }
+
+    /*
+     * Arm / refresh hold only when the nonlinear cliff really crossed.
+     */
+    if (jitter_cliff_excess_us > 0 ||
+        jitter_cliff_extra_slots > 0) {
+        if (p7_info->ewma_lab_jitter_pressure_hold_slots <
+            jitter_pressure_hold_duration_slots) {
+            p7_info->ewma_lab_jitter_pressure_hold_slots =
+                    jitter_pressure_hold_duration_slots;
+        }
+
+        if (p7_info->ewma_lab_jitter_pressure_hold_ahead_us <
+            jitter_instant_required_ahead_us) {
+            p7_info->ewma_lab_jitter_pressure_hold_ahead_us =
+                    jitter_instant_required_ahead_us;
+        }
+    }
+
+    bool jitter_pressure_hold_active =
+            p7_info->ewma_lab_jitter_pressure_hold_slots > 0 &&
+            p7_info->ewma_lab_jitter_pressure_hold_ahead_us >
+            slot_duration_us;
+
+    /*
+     * ============================================================
      * Fast-attack / slow-release pressure memory
-     * -------------------------------
+     * ============================================================
      *
-     * Fast attack:
-     *   memory = max(memory, instant_required)
-     *
-     * Slow release:
-     *   only when safe, debt-free, and no cliff excess.
+     * Key fix:
+     *   Hold active => EWMA pressure memory is not allowed to release.
      */
     if (p7_info->ewma_lab_jitter_pressure_ahead_us <= 0) {
         p7_info->ewma_lab_jitter_pressure_ahead_us =
                 jitter_instant_required_ahead_us;
     } else if (jitter_instant_required_ahead_us >
                p7_info->ewma_lab_jitter_pressure_ahead_us) {
-        /*
-         * Fast attack.
-         */
         p7_info->ewma_lab_jitter_pressure_ahead_us =
                 jitter_instant_required_ahead_us;
     } else {
-        /*
-         * Slow release only when fully safe and debt-free.
-         */
         bool jitter_pressure_release_allowed =
                 safe_sample &&
                 debt_free &&
-                jitter_cliff_excess_us == 0;
+                jitter_cliff_excess_us == 0 &&
+                !jitter_pressure_hold_active;
 
         if (jitter_pressure_release_allowed) {
             int64_t jitter_pressure_release_denom_64 =
@@ -953,23 +926,69 @@ static void p7_run_ewma_lab_control(
             if (jitter_pressure_release_denom_64 < 1)
                 jitter_pressure_release_denom_64 = 1;
 
-            int32_t jitter_pressure_release_denom =
-                    (int32_t)jitter_pressure_release_denom_64;
-
             p7_info->ewma_lab_jitter_pressure_ahead_us =
                     p7_ewma_step_i32(
                             p7_info->ewma_lab_jitter_pressure_ahead_us,
                             jitter_instant_required_ahead_us,
-                            jitter_pressure_release_denom);
+                            (int32_t)jitter_pressure_release_denom_64);
         }
     }
 
     if (p7_info->ewma_lab_jitter_pressure_ahead_us < slot_duration_us)
         p7_info->ewma_lab_jitter_pressure_ahead_us = slot_duration_us;
 
+    /*
+     * Release hold floor slowly after hold budget expires.
+     */
+    if (!jitter_pressure_hold_active &&
+        p7_info->ewma_lab_jitter_pressure_hold_ahead_us >
+        slot_duration_us) {
+        int64_t hold_release_denom_64 =
+                (int64_t)global_ewma_alpha_denom *
+                (int64_t)p7_max_i32(s_ahead_env, 1);
+
+        if (hold_release_denom_64 > INT32_MAX)
+            hold_release_denom_64 = INT32_MAX;
+
+        if (hold_release_denom_64 < 1)
+            hold_release_denom_64 = 1;
+
+        p7_info->ewma_lab_jitter_pressure_hold_ahead_us =
+                p7_ewma_step_i32(
+                        p7_info->ewma_lab_jitter_pressure_hold_ahead_us,
+                        slot_duration_us,
+                        (int32_t)hold_release_denom_64);
+    }
+
+    if (p7_info->ewma_lab_jitter_pressure_hold_ahead_us <
+        slot_duration_us) {
+        p7_info->ewma_lab_jitter_pressure_hold_ahead_us =
+                slot_duration_us;
+    }
+
+    /*
+     * ============================================================
+     * Unified pressure floor
+     * ============================================================
+     *
+     * This value is shared by:
+     *
+     *   1. jitter_required_s_ahead
+     *   2. required_safe_margin_for_down
+     *   3. post_down_guarded_risk
+     *   4. down floor / down target clamp
+     */
+    int32_t jitter_unified_pressure_ahead_us =
+            p7_max_i32(
+                    p7_info->ewma_lab_jitter_pressure_ahead_us,
+                    p7_info->ewma_lab_jitter_pressure_hold_ahead_us);
+
+    if (jitter_unified_pressure_ahead_us < slot_duration_us)
+        jitter_unified_pressure_ahead_us = slot_duration_us;
+
     int32_t jitter_required_s_ahead =
             ceil_div_pos_i32(
-                    p7_info->ewma_lab_jitter_pressure_ahead_us,
+                    jitter_unified_pressure_ahead_us,
                     slot_duration_us);
 
     if (jitter_required_s_ahead < 1)
@@ -977,6 +996,9 @@ static void p7_run_ewma_lab_control(
 
     if (jitter_required_s_ahead > max_s_ahead)
         jitter_required_s_ahead = max_s_ahead;
+
+    int32_t jitter_unified_required_s_ahead =
+            jitter_required_s_ahead;
 
     int64_t jitter_required_ahead_64 =
             (int64_t)jitter_required_s_ahead *
@@ -989,29 +1011,16 @@ static void p7_run_ewma_lab_control(
             (int32_t)jitter_required_ahead_64;
 
     /*
-     * For existing trace / decision compatibility.
+     * Compatibility name.
      *
-     * jitter_scaled_guard_us is now the memory-backed required distance,
-     * not the raw instantaneous nonlinear guard.
+     * Now this is the unified memory-backed deadline distance.
      */
     int32_t jitter_scaled_guard_us =
             jitter_required_ahead_us;
 
-    /*
-     * For trace compatibility only.
-     *
-     * This is not a multiplicative gain.
-     * It encodes the critical cliff model:
-     *
-     *   base max  = beta - 1
-     *   cliff max = beta + 1
-     */
     int32_t jitter_gain_num =
             jitter_cliff_extra_max_slots;
 
-    /*
-     * UP step is the mathematical distance to the current jitter floor.
-     */
     int32_t jitter_soft_up_step =
             jitter_required_s_ahead - s_ahead_env;
 
@@ -1117,12 +1126,10 @@ static void p7_run_ewma_lab_control(
             post_down_predicted_risk_us <= 0;
 
     /*
-     * Down requires margin larger than memory-backed required jitter
-     * distance. This prevents one transient safe sample from collapsing
-     * the lookahead when high jitter pressure is still present.
+     * Down margin uses unified pressure.
      */
     int64_t required_safe_margin_64 =
-            (int64_t)jitter_scaled_guard_us;
+            (int64_t)jitter_unified_pressure_ahead_us;
 
     if (required_safe_margin_64 > INT32_MAX)
         required_safe_margin_64 = INT32_MAX;
@@ -1137,9 +1144,12 @@ static void p7_run_ewma_lab_control(
             p7_info->ewma_lab_safe_margin_ewma_us >=
             required_safe_margin_for_down;
 
+    /*
+     * Post-down guard also uses unified pressure.
+     */
     int64_t post_down_guarded_risk_64 =
             (int64_t)post_down_predicted_risk_us +
-            (int64_t)jitter_scaled_guard_us;
+            (int64_t)jitter_unified_pressure_ahead_us;
 
     if (post_down_guarded_risk_64 > INT32_MAX)
         post_down_guarded_risk_64 = INT32_MAX;
@@ -1154,10 +1164,21 @@ static void p7_run_ewma_lab_control(
             post_down_guarded_risk_us <= 0;
 
     bool above_jitter_floor =
-            s_ahead_env > jitter_required_s_ahead;
+            s_ahead_env > jitter_unified_required_s_ahead;
 
     bool jitter_pressure_allows_down =
-            s_ahead_env > jitter_required_s_ahead;
+            s_ahead_env > jitter_unified_required_s_ahead;
+
+    /*
+     * If hold floor is active:
+     *
+     *   hold floor = 8
+     *   9 -> 8 allowed
+     *   8 -> 7 blocked
+     */
+    bool jitter_hold_allows_down =
+            !jitter_pressure_hold_active ||
+            s_ahead_env > jitter_unified_required_s_ahead;
 
     bool down_allowed =
             !up_required &&
@@ -1168,6 +1189,7 @@ static void p7_run_ewma_lab_control(
             post_down_guarded_safe &&
             above_jitter_floor &&
             jitter_pressure_allows_down &&
+            jitter_hold_allows_down &&
             s_ahead_env > 1;
 
     /*
@@ -1200,14 +1222,6 @@ static void p7_run_ewma_lab_control(
             target_s_ahead = startup_s_ahead;
             up_reason = 3;
         } else if (hard_up_required) {
-            /*
-             * Hard late:
-             *
-             * Use the jitter/risk mathematical target directly.
-             *
-             * This prevents overshoot such as 2->10 while still allowing
-             * high jitter to jump to the critical-point target, e.g. 8.
-             */
             target_s_ahead = jitter_required_s_ahead;
 
             if (target_s_ahead <= s_ahead_env)
@@ -1215,20 +1229,9 @@ static void p7_run_ewma_lab_control(
 
             up_reason = 1;
         } else if (jitter_soft_up_required) {
-            /*
-             * Jitter-only UP:
-             *
-             * Move directly to memory-backed mathematical jitter target.
-             */
             target_s_ahead = jitter_required_s_ahead;
             up_reason = 4;
         } else if (soft_up_required) {
-            /*
-             * Predictive soft UP:
-             *
-             * If the critical jitter formula requests a farther deadline
-             * distance, use it. Otherwise only +1.
-             */
             target_s_ahead = s_ahead_env + 1;
 
             if (target_s_ahead < jitter_required_s_ahead)
@@ -1238,8 +1241,11 @@ static void p7_run_ewma_lab_control(
         } else if (down_allowed) {
             target_s_ahead = s_ahead_env - 1;
 
-            if (target_s_ahead < jitter_required_s_ahead)
-                target_s_ahead = jitter_required_s_ahead;
+            /*
+             * Down target must not go below unified floor.
+             */
+            if (target_s_ahead < jitter_unified_required_s_ahead)
+                target_s_ahead = jitter_unified_required_s_ahead;
 
             down_reason = 1;
         }
@@ -1272,6 +1278,11 @@ static void p7_run_ewma_lab_control(
                 "jitter_cliff_excess=%d "
                 "jitter_base_slots=%d jitter_cliff_extra_slots=%d "
                 "jitter_pressure_mem=%d "
+                "jitter_hold_active=%d "
+                "jitter_hold_slots=%d "
+                "jitter_hold_ahead=%d "
+                "jitter_unified_pressure=%d "
+                "jitter_unified_required_s_ahead=%d "
                 "jitter_gain=%d/%d jitter_scaled_guard=%d "
                 "jitter_required_s_ahead=%d jitter_required_ahead_us=%d "
                 "jitter_soft_up_step=%d jitter_up=%d jitter_soft_up=%d "
@@ -1287,6 +1298,7 @@ static void p7_run_ewma_lab_control(
                 "post_down_risk=%d post_down_guarded_risk=%d "
                 "debt_free=%d enough_margin=%d guarded_safe=%d "
                 "above_jitter_floor=%d jitter_pressure_allows_down=%d "
+                "jitter_hold_allows_down=%d "
                 "down_allowed=%d required_margin=%d "
                 "up_reason=%d down_reason=%d "
                 "delta=0 mean_shift=0 wait_steps=%d",
@@ -1317,6 +1329,11 @@ static void p7_run_ewma_lab_control(
                 jitter_base_slots,
                 jitter_cliff_extra_slots,
                 p7_info->ewma_lab_jitter_pressure_ahead_us,
+                jitter_pressure_hold_active,
+                p7_info->ewma_lab_jitter_pressure_hold_slots,
+                p7_info->ewma_lab_jitter_pressure_hold_ahead_us,
+                jitter_unified_pressure_ahead_us,
+                jitter_unified_required_s_ahead,
                 jitter_gain_num,
                 jitter_gain_denom,
                 jitter_scaled_guard_us,
@@ -1355,6 +1372,7 @@ static void p7_run_ewma_lab_control(
                 post_down_guarded_safe,
                 above_jitter_floor,
                 jitter_pressure_allows_down,
+                jitter_hold_allows_down,
                 down_allowed,
                 required_safe_margin_for_down,
                 up_reason,
@@ -1406,13 +1424,7 @@ static void p7_run_ewma_lab_control(
             (int32_t)compensated_mean_64;
 
     /*
-     * Important:
-     *
-     * Do NOT aggressively divide jitter estimators after multi-slot UP/DOWN.
-     *
-     * The jitter terms represent network/timing variability, not only mean
-     * offset. They should decay naturally through EWMA updates, not be
-     * reset by a lookahead shift.
+     * Do not aggressively reset jitter estimators after actuation.
      */
     int32_t lookahead_depth_slots =
             p7_max_i32(old_s_ahead, target_s_ahead);
@@ -1457,6 +1469,11 @@ static void p7_run_ewma_lab_control(
         "jitter_cliff_excess=%d "
         "jitter_base_slots=%d jitter_cliff_extra_slots=%d "
         "jitter_pressure_mem=%d "
+        "jitter_hold_active=%d "
+        "jitter_hold_slots=%d "
+        "jitter_hold_ahead=%d "
+        "jitter_unified_pressure=%d "
+        "jitter_unified_required_s_ahead=%d "
         "jitter_gain=%d/%d jitter_scaled_guard=%d "
         "jitter_required_s_ahead=%d jitter_required_ahead_us=%d "
         "jitter_soft_up_step=%d jitter_up=%d jitter_soft_up=%d "
@@ -1472,6 +1489,7 @@ static void p7_run_ewma_lab_control(
         "post_down_risk=%d post_down_guarded_risk=%d "
         "debt_free=%d enough_margin=%d guarded_safe=%d "
         "above_jitter_floor=%d jitter_pressure_allows_down=%d "
+        "jitter_hold_allows_down=%d "
         "down_allowed=%d required_margin=%d "
         "up_reason=%d down_reason=%d "
         "delta=%d mean_shift=%lld lookahead_depth=%d wait_steps=%d",
@@ -1503,6 +1521,11 @@ static void p7_run_ewma_lab_control(
         jitter_base_slots,
         jitter_cliff_extra_slots,
         p7_info->ewma_lab_jitter_pressure_ahead_us,
+        jitter_pressure_hold_active,
+        p7_info->ewma_lab_jitter_pressure_hold_slots,
+        p7_info->ewma_lab_jitter_pressure_hold_ahead_us,
+        jitter_unified_pressure_ahead_us,
+        jitter_unified_required_s_ahead,
         jitter_gain_num,
         jitter_gain_denom,
         jitter_scaled_guard_us,
@@ -1541,6 +1564,7 @@ static void p7_run_ewma_lab_control(
         post_down_guarded_safe,
         above_jitter_floor,
         jitter_pressure_allows_down,
+        jitter_hold_allows_down,
         down_allowed,
         required_safe_margin_for_down,
         up_reason,
