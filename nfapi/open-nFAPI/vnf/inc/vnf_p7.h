@@ -395,7 +395,7 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t ewma_lab_risk_debt_us;
 	int32_t ewma_lab_safe_margin_ewma_us;
 	p7_ewma_lab_load_profile_t ewma_lab_load_profile[P7_EWMA_LAB_MAX_LOAD_PROFILES];
-	
+	int32_t ewma_lab_jitter_pressure_ahead_us;
 } nfapi_vnf_p7_connection_info_t;
 
 typedef struct vnf_p7_s {
