@@ -476,9 +476,11 @@ static void p7_run_ewma_lab_control(
      * Control pacing state
      * ============================================================
      *
-     * Runtime decision input is still only:
+     * Runtime decision input is still based on timing observation:
      *
      *     stats->worst_late
+     *
+     * Jitter is learned from the EWMA variation of worst_late.
      *
      * Important:
      *   Do NOT return before EWMA update.
@@ -508,7 +510,7 @@ static void p7_run_ewma_lab_control(
      * Single-input EWMA estimator
      * ============================================================
      *
-     * The only runtime input:
+     * The only raw runtime input:
      *
      *     stats->worst_late
      */
@@ -614,6 +616,60 @@ static void p7_run_ewma_lab_control(
 
     /*
      * ============================================================
+     * Jitter-driven lookahead floor
+     * ============================================================
+     *
+     * Requirement:
+     *
+     *   - Larger jitter must not stay close to the deadline.
+     *   - Even without late samples, high jitter should reserve more
+     *     transmit-ahead time.
+     *   - For the observed jitter case, move upward to 8 slots ahead.
+     *   - 8 slots at 500us slot duration equals 4ms ahead.
+     *   - Smaller jitter allows the controller to move closer to the
+     *     deadline to save latency.
+     *
+     * This creates a dynamic minimum target:
+     *
+     *     jitter_required_s_ahead =
+     *         ceil(adaptive_jitter_guard_us / slot_duration_us)
+     *
+     * and caps it at 8 slots.
+     *
+     * Therefore:
+     *
+     *   - High jitter can directly pull s_ahead up to 8.
+     *   - DOWN is blocked below jitter_required_s_ahead.
+     *   - When jitter becomes small, jitter_required_s_ahead becomes
+     *     small and normal DOWN probing can reduce latency.
+     */
+    int32_t jitter_target_cap_slots = 8;
+
+    if (jitter_target_cap_slots > max_s_ahead)
+        jitter_target_cap_slots = max_s_ahead;
+
+    if (jitter_target_cap_slots < 1)
+        jitter_target_cap_slots = 1;
+
+    int32_t jitter_required_s_ahead =
+            ceil_div_pos_i32(
+                    adaptive_jitter_guard_us,
+                    slot_duration_us);
+
+    if (jitter_required_s_ahead < 1)
+        jitter_required_s_ahead = 1;
+
+    if (jitter_required_s_ahead > jitter_target_cap_slots)
+        jitter_required_s_ahead = jitter_target_cap_slots;
+
+    if (jitter_required_s_ahead > max_s_ahead)
+        jitter_required_s_ahead = max_s_ahead;
+
+    int32_t jitter_required_ahead_us =
+            jitter_required_s_ahead * slot_duration_us;
+
+    /*
+     * ============================================================
      * Risk / debt / safe-margin model
      * ============================================================
      */
@@ -693,11 +749,24 @@ static void p7_run_ewma_lab_control(
             safe_margin_sample_us > 0;
 
     /*
+     * Jitter UP can happen even when there is no late and no predicted
+     * positive risk. This is intentional.
+     *
+     * Reason:
+     *   A large jitter envelope means the traffic arrival distribution is
+     *   unstable. Staying too close to deadline is unsafe even if current
+     *   samples are not late yet.
+     */
+    bool jitter_up_required =
+            !hard_late &&
+            jitter_required_s_ahead > s_ahead_env;
+
+    /*
      * ============================================================
      * Fresh evidence counters
      * ============================================================
      *
-     * These counters are derived only from stats->worst_late through:
+     * These counters are derived from timing behavior through:
      *
      *   - hard_late
      *   - soft_risk
@@ -718,7 +787,12 @@ static void p7_run_ewma_lab_control(
         p7_info->ewma_lab_late_period_count++;
         p7_info->ewma_lab_safe_period_count = 0;
         p7_info->ewma_lab_risk_period_count = 0;
-    } else if (soft_risk) {
+    } else if (soft_risk || jitter_up_required) {
+        /*
+         * Treat jitter pressure as fresh risk evidence.
+         * This lets high jitter push UP even when all samples are still
+         * before deadline.
+         */
         p7_info->ewma_lab_risk_period_count++;
         p7_info->ewma_lab_safe_period_count = 0;
         p7_info->ewma_lab_late_period_count = 0;
@@ -783,9 +857,15 @@ static void p7_run_ewma_lab_control(
             !risk_debt_free &&
             enough_fresh_risk_evidence_for_soft_up;
 
+    bool jitter_soft_up_required =
+            !hard_late &&
+            jitter_required_s_ahead > s_ahead_env &&
+            enough_fresh_risk_evidence_for_soft_up;
+
     bool up_required =
             hard_up_required ||
-            soft_up_required;
+            soft_up_required ||
+            jitter_soft_up_required;
 
     int32_t post_down_predicted_risk_us =
             closest_to_deadline_us +
@@ -834,6 +914,17 @@ static void p7_run_ewma_lab_control(
             failure_debt_free &&
             risk_debt_free;
 
+    /*
+     * DOWN is not allowed to go below jitter_required_s_ahead.
+     *
+     * This is the key behavior:
+     *
+     *   - high jitter keeps the controller at larger ahead time
+     *   - low jitter allows normal DOWN probing toward deadline
+     */
+    bool above_jitter_floor =
+            s_ahead_env > jitter_required_s_ahead;
+
     bool down_allowed =
             !up_required &&
             debt_free &&
@@ -841,6 +932,7 @@ static void p7_run_ewma_lab_control(
             enough_ewma_safe_margin_for_down &&
             down_safe_after_one_slot &&
             post_down_guarded_safe &&
+            above_jitter_floor &&
             s_ahead_env > 1;
 
     /*
@@ -914,18 +1006,45 @@ static void p7_run_ewma_lab_control(
             target_s_ahead =
                     s_ahead_env + extra_slots;
 
+            /*
+             * If jitter floor is even higher, jump to jitter floor too.
+             */
+            if (target_s_ahead < jitter_required_s_ahead)
+                target_s_ahead = jitter_required_s_ahead;
+
             up_reason = 1;
+        } else if (jitter_soft_up_required) {
+            /*
+             * Jitter UP:
+             *
+             * High jitter means we should reserve ahead time even without
+             * current late samples.
+             *
+             * For the shown jitter pattern this can move directly to
+             * 8 slots ahead, which is 4ms when slot_duration_us=500.
+             */
+            target_s_ahead = jitter_required_s_ahead;
+            up_reason = 4;
         } else if (soft_up_required) {
             /*
-             * Soft UP is predictive. One slot only.
+             * Soft UP is predictive.
+             * Normally one slot only, but never below jitter floor.
              */
             target_s_ahead = s_ahead_env + 1;
+
+            if (target_s_ahead < jitter_required_s_ahead)
+                target_s_ahead = jitter_required_s_ahead;
+
             up_reason = 2;
         } else if (down_allowed) {
             /*
-             * DOWN is one slot only.
+             * DOWN is one slot only and cannot cross the jitter floor.
              */
             target_s_ahead = s_ahead_env - 1;
+
+            if (target_s_ahead < jitter_required_s_ahead)
+                target_s_ahead = jitter_required_s_ahead;
+
             down_reason = 1;
         }
     }
@@ -951,6 +1070,8 @@ static void p7_run_ewma_lab_control(
                 "worst_late=%d mean=%d var=%d diff=%d "
                 "late_jitter=%d early_jitter=%d "
                 "late_uncertainty=%d early_uncertainty=%d jitter_guard=%d "
+                "jitter_required_s_ahead=%d jitter_required_ahead_us=%d "
+                "jitter_cap=%d jitter_up=%d jitter_soft_up=%d "
                 "closest=%d predicted_risk=%d failure_sample=%d "
                 "failure_debt=%d risk_debt=%d "
                 "failure_debt_free=%d risk_debt_free=%d "
@@ -961,7 +1082,8 @@ static void p7_run_ewma_lab_control(
                 "required_safe_cnt=%d fresh_safe_down=%d fresh_risk_up=%d "
                 "hard_up=%d soft_up=%d "
                 "post_down_risk=%d post_down_guarded_risk=%d "
-                "debt_free=%d enough_margin=%d guarded_safe=%d down_allowed=%d "
+                "debt_free=%d enough_margin=%d guarded_safe=%d "
+                "above_jitter_floor=%d down_allowed=%d "
                 "required_margin=%d up_reason=%d down_reason=%d "
                 "delta=0 mean_shift=0 wait_steps=%d",
                 pacing_gate_open ? "stable" : "paced",
@@ -983,6 +1105,11 @@ static void p7_run_ewma_lab_control(
                 late_side_uncertainty_us,
                 early_side_uncertainty_us,
                 adaptive_jitter_guard_us,
+                jitter_required_s_ahead,
+                jitter_required_ahead_us,
+                jitter_target_cap_slots,
+                jitter_up_required,
+                jitter_soft_up_required,
                 closest_to_deadline_us,
                 predicted_risk_us,
                 failure_sample_us,
@@ -1011,6 +1138,7 @@ static void p7_run_ewma_lab_control(
                 debt_free,
                 enough_ewma_safe_margin_for_down,
                 post_down_guarded_safe,
+                above_jitter_floor,
                 down_allowed,
                 required_safe_margin_for_down,
                 up_reason,
@@ -1148,6 +1276,8 @@ static void p7_run_ewma_lab_control(
         "worst_late=%d mean=%d var=%d diff=%d "
         "late_jitter=%d early_jitter=%d "
         "late_uncertainty=%d early_uncertainty=%d jitter_guard=%d "
+        "jitter_required_s_ahead=%d jitter_required_ahead_us=%d "
+        "jitter_cap=%d jitter_up=%d jitter_soft_up=%d "
         "closest=%d predicted_risk=%d failure_sample=%d "
         "failure_debt=%d risk_debt=%d "
         "failure_debt_free=%d risk_debt_free=%d "
@@ -1158,7 +1288,8 @@ static void p7_run_ewma_lab_control(
         "required_safe_cnt=%d fresh_safe_down=%d fresh_risk_up=%d "
         "hard_up=%d soft_up=%d "
         "post_down_risk=%d post_down_guarded_risk=%d "
-        "debt_free=%d enough_margin=%d guarded_safe=%d down_allowed=%d "
+        "debt_free=%d enough_margin=%d guarded_safe=%d "
+        "above_jitter_floor=%d down_allowed=%d "
         "required_margin=%d "
         "up_reason=%d down_reason=%d "
         "delta=%d mean_shift=%lld lookahead_depth=%d wait_steps=%d",
@@ -1182,6 +1313,11 @@ static void p7_run_ewma_lab_control(
         late_side_uncertainty_us,
         early_side_uncertainty_us,
         adaptive_jitter_guard_us,
+        jitter_required_s_ahead,
+        jitter_required_ahead_us,
+        jitter_target_cap_slots,
+        jitter_up_required,
+        jitter_soft_up_required,
         closest_to_deadline_us,
         predicted_risk_us,
         failure_sample_us,
@@ -1210,6 +1346,7 @@ static void p7_run_ewma_lab_control(
         debt_free,
         enough_ewma_safe_margin_for_down,
         post_down_guarded_safe,
+        above_jitter_floor,
         down_allowed,
         required_safe_margin_for_down,
         up_reason,
