@@ -594,154 +594,12 @@ static void p7_run_ewma_lab_control(
 
     /*
      * ============================================================
-     * Balanced jitter-driven lookahead floor
-     * ============================================================
-     *
-     * Previous weak version:
-     *
-     *     jitter_scaled_guard = adaptive_jitter_guard
-     *
-     * Previous aggressive version:
-     *
-     *     jitter_scaled_guard = adaptive_jitter_guard * jitter_guard_slots
-     *
-     * This balanced version:
-     *
-     *     gain = 1 + (jitter_guard_slots - 1) / beta_denom
-     *
-     * With beta_denom = 4:
-     *
-     *     slots=1 -> 1.00x
-     *     slots=2 -> 1.25x
-     *     slots=3 -> 1.50x
-     *     slots=4 -> 1.75x
-     *     slots=5 -> 2.00x
-     *
-     * This is only slightly stronger than the original linear guard,
-     * but far less aggressive than multiplying directly by
-     * jitter_guard_slots.
-     */
-	/*
-	* ============================================================
-	* Mild continuous jitter amplification
-	* ============================================================
-	*
-	* Do NOT use:
-	*
-	*     gain = 1 + 2 * (jitter_guard_slots - 1) / beta
-	*
-	* because jitter_guard_slots is quantized by ceil().
-	* That creates abrupt gain jumps when guard crosses slot boundary.
-	*
-	* New behavior:
-	*
-	*     scaled_guard =
-	*         guard + max(guard - one_slot, 0) / alpha_denom
-	*
-	* With alpha_denom = 8:
-	*
-	*     guard <= 1 slot:
-	*         no amplification
-	*
-	*     guard > 1 slot:
-	*         only the excess part receives +12.5% weight
-	*
-	* This is intentionally mild and continuous.
-	*/
-	int32_t jitter_excess_us =
-			adaptive_jitter_guard_us - slot_duration_us;
-
-	if (jitter_excess_us < 0)
-		jitter_excess_us = 0;
-
-	int32_t jitter_gain_denom =
-			global_ewma_alpha_denom;
-
-	if (jitter_gain_denom < 1)
-		jitter_gain_denom = 1;
-
-	int64_t jitter_scaled_guard_64 =
-			(int64_t)adaptive_jitter_guard_us +
-			((int64_t)jitter_excess_us /
-			(int64_t)jitter_gain_denom);
-
-	if (jitter_scaled_guard_64 > INT32_MAX)
-		jitter_scaled_guard_64 = INT32_MAX;
-
-	if (jitter_scaled_guard_64 < 0)
-		jitter_scaled_guard_64 = 0;
-
-	int32_t jitter_scaled_guard_us =
-			(int32_t)jitter_scaled_guard_64;
-
-	/*
-	* For trace compatibility only.
-	*
-	* This is not a true multiplicative gain anymore.
-	* It represents:
-	*
-	*     scaled = guard + excess / jitter_gain_denom
-	*/
-	int32_t jitter_gain_num =
-			jitter_gain_denom + 1;
-
-    if (jitter_scaled_guard_64 > INT32_MAX)
-        jitter_scaled_guard_64 = INT32_MAX;
-
-    if (jitter_scaled_guard_64 < 0)
-        jitter_scaled_guard_64 = 0;
-
-    int32_t jitter_required_s_ahead =
-            ceil_div_pos_i32(
-                    jitter_scaled_guard_us,
-                    slot_duration_us);
-
-    if (jitter_required_s_ahead < 1)
-        jitter_required_s_ahead = 1;
-
-    if (jitter_required_s_ahead > max_s_ahead)
-        jitter_required_s_ahead = max_s_ahead;
-
-    int64_t jitter_required_ahead_64 =
-            (int64_t)jitter_required_s_ahead *
-            (int64_t)slot_duration_us;
-
-    if (jitter_required_ahead_64 > INT32_MAX)
-        jitter_required_ahead_64 = INT32_MAX;
-
-    int32_t jitter_required_ahead_us =
-            (int32_t)jitter_required_ahead_64;
-
-    /*
-     * Limit jitter-only UP step.
-     *
-     * The jitter floor may be higher, but jitter-only movement should not
-     * jump directly to the floor. This avoids 5->14 type overshoot.
-     *
-     * No new tunable hyperparameter:
-     *
-     *     jitter_soft_up_step = beta_denom / 2
-     *
-     * With beta_denom = 4, jitter-only UP can move at most 2 slots.
-     */
-	/*
-	* Jitter-only UP should be one slot at a time.
-	*
-	* The previous 2-slot step can still climb too fast when jitter evidence
-	* repeats every control period.
-	*/
-	int32_t jitter_soft_up_step = 1;
-
-    if (jitter_soft_up_step < 1)
-        jitter_soft_up_step = 1;
-
-    if (jitter_soft_up_step > max_s_ahead)
-        jitter_soft_up_step = max_s_ahead;
-
-    /*
-     * ============================================================
      * Risk / debt / safe-margin model
      * ============================================================
+     *
+     * This is intentionally placed before jitter lookahead mapping,
+     * because deadline tail risk is part of the mathematical jitter
+     * distance formula.
      */
     int32_t predicted_risk_us =
             closest_to_deadline_us +
@@ -818,6 +676,216 @@ static void p7_run_ewma_lab_control(
             predicted_risk_us == 0 &&
             safe_margin_sample_us > 0;
 
+    bool debt_free =
+            failure_sample_us == 0 &&
+            predicted_risk_us == 0 &&
+            failure_debt_free &&
+            risk_debt_free;
+
+    /*
+     * ============================================================
+     * Mathematical jitter-to-deadline-distance mapping
+     * ============================================================
+     *
+     * Goal:
+     *
+     *   Larger jitter should imply larger distance from deadline.
+     *
+     * This block does NOT hardcode any specific target such as 8 slots.
+     * Instead, it converts jitter into required ahead time using:
+     *
+     *   required_ahead_us =
+     *
+     *       one_slot
+     *     + effective_jitter_guard
+     *     + nonlinear_jitter_pressure
+     *     + deadline_tail_risk
+     *
+     * where:
+     *
+     *   effective_jitter_guard =
+     *       max(0, adaptive_jitter_guard_us - jitter_free_allowance_us)
+     *
+     *   jitter_free_allowance_us =
+     *       slot_duration_us / beta_denom
+     *
+     *   nonlinear_jitter_pressure =
+     *       effective_jitter_guard^2 /
+     *       (effective_jitter_guard + (alpha_denom + beta_denom) * slot)
+     *
+     * Interpretation:
+     *
+     *   - Small jitter receives little or no extra pressure.
+     *   - Medium jitter grows roughly linearly.
+     *   - Large jitter gets an additional nonlinear tail penalty.
+     *
+     * Example:
+     *
+     *   slot_duration_us = 500
+     *   alpha_denom      = 8
+     *   beta_denom       = 4
+     *   adaptive_guard   = 2607
+     *
+     *   jitter_free_allowance = 125
+     *   effective_guard       = 2482
+     *   nonlinear_pressure    ~= 727
+     *
+     *   required_ahead_us =
+     *       500 + 2482 + 727 = 3709
+     *
+     *   ceil(3709 / 500) = 8 slots
+     *
+     * Therefore, 8 slots emerges from the jitter magnitude itself.
+     */
+    int32_t jitter_gain_denom =
+            global_ewma_alpha_denom;
+
+    if (jitter_gain_denom < 1)
+        jitter_gain_denom = 1;
+
+    int32_t jitter_beta_denom =
+            global_ewma_beta_denom;
+
+    if (jitter_beta_denom < 1)
+        jitter_beta_denom = 1;
+
+    int32_t jitter_free_allowance_us =
+            slot_duration_us / jitter_beta_denom;
+
+    if (jitter_free_allowance_us < 0)
+        jitter_free_allowance_us = 0;
+
+    int32_t effective_jitter_guard_us =
+            adaptive_jitter_guard_us -
+            jitter_free_allowance_us;
+
+    if (effective_jitter_guard_us < 0)
+        effective_jitter_guard_us = 0;
+
+    int64_t nonlinear_jitter_denom_64 =
+            (int64_t)effective_jitter_guard_us +
+            ((int64_t)(jitter_gain_denom + jitter_beta_denom) *
+             (int64_t)slot_duration_us);
+
+    int32_t nonlinear_jitter_pressure_us = 0;
+
+    if (effective_jitter_guard_us > 0 &&
+        nonlinear_jitter_denom_64 > 0) {
+        int64_t nonlinear_jitter_pressure_64 =
+                (int64_t)effective_jitter_guard_us *
+                (int64_t)effective_jitter_guard_us;
+
+        nonlinear_jitter_pressure_64 =
+                nonlinear_jitter_pressure_64 /
+                nonlinear_jitter_denom_64;
+
+        if (nonlinear_jitter_pressure_64 > INT32_MAX)
+            nonlinear_jitter_pressure_64 = INT32_MAX;
+
+        if (nonlinear_jitter_pressure_64 < 0)
+            nonlinear_jitter_pressure_64 = 0;
+
+        nonlinear_jitter_pressure_us =
+                (int32_t)nonlinear_jitter_pressure_64;
+    }
+
+    /*
+     * Tail risk should also move the target away from deadline.
+     *
+     * Use the maximum of instantaneous and EWMA debt terms.
+     * This gives risk persistence without introducing a hardcoded hold floor.
+     */
+    int32_t persistent_failure_tail_us =
+            p7_max_i32(failure_sample_us,
+                       p7_info->ewma_lab_failure_debt_us);
+
+    int32_t persistent_risk_tail_us =
+            p7_max_i32(predicted_risk_us,
+                       p7_info->ewma_lab_risk_debt_us);
+
+    int64_t deadline_tail_risk_64 =
+            (int64_t)persistent_failure_tail_us +
+            (int64_t)persistent_risk_tail_us;
+
+    if (deadline_tail_risk_64 > INT32_MAX)
+        deadline_tail_risk_64 = INT32_MAX;
+
+    if (deadline_tail_risk_64 < 0)
+        deadline_tail_risk_64 = 0;
+
+    int32_t deadline_tail_risk_us =
+            (int32_t)deadline_tail_risk_64;
+
+    int64_t jitter_scaled_guard_64 =
+            (int64_t)slot_duration_us +
+            (int64_t)effective_jitter_guard_us +
+            (int64_t)nonlinear_jitter_pressure_us +
+            (int64_t)deadline_tail_risk_us;
+
+    if (jitter_scaled_guard_64 > INT32_MAX)
+        jitter_scaled_guard_64 = INT32_MAX;
+
+    if (jitter_scaled_guard_64 < slot_duration_us)
+        jitter_scaled_guard_64 = slot_duration_us;
+
+    int32_t jitter_scaled_guard_us =
+            (int32_t)jitter_scaled_guard_64;
+
+    /*
+     * For trace compatibility only.
+     *
+     * This is not a true multiplicative gain anymore.
+     * It represents the nonlinear mathematical mapping:
+     *
+     *   scaled =
+     *       slot
+     *     + effective_guard
+     *     + nonlinear_pressure
+     *     + tail_risk
+     */
+    int32_t jitter_gain_num =
+            jitter_gain_denom + jitter_beta_denom;
+
+    int32_t jitter_required_s_ahead =
+            ceil_div_pos_i32(
+                    jitter_scaled_guard_us,
+                    slot_duration_us);
+
+    if (jitter_required_s_ahead < 1)
+        jitter_required_s_ahead = 1;
+
+    if (jitter_required_s_ahead > max_s_ahead)
+        jitter_required_s_ahead = max_s_ahead;
+
+    int64_t jitter_required_ahead_64 =
+            (int64_t)jitter_required_s_ahead *
+            (int64_t)slot_duration_us;
+
+    if (jitter_required_ahead_64 > INT32_MAX)
+        jitter_required_ahead_64 = INT32_MAX;
+
+    int32_t jitter_required_ahead_us =
+            (int32_t)jitter_required_ahead_64;
+
+    /*
+     * Mathematical jitter UP step.
+     *
+     * This is not a fixed hyperparameter.
+     * The step is exactly the distance between current s_ahead and the
+     * mathematical jitter target.
+     *
+     * If the formula says 8 slots are required and we are at 5,
+     * the step is 3.
+     */
+    int32_t jitter_soft_up_step =
+            jitter_required_s_ahead - s_ahead_env;
+
+    if (jitter_soft_up_step < 1)
+        jitter_soft_up_step = 1;
+
+    if (jitter_soft_up_step > max_s_ahead)
+        jitter_soft_up_step = max_s_ahead;
+
     bool jitter_up_required =
             !hard_late &&
             jitter_required_s_ahead > s_ahead_env;
@@ -859,6 +927,7 @@ static void p7_run_ewma_lab_control(
 
     if (s_ahead_env > 1) {
         int64_t required_safe_cnt_64 =
+                (int64_t)s_ahead_env *
                 (int64_t)s_ahead_env *
                 (int64_t)global_ewma_alpha_denom;
 
@@ -912,8 +981,12 @@ static void p7_run_ewma_lab_control(
     bool down_safe_after_one_slot =
             post_down_predicted_risk_us <= 0;
 
+    /*
+     * Down requires margin larger than mathematically required jitter
+     * distance. This prevents one transient safe sample from collapsing
+     * the lookahead when high jitter pressure is still present.
+     */
     int64_t required_safe_margin_64 =
-            (int64_t)slot_duration_us +
             (int64_t)jitter_scaled_guard_us;
 
     if (required_safe_margin_64 > INT32_MAX)
@@ -944,12 +1017,6 @@ static void p7_run_ewma_lab_control(
 
     bool post_down_guarded_safe =
             post_down_guarded_risk_us <= 0;
-
-    bool debt_free =
-            failure_sample_us == 0 &&
-            predicted_risk_us == 0 &&
-            failure_debt_free &&
-            risk_debt_free;
 
     bool above_jitter_floor =
             s_ahead_env > jitter_required_s_ahead;
@@ -1013,9 +1080,7 @@ static void p7_run_ewma_lab_control(
                     s_ahead_env + extra_slots;
 
             /*
-             * For hard late, still respect jitter floor, but the floor
-             * itself is now much softer than the previous aggressive
-             * nonlinear version.
+             * Hard-late also respects the mathematical jitter floor.
              */
             if (target_s_ahead < jitter_required_s_ahead)
                 target_s_ahead = jitter_required_s_ahead;
@@ -1025,36 +1090,23 @@ static void p7_run_ewma_lab_control(
             /*
              * Jitter-only UP:
              *
-             * Do not jump directly to jitter_required_s_ahead.
-             * Move gradually by jitter_soft_up_step.
+             * Move directly to the mathematically required jitter target.
+             * This is not hardcoded; the target comes from the nonlinear
+             * jitter-to-deadline-distance formula.
              */
-            int32_t limited_jitter_target =
-                    s_ahead_env + jitter_soft_up_step;
-
-            if (limited_jitter_target > jitter_required_s_ahead)
-                limited_jitter_target = jitter_required_s_ahead;
-
-            target_s_ahead = limited_jitter_target;
+            target_s_ahead = jitter_required_s_ahead;
             up_reason = 4;
         } else if (soft_up_required) {
             /*
              * Predictive soft UP.
              *
-             * Normally +1. If jitter floor is higher, allow only a
-             * limited step toward the floor.
+             * If the mathematical jitter target is higher, use it.
+             * Otherwise move by one slot.
              */
             target_s_ahead = s_ahead_env + 1;
 
-            if (target_s_ahead < jitter_required_s_ahead) {
-                int32_t limited_jitter_target =
-                        s_ahead_env + jitter_soft_up_step;
-
-                if (limited_jitter_target > jitter_required_s_ahead)
-                    limited_jitter_target = jitter_required_s_ahead;
-
-                if (target_s_ahead < limited_jitter_target)
-                    target_s_ahead = limited_jitter_target;
-            }
+            if (target_s_ahead < jitter_required_s_ahead)
+                target_s_ahead = jitter_required_s_ahead;
 
             up_reason = 2;
         } else if (down_allowed) {
@@ -1088,7 +1140,9 @@ static void p7_run_ewma_lab_control(
                 "worst_late=%d mean=%d var=%d diff=%d "
                 "late_jitter=%d early_jitter=%d "
                 "late_uncertainty=%d early_uncertainty=%d "
-                "jitter_guard=%d"
+                "jitter_guard=%d "
+                "jitter_eff_guard=%d jitter_nonlinear_pressure=%d "
+                "deadline_tail_risk=%d "
                 "jitter_gain=%d/%d jitter_scaled_guard=%d "
                 "jitter_required_s_ahead=%d jitter_required_ahead_us=%d "
                 "jitter_soft_up_step=%d jitter_up=%d jitter_soft_up=%d "
@@ -1125,6 +1179,9 @@ static void p7_run_ewma_lab_control(
                 late_side_uncertainty_us,
                 early_side_uncertainty_us,
                 adaptive_jitter_guard_us,
+                effective_jitter_guard_us,
+                nonlinear_jitter_pressure_us,
+                deadline_tail_risk_us,
                 jitter_gain_num,
                 jitter_gain_denom,
                 jitter_scaled_guard_us,
@@ -1212,19 +1269,28 @@ static void p7_run_ewma_lab_control(
     p7_info->estimated_mean_late =
             (int32_t)compensated_mean_64;
 
-    if (abs_i32(delta_s_ahead) > 1) {
-        p7_info->estimated_jitter_var =
-                p7_info->estimated_jitter_var /
-                global_ewma_beta_denom;
-
-        p7_info->late_jitter =
-                p7_info->late_jitter /
-                global_ewma_beta_denom;
-
-        p7_info->early_jitter =
-                p7_info->early_jitter /
-                global_ewma_beta_denom;
-    }
+    /*
+     * Important:
+     *
+     * Do NOT aggressively divide jitter estimators after multi-slot UP/DOWN.
+     *
+     * Previous behavior:
+     *
+     *   if abs(delta) > 1:
+     *       jitter_var /= beta
+     *       late_jitter /= beta
+     *       early_jitter /= beta
+     *
+     * This erased the measured jitter pressure immediately after actuation,
+     * allowing a burst such as:
+     *
+     *   UP 5->6
+     *   DOWN 6->5->4->3->2->1
+     *
+     * The jitter terms represent network/timing variability, not only mean
+     * offset. They should decay naturally through EWMA updates, not be
+     * reset by a lookahead shift.
+     */
 
     int32_t lookahead_depth_slots =
             p7_max_i32(old_s_ahead, target_s_ahead);
@@ -1263,7 +1329,9 @@ static void p7_run_ewma_lab_control(
         "worst_late=%d mean=%d var=%d diff=%d "
         "late_jitter=%d early_jitter=%d "
         "late_uncertainty=%d early_uncertainty=%d "
-        "jitter_guard=%d"
+        "jitter_guard=%d "
+        "jitter_eff_guard=%d jitter_nonlinear_pressure=%d "
+        "deadline_tail_risk=%d "
         "jitter_gain=%d/%d jitter_scaled_guard=%d "
         "jitter_required_s_ahead=%d jitter_required_ahead_us=%d "
         "jitter_soft_up_step=%d jitter_up=%d jitter_soft_up=%d "
@@ -1302,6 +1370,9 @@ static void p7_run_ewma_lab_control(
         late_side_uncertainty_us,
         early_side_uncertainty_us,
         adaptive_jitter_guard_us,
+        effective_jitter_guard_us,
+        nonlinear_jitter_pressure_us,
+        deadline_tail_risk_us,
         jitter_gain_num,
         jitter_gain_denom,
         jitter_scaled_guard_us,
