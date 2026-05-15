@@ -621,47 +621,75 @@ static void p7_run_ewma_lab_control(
      * but far less aggressive than multiplying directly by
      * jitter_guard_slots.
      */
-    int32_t jitter_guard_slots =
-            ceil_div_pos_i32(
-                    adaptive_jitter_guard_us,
-                    slot_duration_us);
+	/*
+	* ============================================================
+	* Mild continuous jitter amplification
+	* ============================================================
+	*
+	* Do NOT use:
+	*
+	*     gain = 1 + 2 * (jitter_guard_slots - 1) / beta
+	*
+	* because jitter_guard_slots is quantized by ceil().
+	* That creates abrupt gain jumps when guard crosses slot boundary.
+	*
+	* New behavior:
+	*
+	*     scaled_guard =
+	*         guard + max(guard - one_slot, 0) / alpha_denom
+	*
+	* With alpha_denom = 8:
+	*
+	*     guard <= 1 slot:
+	*         no amplification
+	*
+	*     guard > 1 slot:
+	*         only the excess part receives +12.5% weight
+	*
+	* This is intentionally mild and continuous.
+	*/
+	int32_t jitter_excess_us =
+			adaptive_jitter_guard_us - slot_duration_us;
 
-    if (jitter_guard_slots < 1)
-        jitter_guard_slots = 1;
+	if (jitter_excess_us < 0)
+		jitter_excess_us = 0;
 
-    if (jitter_guard_slots > max_s_ahead)
-        jitter_guard_slots = max_s_ahead;
+	int32_t jitter_gain_denom =
+			global_ewma_alpha_denom;
 
-    int32_t jitter_gain_denom =
-            global_ewma_beta_denom;
+	if (jitter_gain_denom < 1)
+		jitter_gain_denom = 1;
 
-    if (jitter_gain_denom < 1)
-        jitter_gain_denom = 1;
+	int64_t jitter_scaled_guard_64 =
+			(int64_t)adaptive_jitter_guard_us +
+			((int64_t)jitter_excess_us /
+			(int64_t)jitter_gain_denom);
 
-    int32_t jitter_gain_num =
-            jitter_gain_denom +
-            jitter_guard_slots -
-            1;
+	if (jitter_scaled_guard_64 > INT32_MAX)
+		jitter_scaled_guard_64 = INT32_MAX;
 
-    if (jitter_gain_num < jitter_gain_denom)
-        jitter_gain_num = jitter_gain_denom;
+	if (jitter_scaled_guard_64 < 0)
+		jitter_scaled_guard_64 = 0;
 
-    int64_t jitter_scaled_guard_64 =
-            (int64_t)adaptive_jitter_guard_us *
-            (int64_t)jitter_gain_num;
+	int32_t jitter_scaled_guard_us =
+			(int32_t)jitter_scaled_guard_64;
 
-    jitter_scaled_guard_64 =
-            jitter_scaled_guard_64 /
-            (int64_t)jitter_gain_denom;
+	/*
+	* For trace compatibility only.
+	*
+	* This is not a true multiplicative gain anymore.
+	* It represents:
+	*
+	*     scaled = guard + excess / jitter_gain_denom
+	*/
+	int32_t jitter_gain_num =
+			jitter_gain_denom + 1;
 
     if (jitter_scaled_guard_64 > INT32_MAX)
         jitter_scaled_guard_64 = INT32_MAX;
 
     if (jitter_scaled_guard_64 < 0)
         jitter_scaled_guard_64 = 0;
-
-    int32_t jitter_scaled_guard_us =
-            (int32_t)jitter_scaled_guard_64;
 
     int32_t jitter_required_s_ahead =
             ceil_div_pos_i32(
@@ -696,8 +724,13 @@ static void p7_run_ewma_lab_control(
      *
      * With beta_denom = 4, jitter-only UP can move at most 2 slots.
      */
-    int32_t jitter_soft_up_step =
-            global_ewma_beta_denom / 2;
+	/*
+	* Jitter-only UP should be one slot at a time.
+	*
+	* The previous 2-slot step can still climb too fast when jitter evidence
+	* repeats every control period.
+	*/
+	int32_t jitter_soft_up_step = 1;
 
     if (jitter_soft_up_step < 1)
         jitter_soft_up_step = 1;
@@ -1055,7 +1088,7 @@ static void p7_run_ewma_lab_control(
                 "worst_late=%d mean=%d var=%d diff=%d "
                 "late_jitter=%d early_jitter=%d "
                 "late_uncertainty=%d early_uncertainty=%d "
-                "jitter_guard=%d jitter_guard_slots=%d "
+                "jitter_guard=%d"
                 "jitter_gain=%d/%d jitter_scaled_guard=%d "
                 "jitter_required_s_ahead=%d jitter_required_ahead_us=%d "
                 "jitter_soft_up_step=%d jitter_up=%d jitter_soft_up=%d "
@@ -1092,7 +1125,6 @@ static void p7_run_ewma_lab_control(
                 late_side_uncertainty_us,
                 early_side_uncertainty_us,
                 adaptive_jitter_guard_us,
-                jitter_guard_slots,
                 jitter_gain_num,
                 jitter_gain_denom,
                 jitter_scaled_guard_us,
@@ -1231,7 +1263,7 @@ static void p7_run_ewma_lab_control(
         "worst_late=%d mean=%d var=%d diff=%d "
         "late_jitter=%d early_jitter=%d "
         "late_uncertainty=%d early_uncertainty=%d "
-        "jitter_guard=%d jitter_guard_slots=%d "
+        "jitter_guard=%d"
         "jitter_gain=%d/%d jitter_scaled_guard=%d "
         "jitter_required_s_ahead=%d jitter_required_ahead_us=%d "
         "jitter_soft_up_step=%d jitter_up=%d jitter_soft_up=%d "
@@ -1270,7 +1302,6 @@ static void p7_run_ewma_lab_control(
         late_side_uncertainty_us,
         early_side_uncertainty_us,
         adaptive_jitter_guard_us,
-        jitter_guard_slots,
         jitter_gain_num,
         jitter_gain_denom,
         jitter_scaled_guard_us,
