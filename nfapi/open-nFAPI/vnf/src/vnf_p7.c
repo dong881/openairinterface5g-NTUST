@@ -838,22 +838,46 @@ static void p7_run_ewma_lab_control(
 
     /*
      * ============================================================
-     * Cliff hold floor
+     * Evidence-backed cliff hold floor
      * ============================================================
      *
-     * This is a slot-domain hold budget, not sleep().
+     * Do NOT use a fixed wall-clock duration here.
      *
-     * If slot=500us:
-     *   3000000 / 500 = 6000 slots ~= 3 seconds.
+     * The hold budget is derived from the controller's own evidence
+     * requirement:
      *
-     * Each control invocation consumes timing_info_period slots.
+     *   deeper jitter floor -> more safe evidence required
+     *   shallower jitter floor -> less safe evidence required
+     *
+     * This makes the hold mechanism consistent with the existing
+     * down hysteresis model:
+     *
+     *   required_safe_cnt_for_down ~= s_ahead^2 * alpha
+     *
+     * Therefore this is not a hardcoded "3 seconds" hold.
+     * It is an evidence-backed release budget.
      */
-    int32_t jitter_pressure_hold_duration_slots =
-            3000000 / slot_duration_us;
+    int64_t jitter_hold_budget_slots_64 =
+            (int64_t)jitter_instant_required_s_ahead *
+            (int64_t)jitter_instant_required_s_ahead *
+            (int64_t)global_ewma_alpha_denom;
 
-    if (jitter_pressure_hold_duration_slots < 1)
-        jitter_pressure_hold_duration_slots = 1;
+    if (jitter_hold_budget_slots_64 > INT32_MAX)
+        jitter_hold_budget_slots_64 = INT32_MAX;
 
+    if (jitter_hold_budget_slots_64 < global_ewma_alpha_denom)
+        jitter_hold_budget_slots_64 = global_ewma_alpha_denom;
+
+    int32_t jitter_pressure_hold_budget_slots =
+            (int32_t)jitter_hold_budget_slots_64;
+
+    /*
+     * Decay hold budget in slot domain.
+     *
+     * The decay step follows timing_info_period because this function
+     * is driven by timing samples / control invocations, not by sleep()
+     * or wall-clock timers.
+     */
     if (p7_info->ewma_lab_jitter_pressure_hold_slots > 0) {
         int32_t hold_decay_slots =
                 (int32_t)config->timing_info_period;
@@ -871,14 +895,17 @@ static void p7_run_ewma_lab_control(
     }
 
     /*
-     * Arm / refresh hold only when the nonlinear cliff really crossed.
+     * Arm / refresh hold only when the nonlinear cliff is crossed.
+     *
+     * This does not encode "8 slots" or "3 seconds".
+     * The floor is exactly what the jitter model currently requires.
      */
     if (jitter_cliff_excess_us > 0 ||
         jitter_cliff_extra_slots > 0) {
         if (p7_info->ewma_lab_jitter_pressure_hold_slots <
-            jitter_pressure_hold_duration_slots) {
+            jitter_pressure_hold_budget_slots) {
             p7_info->ewma_lab_jitter_pressure_hold_slots =
-                    jitter_pressure_hold_duration_slots;
+                    jitter_pressure_hold_budget_slots;
         }
 
         if (p7_info->ewma_lab_jitter_pressure_hold_ahead_us <
@@ -913,6 +940,7 @@ static void p7_run_ewma_lab_control(
                 safe_sample &&
                 debt_free &&
                 jitter_cliff_excess_us == 0 &&
+                jitter_cliff_extra_slots == 0 &&
                 !jitter_pressure_hold_active;
 
         if (jitter_pressure_release_allowed) {
@@ -938,9 +966,19 @@ static void p7_run_ewma_lab_control(
         p7_info->ewma_lab_jitter_pressure_ahead_us = slot_duration_us;
 
     /*
-     * Release hold floor slowly after hold budget expires.
+     * Release hold floor only when the system is genuinely safe.
+     *
+     * Even after the hold budget expires, do not release on an
+     * unsafe / risky / debt-carrying sample.
      */
-    if (!jitter_pressure_hold_active &&
+    bool jitter_hold_release_allowed =
+            !jitter_pressure_hold_active &&
+            safe_sample &&
+            debt_free &&
+            jitter_cliff_excess_us == 0 &&
+            jitter_cliff_extra_slots == 0;
+
+    if (jitter_hold_release_allowed &&
         p7_info->ewma_lab_jitter_pressure_hold_ahead_us >
         slot_duration_us) {
         int64_t hold_release_denom_64 =
@@ -1172,9 +1210,9 @@ static void p7_run_ewma_lab_control(
     /*
      * If hold floor is active:
      *
-     *   hold floor = 8
-     *   9 -> 8 allowed
-     *   8 -> 7 blocked
+     *   hold floor = N
+     *   N+1 -> N allowed
+     *   N   -> N-1 blocked
      */
     bool jitter_hold_allows_down =
             !jitter_pressure_hold_active ||
@@ -1280,6 +1318,7 @@ static void p7_run_ewma_lab_control(
                 "jitter_pressure_mem=%d "
                 "jitter_hold_active=%d "
                 "jitter_hold_slots=%d "
+                "jitter_hold_budget=%d "
                 "jitter_hold_ahead=%d "
                 "jitter_unified_pressure=%d "
                 "jitter_unified_required_s_ahead=%d "
@@ -1331,6 +1370,7 @@ static void p7_run_ewma_lab_control(
                 p7_info->ewma_lab_jitter_pressure_ahead_us,
                 jitter_pressure_hold_active,
                 p7_info->ewma_lab_jitter_pressure_hold_slots,
+                jitter_pressure_hold_budget_slots,
                 p7_info->ewma_lab_jitter_pressure_hold_ahead_us,
                 jitter_unified_pressure_ahead_us,
                 jitter_unified_required_s_ahead,
@@ -1471,6 +1511,7 @@ static void p7_run_ewma_lab_control(
         "jitter_pressure_mem=%d "
         "jitter_hold_active=%d "
         "jitter_hold_slots=%d "
+        "jitter_hold_budget=%d "
         "jitter_hold_ahead=%d "
         "jitter_unified_pressure=%d "
         "jitter_unified_required_s_ahead=%d "
@@ -1523,6 +1564,7 @@ static void p7_run_ewma_lab_control(
         p7_info->ewma_lab_jitter_pressure_ahead_us,
         jitter_pressure_hold_active,
         p7_info->ewma_lab_jitter_pressure_hold_slots,
+        jitter_pressure_hold_budget_slots,
         p7_info->ewma_lab_jitter_pressure_hold_ahead_us,
         jitter_unified_pressure_ahead_us,
         jitter_unified_required_s_ahead,
