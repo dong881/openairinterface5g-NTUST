@@ -849,7 +849,7 @@ static void p7_run_ewma_lab_control(
      * Each control invocation consumes timing_info_period slots.
      */
     int32_t jitter_pressure_hold_duration_slots =
-            3000000 / slot_duration_us;
+            10000000 / slot_duration_us;
 
     if (jitter_pressure_hold_duration_slots < 1)
         jitter_pressure_hold_duration_slots = 1;
