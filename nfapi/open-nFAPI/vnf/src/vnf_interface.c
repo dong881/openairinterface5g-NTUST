@@ -46,8 +46,8 @@ nfapi_vnf_config_t* nfapi_vnf_config_create()
 	_this->_public.codec_config.allocate = &malloc;
 	_this->_public.codec_config.deallocate = &free;
 	
-	_this->_public.timing_window = 30;
-	_this->_public.timing_info_mode = 0x03;
+	_this->_public.timing_window = 15;
+	_this->_public.timing_info_mode = 0x01;
 	_this->_public.timing_info_period = 10;
 
 	return (nfapi_vnf_config_t* )_this;
