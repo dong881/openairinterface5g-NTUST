@@ -119,9 +119,9 @@ PATH_HPE_ORIG="openairinterface5g-develop-latest"
 
 # Configuration file paths (relative to build directory)
 CONF_VNF="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-vnf.sa.band78.273prb.nfapi-bmw.conf"
-CONF_VNF_SPLIT="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-vnf-split.sa.band78.273prb.nfapi-bmw.conf"
 CONF_PNF="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-pnf.sa.band78.fhi72.nfapi.4x4-pegatron.conf"
-CONF_PNF_SPLIT="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-pnf-split.sa.band78.fhi72.nfapi.4x4-pegatron.conf"
+CONF_VNF_SPLIT="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-vnf-split-direct.sa.band78.273prb.nfapi-bmw.conf"
+CONF_PNF_SPLIT="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-pnf-split-direct.sa.band78.fhi72.nfapi.4x4-pegatron.conf"
 CONF_PNF_RFSIM="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb-pnf.band78.rfsim.conf"
 CONF_GNB="../../../targets/PROJECTS/GENERIC-NR-5GC/CONF/gnb.sa.band78.273prb.fhi72.4x4-pega.conf"
 
