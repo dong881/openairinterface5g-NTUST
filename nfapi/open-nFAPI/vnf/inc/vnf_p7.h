@@ -17,8 +17,8 @@
  * DYNAMIC SLOT SLEEP TIMING CONTROL CONSTANTS
  * ============================================================================ */
 /* Dynamic Target Margin (adaptive to avoid late packets) */
-#define MARGIN_TOLERANCE_US     200    // Deadband zone: +/- MARGIN_TOLERANCE_US us
-#define SLOT_ARRAY_SIZE         20    // TDD cycle slot count (Reduced to 20 for faster convergence)
+#define MARGIN_TOLERANCE_US         20    // Initial deadband zone used for first synchronization
+#define SLOT_ARRAY_SIZE             20    // TDD cycle slot count (Reduced to 20 for faster convergence)
 
 typedef struct {
 	uint8_t* buffer;
@@ -117,7 +117,24 @@ typedef struct nfapi_vnf_p7_connection_info {
 
 	struct nfapi_vnf_p7_connection_info* next;
 
-    int32_t pending_us;             // Accumulated borrowed time (us) to be repaid incrementally
+	int32_t pending_us;             // Accumulated borrowed time (us) to be repaid incrementally
+	int32_t estimated_mean_late;      // estimated mean delay
+	int32_t estimated_jitter_var;     // estimated jitter variance
+	int32_t late_jitter;            // Separate EWMA for late jitter
+	int32_t early_jitter;           // Separate EWMA for early jitter
+	int32_t last_adjustment_steps;  // How many slots we increased in last adjustment
+	int32_t last_adjustment_sfn;    // SFN when we made the last upward adjustment
+	int32_t last_adjustment_slot;   // Slot when we made the last upward adjustment
+	int32_t DM_EWMA_safe_period_count;
+	int32_t DM_EWMA_late_period_count;
+	int32_t DM_EWMA_risk_period_count;
+	int32_t DM_EWMA_last_target_s_ahead;
+	int32_t DM_EWMA_failure_debt_us;
+	int32_t DM_EWMA_risk_debt_us;
+	int32_t DM_EWMA_safe_margin_ewma_us;
+	int32_t DM_EWMA_jitter_pressure_ahead_us;
+	int32_t DM_EWMA_jitter_pressure_hold_ahead_us;
+	int32_t DM_EWMA_jitter_pressure_hold_slots;
 } nfapi_vnf_p7_connection_info_t;
 
 typedef struct vnf_p7_s {
