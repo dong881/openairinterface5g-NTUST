@@ -1557,7 +1557,7 @@ void vnf_handle_nr_rach_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf
 }
 
 void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
-{	
+{
 	uint32_t now_time_hr = vnf_get_current_time_hr();
 	if (pRecvMsg == NULL || vnf_p7  == NULL)
 	{
@@ -1576,38 +1576,46 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "PHY instance not found for phy_id:%d\n", ind.header.phy_id);
 		return;
 	}
-	int32_t t4 = calculate_nr_t4(now_time_hr, p7_info->mu, p7_info->sfn, p7_info->slot, vnf_p7->slot_start_time_hr);
-	// Calculate offset using int64_t for proper handling of large values
-	// formula: offset = ((t2 - t1) - (t4 - t3)) / 2
-	// Positive offset means VNF clock is BEHIND PNF (VNF needs to speed up / reduce delay)
-	// Negative offset means VNF clock is AHEAD of PNF (VNF needs to slow down / add delay)
-	int32_t offset = (int32_t)( ((int64_t)ind.t2 - (int64_t)ind.t1 - ((int64_t)t4 - (int64_t)ind.t3)) / 2 );
-	int32_t owd = (int32_t)( ((int64_t)t4 - (int64_t)ind.t1 - ((int64_t)ind.t3 - (int64_t)ind.t2)) / 2 );
-	// int32_t TARGET_PNF_MARGIN_US = 250*(1 << p7_info->mu); // 500us for mu0, 1000us for mu1, 2000us for mu2, 4000us for mu3
-	int32_t slot_us = (int32_t)p7_info->slot_duration_us;
-	int32_t offsetslot = (offset + TARGET_MARGIN_INITIAL) / slot_us;
-	int32_t offsetus = (offset  + TARGET_MARGIN_INITIAL) % slot_us;
+	uint32_t t4 = calculate_nr_t4(now_time_hr, p7_info->mu, p7_info->sfn, p7_info->slot, vnf_p7->slot_start_time_hr);
+	/*
+	* T1 = VNF Transmit Time (t1)    |   T2 = PNF Receive Time (t2)
+	* T3 = PNF Transmit Time (t3)    |   T4 = VNF Receive Time (t4)
+	*
+	* Assuming symmetric network delay:
+	* T2 - T1 = Delay + Offset
+	* T4 - T3 = Delay - Offset
+	* Offset = ((T2 - T1) - (T4 - T3)) / 2
+	*/
+	int64_t diff1 = (int64_t)ind.t2 - (int64_t)ind.t1;
+	int64_t diff2 = (int64_t)t4 - (int64_t)ind.t3;
+	int64_t wrap_us = 10240000LL;
+	int64_t half_wrap = 5120000LL;
+	// 10.24s Wrap-around protection (nFAPI timestamps are constrained by 1024 SFN loop)
+	while (diff1 > half_wrap) diff1 -= wrap_us;
+	while (diff1 < -half_wrap) diff1 += wrap_us;
+	while (diff2 > half_wrap) diff2 -= wrap_us;
+	while (diff2 < -half_wrap) diff2 += wrap_us;
+	int32_t offset = (int32_t)((diff1 - diff2) / 2);
 	
-	// Check if sync has converged (offset within ±10) - once locked, permanently stop adjusting
+	// Positive offset implies VNF is BEHIND PNF (VNF Master time = PNF Slave time - Offset)
+	// VNF MUST INCREASE speed (reduce sleep time) to catch up -> requires pending_us to be NEGATIVE
+	// Negative offset implies VNF is AHEAD of PNF
+	// VNF MUST DECREASE speed (increase sleep time) to fall back -> requires pending_us to be POSITIVE
+
+	int32_t total_correction = offset;
 	pthread_mutex_lock(&p7_info->mutex);
 	if (!p7_info->sync_locked) {
-		if (offset + TARGET_MARGIN_INITIAL >= -MARGIN_TOLERANCE_US && offset + TARGET_MARGIN_INITIAL <= MARGIN_TOLERANCE_US) {
-			// Offset converged within ±10, permanently lock sync and stop adjustments
+		if (total_correction >= -MARGIN_TOLERANCE_US && total_correction <= MARGIN_TOLERANCE_US) {
 			p7_info->sync_locked = 1;
-			p7_info->us_adjustment = 0;
-			p7_info->slot_adjustment = 0;
+			p7_info->total_advanced_us = p7_info->slot_ahead * p7_info->slot_duration_us; // Account for initial phase offset!
 		} else {
-			// Still converging, apply adjustments
-			p7_info->us_adjustment = -offsetus;
-			p7_info->slot_adjustment = offsetslot;
+			int32_t s_adj = total_correction / (int32_t)p7_info->slot_duration_us;
+			int32_t p_adj = total_correction % (int32_t)p7_info->slot_duration_us;
+			p7_info->slot_adjustment += s_adj;
+			p7_info->pending_us -= p_adj;
 		}
 	}
 	pthread_mutex_unlock(&p7_info->mutex);
-
-	NFAPI_TRACE(NFAPI_TRACE_DEBUG, 
-		"[P7_SYNC] ul_node_sync phy_id:%d (t1/2/3/4:%8u,%8u,%8u,%8u) offset:%d owd:%d slot_adj:%d us_adj:%d locked:%d\n",
-		ind.header.phy_id, ind.t1, ind.t2, ind.t3, t4,
-		offset, owd, p7_info->slot_adjustment, p7_info->us_adjustment, p7_info->sync_locked);
 }
 
 void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
