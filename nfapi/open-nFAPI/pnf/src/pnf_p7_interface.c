@@ -17,6 +17,7 @@ nfapi_pnf_p7_config_t* nfapi_pnf_p7_config_create()
   if (_this == NULL || rc != 0)
     return 0;
 
+  memset(_this, 0, sizeof(pnf_p7_t));
 
 	// set the default parameters
 	_this->_public.segment_size = 65000; // UDP max packet size is 65535
@@ -27,6 +28,10 @@ nfapi_pnf_p7_config_t* nfapi_pnf_p7_config_create()
 	_this->_public.timing_info_period = 32;
 	_this->_public.timing_info_mode_aperiodic = 1;
 	
+	// By default enable aperiodic timing info send flag (for VNF tick sync)
+	_this->timing_info_aperiodic_send = 1;
+	// Initialize last send time for accurate elapsed time calculation
+	_this->timing_info_last_send_time_hr = pnf_get_current_time_hr();
 	_this->_public.checksum_enabled = 1;
 	
 	_this->_public.malloc = &malloc;
