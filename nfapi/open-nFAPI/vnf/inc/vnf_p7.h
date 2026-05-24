@@ -82,19 +82,29 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t insync_minor_adjustment;
 	int32_t insync_minor_adjustment_duration;
 	uint8_t sync_locked;  // Flag: once offset converges within ±10, permanently stop adjusting
+	/* Periodic sync control */
+	uint32_t sync_slot_counter;                // Counter for periodic sync
+	uint32_t sync_period_slots;                // Period between syncs (configurable)
 
 	uint32_t previous_t1;
 	uint32_t previous_t2;
 	int32_t previous_sf_offset_filtered;
 	int32_t previous_slot_offset_filtered;
+	uint8_t initial_timinginfo_received;
 	int sfn_sf;
 	int sfn;
 	int slot;
   int mu; // some 5G slot calculations need the numerology to know the number
           // of slots
+	int slot_ahead;
+	uint16_t timing_window;
+	uint8_t timing_info_period;
+	struct timespec next_slot_time;
 	uint32_t slot_duration_us;
+	uint8_t running;
+	pthread_t thread;
 	pthread_mutex_t mutex;
-
+	pthread_cond_t  initial_timinginfo_cond;
 	int socket;
 	struct sockaddr_in local_addr;
 	struct sockaddr_in remote_addr;
@@ -107,6 +117,7 @@ typedef struct nfapi_vnf_p7_connection_info {
 
 	struct nfapi_vnf_p7_connection_info* next;
 
+    int32_t pending_us;             // Accumulated borrowed time (us) to be repaid incrementally
 } nfapi_vnf_p7_connection_info_t;
 
 typedef struct vnf_p7_s {
@@ -149,5 +160,18 @@ int vnf_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* hea
 void vnf_p7_release_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* header);
 void vnf_p7_release_pdu(vnf_p7_t* vnf_p7, void* pdu);
 
+typedef struct {
+  int32_t worst_late;
+  int32_t worst_early;
+  uint32_t packet_slot;   // Computed packet slot index in SLOT_ARRAY_SIZE
+  uint32_t pnf_reported_jitter; // Maximum jitter reported by PNF across message types
+} vnf_timing_stats_t;
+
+/* Function Declaration */
+// Extract timing info points from a timing_info message
+// Returns the number of valid stats extracted (0-8)
+int vnf_nr_extract_timing_info(const nfapi_nr_timing_info_t *ind,
+                               nfapi_vnf_p7_connection_info_t *p7_info,
+                               vnf_timing_stats_t *out_stats);
 
 #endif // _VNF_P7_H_

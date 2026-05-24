@@ -21,6 +21,7 @@
 #include "nfapi/oai_integration/aerial/fapi_nvIPC.h"
 #endif
 #include "vnf_p7.h"
+#include "nfapi_vnf.h"
 #ifdef ENABLE_WLS
 #include <wls_integration/include/wls_vnf.h>
 #endif
@@ -31,6 +32,168 @@
 #endif
 
 #define SYNC_CYCLE_COUNT 2
+
+/* ============================================================================
+ * DYNAMIC SLOT SLEEP TIMING CONTROL
+ * ============================================================================ */
+
+int vnf_nr_extract_timing_info(const nfapi_nr_timing_info_t *ind,
+                               nfapi_vnf_p7_connection_info_t *p7_info,
+                               vnf_timing_stats_t *out_stats)
+{
+	if (ind == NULL || p7_info == NULL || out_stats == NULL) {
+			return 0;
+	}
+	int32_t slot_duration_us = 1000 >> p7_info->mu;
+	if (slot_duration_us <= 0) {
+			return 0;
+	}
+	nfapi_vnf_config_t *config = get_config();
+	if (config == NULL) {
+			return 0;
+	}
+	int32_t slots_per_frame = 10 << p7_info->mu;
+	int64_t frame_duration_us =
+					(int64_t)slots_per_frame * (int64_t)slot_duration_us;
+	int64_t timing_window_us = (int64_t)config->timing_window;
+	if (timing_window_us < 0) {
+			timing_window_us = 0;
+	}
+	int64_t valid_span_us = timing_window_us + frame_duration_us;
+	if (valid_span_us <= 0) {
+			valid_span_us = frame_duration_us;
+	}
+	/*
+		* Latest delay values:
+		* These are the most important values for no-drop policy.
+		* A positive latest_delay means the message was late.
+		* A negative latest_delay means the message arrived before deadline.
+		*/
+	int32_t latest_delay_values[4] = {
+			ind->dl_tti_latest_delay,
+			ind->tx_data_latest_delay,
+			ind->ul_tti_latest_delay,
+			ind->ul_dci_latest_delay
+	};
+	/*
+		* Earliest arrival values:
+		* These are useful to know how early messages are arriving.
+		* They should not override a positive latest_delay.
+		*/
+	int32_t earliest_arrival_values[4] = {
+			ind->dl_tti_earliest_arrival,
+			ind->tx_data_earliest_arrival,
+			ind->ul_tti_earliest_arrival,
+			ind->ul_dci_earliest_arrival
+	};
+	int32_t worst_late = INT32_MIN;
+	int32_t worst_early = INT32_MAX;
+	bool have_latest_delay = false;
+	bool have_any_sample = false;
+	/*
+		* First pass:
+		*   use latest_delay fields as primary control input.
+		* This avoids an early-arrival value masking a real late sample.
+	*/
+	for (int i = 0; i < 4; ++i) {
+			int32_t value = latest_delay_values[i];
+			/*
+				* In current nFAPI timing_info usage, zero is treated as
+				* "not reported".  If the PNF implementation later defines
+				* zero as an explicit exact-deadline sample, this condition
+				* should be revisited.
+				*/
+			if (value == 0) {
+					continue;
+			}
+			if ((int64_t)value > valid_span_us ||
+					(int64_t)value < -valid_span_us) {
+					continue;
+			}
+			have_latest_delay = true;
+			have_any_sample = true;
+			if (value > worst_late) {
+					worst_late = value;
+			}
+			if (value < worst_early) {
+					worst_early = value;
+			}
+	}
+	/*
+		* Second pass:
+		*   collect earliest_arrival for diagnostics / fallback.
+		*
+		* If there were no latest_delay samples at all, the closest
+		* earliest_arrival becomes worst_late.  This keeps the controller
+		* informed that packets are early, without inventing late pressure.
+		*/
+	int32_t closest_early_to_deadline = INT32_MIN;
+	for (int i = 0; i < 4; ++i) {
+			int32_t value = earliest_arrival_values[i];
+			if (value == 0) {
+					continue;
+			}
+			if ((int64_t)value > valid_span_us ||
+					(int64_t)value < -valid_span_us) {
+					continue;
+			}
+			have_any_sample = true;
+			if (value < worst_early) {
+					worst_early = value;
+			}
+			/*
+				* For early samples, the largest value is closest to deadline.
+				* Example:
+				*   -100us is closer / riskier than -900us.
+				*/
+			if (value > closest_early_to_deadline) {
+					closest_early_to_deadline = value;
+			}
+	}
+	if (!have_any_sample) {
+			return 0;
+	}
+	if (!have_latest_delay) {
+			if (closest_early_to_deadline == INT32_MIN) {
+					return 0;
+			}
+			worst_late = closest_early_to_deadline;
+	}
+	if (worst_late == INT32_MIN) {
+			return 0;
+	}
+	if (worst_early == INT32_MAX) {
+			worst_early = worst_late;
+	}
+	uint32_t max_jitter = 0;
+	if (ind->dl_tti_jitter > max_jitter) {
+			max_jitter = ind->dl_tti_jitter;
+	}
+	if (ind->tx_data_jitter > max_jitter) {
+			max_jitter = ind->tx_data_jitter;
+	}
+	if (ind->ul_tti_jitter > max_jitter) {
+			max_jitter = ind->ul_tti_jitter;
+	}
+	if (ind->ul_dci_jitter > max_jitter) {
+			max_jitter = ind->ul_dci_jitter;
+	}
+	/*
+		* Output final merged stats directly.
+		* packet_slot is intentionally set to current slot modulo local
+		* history size only for compatibility/logging.  The controller
+		* should not use packet_slot for decision making.
+		*/
+	out_stats->packet_slot =
+					NFAPI_SFNSLOT2DEC(p7_info->mu,
+														p7_info->sfn,
+														p7_info->slot) %
+					SLOT_ARRAY_SIZE;
+	out_stats->worst_late = worst_late;
+	out_stats->worst_early = worst_early;
+	out_stats->pnf_reported_jitter = max_jitter;
+	return 1;
+}
 
 void* vnf_p7_malloc(vnf_p7_t* vnf_p7, size_t size)
 {
@@ -1654,8 +1817,6 @@ void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
         }
 }
 
-static int16_t vnf_pnf_sfnslot_delta;
-
 void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 {
 	if (pRecvMsg == NULL || vnf_p7 == NULL)
@@ -1665,34 +1826,28 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	}
 
 	nfapi_nr_timing_info_t ind;
-  const bool result = vnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, &ind, sizeof(nfapi_timing_info_t), &vnf_p7->_public.codec_config);
+	const bool result = vnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, &ind, sizeof(nfapi_timing_info_t), &vnf_p7->_public.codec_config);
 	if(!result)
 	{
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack timing_info\n");
 		return;
 	}
+	nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
 
-        if (vnf_p7 && vnf_p7->p7_connections)
-        {
-          //int16_t vnf_pnf_sfnsf_delta = NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf) - NFAPI_SFNSF2DEC(ind.last_sfn_sf);
-          nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
-            vnf_pnf_sfnslot_delta = NFAPI_SFNSLOT2DEC(p7_con->mu, p7_con->sfn,p7_con->slot) - NFAPI_SFNSLOT2DEC(p7_con->mu, ind.last_sfn,ind.last_slot);
-          //NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() PNF:SFN/SF:%d VNF:SFN/SF:%d deltaSFNSF:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(ind.last_sfn_sf), NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf), vnf_pnf_sfnsf_delta);
+	pthread_mutex_lock(&p7_con->mutex);
+	if (!p7_con->initial_timinginfo_received) {
+		p7_con->sfn = ind.last_sfn;
+		p7_con->slot = ind.last_slot;
+		p7_con->initial_timinginfo_received = 1;
+	}
+	pthread_cond_signal(&p7_con->initial_timinginfo_cond);
+	pthread_mutex_unlock(&p7_con->mutex);
 
-          // Panos: Careful here!!! Modification of the original nfapi-code
-          //if (vnf_pnf_sfnsf_delta>1 || vnf_pnf_sfnsf_delta < -1)
-		  //printf("VNF-PNF delta - %d", vnf_pnf_sfnslot_delta);
-          if (vnf_pnf_sfnslot_delta > 1) // we need to have a small delta, otherwise it would mean we don't advance
-          {
-            NFAPI_TRACE(NFAPI_TRACE_WARN, "%s() LARGE SFN/SLOT DELTA between PNF and VNF. Delta %d slots. PNF:%d.%d VNF:%d.%d\n",
-                        __FUNCTION__, vnf_pnf_sfnslot_delta,
-                        ind.last_sfn, ind.last_slot,
-                        vnf_p7->p7_connections[0].sfn, vnf_p7->p7_connections[0].slot);
-            // Panos: Careful here!!! Modification of the original nfapi-code
-            vnf_p7->p7_connections[0].sfn = ind.last_sfn;
-            vnf_p7->p7_connections[0].slot = ind.last_slot;
-          }
-        }
+	vnf_timing_stats_t out_stats;
+	int count = vnf_nr_extract_timing_info(&ind, p7_con, &out_stats);
+	if (count <= 0) {
+			return;
+	}
 }
 
 void vnf_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
