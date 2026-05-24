@@ -38,8 +38,8 @@
  * ============================================================================ */
 
 int vnf_nr_extract_timing_info(const nfapi_nr_timing_info_t *ind,
-                               nfapi_vnf_p7_connection_info_t *p7_info,
-                               vnf_timing_stats_t *out_stats)
+							   nfapi_vnf_p7_connection_info_t *p7_info,
+							   vnf_timing_stats_t *out_stats)
 {
 	if (ind == NULL || p7_info == NULL || out_stats == NULL) {
 			return 0;
@@ -195,6 +195,917 @@ int vnf_nr_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 	return 1;
 }
 
+static int32_t global_ewma_alpha_denom = 8;    // 1/8 default
+static int32_t global_ewma_beta_denom = 4;     // 1/4 default
+
+/*
+ * Calculate the number of slots between two (SFN, slot) pairs.
+ * Accounts for SFN wrap-around (SFN 0-1023).
+ * Result: positive if (current_sfn, current_slot) > (prev_sfn, prev_slot)
+ */
+static inline int32_t calculate_slot_distance(int32_t current_sfn, int32_t current_slot,
+                                               int32_t prev_sfn, int32_t prev_slot,
+                                               int32_t slots_per_frame)
+{
+	// Convert to absolute slot numbers within a frame boundary
+	int32_t current_absolute = current_sfn * slots_per_frame + current_slot;
+	int32_t prev_absolute = prev_sfn * slots_per_frame + prev_slot;
+
+	// Handle wrap-around: if current < prev, add one full hyperframe cycle
+	if (current_absolute < prev_absolute) {
+		current_absolute += 1024 * slots_per_frame;  // 1024 SFNs per hyperframe
+	}
+
+	return current_absolute - prev_absolute;
+}
+
+static int32_t ceil_div_pos_i32(int32_t num, int32_t den)
+{
+    if (den <= 0)
+        return 0;
+
+    if (num <= 0)
+        return 0;
+
+    return (num + den - 1) / den;
+}
+
+static int32_t abs_i32(int32_t v)
+{
+    return v < 0 ? -v : v;
+}
+static inline int32_t p7_max_i32(int32_t a, int32_t b)
+{
+    return a > b ? a : b;
+}
+
+/*
+ * Integer EWMA helper.
+ * Avoids integer EWMA dead-zone:
+ *   cur += (target - cur) / denom
+ * would otherwise stop changing when abs(target - cur) < denom.
+ * This is not a policy hyperparameter.
+ */
+static inline int32_t p7_ewma_step_i32(
+    int32_t cur,
+    int32_t target,
+    int32_t denom)
+{
+    int32_t diff;
+    int32_t step;
+
+    if (denom <= 1)
+        return target;
+
+    diff = target - cur;
+
+    if (diff == 0)
+        return cur;
+
+    step = diff / denom;
+
+    if (step == 0)
+        step = diff > 0 ? 1 : -1;
+
+    return cur + step;
+}
+
+/*
+ * EWMA integer zero-resolution.
+ *
+ * Not a tunable threshold.
+ * It is derived from integer EWMA alpha denominator.
+ */
+static inline int p7_ewma_effectively_zero_i32(
+    int32_t value,
+    int32_t denom)
+{
+    if (value <= 0)
+        return 1;
+
+    if (denom <= 1)
+        return value == 0;
+
+    return value <= denom;
+}
+
+static void vnf_nr_delay_management(
+    nfapi_vnf_p7_connection_info_t *p7_info,
+    const vnf_timing_stats_t *stats)
+{
+	if (p7_info == NULL || stats == NULL)
+			return;
+
+	if (p7_info->mu < 0 || p7_info->slot_duration_us <= 0)
+		return;
+
+	int slot_duration_us = p7_info->slot_duration_us;
+	int64_t max_s_ahead = (p7_info->timing_window / slot_duration_us)-1;
+
+	/*
+		* ============================================================
+		* Control pacing state
+		* ============================================================
+		*/
+	int32_t elapsed_slots = calculate_slot_distance(
+					p7_info->sfn,
+					p7_info->slot,
+					p7_info->last_adjustment_sfn,
+					p7_info->last_adjustment_slot,
+					10 << p7_info->mu);
+
+	int32_t required_wait_slots =
+					p7_info->last_adjustment_steps +
+				(int32_t)p7_info->timing_info_period;
+
+	if (required_wait_slots < 1)
+			required_wait_slots = 1;
+
+	bool pacing_gate_open =
+					elapsed_slots >= required_wait_slots;
+
+	/*
+		* ============================================================
+		* Single-input EWMA estimator
+		* ============================================================
+		*
+		* Do not return before EWMA update.
+		*/
+	if (p7_info->estimated_mean_late == 0) {
+			p7_info->estimated_mean_late = stats->worst_late;
+			p7_info->estimated_jitter_var = abs_i32(stats->worst_late) / 2;
+
+			p7_info->last_adjustment_sfn = p7_info->sfn;
+			p7_info->last_adjustment_slot = p7_info->slot;
+	}
+
+	int32_t old_mean = p7_info->estimated_mean_late;
+	int32_t diff = stats->worst_late - old_mean;
+	int32_t abs_diff = abs_i32(diff);
+
+	p7_info->estimated_mean_late =
+					p7_ewma_step_i32(
+									p7_info->estimated_mean_late,
+									stats->worst_late,
+									global_ewma_alpha_denom);
+
+	if (diff > 0) {
+			p7_info->late_jitter =
+							p7_ewma_step_i32(
+											p7_info->late_jitter,
+											diff,
+											global_ewma_beta_denom);
+	} else {
+			p7_info->early_jitter =
+							p7_ewma_step_i32(
+											p7_info->early_jitter,
+											-diff,
+											global_ewma_beta_denom);
+	}
+
+	p7_info->estimated_jitter_var =
+					p7_ewma_step_i32(
+									p7_info->estimated_jitter_var,
+									abs_diff,
+									global_ewma_beta_denom);
+
+	if (p7_info->estimated_jitter_var < 0)
+			p7_info->estimated_jitter_var = 0;
+
+	if (p7_info->late_jitter < 0)
+			p7_info->late_jitter = 0;
+
+	if (p7_info->early_jitter < 0)
+			p7_info->early_jitter = 0;
+
+	int32_t closest_to_deadline_us =
+					stats->worst_late > p7_info->estimated_mean_late ?
+					stats->worst_late :
+					p7_info->estimated_mean_late;
+
+	int32_t late_side_uncertainty_us =
+					p7_info->late_jitter +
+					p7_info->estimated_jitter_var;
+
+	int32_t early_side_uncertainty_us =
+					p7_info->early_jitter +
+					p7_info->estimated_jitter_var;
+
+	if (late_side_uncertainty_us < 0)
+			late_side_uncertainty_us = 0;
+
+	if (early_side_uncertainty_us < 0)
+			early_side_uncertainty_us = 0;
+
+	int32_t timing_uncertainty_us =
+					late_side_uncertainty_us;
+
+	int64_t adaptive_jitter_guard_64 =
+					(int64_t)late_side_uncertainty_us +
+					(int64_t)early_side_uncertainty_us;
+
+	if (adaptive_jitter_guard_64 > INT32_MAX)
+			adaptive_jitter_guard_64 = INT32_MAX;
+
+	if (adaptive_jitter_guard_64 < 0)
+			adaptive_jitter_guard_64 = 0;
+
+	int32_t adaptive_jitter_guard_us =
+					(int32_t)adaptive_jitter_guard_64;
+
+	/*
+		* ============================================================
+		* Risk / debt / safe-margin model
+		* ============================================================
+		*/
+	int32_t predicted_risk_us =
+					closest_to_deadline_us +
+					timing_uncertainty_us;
+
+	if (predicted_risk_us < 0)
+			predicted_risk_us = 0;
+
+	bool hard_late =
+					stats->worst_late > 0 ||
+					closest_to_deadline_us > 0;
+
+	int32_t failure_sample_us = 0;
+
+	if (stats->worst_late > 0)
+			failure_sample_us = stats->worst_late;
+	else if (closest_to_deadline_us > 0)
+			failure_sample_us = closest_to_deadline_us;
+	else
+			failure_sample_us = 0;
+
+	if (failure_sample_us < 0)
+			failure_sample_us = 0;
+
+	int32_t safe_margin_sample_us =
+					-(closest_to_deadline_us + timing_uncertainty_us);
+
+	if (safe_margin_sample_us < 0)
+			safe_margin_sample_us = 0;
+
+	p7_info->DM_EWMA_failure_debt_us =
+					p7_ewma_step_i32(
+									p7_info->DM_EWMA_failure_debt_us,
+									failure_sample_us,
+									global_ewma_alpha_denom);
+
+	p7_info->DM_EWMA_risk_debt_us =
+					p7_ewma_step_i32(
+									p7_info->DM_EWMA_risk_debt_us,
+									predicted_risk_us,
+									global_ewma_alpha_denom);
+
+	p7_info->DM_EWMA_safe_margin_ewma_us =
+					p7_ewma_step_i32(
+									p7_info->DM_EWMA_safe_margin_ewma_us,
+									safe_margin_sample_us,
+									global_ewma_alpha_denom);
+
+	if (p7_info->DM_EWMA_failure_debt_us < 0)
+			p7_info->DM_EWMA_failure_debt_us = 0;
+
+	if (p7_info->DM_EWMA_risk_debt_us < 0)
+			p7_info->DM_EWMA_risk_debt_us = 0;
+
+	if (p7_info->DM_EWMA_safe_margin_ewma_us < 0)
+			p7_info->DM_EWMA_safe_margin_ewma_us = 0;
+
+	bool failure_debt_free =
+					p7_ewma_effectively_zero_i32(
+									p7_info->DM_EWMA_failure_debt_us,
+									global_ewma_alpha_denom);
+
+	bool risk_debt_free =
+					p7_ewma_effectively_zero_i32(
+									p7_info->DM_EWMA_risk_debt_us,
+									global_ewma_alpha_denom);
+
+	bool soft_risk =
+					!hard_late &&
+					predicted_risk_us > 0;
+
+	bool safe_sample =
+					!hard_late &&
+					predicted_risk_us == 0 &&
+					safe_margin_sample_us > 0;
+
+	bool debt_free =
+					failure_sample_us == 0 &&
+					predicted_risk_us == 0 &&
+					failure_debt_free &&
+					risk_debt_free;
+
+	/*
+		* ============================================================
+		* Critical-point jitter-to-deadline-distance mapping
+		* ============================================================
+		*/
+	int32_t jitter_gain_denom =
+					global_ewma_alpha_denom;
+
+	if (jitter_gain_denom < 1)
+			jitter_gain_denom = 1;
+
+	int32_t jitter_beta_denom =
+					global_ewma_beta_denom;
+
+	if (jitter_beta_denom < 1)
+			jitter_beta_denom = 1;
+
+	int32_t jitter_free_allowance_us =
+					slot_duration_us / jitter_beta_denom;
+
+	if (jitter_free_allowance_us < 0)
+			jitter_free_allowance_us = 0;
+
+	int32_t effective_jitter_guard_us =
+					adaptive_jitter_guard_us -
+					jitter_free_allowance_us;
+
+	if (effective_jitter_guard_us < 0)
+			effective_jitter_guard_us = 0;
+
+	int32_t persistent_failure_tail_us =
+					p7_max_i32(failure_sample_us,
+											p7_info->DM_EWMA_failure_debt_us);
+
+	int32_t persistent_risk_tail_us =
+					p7_max_i32(predicted_risk_us,
+											p7_info->DM_EWMA_risk_debt_us);
+
+	int64_t deadline_tail_risk_64 =
+					(int64_t)persistent_failure_tail_us +
+					(int64_t)persistent_risk_tail_us;
+
+	if (deadline_tail_risk_64 > INT32_MAX)
+			deadline_tail_risk_64 = INT32_MAX;
+
+	if (deadline_tail_risk_64 < 0)
+			deadline_tail_risk_64 = 0;
+
+	int32_t deadline_tail_risk_us =
+					(int32_t)deadline_tail_risk_64;
+
+	int64_t jitter_pressure_64 =
+					(int64_t)effective_jitter_guard_us +
+					(int64_t)deadline_tail_risk_us;
+
+	if (jitter_pressure_64 > INT32_MAX)
+			jitter_pressure_64 = INT32_MAX;
+
+	if (jitter_pressure_64 < 0)
+			jitter_pressure_64 = 0;
+
+	int32_t jitter_pressure_us =
+					(int32_t)jitter_pressure_64;
+
+	/*
+		* Low-jitter base region.
+		*/
+	int32_t jitter_base_slots =
+					1 + (effective_jitter_guard_us / slot_duration_us);
+
+	if (jitter_base_slots < 1)
+			jitter_base_slots = 1;
+
+	int32_t jitter_low_region_cap_slots =
+					jitter_beta_denom - 1;
+
+	if (jitter_low_region_cap_slots < 1)
+			jitter_low_region_cap_slots = 1;
+
+	if (jitter_low_region_cap_slots > max_s_ahead)
+			jitter_low_region_cap_slots = max_s_ahead;
+
+	if (jitter_base_slots > jitter_low_region_cap_slots)
+			jitter_base_slots = jitter_low_region_cap_slots;
+
+	/*
+		* Critical cliff region.
+		*/
+	int64_t jitter_critical_pressure_64 =
+					((int64_t)jitter_low_region_cap_slots *
+						(int64_t)slot_duration_us) +
+					((int64_t)slot_duration_us / 2);
+
+	if (jitter_critical_pressure_64 > INT32_MAX)
+			jitter_critical_pressure_64 = INT32_MAX;
+
+	int32_t jitter_critical_pressure_us =
+					(int32_t)jitter_critical_pressure_64;
+
+	int32_t jitter_cliff_excess_us =
+					jitter_pressure_us - jitter_critical_pressure_us;
+
+	if (jitter_cliff_excess_us < 0)
+			jitter_cliff_excess_us = 0;
+
+	int32_t jitter_cliff_tau_us =
+					slot_duration_us / jitter_gain_denom;
+
+	if (jitter_cliff_tau_us < 1)
+			jitter_cliff_tau_us = 1;
+
+	int32_t jitter_cliff_extra_max_slots =
+					jitter_beta_denom + 1;
+
+	if (jitter_cliff_extra_max_slots < 1)
+			jitter_cliff_extra_max_slots = 1;
+
+	if (jitter_cliff_extra_max_slots > max_s_ahead)
+			jitter_cliff_extra_max_slots = max_s_ahead;
+
+	int32_t jitter_cliff_extra_slots = 0;
+
+	if (jitter_cliff_excess_us > 0) {
+			int64_t cliff_num_64 =
+							(int64_t)jitter_cliff_extra_max_slots *
+							(int64_t)jitter_cliff_excess_us;
+
+			int64_t cliff_den_64 =
+							(int64_t)jitter_cliff_excess_us +
+							(int64_t)jitter_cliff_tau_us;
+
+			if (cliff_den_64 < 1)
+					cliff_den_64 = 1;
+
+			int64_t cliff_extra_64 =
+							(cliff_num_64 + cliff_den_64 - 1) /
+							cliff_den_64;
+
+			if (cliff_extra_64 > INT32_MAX)
+					cliff_extra_64 = INT32_MAX;
+
+			if (cliff_extra_64 < 0)
+					cliff_extra_64 = 0;
+
+			jitter_cliff_extra_slots =
+							(int32_t)cliff_extra_64;
+	}
+
+	int32_t jitter_instant_required_s_ahead =
+					jitter_base_slots +
+					jitter_cliff_extra_slots;
+
+	if (jitter_instant_required_s_ahead < 1)
+			jitter_instant_required_s_ahead = 1;
+
+	if (jitter_instant_required_s_ahead > max_s_ahead)
+			jitter_instant_required_s_ahead = max_s_ahead;
+
+	int64_t jitter_instant_required_ahead_64 =
+					(int64_t)jitter_instant_required_s_ahead *
+					(int64_t)slot_duration_us;
+
+	if (jitter_instant_required_ahead_64 > INT32_MAX)
+			jitter_instant_required_ahead_64 = INT32_MAX;
+
+	int32_t jitter_instant_required_ahead_us =
+					(int32_t)jitter_instant_required_ahead_64;
+
+	/*
+		* ============================================================
+		* Cliff hold floor
+		* ============================================================
+		*/
+	int32_t jitter_pressure_hold_duration_slots =
+					10000000 / slot_duration_us;
+
+	if (jitter_pressure_hold_duration_slots < 1)
+			jitter_pressure_hold_duration_slots = 1;
+
+	if (p7_info->DM_EWMA_jitter_pressure_hold_slots > 0) {
+			int32_t hold_decay_slots =
+				(int32_t)p7_info->timing_info_period*10;
+
+			if (hold_decay_slots < 1)
+					hold_decay_slots = 1;
+
+			if (hold_decay_slots >=
+					p7_info->DM_EWMA_jitter_pressure_hold_slots) {
+					p7_info->DM_EWMA_jitter_pressure_hold_slots = 0;
+			} else {
+					p7_info->DM_EWMA_jitter_pressure_hold_slots -=
+									hold_decay_slots;
+			}
+	}
+
+	/*
+		* Arm / refresh hold only when the nonlinear cliff really crossed.
+		*/
+	if (jitter_cliff_excess_us > 0 ||
+			jitter_cliff_extra_slots > 0) {
+			if (p7_info->DM_EWMA_jitter_pressure_hold_slots <
+					jitter_pressure_hold_duration_slots) {
+					p7_info->DM_EWMA_jitter_pressure_hold_slots =
+									jitter_pressure_hold_duration_slots;
+			}
+
+			if (p7_info->DM_EWMA_jitter_pressure_hold_ahead_us <
+					jitter_instant_required_ahead_us) {
+					p7_info->DM_EWMA_jitter_pressure_hold_ahead_us =
+									jitter_instant_required_ahead_us;
+			}
+	}
+
+	bool jitter_pressure_hold_active =
+					p7_info->DM_EWMA_jitter_pressure_hold_slots > 0 &&
+					p7_info->DM_EWMA_jitter_pressure_hold_ahead_us >
+					slot_duration_us;
+
+	/*
+		* ============================================================
+		* Fast-attack / slow-release pressure memory
+		* ============================================================
+		*
+		* Key fix:
+		*   Hold active => EWMA pressure memory is not allowed to release.
+		*/
+	if (p7_info->DM_EWMA_jitter_pressure_ahead_us <= 0) {
+			p7_info->DM_EWMA_jitter_pressure_ahead_us =
+							jitter_instant_required_ahead_us;
+	} else if (jitter_instant_required_ahead_us >
+							p7_info->DM_EWMA_jitter_pressure_ahead_us) {
+			p7_info->DM_EWMA_jitter_pressure_ahead_us =
+							jitter_instant_required_ahead_us;
+	} else {
+			bool jitter_pressure_release_allowed =
+							safe_sample &&
+							debt_free &&
+							jitter_cliff_excess_us == 0 &&
+							!jitter_pressure_hold_active;
+
+			if (jitter_pressure_release_allowed) {
+					int64_t jitter_pressure_release_denom_64 =
+									(int64_t)global_ewma_alpha_denom *
+									(int64_t)p7_max_i32(p7_info->slot_ahead, 1);
+
+					if (jitter_pressure_release_denom_64 > INT32_MAX)
+							jitter_pressure_release_denom_64 = INT32_MAX;
+
+					if (jitter_pressure_release_denom_64 < 1)
+							jitter_pressure_release_denom_64 = 1;
+
+					p7_info->DM_EWMA_jitter_pressure_ahead_us =
+									p7_ewma_step_i32(
+													p7_info->DM_EWMA_jitter_pressure_ahead_us,
+													jitter_instant_required_ahead_us,
+													(int32_t)jitter_pressure_release_denom_64);
+			}
+	}
+
+	if (p7_info->DM_EWMA_jitter_pressure_ahead_us < slot_duration_us)
+			p7_info->DM_EWMA_jitter_pressure_ahead_us = slot_duration_us;
+
+	/*
+		* Release hold floor slowly after hold budget expires.
+		*/
+	if (!jitter_pressure_hold_active &&
+			p7_info->DM_EWMA_jitter_pressure_hold_ahead_us >
+			slot_duration_us) {
+			int64_t hold_release_denom_64 =
+							(int64_t)global_ewma_alpha_denom *
+							(int64_t)p7_max_i32(p7_info->slot_ahead, 1);
+
+			if (hold_release_denom_64 > INT32_MAX)
+					hold_release_denom_64 = INT32_MAX;
+
+			if (hold_release_denom_64 < 1)
+					hold_release_denom_64 = 1;
+
+			p7_info->DM_EWMA_jitter_pressure_hold_ahead_us =
+							p7_ewma_step_i32(
+											p7_info->DM_EWMA_jitter_pressure_hold_ahead_us,
+											slot_duration_us,
+											(int32_t)hold_release_denom_64);
+	}
+
+	if (p7_info->DM_EWMA_jitter_pressure_hold_ahead_us <
+			slot_duration_us) {
+			p7_info->DM_EWMA_jitter_pressure_hold_ahead_us =
+							slot_duration_us;
+	}
+
+	/*
+		* ============================================================
+		* Unified pressure floor
+		* ============================================================
+		*
+		* This value is shared by:
+		*
+		*   1. jitter_required_s_ahead
+		*   2. required_safe_margin_for_down
+		*   3. post_down_guarded_risk
+		*   4. down floor / down target clamp
+		*/
+	int32_t jitter_unified_pressure_ahead_us =
+					p7_max_i32(
+									p7_info->DM_EWMA_jitter_pressure_ahead_us,
+									p7_info->DM_EWMA_jitter_pressure_hold_ahead_us);
+
+	if (jitter_unified_pressure_ahead_us < slot_duration_us)
+			jitter_unified_pressure_ahead_us = slot_duration_us;
+
+	int32_t jitter_required_s_ahead =
+					ceil_div_pos_i32(
+									jitter_unified_pressure_ahead_us,
+									slot_duration_us);
+
+	if (jitter_required_s_ahead < 1)
+			jitter_required_s_ahead = 1;
+
+	if (jitter_required_s_ahead > max_s_ahead)
+			jitter_required_s_ahead = max_s_ahead;
+
+	int32_t jitter_unified_required_s_ahead =
+					jitter_required_s_ahead;
+
+	/*
+		* Compatibility name.
+		*
+		* Now this is the unified memory-backed deadline distance.
+		*/
+
+	bool jitter_up_required =
+					!hard_late &&
+					jitter_required_s_ahead > p7_info->slot_ahead;
+
+	/*
+		* ============================================================
+		* Fresh evidence counters
+		* ============================================================
+		*/
+	if (hard_late) {
+			p7_info->DM_EWMA_late_period_count++;
+			p7_info->DM_EWMA_safe_period_count = 0;
+			p7_info->DM_EWMA_risk_period_count = 0;
+	} else if (soft_risk || jitter_up_required) {
+			p7_info->DM_EWMA_risk_period_count++;
+			p7_info->DM_EWMA_safe_period_count = 0;
+			p7_info->DM_EWMA_late_period_count = 0;
+	} else if (safe_sample) {
+			p7_info->DM_EWMA_safe_period_count++;
+			p7_info->DM_EWMA_late_period_count = 0;
+			p7_info->DM_EWMA_risk_period_count = 0;
+	} else {
+			p7_info->DM_EWMA_safe_period_count = 0;
+			p7_info->DM_EWMA_late_period_count = 0;
+			p7_info->DM_EWMA_risk_period_count = 0;
+	}
+
+	int32_t required_safe_cnt_for_down =
+					global_ewma_alpha_denom;
+
+	if (p7_info->slot_ahead > 1) {
+			int64_t required_safe_cnt_64 =
+							(int64_t)p7_info->slot_ahead *
+							(int64_t)p7_info->slot_ahead *
+							(int64_t)global_ewma_alpha_denom;
+
+			if (required_safe_cnt_64 > INT32_MAX)
+					required_safe_cnt_64 = INT32_MAX;
+
+			if (required_safe_cnt_64 < global_ewma_alpha_denom)
+					required_safe_cnt_64 = global_ewma_alpha_denom;
+
+			required_safe_cnt_for_down =
+							(int32_t)required_safe_cnt_64;
+	}
+
+	bool enough_fresh_safe_evidence_for_down =
+					p7_info->DM_EWMA_safe_period_count >=
+					required_safe_cnt_for_down;
+
+	bool enough_fresh_risk_evidence_for_soft_up =
+					p7_info->DM_EWMA_risk_period_count >=
+					global_ewma_beta_denom;
+
+	/*
+		* ============================================================
+		* Decision model
+		* ============================================================
+		*/
+	bool hard_up_required =
+					hard_late;
+
+	bool soft_up_required =
+					!hard_late &&
+					predicted_risk_us > 0 &&
+					!risk_debt_free &&
+					enough_fresh_risk_evidence_for_soft_up;
+
+	bool jitter_soft_up_required =
+					!hard_late &&
+					jitter_required_s_ahead > p7_info->slot_ahead &&
+					enough_fresh_risk_evidence_for_soft_up;
+
+	bool up_required =
+					hard_up_required ||
+					soft_up_required ||
+					jitter_soft_up_required;
+
+	int32_t post_down_predicted_risk_us =
+					closest_to_deadline_us +
+					slot_duration_us +
+					timing_uncertainty_us;
+
+	bool down_safe_after_one_slot =
+					post_down_predicted_risk_us <= 0;
+
+	/*
+		* Down margin uses unified pressure.
+		*/
+	int64_t required_safe_margin_64 =
+					(int64_t)jitter_unified_pressure_ahead_us;
+
+	if (required_safe_margin_64 > INT32_MAX)
+			required_safe_margin_64 = INT32_MAX;
+
+	if (required_safe_margin_64 < 0)
+			required_safe_margin_64 = INT32_MAX;
+
+	int32_t required_safe_margin_for_down =
+					(int32_t)required_safe_margin_64;
+
+	bool enough_ewma_safe_margin_for_down =
+					p7_info->DM_EWMA_safe_margin_ewma_us >=
+					required_safe_margin_for_down;
+
+	/*
+		* Post-down guard also uses unified pressure.
+		*/
+	int64_t post_down_guarded_risk_64 =
+					(int64_t)post_down_predicted_risk_us +
+					(int64_t)jitter_unified_pressure_ahead_us;
+
+	if (post_down_guarded_risk_64 > INT32_MAX)
+			post_down_guarded_risk_64 = INT32_MAX;
+
+	if (post_down_guarded_risk_64 < INT32_MIN)
+			post_down_guarded_risk_64 = INT32_MIN;
+
+	int32_t post_down_guarded_risk_us =
+					(int32_t)post_down_guarded_risk_64;
+
+	bool post_down_guarded_safe =
+					post_down_guarded_risk_us <= 0;
+
+	bool above_jitter_floor =
+					p7_info->slot_ahead > jitter_unified_required_s_ahead;
+
+	bool jitter_pressure_allows_down =
+					p7_info->slot_ahead > jitter_unified_required_s_ahead;
+
+	/*
+		* If hold floor is active:
+		*
+		*   hold floor = 8
+		*   9 -> 8 allowed
+		*   8 -> 7 blocked
+		*/
+	bool jitter_hold_allows_down =
+					!jitter_pressure_hold_active ||
+					p7_info->slot_ahead > jitter_unified_required_s_ahead;
+
+	bool down_allowed =
+					!up_required &&
+					debt_free &&
+					enough_fresh_safe_evidence_for_down &&
+					enough_ewma_safe_margin_for_down &&
+					down_safe_after_one_slot &&
+					post_down_guarded_safe &&
+					above_jitter_floor &&
+					jitter_pressure_allows_down &&
+					jitter_hold_allows_down &&
+					p7_info->slot_ahead > 1;
+
+	/*
+		* ============================================================
+		* Safe-start model
+		* ============================================================
+		*/
+	int32_t startup_s_ahead =
+					global_ewma_beta_denom;
+
+	if (startup_s_ahead < 1)
+			startup_s_ahead = 1;
+
+	if (startup_s_ahead > max_s_ahead)
+			startup_s_ahead = max_s_ahead;
+
+	bool cold_start =
+					p7_info->DM_EWMA_last_target_s_ahead <= 0;
+
+	bool safe_start_required =
+					cold_start &&
+					p7_info->slot_ahead < startup_s_ahead;
+
+	int32_t target_s_ahead = p7_info->slot_ahead;
+
+	if (pacing_gate_open) {
+			if (safe_start_required) {
+					target_s_ahead = startup_s_ahead;
+			} else if (hard_up_required) {
+					target_s_ahead = jitter_required_s_ahead;
+
+					if (target_s_ahead <= p7_info->slot_ahead)
+							target_s_ahead = p7_info->slot_ahead + 1;
+			} else if (jitter_soft_up_required) {
+					target_s_ahead = jitter_required_s_ahead;
+			} else if (soft_up_required) {
+					target_s_ahead = p7_info->slot_ahead + 1;
+
+					if (target_s_ahead < jitter_required_s_ahead)
+							target_s_ahead = jitter_required_s_ahead;
+			} else if (down_allowed) {
+					target_s_ahead = p7_info->slot_ahead - 1;
+
+					/*
+						* Down target must not go below unified floor.
+						*/
+					if (target_s_ahead < jitter_unified_required_s_ahead)
+							target_s_ahead = jitter_unified_required_s_ahead;
+			}
+	}
+
+	if (target_s_ahead > max_s_ahead)
+			target_s_ahead = max_s_ahead;
+
+	if (target_s_ahead < 1)
+			target_s_ahead = 1;
+
+	/*
+		* ============================================================
+		* No movement path
+		* ============================================================
+		*/
+	if (target_s_ahead == p7_info->slot_ahead) {
+			return;
+	}
+
+	/*
+		* ============================================================
+		* Apply actuation
+		* ============================================================
+		*/
+	int32_t old_s_ahead = p7_info->slot_ahead;
+
+	int32_t delta_s_ahead =
+					target_s_ahead - old_s_ahead;
+
+	int64_t mean_shift_64 =
+					(int64_t)delta_s_ahead *
+					(int64_t)slot_duration_us;
+
+	int64_t compensated_mean_64 =
+					(int64_t)p7_info->estimated_mean_late -
+					mean_shift_64;
+
+	if (compensated_mean_64 > INT32_MAX)
+			compensated_mean_64 = INT32_MAX;
+
+	if (compensated_mean_64 < INT32_MIN)
+			compensated_mean_64 = INT32_MIN;
+
+	p7_info->estimated_mean_late =
+					(int32_t)compensated_mean_64;
+
+	/*
+		* Do not aggressively reset jitter estimators after actuation.
+		*/
+	int32_t lookahead_depth_slots =
+					p7_max_i32(old_s_ahead, target_s_ahead);
+
+	int64_t settle_steps_64 =
+					((int64_t)abs_i32(delta_s_ahead) +
+						(int64_t)lookahead_depth_slots) *
+					(int64_t)global_ewma_alpha_denom;
+
+	if (settle_steps_64 > INT32_MAX)
+			settle_steps_64 = INT32_MAX;
+
+	p7_info->last_adjustment_steps =
+					(int32_t)settle_steps_64;
+
+	if (p7_info->last_adjustment_steps < 1)
+			p7_info->last_adjustment_steps = 1;
+
+	p7_info->last_adjustment_sfn = p7_info->sfn;
+	p7_info->last_adjustment_slot = p7_info->slot;
+
+	p7_info->DM_EWMA_last_target_s_ahead =
+					target_s_ahead;
+	p7_info->DM_EWMA_safe_period_count = 0;
+	p7_info->DM_EWMA_late_period_count = 0;
+	p7_info->DM_EWMA_risk_period_count = 0;
+	p7_info->slot_ahead = target_s_ahead;
+	return;
+}
+
 void* vnf_p7_malloc(vnf_p7_t* vnf_p7, size_t size)
 {
 	if(vnf_p7->_public.malloc)
@@ -203,7 +1114,7 @@ void* vnf_p7_malloc(vnf_p7_t* vnf_p7, size_t size)
 	}
 	else
 	{
-		return calloc(1, size); 
+		return calloc(1, size);
 	}
 }
 void vnf_p7_free(vnf_p7_t* vnf_p7, void* ptr)
@@ -217,7 +1128,7 @@ void vnf_p7_free(vnf_p7_t* vnf_p7, void* ptr)
 	}
 	else
 	{
-		free(ptr); 
+		free(ptr);
 	}
 }
 
@@ -232,7 +1143,7 @@ void vnf_p7_codec_free(vnf_p7_t* vnf_p7, void* ptr)
 	}
 	else
 	{
-		free(ptr); 
+		free(ptr);
 	}
 }
 
@@ -240,7 +1151,7 @@ void vnf_p7_connection_info_list_add(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_i
 {
 	NFAPI_TRACE(NFAPI_TRACE_INFO, "%s()\n", __FUNCTION__);
 	// todo : add mutex
-	node->next = vnf_p7->p7_connections; 
+	node->next = vnf_p7->p7_connections;
 	vnf_p7->p7_connections = node;
 }
 
@@ -302,11 +1213,11 @@ vnf_p7_rx_message_t* vnf_p7_rx_reassembly_queue_add_segment(vnf_p7_t* vnf_p7, vn
 
 		iterator = iterator->next;
 	}
-	
+
 	// if found then copy data to message
 	if(msg != 0)
 	{
-	
+
 		msg->segments[segment_number].buffer = (uint8_t*)vnf_p7_malloc(vnf_p7, data_len);
 		memcpy(msg->segments[segment_number].buffer, data, data_len);
 		msg->segments[segment_number].length = data_len;
@@ -398,7 +1309,7 @@ void vnf_p7_rx_reassembly_queue_remove_old_msgs(vnf_p7_t* vnf_p7, vnf_p7_rx_reas
 			{
 				previous->next = iterator->next;
 			}
-			
+
 			NFAPI_TRACE(NFAPI_TRACE_WARN, "Deleting stale reassembly message (packet rx_hr_time %u current rx_hr_time %u delta %d us)\n", iterator->rx_hr_time, rx_hr_time, delta);
 
 			vnf_p7_rx_message_t* to_delete = iterator;
@@ -452,12 +1363,12 @@ uint16_t increment_sfn_sf(uint16_t sfn_sf)
 struct timespec timespec_delta(struct timespec start, struct timespec end)
 {
 	struct timespec temp;
-	if ((end.tv_nsec-start.tv_nsec)<0) 
+	if ((end.tv_nsec-start.tv_nsec)<0)
 	{
 		temp.tv_sec = end.tv_sec-start.tv_sec-1;
 		temp.tv_nsec = 1000000000+end.tv_nsec-start.tv_nsec;
-	} 
-	else 
+	}
+	else
 	{
 		temp.tv_sec = end.tv_sec-start.tv_sec;
 		temp.tv_nsec = end.tv_nsec-start.tv_nsec;
@@ -476,13 +1387,13 @@ static inline int64_t timehr_diff_us(uint32_t time_hr_a, uint32_t time_hr_b)
     int32_t sec_b = TIMEHR_SEC(time_hr_b);
     int32_t usec_a = TIMEHR_USEC(time_hr_a);
     int32_t usec_b = TIMEHR_USEC(time_hr_b);
-    
+
     // Handle 12-bit second wrap-around
     // sec_a - sec_b should be in range [-2048, 2047] for valid comparisons
     int32_t sec_diff = sec_a - sec_b;
     if (sec_diff > 2048) sec_diff -= 4096;   // sec_a wrapped, sec_b didn't
     if (sec_diff < -2048) sec_diff += 4096;  // sec_b wrapped, sec_a didn't
-    
+
     return (int64_t)sec_diff * 1000000 + (usec_a - usec_b);
 }
 
@@ -537,7 +1448,7 @@ uint32_t calculate_nr_t1(int mu, uint16_t sfn, uint16_t slot, uint32_t slot_star
 	uint32_t slot_time_us = get_slot_time(now_time_hr, slot_start_time_hr);
 
 	uint32_t t1 = NFAPI_SFNSLOT2DEC(mu, sfn,slot) * NFAPI_SLOTLEN(mu) + slot_time_us;
-	
+
 	return t1;
 }
 
@@ -557,7 +1468,7 @@ uint32_t calculate_nr_t4(uint32_t now_time_hr, int mu, uint16_t sfn, uint16_t sl
 	uint32_t slot_time_us = get_slot_time(now_time_hr, slot_start_time_hr);
 
 	uint32_t t4 = NFAPI_SFNSLOT2DEC(mu, sfn,slot) * NFAPI_SLOTLEN(mu) + slot_time_us;
-	
+
 	return t4;
 
 }
@@ -570,7 +1481,7 @@ uint32_t calculate_transmit_timestamp(int mu, uint16_t sfn, uint16_t slot, uint3
 	uint32_t slot_time_us = get_slot_time(now_time_hr, slot_start_time_hr);
 
 	uint32_t tt = NFAPI_SFNSLOT2DEC(mu, sfn, slot) * NFAPI_SLOTLEN(mu) + slot_time_us;
-	
+
 	return tt;
 }
 
@@ -631,7 +1542,7 @@ int send_mac_subframe_indications(vnf_p7_t* vnf_p7)
 
 int vnf_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info, uint8_t* msg, const uint32_t len)
 {
-	int sendto_result = sendto(vnf_p7->socket, msg, len, 0, (struct sockaddr*)&(p7_info->remote_addr), sizeof(p7_info->remote_addr)); 
+	int sendto_result = sendto(vnf_p7->socket, msg, len, 0, (struct sockaddr*)&(p7_info->remote_addr), sizeof(p7_info->remote_addr));
 	//printf("P7 msg sent \n");
 	if(sendto_result != len)
 	{
@@ -651,12 +1562,12 @@ int vnf_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* hea
 		uint8_t  buffer[1024 * 32];
 
 		header->m_segment_sequence = NFAPI_P7_SET_MSS(0, 0, p7_connection->sequence_number);
-		
+
 		int len = nfapi_p7_message_pack(header, buffer, sizeof(buffer), &vnf_p7->_public.codec_config);
-		
+
                 //NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() phy_id:%d nfapi_p7_message_pack()=len=%d vnf_p7->_public.segment_size:%u\n", __FUNCTION__, header->phy_id, len, vnf_p7->_public.segment_size);
 
-		if(len < 0) 
+		if(len < 0)
 		{
 			NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() failed to pack p7 message phy_id:%d\n", __FUNCTION__, header->phy_id);
 			return -1;
@@ -666,12 +1577,12 @@ int vnf_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* hea
 		{
 			// todo : consider replacing with the sendmmsg call
 			// todo : worry about blocking writes?
-		
+
 			// segmenting the transmit
-			int msg_body_len = len - NFAPI_P7_HEADER_LENGTH ; 
-			int seg_body_len = vnf_p7->_public.segment_size - NFAPI_P7_HEADER_LENGTH ; 
-			int segment_count = (msg_body_len / (seg_body_len)) + ((msg_body_len % seg_body_len) ? 1 : 0); 
-				
+			int msg_body_len = len - NFAPI_P7_HEADER_LENGTH ;
+			int seg_body_len = vnf_p7->_public.segment_size - NFAPI_P7_HEADER_LENGTH ;
+			int segment_count = (msg_body_len / (seg_body_len)) + ((msg_body_len % seg_body_len) ? 1 : 0);
+
 			int segment = 0;
 			int offset = NFAPI_P7_HEADER_LENGTH;
 			uint8_t tx_buffer[vnf_p7->_public.segment_size];
@@ -688,7 +1599,7 @@ int vnf_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* hea
 
 				uint16_t segment_size = size + NFAPI_P7_HEADER_LENGTH;
 
-				// Update the header with the m and segement 
+				// Update the header with the m and segement
 				memcpy(&tx_buffer[0], buffer, NFAPI_P7_HEADER_LENGTH);
 
 				// set the segment length
@@ -705,8 +1616,8 @@ int vnf_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* hea
 				{
 					nfapi_p7_update_checksum(tx_buffer, segment_size);
 				}
-			
-				nfapi_p7_update_transmit_timestamp(buffer, calculate_transmit_timestamp(p7_connection->mu, p7_connection->sfn, p7_connection->slot, vnf_p7->slot_start_time_hr));	
+
+				nfapi_p7_update_transmit_timestamp(buffer, calculate_transmit_timestamp(p7_connection->mu, p7_connection->sfn, p7_connection->slot, vnf_p7->slot_start_time_hr));
 
 				send_result = vnf_send_p7_msg(vnf_p7, p7_connection,  &tx_buffer[0], segment_size);
 			}
@@ -718,7 +1629,7 @@ int vnf_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* hea
 				nfapi_p7_update_checksum(buffer, len);
 			}
 
-			nfapi_p7_update_transmit_timestamp(buffer, calculate_transmit_timestamp(p7_connection->mu, p7_connection->sfn, p7_connection->slot, vnf_p7->slot_start_time_hr));	
+			nfapi_p7_update_transmit_timestamp(buffer, calculate_transmit_timestamp(p7_connection->mu, p7_connection->sfn, p7_connection->slot, vnf_p7->slot_start_time_hr));
 
 			// simple case that the message fits in a single segement
 			send_result = vnf_send_p7_msg(vnf_p7, p7_connection, &buffer[0], len);
@@ -744,7 +1655,7 @@ int vnf_build_send_dl_node_sync(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t
 	dl_node_sync.t1 = calculate_t1(p7_info->sfn_sf, vnf_p7->sf_start_time_hr);
 	dl_node_sync.delta_sfn_sf = 0;
 
-	return vnf_p7_pack_and_send_p7_msg(vnf_p7, &dl_node_sync.header);	
+	return vnf_p7_pack_and_send_p7_msg(vnf_p7, &dl_node_sync.header);
 }
 
 int vnf_nr_build_send_dl_node_sync(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info)
@@ -781,7 +1692,7 @@ int vnf_nr_sync(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info)
 		//uint16_t sfn_sf_dec = NFAPI_SFNSF2DEC(p7_info->sfn_sf);
 		uint16_t sfn_slot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, p7_info->sfn, p7_info->slot);
 
-		if ((((sfn_slot_dec + p7_info->dl_out_sync_offset) % NFAPI_MAX_SFNSLOTDEC(p7_info->mu)) & dl_sync_period_mask) == 0) 
+		if ((((sfn_slot_dec + p7_info->dl_out_sync_offset) % NFAPI_MAX_SFNSLOTDEC(p7_info->mu)) & dl_sync_period_mask) == 0)
 		{
 			vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
 		}
@@ -827,7 +1738,7 @@ void vnf_handle_harq_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	else
 	{
 		nfapi_harq_indication_t ind;
-	
+
 		if(nfapi_p7_message_unpack(pRecvMsg, recvMsgLen, &ind, sizeof(ind), &vnf_p7->_public.codec_config) < 0)
 		{
 			NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: Failed to unpack message\n", __FUNCTION__);
@@ -839,7 +1750,7 @@ void vnf_handle_harq_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 				(vnf_p7->_public.harq_indication)(&(vnf_p7->_public), &ind);
 			}
 		}
-	
+
 		vnf_p7_codec_free(vnf_p7, ind.harq_indication_body.harq_pdu_list);
 		vnf_p7_codec_free(vnf_p7, ind.vendor_extension);
 	}
@@ -855,7 +1766,7 @@ void vnf_handle_crc_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	else
 	{
 		nfapi_crc_indication_t ind;
-	
+
 		if(nfapi_p7_message_unpack(pRecvMsg, recvMsgLen, &ind, sizeof(ind), &vnf_p7->_public.codec_config) < 0)
 		{
 			NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: Failed to message\n", __FUNCTION__);
@@ -867,7 +1778,7 @@ void vnf_handle_crc_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 				(vnf_p7->_public.crc_indication)(&(vnf_p7->_public), &ind);
 			}
 		}
-	
+
 		vnf_p7_codec_free(vnf_p7, ind.crc_indication_body.crc_pdu_list);
 		vnf_p7_codec_free(vnf_p7, ind.vendor_extension);
 	}
@@ -883,7 +1794,7 @@ void vnf_handle_rx_ulsch_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vn
 	else
 	{
 		nfapi_rx_indication_t ind;
-	
+
 		if(nfapi_p7_message_unpack(pRecvMsg, recvMsgLen, &ind, sizeof(ind), &vnf_p7->_public.codec_config) < 0)
 		{
 			NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: Failed to unpack message\n", __FUNCTION__);
@@ -912,7 +1823,7 @@ void vnf_handle_rach_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	else
 	{
 		nfapi_rach_indication_t ind;
-	
+
 		if(nfapi_p7_message_unpack(pRecvMsg, recvMsgLen, &ind, sizeof(ind), &vnf_p7->_public.codec_config) < 0)
 		{
 			NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: Failed to message\n", __FUNCTION__);
@@ -924,7 +1835,7 @@ void vnf_handle_rach_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 				(vnf_p7->_public.rach_indication)(&vnf_p7->_public, &ind);
 			}
 		}
-	
+
 		vnf_p7_codec_free(vnf_p7, ind.rach_indication_body.preamble_list);
 		vnf_p7_codec_free(vnf_p7, ind.vendor_extension);
 
@@ -953,9 +1864,9 @@ void vnf_handle_srs_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 				(vnf_p7->_public.srs_indication)(&(vnf_p7->_public), &ind);
 			}
 		}
-	
+
 		vnf_p7_codec_free(vnf_p7, ind.srs_indication_body.srs_pdu_list);
-		vnf_p7_codec_free(vnf_p7, ind.vendor_extension);	
+		vnf_p7_codec_free(vnf_p7, ind.vendor_extension);
 	}
 }
 
@@ -969,7 +1880,7 @@ void vnf_handle_rx_sr_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p
 	else
 	{
 		nfapi_sr_indication_t ind;
-	
+
 		if(nfapi_p7_message_unpack(pRecvMsg, recvMsgLen, &ind, sizeof(ind), &vnf_p7->_public.codec_config) < 0)
 		{
 			NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: Failed to unpack message\n", __FUNCTION__);
@@ -981,9 +1892,9 @@ void vnf_handle_rx_sr_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p
 				(vnf_p7->_public.sr_indication)(&(vnf_p7->_public), &ind);
 			}
 		}
-	
+
 		vnf_p7_codec_free(vnf_p7, ind.sr_indication_body.sr_pdu_list);
-		vnf_p7_codec_free(vnf_p7, ind.vendor_extension);	
+		vnf_p7_codec_free(vnf_p7, ind.vendor_extension);
 	}
 }
 void vnf_handle_rx_cqi_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
@@ -996,7 +1907,7 @@ void vnf_handle_rx_cqi_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_
 	else
 	{
 		nfapi_cqi_indication_t ind;
-	
+
 		if(nfapi_p7_message_unpack(pRecvMsg, recvMsgLen, &ind, sizeof(ind), &vnf_p7->_public.codec_config) < 0)
 		{
 			NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: Failed to unpack message\n", __FUNCTION__);
@@ -1008,11 +1919,11 @@ void vnf_handle_rx_cqi_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_
 				(vnf_p7->_public.cqi_indication)(&(vnf_p7->_public), &ind);
 			}
 		}
-	
+
 		vnf_p7_codec_free(vnf_p7, ind.cqi_indication_body.cqi_pdu_list);
 		vnf_p7_codec_free(vnf_p7, ind.cqi_indication_body.cqi_raw_pdu_list);
-		vnf_p7_codec_free(vnf_p7, ind.vendor_extension);	
-		
+		vnf_p7_codec_free(vnf_p7, ind.vendor_extension);
+
 	}
 
 }
@@ -1039,7 +1950,7 @@ void vnf_handle_lbt_dl_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_
 				(vnf_p7->_public.lbt_dl_indication)(&(vnf_p7->_public), &ind);
 			}
 		}
-	
+
 		vnf_p7_codec_free(vnf_p7, ind.lbt_dl_indication_body.lbt_indication_pdu_list);
 		vnf_p7_codec_free(vnf_p7, ind.vendor_extension);
 	}
@@ -1055,7 +1966,7 @@ void vnf_handle_nb_harq_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf
 	else
 	{
 		nfapi_nb_harq_indication_t ind;
-	
+
 		if(nfapi_p7_message_unpack(pRecvMsg, recvMsgLen, &ind, sizeof(ind), &vnf_p7->_public.codec_config) < 0)
 		{
 			NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: Failed to unpack message\n", __FUNCTION__);
@@ -1067,7 +1978,7 @@ void vnf_handle_nb_harq_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf
 				(vnf_p7->_public.nb_harq_indication)(&(vnf_p7->_public), &ind);
 			}
 		}
-	
+
 		vnf_p7_codec_free(vnf_p7, ind.nb_harq_indication_body.nb_harq_pdu_list);
 		vnf_p7_codec_free(vnf_p7, ind.vendor_extension);
 	}
@@ -1083,7 +1994,7 @@ void vnf_handle_nrach_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p
 	else
 	{
 		nfapi_nrach_indication_t ind;
-	
+
 		if(nfapi_p7_message_unpack(pRecvMsg, recvMsgLen, &ind, sizeof(ind), &vnf_p7->_public.codec_config) < 0)
 		{
 			NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s: Failed to unpack message\n", __FUNCTION__);
@@ -1095,7 +2006,7 @@ void vnf_handle_nrach_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p
 				(vnf_p7->_public.nrach_indication)(&(vnf_p7->_public), &ind);
 			}
 		}
-	
+
 		vnf_p7_codec_free(vnf_p7, ind.nrach_indication_body.nrach_pdu_list);
 		vnf_p7_codec_free(vnf_p7, ind.vendor_extension);
 	}
@@ -1147,10 +2058,10 @@ void vnf_handle_p7_vendor_extension(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vn
 			if(vnf_p7->_public.vendor_ext)
 				vnf_p7->_public.vendor_ext(&(vnf_p7->_public), msg);
 		}
-		
+
 		if(vnf_p7->_public.deallocate_p7_vendor_ext)
 			vnf_p7->_public.deallocate_p7_vendor_ext(msg);
-		
+
 	}
 }
 
@@ -1217,7 +2128,7 @@ void vnf_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		phy->latency[phy->min_sync_cycle_count] = latency;
 
 		NFAPI_TRACE(NFAPI_TRACE_NOTE, "(%4d/%d) PNF to VNF !sync phy_id:%d (t1/2/3/4:%8u, %8u, %8u, %8u) txrx:%4u procT:%3u latency(us):%4d\n",
-				NFAPI_SFNSF2SFN(phy->sfn_sf), NFAPI_SFNSF2SF(phy->sfn_sf), ind.header.phy_id, ind.t1, ind.t2, ind.t3, t4, 
+				NFAPI_SFNSF2SFN(phy->sfn_sf), NFAPI_SFNSF2SF(phy->sfn_sf), ind.header.phy_id, ind.t1, ind.t2, ind.t3, t4,
 				tx_2_rx, pnf_proc_time, latency);
 	}
 	else
@@ -1263,7 +2174,7 @@ void vnf_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 
 			NFAPI_TRACE(NFAPI_TRACE_INFO, "(%4d/%1d) %ld.%ld PNF to VNF phy_id:%2d (t1/2/3/4:%8u, %8u, %8u, %8u) txrx:%4u procT:%3u latency(us):%4d(avg:%4d) offset(us):%8d filtered(us):%8d wrap[t1:%u t2:%u]\n",
 					NFAPI_SFNSF2SFN(phy->sfn_sf), NFAPI_SFNSF2SF(phy->sfn_sf), ts.tv_sec, ts.tv_nsec, ind.header.phy_id,
-					ind.t1, ind.t2, ind.t3, t4, 
+					ind.t1, ind.t2, ind.t3, t4,
 					tx_2_rx, pnf_proc_time, latency, phy->average_latency, phy->sf_offset, phy->sf_offset_filtered,
 					(ind.t1<phy->previous_t1), (ind.t2<phy->previous_t2));
 		}
@@ -1354,7 +2265,7 @@ void vnf_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 				}
 			}
 
-			
+
 			int insync_minor_adjustment_1 = phy->sf_offset_trend / 6;
 			int insync_minor_adjustment_2 = phy->sf_offset_trend / 2;
 
@@ -1393,7 +2304,7 @@ void vnf_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 					{
 						if(phy->in_sync == 0)
 						{
-							//NFAPI_TRACE(NFAPI_TRACE_NOTE, "VNF P7 In Sync with phy (phy_id:%d)\n", phy->phy_id); 
+							//NFAPI_TRACE(NFAPI_TRACE_NOTE, "VNF P7 In Sync with phy (phy_id:%d)\n", phy->phy_id);
 
 							if(vnf_p7->_public.sync_indication)
 								(vnf_p7->_public.sync_indication)(&(vnf_p7->_public), phy->in_sync);
@@ -1428,14 +2339,14 @@ void vnf_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 
 						if(phy->insync_minor_adjustment != 0)
 						{
-							NFAPI_TRACE(NFAPI_TRACE_NOTE, "(%4d/%d) VNF phy_id:%d Apply minor insync adjustment %dus for %d subframes (sf_offset_filtered:%d) %d %d %d NEW:%d CURR:%d adjustment:%d\n", 
+							NFAPI_TRACE(NFAPI_TRACE_NOTE, "(%4d/%d) VNF phy_id:%d Apply minor insync adjustment %dus for %d subframes (sf_offset_filtered:%d) %d %d %d NEW:%d CURR:%d adjustment:%d\n",
 										NFAPI_SFNSF2SFN(phy->sfn_sf), NFAPI_SFNSF2SF(phy->sfn_sf), ind.header.phy_id,
-										phy->insync_minor_adjustment, phy->insync_minor_adjustment_duration, 
-                                                                                phy->sf_offset_filtered, 
+										phy->insync_minor_adjustment, phy->insync_minor_adjustment_duration,
+                                                                                phy->sf_offset_filtered,
                                                                                 insync_minor_adjustment_1, insync_minor_adjustment_2, phy->sf_offset_trend,
                                                                                 NFAPI_SFNSF2DEC(new_sfn_sf),
                                                                                 NFAPI_SFNSF2DEC(curr_sfn_sf),
-                                                                                phy->adjustment); 
+                                                                                phy->adjustment);
 						}
 					}
 				}
@@ -1464,21 +2375,21 @@ void vnf_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 									phy->insync_minor_adjustment = -(insync_minor_adjustment_2);
 									phy->insync_minor_adjustment_duration = 2 * ((phy->sf_offset_filtered + 250) / -(insync_minor_adjustment_2));
 								}
-							
+
 							}
 							//else
 							{
 								// out of sync?
 							}
-							
-							NFAPI_TRACE(NFAPI_TRACE_NOTE, "(%4d/%d) VNF phy_id:%d Apply minor insync adjustment %dus for %d subframes (adjustment:%d sf_offset_filtered:%d) %d %d %d NEW:%d CURR:%d adj:%d\n", 
+
+							NFAPI_TRACE(NFAPI_TRACE_NOTE, "(%4d/%d) VNF phy_id:%d Apply minor insync adjustment %dus for %d subframes (adjustment:%d sf_offset_filtered:%d) %d %d %d NEW:%d CURR:%d adj:%d\n",
 										NFAPI_SFNSF2SFN(phy->sfn_sf), NFAPI_SFNSF2SF(phy->sfn_sf), ind.header.phy_id,
 										phy->insync_minor_adjustment, phy->insync_minor_adjustment_duration, phy->adjustment, phy->sf_offset_filtered,
 										insync_minor_adjustment_1, insync_minor_adjustment_2, phy->sf_offset_trend,
                                                                                 NFAPI_SFNSF2DEC(new_sfn_sf),
                                                                                 NFAPI_SFNSF2DEC(curr_sfn_sf),
-                                                                                phy->adjustment); 
-							
+                                                                                phy->adjustment);
+
 						}
 						else if(phy->adjustment < 0)
 						{
@@ -1504,10 +2415,10 @@ void vnf_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 								// out of sync?
 							}
 
-							NFAPI_TRACE(NFAPI_TRACE_NOTE, "(%d/%d) VNF phy_id:%d Apply minor insync adjustment %dus for %d subframes (adjustment:%d sf_offset_filtered:%d) %d %d %d\n", 
+							NFAPI_TRACE(NFAPI_TRACE_NOTE, "(%d/%d) VNF phy_id:%d Apply minor insync adjustment %dus for %d subframes (adjustment:%d sf_offset_filtered:%d) %d %d %d\n",
 										NFAPI_SFNSF2SFN(phy->sfn_sf), NFAPI_SFNSF2SF(phy->sfn_sf), ind.header.phy_id,
 										phy->insync_minor_adjustment, phy->insync_minor_adjustment_duration, phy->adjustment, phy->sf_offset_filtered,
-										insync_minor_adjustment_1, insync_minor_adjustment_2, phy->sf_offset_trend); 
+										insync_minor_adjustment_1, insync_minor_adjustment_2, phy->sf_offset_trend);
 						}
 
 						/*
@@ -1535,7 +2446,7 @@ void vnf_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 			{
 				/*NFAPI_TRACE(NFAPI_TRACE_NOTE, "***** Adjusting VNF phy_id:%d SFN/SF (%s) from %d to %d (%d) mode:%s zeroCount:%u sync:%s\n",
 					ind.header.phy_id, (phy->in_sync ? "via sfn" : "now"),
-					NFAPI_SFNSF2DEC(curr_sfn_sf), NFAPI_SFNSF2DEC(new_sfn_sf), phy->adjustment, 
+					NFAPI_SFNSF2DEC(curr_sfn_sf), NFAPI_SFNSF2DEC(new_sfn_sf), phy->adjustment,
 					phy->filtered_adjust ? "FILTERED" : "ABSOLUTE",
 					phy->zero_count,
 					phy->in_sync ? "IN_SYNC" : "OUT_OF_SYNC");*/
@@ -1720,7 +2631,7 @@ void vnf_handle_nr_rach_indication(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf
 }
 
 void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
-{	
+{
 	uint32_t now_time_hr = vnf_get_current_time_hr();
 	if (pRecvMsg == NULL || vnf_p7  == NULL)
 	{
@@ -1800,21 +2711,21 @@ void vnf_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		return;
 	}
 
-        if (vnf_p7 && vnf_p7->p7_connections)
-        {
-          int16_t vnf_pnf_sfnsf_delta = NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf) - NFAPI_SFNSF2DEC(ind.last_sfn_sf);
+	if (vnf_p7 && vnf_p7->p7_connections)
+	{
+		int16_t vnf_pnf_sfnsf_delta = NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf) - NFAPI_SFNSF2DEC(ind.last_sfn_sf);
 
-          //NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() PNF:SFN/SF:%d VNF:SFN/SF:%d deltaSFNSF:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(ind.last_sfn_sf), NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf), vnf_pnf_sfnsf_delta);
+		//NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() PNF:SFN/SF:%d VNF:SFN/SF:%d deltaSFNSF:%d\n", __FUNCTION__, NFAPI_SFNSF2DEC(ind.last_sfn_sf), NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf), vnf_pnf_sfnsf_delta);
 
-          // Panos: Careful here!!! Modification of the original nfapi-code
-          //if (vnf_pnf_sfnsf_delta>1 || vnf_pnf_sfnsf_delta < -1)
-          if (vnf_pnf_sfnsf_delta>0 || vnf_pnf_sfnsf_delta < 0)
-          {
-            NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() LARGE SFN/SF DELTA between PNF and VNF delta:%d VNF:%d PNF:%d\n\n\n\n\n\n\n\n\n", __FUNCTION__, vnf_pnf_sfnsf_delta, NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf), NFAPI_SFNSF2DEC(ind.last_sfn_sf));
-            // Panos: Careful here!!! Modification of the original nfapi-code
-            vnf_p7->p7_connections[0].sfn_sf = ind.last_sfn_sf;
-          }
-        }
+		// Panos: Careful here!!! Modification of the original nfapi-code
+		//if (vnf_pnf_sfnsf_delta>1 || vnf_pnf_sfnsf_delta < -1)
+		if (vnf_pnf_sfnsf_delta>0 || vnf_pnf_sfnsf_delta < 0)
+		{
+			NFAPI_TRACE(NFAPI_TRACE_INFO, "%s() LARGE SFN/SF DELTA between PNF and VNF delta:%d VNF:%d PNF:%d\n\n\n\n\n\n\n\n\n", __FUNCTION__, vnf_pnf_sfnsf_delta, NFAPI_SFNSF2DEC(vnf_p7->p7_connections[0].sfn_sf), NFAPI_SFNSF2DEC(ind.last_sfn_sf));
+			// Panos: Careful here!!! Modification of the original nfapi-code
+			vnf_p7->p7_connections[0].sfn_sf = ind.last_sfn_sf;
+		}
+	}
 }
 
 void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
@@ -1826,7 +2737,7 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	}
 
 	nfapi_nr_timing_info_t ind;
-	const bool result = vnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, &ind, sizeof(nfapi_timing_info_t), &vnf_p7->_public.codec_config);
+	const bool result = vnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, &ind, sizeof(ind), &vnf_p7->_public.codec_config);
 	if(!result)
 	{
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack timing_info\n");
@@ -1846,8 +2757,9 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	vnf_timing_stats_t out_stats;
 	int count = vnf_nr_extract_timing_info(&ind, p7_con, &out_stats);
 	if (count <= 0) {
-			return;
+		return;
 	}
+	vnf_nr_delay_management(p7_con, &out_stats);
 }
 
 void vnf_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
@@ -1884,23 +2796,23 @@ void vnf_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		case NFAPI_TIMING_INFO:
 			vnf_handle_timing_info(pRecvMsg, recvMsgLen, vnf_p7);
 			break;
-			
+
 		case NFAPI_HARQ_INDICATION:
 			vnf_handle_harq_indication(pRecvMsg, recvMsgLen, vnf_p7);
 			break;
-	
+
 		case NFAPI_CRC_INDICATION:
 			vnf_handle_crc_indication(pRecvMsg, recvMsgLen, vnf_p7);
 			break;
-	
+
 		case NFAPI_RX_ULSCH_INDICATION:
 			vnf_handle_rx_ulsch_indication(pRecvMsg, recvMsgLen, vnf_p7);
 			break;
-	
+
 		case NFAPI_RACH_INDICATION:
 			vnf_handle_rach_indication(pRecvMsg, recvMsgLen, vnf_p7);
 			break;
-	
+
 		case NFAPI_SRS_INDICATION:
 			vnf_handle_srs_indication(pRecvMsg, recvMsgLen, vnf_p7);
 			break;
@@ -1912,18 +2824,18 @@ void vnf_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		case NFAPI_RX_CQI_INDICATION:
 			vnf_handle_rx_cqi_indication(pRecvMsg, recvMsgLen, vnf_p7);
 			break;
-			
+
 		case NFAPI_LBT_DL_INDICATION:
 			vnf_handle_lbt_dl_indication(pRecvMsg, recvMsgLen, vnf_p7);
 			break;
-			
+
 		case NFAPI_NB_HARQ_INDICATION:
 			vnf_handle_nb_harq_indication(pRecvMsg, recvMsgLen, vnf_p7);
 			break;
-			
+
 		case NFAPI_NRACH_INDICATION:
 			vnf_handle_nrach_indication(pRecvMsg, recvMsgLen, vnf_p7);
-			break;			
+			break;
 
 		case NFAPI_UE_RELEASE_RESPONSE:
 			vnf_handle_ue_release_resp(pRecvMsg, recvMsgLen, vnf_p7);
@@ -1984,27 +2896,27 @@ void vnf_nr_handle_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		case NFAPI_TIMING_INFO:
 			vnf_nr_handle_timing_info(pRecvMsg, recvMsgLen, vnf_p7);
 			break;
-		
+
 		case NFAPI_NR_PHY_MSG_TYPE_SLOT_INDICATION:
 			vnf_handle_nr_slot_indication(pRecvMsg, recvMsgLen, vnf_p7);
 			break;
-		
+
 		case NFAPI_NR_PHY_MSG_TYPE_RX_DATA_INDICATION:
 			vnf_handle_nr_rx_data_indication(pRecvMsg, recvMsgLen, vnf_p7);
 			break;
-	
+
 		case NFAPI_NR_PHY_MSG_TYPE_CRC_INDICATION:
 			vnf_handle_nr_crc_indication(pRecvMsg, recvMsgLen, vnf_p7);
 			break;
-	
+
 		case NFAPI_NR_PHY_MSG_TYPE_UCI_INDICATION:
 			vnf_handle_nr_uci_indication(pRecvMsg, recvMsgLen, vnf_p7);
 			break;
-	
+
 		case NFAPI_NR_PHY_MSG_TYPE_SRS_INDICATION:
 			vnf_handle_nr_srs_indication(pRecvMsg, recvMsgLen, vnf_p7);
 			break;
-	
+
 		case NFAPI_NR_PHY_MSG_TYPE_RACH_INDICATION:
 			vnf_handle_nr_rach_indication(pRecvMsg, recvMsgLen, vnf_p7);
 			break;
@@ -2029,7 +2941,7 @@ void vnf_nr_handle_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	}
 }
 
-void vnf_handle_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7) 
+void vnf_handle_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 {
 	nfapi_p7_message_header_t messageHeader;
 
@@ -2269,9 +3181,9 @@ void vnf_p7_release_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* header)
 			}
 			break;
 	}
-				
+
 	vnf_p7_free(vnf_p7, header);
-	
+
 }
 
 void vnf_p7_release_pdu(vnf_p7_t* vnf_p7, void* pdu)
