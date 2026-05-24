@@ -9,10 +9,17 @@
 #define _VNF_P7_H_
 
 #include "nfapi_vnf_interface.h"
+#include <stdatomic.h>
 #define TIMEHR_SEC(_time_hr) ((uint32_t)(_time_hr) >> 20)
 #define TIMEHR_USEC(_time_hr) ((uint32_t)(_time_hr) & 0xFFFFF)
 #define TIME2TIMEHR(_time) (((uint32_t)(_time.tv_sec) & 0xFFF) << 20 | ((uint32_t)(_time.tv_usec) & 0xFFFFF))
-
+/* ============================================================================
+ * DYNAMIC SLOT SLEEP TIMING CONTROL CONSTANTS
+ * ============================================================================ */
+/* Dynamic Target Margin (adaptive to avoid late packets) */
+#define MARGIN_TOLERANCE_US     20    // Deadband zone: +/- MARGIN_TOLERANCE_US us
+#define MARGIN_TOLERANCE_LOCKED_US 800    // Wider deadband zone used after first sync lock
+#define SLOT_ARRAY_SIZE         20    // TDD cycle slot count (Reduced to 20 for faster convergence)
 
 typedef struct {
 	uint8_t* buffer;
@@ -70,8 +77,11 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t slot_offset_filtered;
 	uint16_t zero_count;
 	int32_t adjustment;
+	int32_t slot_adjustment;
+	int32_t us_adjustment;
 	int32_t insync_minor_adjustment;
 	int32_t insync_minor_adjustment_duration;
+	uint8_t sync_locked;  // Flag: once offset converges within ±10, permanently stop adjusting
 
 	uint32_t previous_t1;
 	uint32_t previous_t2;
@@ -82,6 +92,8 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int slot;
   int mu; // some 5G slot calculations need the numerology to know the number
           // of slots
+	uint32_t slot_duration_us;
+	pthread_mutex_t mutex;
 
 	int socket;
 	struct sockaddr_in local_addr;
