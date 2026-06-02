@@ -956,7 +956,13 @@ static inline void timespec_add_us(struct timespec *t, long us)
     t->tv_nsec += sec_diff * 1000000000;
   }
 }
-
+static inline uint64_t pack_sfn_slot_value(uint16_t sfn, uint16_t slot, int32_t signed_value)
+{
+    uint64_t packed = ((uint64_t)sfn << 48) |
+                      ((uint64_t)slot << 32) |
+                      ((uint32_t)signed_value);
+    return packed;
+}
 #define P7_SYNC_PERIOD_SLOTS_DEFAULT 2000
 #define P7_SYNC_MAX_CATCHUP_BURST 2
 int vnf_nr_build_send_dl_node_sync(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info);
@@ -1028,11 +1034,16 @@ void *vnf_timing_thread(void *arg)
 
   while (p7_info->running) {
     pthread_mutex_lock(&p7_info->mutex);
+    p7_info->total_advanced_us = p7_info->slot_ahead * p7_info->slot_duration_us;
     if (p7_info->slot_adjustment != 0) {
       sfnslot_dec = (sfnslot_dec + p7_info->slot_adjustment + max_sfnslotdec) % max_sfnslotdec;
+      if (p7_info->sync_locked) p7_info->total_advanced_us += p7_info->slot_adjustment;
       p7_info->slot_adjustment = 0;
     }
     int32_t current_pending_us = p7_info->pending_us;
+    if (p7_info->sync_locked) {
+      p7_info->total_advanced_us -= current_pending_us;
+    }
     p7_info->pending_us = 0;
     pthread_mutex_unlock(&p7_info->mutex);
 
@@ -1072,6 +1083,9 @@ void *vnf_timing_thread(void *arg)
         phy_nr_slot_indication(&ind);
         burst_counter++;
       }
+    }
+    if (p7_info->sync_locked) {
+      log_mmap_entry("vnf_advance_time-us.bin", pack_sfn_slot_value(p7_info->sfn, p7_info->slot, p7_info->total_advanced_us));
     }
     sfnslot_dec = (sfnslot_dec + 1) % max_sfnslotdec;
   }

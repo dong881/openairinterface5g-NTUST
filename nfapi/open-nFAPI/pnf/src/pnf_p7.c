@@ -26,6 +26,15 @@
 #include <SCHED_NR/phy_frame_config_nr.h>
 
 extern int sf_ahead;
+extern void log_mmap_entry(const char *log_name, uint64_t value);
+
+static inline uint64_t pack_sfn_slot_value(uint16_t sfn, uint16_t slot, int32_t signed_value)
+{
+    uint64_t packed = ((uint64_t)sfn << 48) |
+                      ((uint64_t)slot << 32) |
+                      ((uint32_t)signed_value);
+    return packed;
+}
 // Used by the RFC3550 jitter calculation (defined later in this file)
 static inline int64_t timehr_diff_us(uint32_t time_hr_a, uint32_t time_hr_b);
 
@@ -673,14 +682,17 @@ static bool check_nr_p7_timing(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_t msg_
 	// Negative Value: Earlier than acceptable (EARLY)
 	int64_t offset = -margin;
 
-	// Update Latest Delay (Max Positive Offset)
-	if (offset > *latest_delay) {
-		*latest_delay = (int32_t)offset;
-	}
+	if (diff_slots >= -4 && diff_slots <= 40) {
+		// Log margin value for analysis (packed with frame/slot in top bits)
+		log_mmap_entry("pnf_timing_window-us.bin", pack_sfn_slot_value(msg_sfn, msg_slot, (int32_t)margin));
+		if (offset > *latest_delay) {
+			*latest_delay = (int32_t)offset;
+		}
 
-	// Update Earliest Arrival (Min Negative Offset)
-	if (offset < *earliest_arrival) {
-		*earliest_arrival = (int32_t)offset;
+		// Update Earliest Arrival (Min Negative Offset)
+		if (offset < *earliest_arrival) {
+			*earliest_arrival = (int32_t)offset;
+		}
 	}
 
 	if (margin < 0 || margin > (int64_t)pnf_p7->timing_window) {

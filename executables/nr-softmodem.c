@@ -53,6 +53,30 @@ unsigned short config_frames[4] = {2,9,11,13};
 #include "executables/softmodem-common.h"
 #include "gnb_config.h"
 #include "gnb_paramdef.h"
+static volatile sig_atomic_t mmap_logging_enabled = 0;
+static volatile sig_atomic_t mmap_logs_initialized = 0;
+static pthread_mutex_t mmap_logger_init_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void enable_all_mmap_logs(void);
+void disable_all_mmap_logs(void);
+
+static void mmap_logging_signal_handler(int sig)
+{
+  if (sig != SIGUSR1)
+    return;
+
+  if (!mmap_logging_enabled) {
+    if (mmap_logs_initialized) enable_all_mmap_logs();
+    mmap_logging_enabled = 1;
+    (void)write(STDOUT_FILENO, "[LOG] mmap logging enabled\n", 27);
+  } else {
+    mmap_logging_enabled = 0;
+    if (mmap_logs_initialized) disable_all_mmap_logs();
+    (void)write(STDOUT_FILENO, "[LOG] mmap logging disabled\n", 28);
+  }
+}
+void cleanup_mmap_logger(void);
+
 #include "intertask_interface.h"
 #include "nfapi/oai_integration/vendor_ext.h"
 #include "nfapi_nr_interface_scf.h"
@@ -162,8 +186,10 @@ void exit_function(const char *file, const char *function, const int line, const
   oai_exit = 1;
 
   if (assert) {
+    cleanup_mmap_logger(); // Cleanup mmap logs before aborting
     abort();
   } else {
+    cleanup_mmap_logger(); // Cleanup mmap logs before exiting cleanly
     sleep(1); // allow nr-softmodem threads to exit first
     exit(EXIT_SUCCESS);
   }
@@ -496,6 +522,448 @@ static void initialize_agent(ngran_node_t node_type, e2_agent_args_t oai_args)
 
 void init_eNB_afterRU(void);
 configmodule_interface_t *uniqCfg = NULL;
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <time.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <pthread.h>
+#include <signal.h>
+#include <dirent.h>
+
+// Log file parameters
+// Set to 50MB per split file
+#define SPLIT_LOG_SIZE (50 * 1024 * 1024)
+#define MAX_LOG_FILES 32
+#define MAX_SPLIT_INDEX 999
+#define LOG_OUTPUT_DIR "logs"
+#define LOG_HASH_SIZE 32
+
+typedef struct {
+  char base_filename[64];
+  char current_filepath[128];
+  char *log_ptr;
+  size_t log_offset;
+  size_t current_log_size;
+  int log_fd;
+  int is_active;
+  int current_split_index;
+  pthread_spinlock_t lock;
+} mmap_log_file_t;
+
+static mmap_log_file_t log_files[MAX_LOG_FILES] = {0};
+static int num_log_files = 0;
+static int log_dir_created = 0;
+static int log_hash_table[LOG_HASH_SIZE];
+static int log_hash_initialized = 0;
+
+// Cleanup function prototype
+void cleanup_mmap_logger(void);
+
+// Simple hash function for filename lookup
+static inline unsigned int hash_filename(const char *name)
+{
+  unsigned int h = 5381;
+  while (*name)
+    h = ((h << 5) + h) + (unsigned char)*name++;
+  return h % LOG_HASH_SIZE;
+}
+
+// Fast log ID lookup with thread-local cache
+static inline int find_log_id(const char *log_name)
+{
+  static __thread const char *cached_name = NULL;
+  static __thread int cached_id = -1;
+
+  // Fast path: pointer comparison for repeated calls
+  if (cached_name == log_name)
+    return cached_id;
+
+  // Hash lookup
+  unsigned int h = hash_filename(log_name);
+  int id = log_hash_table[h];
+
+  if (id >= 0 && id < num_log_files &&
+      strcmp(log_files[id].base_filename, log_name) == 0) {
+    cached_name = log_name;
+    cached_id = id;
+    return id;
+  }
+
+  // Linear search fallback for hash collisions
+  for (int i = 0; i < num_log_files; i++) {
+    if (strcmp(log_files[i].base_filename, log_name) == 0) {
+      cached_name = log_name;
+      cached_id = i;
+      return i;
+    }
+  }
+  return -1;
+}
+
+// Helper function to create log directory
+static int create_log_directory(void)
+{
+  struct stat st = {0};
+  if (stat(LOG_OUTPUT_DIR, &st) == -1) {
+    if (mkdir(LOG_OUTPUT_DIR, 0755) == -1) {
+      fprintf(stderr, "Failed to create log directory: %s\n", LOG_OUTPUT_DIR);
+      return -1;
+    }
+  }
+  return 0;
+}
+
+// Helper function to clear log directory
+static void clear_log_directory(void)
+{
+  DIR *dir = opendir(LOG_OUTPUT_DIR);
+  if (dir) {
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+      // Skip current and parent directories
+      if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+        continue;
+        
+      char buf[512];
+      snprintf(buf, sizeof(buf), "%s/%s", LOG_OUTPUT_DIR, ent->d_name);
+      unlink(buf);
+    }
+    closedir(dir);
+  }
+}
+
+// Helper function to detect .bin extension on base filenames
+static int has_bin_extension(const char *filename)
+{
+  size_t len = strlen(filename);
+  return len > 4 && strcmp(filename + len - 4, ".bin") == 0;
+}
+
+// Helper function to find the next available split index
+static int find_next_split_index(const char *base_filename)
+{
+  char filepath[128];
+  struct stat st;
+  int index = 0;
+  // Find the first non-existing file index
+  while (index <= MAX_SPLIT_INDEX) {
+    if (has_bin_extension(base_filename)) {
+      char base_no_ext[64];
+      size_t len = strlen(base_filename);
+      strncpy(base_no_ext, base_filename, len - 4);
+      base_no_ext[len - 4] = '\0';
+      snprintf(filepath, sizeof(filepath), "%s/%s.%03d.bin", LOG_OUTPUT_DIR, base_no_ext, index);
+    } else {
+      snprintf(filepath, sizeof(filepath), "%s/%s.%03d", LOG_OUTPUT_DIR, base_filename, index);
+    }
+
+    if (stat(filepath, &st) == -1) {
+      break; // File doesn't exist, use this index
+    }
+    index++;
+  }
+  return index;
+}
+
+// Helper function to generate split filename
+static void generate_split_filename(char *dest, size_t dest_size,
+                                    const char *base_filename, int split_index)
+{
+  if (has_bin_extension(base_filename)) {
+    char base_no_ext[64];
+    size_t len = strlen(base_filename);
+    strncpy(base_no_ext, base_filename, len - 4);
+    base_no_ext[len - 4] = '\0';
+    snprintf(dest, dest_size, "%s/%s.%03d.bin", LOG_OUTPUT_DIR, base_no_ext, split_index);
+  } else {
+    snprintf(dest, dest_size, "%s/%s.%03d", LOG_OUTPUT_DIR, base_filename, split_index);
+  }
+}
+
+// Helper function to finalize current split file - always truncate to actual size
+static void finalize_current_split(mmap_log_file_t *log)
+{
+  if (log->log_ptr != NULL && log->log_ptr != MAP_FAILED) {
+    if (log->log_offset > 0)
+      msync(log->log_ptr, log->log_offset, MS_SYNC);
+    munmap(log->log_ptr, log->current_log_size);
+    log->log_ptr = NULL;
+  }
+
+  if (log->log_fd != -1) {
+    // Always truncate to actual written size (removes pre-allocated space)
+    (void)ftruncate(log->log_fd, log->log_offset);
+    close(log->log_fd);
+    log->log_fd = -1;
+  }
+}
+
+// Helper function to open a new split file
+static int open_new_split(mmap_log_file_t *log)
+{
+  generate_split_filename(log->current_filepath, sizeof(log->current_filepath),
+                          log->base_filename, log->current_split_index);
+
+  log->log_fd = open(log->current_filepath, O_RDWR | O_CREAT | O_TRUNC, 0644);
+  if (log->log_fd == -1) {
+    fprintf(stderr, "Failed to open %s\n", log->current_filepath);
+    return -1;
+  }
+
+  log->current_log_size = SPLIT_LOG_SIZE;
+  if (ftruncate(log->log_fd, log->current_log_size) == -1) {
+    fprintf(stderr, "ftruncate failed for %s\n", log->current_filepath);
+    close(log->log_fd);
+    log->log_fd = -1;
+    return -1;
+  }
+
+  log->log_ptr = mmap(NULL, log->current_log_size, PROT_READ | PROT_WRITE,
+                      MAP_SHARED, log->log_fd, 0);
+  if (log->log_ptr == MAP_FAILED) {
+    fprintf(stderr, "mmap failed for %s\n", log->current_filepath);
+    close(log->log_fd);
+    log->log_fd = -1;
+    log->log_ptr = NULL;
+    return -1;
+  }
+
+  log->log_offset = 0;
+  return 0;
+}
+
+// Helper function to rotate to next split file
+static int rotate_log_file(mmap_log_file_t *log)
+{
+  finalize_current_split(log);
+
+  log->current_split_index++;
+  if (log->current_split_index > MAX_SPLIT_INDEX) {
+    fprintf(stderr, "Maximum split files reached for %s\n", log->base_filename);
+    log->is_active = 0;
+    return -1;
+  }
+
+  return open_new_split(log);
+}
+
+void init_mmap_logger(const char *filename)
+{
+  if (num_log_files >= MAX_LOG_FILES) {
+    fprintf(stderr, "Maximum number of log files reached\n");
+    return;
+  }
+
+  // Initialize hash table on first call
+  if (!log_hash_initialized) {
+    for (int i = 0; i < LOG_HASH_SIZE; i++)
+      log_hash_table[i] = -1;
+    log_hash_initialized = 1;
+  }
+
+  // Create log directory on first initialization
+  if (!log_dir_created) {
+    if (create_log_directory() == -1) {
+      return;
+    }
+    clear_log_directory();
+    log_dir_created = 1;
+  }
+
+  // Register atexit cleanup (only once)
+  // Note: Don't set our own signal handler - OAI's set_softmodem_sighandler()
+  // will override it. OAI's signal_handler calls exit() which invokes atexit handlers.
+  static int cleanup_registered = 0;
+  if (!cleanup_registered) {
+    atexit(cleanup_mmap_logger);
+    cleanup_registered = 1;
+  }
+
+  int log_id = num_log_files;
+  mmap_log_file_t *log = &log_files[log_id];
+
+  if (pthread_spin_init(&log->lock, PTHREAD_PROCESS_PRIVATE) != 0) {
+    fprintf(stderr, "Spinlock init failed\n");
+    return;
+  }
+
+  strncpy(log->base_filename, filename, sizeof(log->base_filename) - 1);
+  log->base_filename[sizeof(log->base_filename) - 1] = '\0';
+
+  // Find the next available split index to avoid overwriting existing files
+  log->current_split_index = find_next_split_index(filename);
+  log->log_offset = 0;
+  log->is_active = 1;
+
+  if (open_new_split(log) == -1) {
+    pthread_spin_destroy(&log->lock);
+    return;
+  }
+
+  // Register in hash table
+  unsigned int h = hash_filename(filename);
+  log_hash_table[h] = log_id;
+
+  num_log_files++;
+}
+
+/*
+ * Python Script to Parse Binary Log:
+ * 
+ * import struct
+ * import os
+ * 
+ * # Each value is stored as an 8-byte signed integer (64-bit long)
+ * filename = "logs/your_log_name.000"
+ * filesize = os.path.getsize(filename)
+ * num_elements = filesize // 8
+ * 
+ * with open(filename, "rb") as f:
+ *     # '<' stands for little-endian, 'q' stands for 64-bit signed integer (long long)
+ *     # If you recorded a tuple like (value, size) you could use '<qq'
+ *     data = struct.unpack(f"<{num_elements}q", f.read())
+ * 
+ * print(data[:10]) # Print first 10 recorded values
+ */
+static void init_mmap_logs_by_mode(void);
+
+static void ensure_mmap_logs_initialized(void)
+{
+  if (!mmap_logs_initialized) {
+    pthread_mutex_lock(&mmap_logger_init_mutex);
+    if (!mmap_logs_initialized) {
+      init_mmap_logs_by_mode();
+      mmap_logs_initialized = 1;
+    }
+    pthread_mutex_unlock(&mmap_logger_init_mutex);
+  }
+}
+
+void log_mmap_entry(const char *log_name, uint64_t value)
+{
+  if (!mmap_logging_enabled)
+    return;
+
+  ensure_mmap_logs_initialized();
+  int log_id = find_log_id(log_name);
+  if (log_id < 0 || !log_files[log_id].is_active)
+    return;
+
+  mmap_log_file_t *log = &log_files[log_id];
+
+  pthread_spin_lock(&log->lock);
+
+  if (log->log_ptr == NULL || log->log_ptr == MAP_FAILED) {
+    pthread_spin_unlock(&log->lock);
+    return;
+  }
+
+  if ((log->current_log_size - log->log_offset) < sizeof(uint64_t)) {
+    if (rotate_log_file(log) == -1) {
+      pthread_spin_unlock(&log->lock);
+      return;
+    }
+  }
+
+  // Write raw binary data directly to eliminate string conversion overhead entirely.
+  *(uint64_t *)(log->log_ptr + log->log_offset) = value;
+  log->log_offset += sizeof(uint64_t);
+
+  pthread_spin_unlock(&log->lock);
+}
+
+// Cleanup function: sync, unmap, truncate
+void cleanup_mmap_logger(void)
+{
+  for (int i = 0; i < num_log_files; i++) {
+    mmap_log_file_t *log = &log_files[i];
+
+    if (log->is_active) {
+      log->is_active = 0;
+      finalize_current_split(log);
+      pthread_spin_destroy(&log->lock);
+    }
+  }
+}
+
+void disable_all_mmap_logs(void)
+{
+  for (int i = 0; i < num_log_files; i++) {
+    mmap_log_file_t *log = &log_files[i];
+
+    if (log->is_active) {
+      pthread_spin_lock(&log->lock);
+      finalize_current_split(log);
+      pthread_spin_unlock(&log->lock);
+    }
+  }
+}
+
+void enable_all_mmap_logs(void)
+{
+  for (int i = 0; i < num_log_files; i++) {
+    mmap_log_file_t *log = &log_files[i];
+
+    if (log->is_active) {
+      pthread_spin_lock(&log->lock);
+      
+      // Delete split files > 0
+      for (int j = 1; j <= log->current_split_index; j++) {
+        char filepath[128];
+        generate_split_filename(filepath, sizeof(filepath), log->base_filename, j);
+        unlink(filepath);
+      }
+      
+      log->current_split_index = 0;
+      open_new_split(log);
+
+      pthread_spin_unlock(&log->lock);
+    }
+  }
+}
+
+static void init_pnf_mmap_loggers(void)
+{
+  init_mmap_logger("pnf_timing_window-us.bin");
+  // Add PNF-only loggers here - keeps PNF changes isolated
+}
+
+static void init_vnf_mmap_loggers(void)
+{
+  init_mmap_logger("vnf_advance_time-us.bin");
+  init_mmap_logger("vnf_harq_rtt-us.bin");
+  init_mmap_logger("vnf_dl_harq_round-count.bin");
+  init_mmap_logger("vnf_dl_harq_available-count.bin");
+  init_mmap_logger("vnf_nr_ul_node_sync_offset-us.bin");
+}
+
+static void init_monolithic_mmap_loggers(void)
+{
+  // Add monolithic-only loggers here
+}
+
+static void init_mmap_logs_by_mode(void)
+{
+  nfapi_mode_t mode = NFAPI_MODE;
+  
+  // Always initialize based on mode - supports PNF, VNF, and Monolithic (Mode 0)
+  if (mode == NFAPI_MODE_PNF || mode == NFAPI_MONOLITHIC) {
+    init_pnf_mmap_loggers();
+  }
+  
+  if (mode == NFAPI_MODE_VNF || mode == NFAPI_MONOLITHIC) {
+    init_vnf_mmap_loggers();
+  }
+
+  if (mode == NFAPI_MONOLITHIC) {
+    init_monolithic_mmap_loggers();
+  }
+}
+
 int main( int argc, char **argv ) {
   int ru_id, CC_id = 0;
   start_background_system();
@@ -506,6 +974,12 @@ int main( int argc, char **argv ) {
   }
 
   set_softmodem_sighandler();
+  struct sigaction act;
+  memset(&act, 0, sizeof(act));
+  act.sa_handler = mmap_logging_signal_handler;
+  sigemptyset(&act.sa_mask);
+  act.sa_flags = SA_RESTART;
+  sigaction(SIGUSR1, &act, NULL);
 #ifdef DEBUG_CONSOLE
   setvbuf(stdout, NULL, _IONBF, 0);
   setvbuf(stderr, NULL, _IONBF, 0);
@@ -514,6 +988,8 @@ int main( int argc, char **argv ) {
   logInit();
   lock_memory_to_ram();
   get_options(uniqCfg);
+  printf("[LOG] mmap logging default is OFF. send SIGUSR1 to toggle. PID=%d\n", getpid());
+  ensure_mmap_logs_initialized();
 
   if (!has_cap_sys_nice())
     LOG_W(UTIL,

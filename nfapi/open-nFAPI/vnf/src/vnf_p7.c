@@ -2743,6 +2743,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	while (diff2 > half_wrap) diff2 -= wrap_us;
 	while (diff2 < -half_wrap) diff2 += wrap_us;
 	int32_t offset = (int32_t)((diff1 - diff2) / 2);
+	log_mmap_entry("vnf_nr_ul_node_sync_offset-us.bin", (uint64_t)(int64_t)offset);
 	
 	int32_t total_correction = offset;
 	pthread_mutex_lock(&p7_info->mutex);
@@ -2759,6 +2760,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	if (!p7_info->sync_locked) {
 		if (total_correction >= -MARGIN_TOLERANCE_US && total_correction <= MARGIN_TOLERANCE_US) {
 			p7_info->sync_locked = 1;
+			p7_info->total_advanced_us = p7_info->slot_ahead * p7_info->slot_duration_us; // Account for initial phase offset!
 		} else {
 			int32_t s_adj = 0;
 			int32_t p_adj = 0;

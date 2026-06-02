@@ -85,6 +85,7 @@ typedef struct nfapi_vnf_p7_connection_info {
 	/* Periodic sync control */
 	uint32_t sync_slot_counter;                // Counter for periodic sync
 	uint32_t sync_period_slots;                // Period between syncs (configurable)
+	int32_t total_advanced_us; // Absolute cumulative phase shift relative to initial sync
 
 	uint32_t previous_t1;
 	uint32_t previous_t2;
