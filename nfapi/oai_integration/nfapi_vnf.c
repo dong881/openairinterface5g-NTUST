@@ -1051,9 +1051,10 @@ void *vnf_timing_thread(void *arg)
     if (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL) != 0)
       continue;
     vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
-
+    pthread_mutex_lock(&p7_info->mutex);
     p7_info->sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, sfnslot_dec);
     p7_info->slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, sfnslot_dec);
+    pthread_mutex_unlock(&p7_info->mutex);
 
     if (p7_info->sync_slot_counter >= p7_info->sync_period_slots) {
       p7_info->sync_slot_counter = 0;

@@ -2721,6 +2721,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "PHY instance not found for phy_id:%d\n", ind.header.phy_id);
 		return;
 	}
+	pthread_mutex_lock(&p7_info->mutex);
 	uint32_t t4 = calculate_nr_t4(now_time_hr, p7_info->mu, p7_info->sfn, p7_info->slot, vnf_p7->slot_start_time_hr);
 	/*
 	* Time Synchronization Algorithm
@@ -2749,13 +2750,11 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	                ((uint32_t)offset)));
 	
 	int32_t total_correction = offset;
-	pthread_mutex_lock(&p7_info->mutex);
 	if (p7_info->sync_locked) {
 		// Drift Monitoring: If we are locked but the offset exceeds the locked tolerance,
 		// we must unlock and re-synchronize to avoid long-term instability.
 		if (total_correction <= -MARGIN_TOLERANCE_LOCKED_US || total_correction >= MARGIN_TOLERANCE_LOCKED_US) {
 			p7_info->sync_locked = 0;
-			total_correction = (total_correction * 8) / 10;
 			NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Drift detected (%d us). Unlocking sync for re-calibration.\n", total_correction);
 		}
 	}
