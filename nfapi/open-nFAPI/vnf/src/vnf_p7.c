@@ -2743,7 +2743,10 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	while (diff2 > half_wrap) diff2 -= wrap_us;
 	while (diff2 < -half_wrap) diff2 += wrap_us;
 	int32_t offset = (int32_t)((diff1 - diff2) / 2);
-	log_mmap_entry("vnf_nr_ul_node_sync_offset-us.bin", (uint64_t)(int64_t)offset);
+	log_mmap_entry("vnf_nr_ul_node_sync_offset-us.bin",
+	               (((uint64_t)p7_info->sfn << 48) |
+	                ((uint64_t)p7_info->slot << 32) |
+	                ((uint32_t)offset)));
 	
 	int32_t total_correction = offset;
 	pthread_mutex_lock(&p7_info->mutex);
