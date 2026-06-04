@@ -1865,7 +1865,7 @@ void configure_nr_nfapi_vnf(eth_params_t params)
 #endif
   vnf_info *vnf = calloc(1, sizeof(vnf_info));
   memset(vnf->p7_vnfs, 0, sizeof(vnf->p7_vnfs));
-  vnf->p7_vnfs[0].timing_window = 4500;
+  vnf->p7_vnfs[0].timing_window = 6500;
   vnf->p7_vnfs[0].dl_tti_timing_offset = 0;
   vnf->p7_vnfs[0].ul_tti_timing_offset = 0;
   vnf->p7_vnfs[0].ul_dci_timing_offset = 0;
