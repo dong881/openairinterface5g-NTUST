@@ -1886,8 +1886,8 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   vnf->p7_vnfs[0].ul_tti_timing_offset = 0;
   vnf->p7_vnfs[0].ul_dci_timing_offset = 0;
   vnf->p7_vnfs[0].tx_data_timing_offset = 0;
-  vnf->p7_vnfs[0].periodic_timing_enabled = 0;
-  vnf->p7_vnfs[0].aperiodic_timing_enabled = 1;
+  vnf->p7_vnfs[0].periodic_timing_enabled = 1;
+  vnf->p7_vnfs[0].aperiodic_timing_enabled = 0;
   char *env_period = getenv("OAI_PERIODIC_TIMING_PERIOD");
   if (env_period != NULL) {
     vnf->p7_vnfs[0].periodic_timing_period = atoi(env_period);
