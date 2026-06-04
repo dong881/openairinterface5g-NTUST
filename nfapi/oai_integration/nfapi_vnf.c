@@ -1023,6 +1023,14 @@ void *vnf_timing_thread(void *arg)
   p7_info->thread = pthread_self();
   p7_sync_init(p7_info);
   clock_gettime(CLOCK_MONOTONIC, &p7_info->next_slot_time);
+  char *env_offset = getenv("OAI_INITIAL_OFFSET_US");
+  if (env_offset) {
+    int32_t initial_offset_us = atoi(env_offset);
+    timespec_add_us(&p7_info->next_slot_time, initial_offset_us);
+    if (initial_offset_us > 0) {
+      usleep(initial_offset_us);
+    }
+  }
   vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
   vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
 
