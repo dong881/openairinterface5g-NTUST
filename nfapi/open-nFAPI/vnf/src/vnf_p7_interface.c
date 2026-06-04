@@ -537,6 +537,25 @@ bool nfapi_vnf_p7_tx_data_req(nfapi_vnf_p7_config_t* config, nfapi_nr_tx_data_re
 		return -1;
 
 	vnf_p7_t* vnf_p7 = (vnf_p7_t*)config;
+	
+	nfapi_vnf_p7_connection_info_t* p7_info = vnf_p7->p7_connections;
+	while (p7_info != NULL) {
+		if (p7_info->phy_id == req->header.phy_id) {
+			break;
+		}
+		p7_info = p7_info->next;
+	}
+	if (p7_info == NULL) {
+		p7_info = vnf_p7->p7_connections;
+	}
+	if (p7_info != NULL) {
+		uint32_t bytes = 0;
+		for (int i = 0; i < req->Number_of_PDUs; ++i) {
+			bytes += req->pdu_list[i].PDU_length;
+		}
+		p7_info->dl_traffic_bytes_accum += bytes;
+	}
+
   AssertFatal(config->send_p7_msg, "Function pointer must be configured|");
 	return config->send_p7_msg(vnf_p7, &req->header);
 }

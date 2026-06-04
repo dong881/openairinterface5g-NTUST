@@ -137,6 +137,13 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t DM_EWMA_jitter_pressure_ahead_us;
 	int32_t DM_EWMA_jitter_pressure_hold_ahead_us;
 	int32_t DM_EWMA_jitter_pressure_hold_slots;
+	int32_t timing_info_accum_worst_late;
+	uint32_t timing_info_accum_count;
+	uint32_t timing_info_received_count;
+	uint32_t dl_traffic_bytes_accum;
+	int32_t estimated_dl_bytes_per_slot;
+	uint16_t last_timing_info_sfn;
+	uint16_t last_timing_info_slot;
 } nfapi_vnf_p7_connection_info_t;
 
 typedef struct vnf_p7_s {

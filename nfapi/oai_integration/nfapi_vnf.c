@@ -1057,6 +1057,14 @@ void *vnf_timing_thread(void *arg)
     pthread_mutex_unlock(&p7_info->mutex);
 
     timespec_add_us(&p7_info->next_slot_time, p7_info->slot_duration_us + current_pending_us);
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    int64_t diff_ns = (p7_info->next_slot_time.tv_sec - now.tv_sec) * 1000000000LL + (p7_info->next_slot_time.tv_nsec - now.tv_nsec);
+    if (diff_ns < -5000000LL) {
+      // next_slot_time is in the past by more than 5ms!
+      // Yield CPU with a tiny sleep to prevent starvation of the SCTP/UDP network thread under extreme lag.
+      usleep(50);
+    }
     if (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL) != 0)
       continue;
     vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();

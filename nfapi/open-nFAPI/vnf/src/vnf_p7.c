@@ -300,6 +300,37 @@ static void vnf_nr_delay_management(
 		return;
 
 	int slot_duration_us = p7_info->slot_duration_us;
+
+	if (p7_info->last_timing_info_sfn == 0 && p7_info->last_timing_info_slot == 0) {
+		p7_info->last_timing_info_sfn = p7_info->sfn;
+		p7_info->last_timing_info_slot = p7_info->slot;
+	}
+
+	int32_t elapsed_timing_slots = calculate_slot_distance(
+		p7_info->sfn,
+		p7_info->slot,
+		p7_info->last_timing_info_sfn,
+		p7_info->last_timing_info_slot,
+		10 << p7_info->mu
+	);
+	if (elapsed_timing_slots <= 0) {
+		elapsed_timing_slots = 1;
+	}
+	p7_info->last_timing_info_sfn = p7_info->sfn;
+	p7_info->last_timing_info_slot = p7_info->slot;
+
+	uint32_t accum_bytes = p7_info->dl_traffic_bytes_accum;
+	p7_info->dl_traffic_bytes_accum = 0;
+
+	int32_t current_slot_bytes = (int32_t)(accum_bytes / elapsed_timing_slots);
+
+	p7_info->estimated_dl_bytes_per_slot = p7_ewma_step_i32(
+		p7_info->estimated_dl_bytes_per_slot,
+		current_slot_bytes,
+		32
+	);
+
+	bool is_high_load = p7_info->estimated_dl_bytes_per_slot > 1000;
 	int64_t max_s_ahead = (p7_info->timing_window / slot_duration_us)-1;
 
 	/*
@@ -1042,17 +1073,14 @@ int32_t required_jitter_risk_cnt_for_up =
 					!jitter_pressure_hold_active ||
 					p7_info->slot_ahead > jitter_unified_required_s_ahead;
 
-	bool down_allowed =
-					!up_required &&
-					debt_free &&
+	bool down_allowed = !is_high_load &&
 					enough_fresh_safe_evidence_for_down &&
 					enough_ewma_safe_margin_for_down &&
-					down_safe_after_one_slot &&
 					post_down_guarded_safe &&
 					above_jitter_floor &&
 					jitter_pressure_allows_down &&
 					jitter_hold_allows_down &&
-					p7_info->slot_ahead > 1;
+					(elapsed_slots > required_wait_slots * 5);
 
 	/*
 		* ============================================================
@@ -1108,6 +1136,13 @@ int32_t required_jitter_risk_cnt_for_up =
 
 	if (target_s_ahead < 1)
 			target_s_ahead = 1;
+
+	int32_t min_limit = is_high_load ? 8 : 4;
+	if (target_s_ahead < min_limit)
+		target_s_ahead = min_limit;
+
+	if (target_s_ahead > max_s_ahead)
+		target_s_ahead = max_s_ahead;
 
 	/*
 		* ============================================================
@@ -2751,14 +2786,20 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	
 	int32_t total_correction = offset;
 	if (p7_info->sync_locked) {
+		// Proportional micro-steering even when locked to maintain phase stability.
+		// Use a very small gain of 1/32 to smoothly handle network jitter.
+		int32_t micro_adj = total_correction / 32;
+		p7_info->pending_us -= micro_adj;
+
 		// Drift Monitoring: If we are locked but the offset exceeds the locked tolerance,
 		// we must unlock and re-synchronize to avoid long-term instability.
 		if (total_correction <= -MARGIN_TOLERANCE_LOCKED_US || total_correction >= MARGIN_TOLERANCE_LOCKED_US) {
 			p7_info->consecutive_drift_violations++;
-			if (p7_info->consecutive_drift_violations >= 3) {
+			int32_t max_violations = (p7_info->timing_info_period > 0) ? 30 : 3;
+			if (p7_info->consecutive_drift_violations >= max_violations) {
 				p7_info->sync_locked = 0;
 				p7_info->consecutive_drift_violations = 0;
-				NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Drift detected (%d us) for 3 consecutive samples. Unlocking sync for re-calibration.\n", total_correction);
+				NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Drift detected (%d us) for %d consecutive samples. Unlocking sync for re-calibration.\n", total_correction, max_violations);
 			} else {
 				NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Drift spike detected (%d us) (count: %d), ignoring spike.\n", total_correction, p7_info->consecutive_drift_violations);
 			}
@@ -2847,6 +2888,27 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		return;
 	}
 
+	nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
+
+	pthread_mutex_lock(&p7_con->mutex);
+	p7_con->timing_info_received_count++;
+
+	int32_t block_size = 1;
+	if (p7_con->sync_locked && p7_con->timing_info_received_count >= 10000) {
+		block_size = 200 / (p7_con->timing_info_period > 0 ? (int32_t)p7_con->timing_info_period : 1);
+		if (block_size < 1) block_size = 1;
+	}
+
+	if (block_size > 1) {
+		p7_con->timing_info_accum_count++;
+		if (p7_con->timing_info_accum_count < (uint32_t)block_size) {
+			// Skip unpacking and calculations to release CPU and SCTP pressure
+			pthread_mutex_unlock(&p7_con->mutex);
+			return;
+		}
+	}
+	pthread_mutex_unlock(&p7_con->mutex);
+
 	nfapi_nr_timing_info_t ind;
 	const bool result = vnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, &ind, sizeof(ind), &vnf_p7->_public.codec_config);
 	if(!result)
@@ -2854,7 +2916,6 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack timing_info\n");
 		return;
 	}
-	nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
 
 	pthread_mutex_lock(&p7_con->mutex);
 	if (!p7_con->initial_timinginfo_received) {
@@ -2870,7 +2931,19 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	if (count <= 0) {
 		return;
 	}
-	vnf_nr_delay_management(p7_con, &out_stats);
+
+	bool run_delay_mgmt = false;
+	vnf_timing_stats_t aggregated_stats = out_stats;
+
+	pthread_mutex_lock(&p7_con->mutex);
+	p7_con->timing_info_accum_count = 0;
+	p7_con->timing_info_accum_worst_late = INT32_MIN;
+	run_delay_mgmt = true;
+	pthread_mutex_unlock(&p7_con->mutex);
+
+	if (run_delay_mgmt) {
+		vnf_nr_delay_management(p7_con, &aggregated_stats);
+	}
 }
 
 void vnf_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
