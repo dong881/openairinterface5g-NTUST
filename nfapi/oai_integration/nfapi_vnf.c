@@ -1037,7 +1037,7 @@ void *vnf_timing_thread(void *arg)
     p7_info->total_advanced_us = p7_info->slot_ahead * p7_info->slot_duration_us;
     if (p7_info->slot_adjustment != 0) {
       sfnslot_dec = (sfnslot_dec + p7_info->slot_adjustment + max_sfnslotdec) % max_sfnslotdec;
-      if (p7_info->sync_locked) p7_info->total_advanced_us += p7_info->slot_adjustment;
+      if (p7_info->sync_locked) p7_info->total_advanced_us += p7_info->slot_adjustment * p7_info->slot_duration_us;
       p7_info->slot_adjustment = 0;
     }
     int32_t current_pending_us = p7_info->pending_us;
@@ -1879,7 +1879,12 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   vnf->p7_vnfs[0].tx_data_timing_offset = 0;
   vnf->p7_vnfs[0].periodic_timing_enabled = 1;
   vnf->p7_vnfs[0].aperiodic_timing_enabled = 0;
-  vnf->p7_vnfs[0].periodic_timing_period = 1;
+  char *env_period = getenv("OAI_PERIODIC_TIMING_PERIOD");
+  if (env_period != NULL) {
+    vnf->p7_vnfs[0].periodic_timing_period = atoi(env_period);
+  } else {
+    vnf->p7_vnfs[0].periodic_timing_period = 1;
+  }
   vnf->p7_vnfs[0].config = nfapi_vnf_p7_config_create();
   AssertFatal(params.remote_portc == 0 && params.remote_portd == 0, "remote ports not used, use 0\n");
 #ifndef ENABLE_AERIAL
