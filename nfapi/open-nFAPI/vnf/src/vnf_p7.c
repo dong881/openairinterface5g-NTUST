@@ -2754,14 +2754,23 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 		// Drift Monitoring: If we are locked but the offset exceeds the locked tolerance,
 		// we must unlock and re-synchronize to avoid long-term instability.
 		if (total_correction <= -MARGIN_TOLERANCE_LOCKED_US || total_correction >= MARGIN_TOLERANCE_LOCKED_US) {
-			p7_info->sync_locked = 0;
-			NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Drift detected (%d us). Unlocking sync for re-calibration.\n", total_correction);
+			p7_info->consecutive_drift_violations++;
+			if (p7_info->consecutive_drift_violations >= 3) {
+				p7_info->sync_locked = 0;
+				p7_info->consecutive_drift_violations = 0;
+				NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Drift detected (%d us) for 3 consecutive samples. Unlocking sync for re-calibration.\n", total_correction);
+			} else {
+				NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Drift spike detected (%d us) (count: %d), ignoring spike.\n", total_correction, p7_info->consecutive_drift_violations);
+			}
+		} else {
+			p7_info->consecutive_drift_violations = 0;
 		}
 	}
 
 	if (!p7_info->sync_locked) {
 		if (total_correction >= -MARGIN_TOLERANCE_US && total_correction <= MARGIN_TOLERANCE_US) {
 			p7_info->sync_locked = 1;
+			p7_info->consecutive_drift_violations = 0;
 			p7_info->total_advanced_us = p7_info->slot_ahead * p7_info->slot_duration_us; // Account for initial phase offset!
 		} else {
 			int32_t s_adj = 0;

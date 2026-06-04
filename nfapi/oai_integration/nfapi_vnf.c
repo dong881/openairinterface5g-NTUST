@@ -971,6 +971,7 @@ static inline void p7_sync_init(nfapi_vnf_p7_connection_info_t *p7_info)
 {
     p7_info->sync_slot_counter = 0;
     p7_info->sync_period_slots = P7_SYNC_PERIOD_SLOTS_DEFAULT;
+    p7_info->consecutive_drift_violations = 0;
     NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Initialized: period=%u slots\n",
                 p7_info->sync_period_slots);
 }
@@ -1429,7 +1430,7 @@ void *configure_nr_p7_vnf(void *ptr)
 #ifndef ENABLE_WLS
   // Start VNF autonomous timing thread
   pthread_t t;
-  threadCreate(&t, &vnf_timing_thread, p7_vnf, "vnf_timing", -1, OAI_PRIORITY_RT);
+  threadCreate(&t, &vnf_timing_thread, p7_vnf, "vnf_timing", -1, OAI_PRIORITY_RT + 2);
 #endif
   return 0;
 }
@@ -1885,8 +1886,8 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   vnf->p7_vnfs[0].ul_tti_timing_offset = 0;
   vnf->p7_vnfs[0].ul_dci_timing_offset = 0;
   vnf->p7_vnfs[0].tx_data_timing_offset = 0;
-  vnf->p7_vnfs[0].periodic_timing_enabled = 1;
-  vnf->p7_vnfs[0].aperiodic_timing_enabled = 0;
+  vnf->p7_vnfs[0].periodic_timing_enabled = 0;
+  vnf->p7_vnfs[0].aperiodic_timing_enabled = 1;
   char *env_period = getenv("OAI_PERIODIC_TIMING_PERIOD");
   if (env_period != NULL) {
     vnf->p7_vnfs[0].periodic_timing_period = atoi(env_period);
