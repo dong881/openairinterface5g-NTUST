@@ -529,17 +529,77 @@ static void vnf_nr_delay_management(
 	if (effective_jitter_guard_us < 0)
 			effective_jitter_guard_us = 0;
 
+	/*
+	 * ============================================================
+	 * Crisis-aware jitter scaling
+	 * ============================================================
+	 *
+	 * Goal:
+	 *   When jitter grows close to slot duration, reserve slot_ahead
+	 *   more aggressively.
+	 *
+	 * scale_q8:
+	 *   256 = 1.0x
+	 *   384 = 1.5x
+	 *   512 = 2.0x
+	 *   768 = 3.0x
+	 *   1024 = 4.0x
+	 */
+	const int32_t DM_JITTER_SCALE_BASE_Q8 = 256;
+	const int32_t DM_JITTER_SCALE_PER_SLOT_Q8 = 128;
+	const int32_t DM_JITTER_SCALE_MAX_Q8 = 1024;
+
+	int64_t jitter_slots_q8_64 = 0;
+	if (slot_duration_us > 0) {
+		jitter_slots_q8_64 =
+				((int64_t)effective_jitter_guard_us * 256 +
+				 slot_duration_us - 1) /
+				slot_duration_us;
+	}
+
+	if (jitter_slots_q8_64 > INT32_MAX)
+		jitter_slots_q8_64 = INT32_MAX;
+
+	int32_t jitter_slots_q8 = (int32_t)jitter_slots_q8_64;
+
+	int64_t crisis_scale_q8_64 =
+			(const int64_t)DM_JITTER_SCALE_BASE_Q8 +
+			((int64_t)jitter_slots_q8 *
+			 (int64_t)DM_JITTER_SCALE_PER_SLOT_Q8) / 256;
+
+	if (crisis_scale_q8_64 > DM_JITTER_SCALE_MAX_Q8)
+		crisis_scale_q8_64 = DM_JITTER_SCALE_MAX_Q8;
+
+	if (crisis_scale_q8_64 < DM_JITTER_SCALE_BASE_Q8)
+		crisis_scale_q8_64 = DM_JITTER_SCALE_BASE_Q8;
+
+	int32_t crisis_scale_q8 = (int32_t)crisis_scale_q8_64;
+
+	int64_t scaled_jitter_guard_64 =
+			((int64_t)effective_jitter_guard_us *
+			 (int64_t)crisis_scale_q8 +
+			 255) / 256;
+
+	if (scaled_jitter_guard_64 > INT32_MAX)
+		scaled_jitter_guard_64 = INT32_MAX;
+
+	if (scaled_jitter_guard_64 < 0)
+		scaled_jitter_guard_64 = 0;
+
+	int32_t scaled_jitter_guard_us =
+			(int32_t)scaled_jitter_guard_64;
+
 	int32_t persistent_failure_tail_us =
-					p7_max_i32(failure_sample_us,
-											p7_info->DM_EWMA_failure_debt_us);
+				p7_max_i32(failure_sample_us,
+							p7_info->DM_EWMA_failure_debt_us);
 
 	int32_t persistent_risk_tail_us =
-					p7_max_i32(predicted_risk_us,
-											p7_info->DM_EWMA_risk_debt_us);
+				p7_max_i32(predicted_risk_us,
+							p7_info->DM_EWMA_risk_debt_us);
 
 	int64_t deadline_tail_risk_64 =
-					(int64_t)persistent_failure_tail_us +
-					(int64_t)persistent_risk_tail_us;
+				(int64_t)persistent_failure_tail_us +
+				(int64_t)persistent_risk_tail_us;
 
 	if (deadline_tail_risk_64 > INT32_MAX)
 			deadline_tail_risk_64 = INT32_MAX;
@@ -548,11 +608,11 @@ static void vnf_nr_delay_management(
 			deadline_tail_risk_64 = 0;
 
 	int32_t deadline_tail_risk_us =
-					(int32_t)deadline_tail_risk_64;
+			(int32_t)deadline_tail_risk_64;
 
 	int64_t jitter_pressure_64 =
-					(int64_t)effective_jitter_guard_us +
-					(int64_t)deadline_tail_risk_us;
+				(int64_t)scaled_jitter_guard_us +
+				(int64_t)deadline_tail_risk_us;
 
 	if (jitter_pressure_64 > INT32_MAX)
 			jitter_pressure_64 = INT32_MAX;
@@ -567,8 +627,7 @@ static void vnf_nr_delay_management(
 		* Low-jitter base region.
 		*/
 	int32_t jitter_base_slots =
-					1 + (effective_jitter_guard_us / slot_duration_us);
-
+				1 + (scaled_jitter_guard_us / slot_duration_us);
 	if (jitter_base_slots < 1)
 			jitter_base_slots = 1;
 
@@ -589,17 +648,19 @@ static void vnf_nr_delay_management(
 		*/
 	int64_t jitter_critical_pressure_64 =
 					((int64_t)jitter_low_region_cap_slots *
-						(int64_t)slot_duration_us) +
-					((int64_t)slot_duration_us / 2);
+					(int64_t)slot_duration_us);
 
 	if (jitter_critical_pressure_64 > INT32_MAX)
-			jitter_critical_pressure_64 = INT32_MAX;
+		jitter_critical_pressure_64 = INT32_MAX;
+
+	if (jitter_critical_pressure_64 < 1)
+		jitter_critical_pressure_64 = 1;
 
 	int32_t jitter_critical_pressure_us =
-					(int32_t)jitter_critical_pressure_64;
+				(int32_t)jitter_critical_pressure_64;
 
 	int32_t jitter_cliff_excess_us =
-					jitter_pressure_us - jitter_critical_pressure_us;
+				jitter_pressure_us - jitter_critical_pressure_us;
 
 	if (jitter_cliff_excess_us < 0)
 			jitter_cliff_excess_us = 0;
@@ -876,35 +937,45 @@ static void vnf_nr_delay_management(
 							(int32_t)required_safe_cnt_64;
 	}
 
+int32_t required_jitter_risk_cnt_for_up =
+				global_ewma_beta_denom / 2;
+
+	if (required_jitter_risk_cnt_for_up < 1)
+		required_jitter_risk_cnt_for_up = 1;
+
 	bool enough_fresh_safe_evidence_for_down =
-					p7_info->DM_EWMA_safe_period_count >=
-					required_safe_cnt_for_down;
+				p7_info->DM_EWMA_safe_period_count >=
+				required_safe_cnt_for_down;
 
 	bool enough_fresh_risk_evidence_for_soft_up =
-					p7_info->DM_EWMA_risk_period_count >=
-					global_ewma_beta_denom;
+				p7_info->DM_EWMA_risk_period_count >=
+				global_ewma_beta_denom;
+
+	bool enough_fresh_jitter_evidence_for_up =
+				p7_info->DM_EWMA_risk_period_count >=
+				required_jitter_risk_cnt_for_up;
 
 	/*
-		* ============================================================
-		* Decision model
-		* ============================================================
-		*/
+	 * ============================================================
+	 * Decision model
+	 * ============================================================
+	 */
 	bool hard_up_required =
-					hard_late;
+				hard_late;
 
 	bool soft_up_required =
-					!hard_late &&
-					predicted_risk_us > 0 &&
-					!risk_debt_free &&
-					enough_fresh_risk_evidence_for_soft_up;
+				!hard_late &&
+				predicted_risk_us > 0 &&
+				!risk_debt_free &&
+				enough_fresh_risk_evidence_for_soft_up;
 
 	bool jitter_soft_up_required =
-					!hard_late &&
-					jitter_required_s_ahead > p7_info->slot_ahead &&
-					enough_fresh_risk_evidence_for_soft_up;
+				!hard_late &&
+				jitter_required_s_ahead > p7_info->slot_ahead &&
+				enough_fresh_jitter_evidence_for_up;
 
 	bool up_required =
-					hard_up_required ||
+				hard_up_required ||
 					soft_up_required ||
 					jitter_soft_up_required;
 
@@ -2678,8 +2749,10 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	if (p7_info->sync_locked) {
 		// Drift Monitoring: If we are locked but the offset exceeds the locked tolerance,
 		// we must unlock and re-synchronize to avoid long-term instability.
-		if (total_correction < -MARGIN_TOLERANCE_LOCKED_US || total_correction > MARGIN_TOLERANCE_LOCKED_US) {
+		if (total_correction <= -MARGIN_TOLERANCE_LOCKED_US || total_correction >= MARGIN_TOLERANCE_LOCKED_US) {
 			p7_info->sync_locked = 0;
+			total_correction = (total_correction * 8) / 10;
+			NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Drift detected (%d us). Unlocking sync for re-calibration.\n", total_correction);
 		}
 	}
 
@@ -2687,10 +2760,35 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 		if (total_correction >= -MARGIN_TOLERANCE_US && total_correction <= MARGIN_TOLERANCE_US) {
 			p7_info->sync_locked = 1;
 		} else {
-			int32_t slot_adj = total_correction / (int32_t)p7_info->slot_duration_us;
-			int32_t us_adj = total_correction % (int32_t)p7_info->slot_duration_us;
-			p7_info->slot_adjustment += slot_adj;
-			p7_info->us_adjustment -= us_adj;
+			int32_t s_adj = 0;
+			int32_t p_adj = 0;
+
+			// Symmetrically constrain massive synchronization jumps to prevent system crashes 
+			// from single-packet network jitter and to safely respect the MAC burst boundaries.
+			int32_t capped_correction = total_correction;
+			int32_t max_total_cap = 5 * (int32_t)p7_info->slot_duration_us;
+			if (capped_correction > max_total_cap) capped_correction = max_total_cap;
+			if (capped_correction < -max_total_cap) capped_correction = -max_total_cap;
+
+			// Check for both VNF being too fast AND too slow (the original code ignored positive s_adj)
+			if (capped_correction <= -(int32_t)p7_info->slot_duration_us || capped_correction >= (int32_t)p7_info->slot_duration_us) {
+				s_adj = capped_correction / (int32_t)p7_info->slot_duration_us;
+				p_adj = capped_correction - (s_adj * (int32_t)p7_info->slot_duration_us);
+			} else {
+				// Proportional control with fixed gain of 8 for stability
+				p_adj = capped_correction / 8;
+				// Ensure at least minimal adjustment to prevent settling with an offset
+				if (p_adj == 0 && capped_correction != 0) {
+					p_adj = (capped_correction > 0) ? 1 : -1;
+				}
+			}
+
+			int32_t max_p_adj = 10 * p7_info->slot_duration_us;
+			if (p_adj > max_p_adj) p_adj = max_p_adj;
+			if (p_adj < -max_p_adj) p_adj = -max_p_adj;
+
+			p7_info->slot_adjustment += s_adj;
+			p7_info->pending_us -= p_adj;
 		}
 	}
 	pthread_mutex_unlock(&p7_info->mutex);

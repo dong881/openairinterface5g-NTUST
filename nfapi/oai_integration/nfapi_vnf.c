@@ -1058,27 +1058,19 @@ void *vnf_timing_thread(void *arg)
 
     int diff_mac = (target_ind_dec - last_mac_ind_dec + max_sfnslotdec) % max_sfnslotdec;
     if (diff_mac > 0 && diff_mac < max_sfnslotdec / 2) {
-      if (!p7_info->sync_locked || diff_mac > extreme_gap_threshold) {
-        if (p7_info->sync_locked) {
-          NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Extreme VNF gap (%d slots). Jumping to latest to avoid deadlock.\n", diff_mac);
-        }
-        last_mac_ind_dec = target_ind_dec;
+      // NEVER skip slots! Skipping slots breaks MAC scheduling (e.g. RACH, HARQ timing assertions) and drops UE.
+      // Catch up in smooth bursts up to MAX_BURST. If a huge drift happens during iperf CPU starvation, 
+      // generating backlog sequentially is much safer than jumping.
+      int burst_counter = 0;
+      const int MAX_BURST = 5; // Allow a slightly larger burst to recover efficiently 
+      while (last_mac_ind_dec != target_ind_dec && burst_counter < MAX_BURST) {
+        last_mac_ind_dec = (last_mac_ind_dec + 1) % max_sfnslotdec;
         nfapi_nr_slot_indication_scf_t ind = {0};
         ind.sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, last_mac_ind_dec);
         ind.slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, last_mac_ind_dec);
         ind.header.phy_id = p7_info->phy_id;
         phy_nr_slot_indication(&ind);
-      } else {
-        int burst_counter = 0;
-        while (last_mac_ind_dec != target_ind_dec && burst_counter < P7_SYNC_MAX_CATCHUP_BURST) {
-          last_mac_ind_dec = (last_mac_ind_dec + 1) % max_sfnslotdec;
-          nfapi_nr_slot_indication_scf_t ind = {0};
-          ind.sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, last_mac_ind_dec);
-          ind.slot = NFAPI_SFNSLOTDEC2SLOT(p7_info->mu, last_mac_ind_dec);
-          ind.header.phy_id = p7_info->phy_id;
-          phy_nr_slot_indication(&ind);
-          burst_counter++;
-        }
+        burst_counter++;
       }
     }
     sfnslot_dec = (sfnslot_dec + 1) % max_sfnslotdec;
