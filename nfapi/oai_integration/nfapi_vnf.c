@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <pthread.h>
+#include <sched.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <sys/socket.h>
@@ -1062,8 +1063,8 @@ void *vnf_timing_thread(void *arg)
     int64_t diff_ns = (p7_info->next_slot_time.tv_sec - now.tv_sec) * 1000000000LL + (p7_info->next_slot_time.tv_nsec - now.tv_nsec);
     if (diff_ns < -5000000LL) {
       // next_slot_time is in the past by more than 5ms!
-      // Yield CPU with a tiny sleep to prevent starvation of the SCTP/UDP network thread under extreme lag.
-      usleep(50);
+      // Yield CPU to prevent starvation of the SCTP/UDP network thread under extreme lag.
+      sched_yield();
     }
     if (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &p7_info->next_slot_time, NULL) != 0)
       continue;
@@ -1091,7 +1092,7 @@ void *vnf_timing_thread(void *arg)
       // Catch up in smooth bursts up to MAX_BURST. If a huge drift happens during iperf CPU starvation, 
       // generating backlog sequentially is much safer than jumping.
       int burst_counter = 0;
-      const int MAX_BURST = 5; // Allow a slightly larger burst to recover efficiently 
+      const int MAX_BURST = 20; // Allow a larger burst to recover efficiently
       while (last_mac_ind_dec != target_ind_dec && burst_counter < MAX_BURST) {
         last_mac_ind_dec = (last_mac_ind_dec + 1) % max_sfnslotdec;
         nfapi_nr_slot_indication_scf_t ind = {0};
@@ -1426,7 +1427,7 @@ void *configure_nr_p7_vnf(void *ptr)
   p7_vnf->config->pack_func = &nfapi_nr_p7_message_pack;
   p7_vnf->config->send_p7_msg = &vnf_nr_send_p7_msg;
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Creating VNF NFAPI P7 start thread %s\n", __FUNCTION__);
-  threadCreate(&vnf_p7_start_pthread, &vnf_nr_start_p7_thread, p7_vnf->config, "vnf_p7_thread", -1, OAI_PRIORITY_RT);
+  threadCreate(&vnf_p7_start_pthread, &vnf_nr_start_p7_thread, p7_vnf->config, "vnf_p7_thread", 14, OAI_PRIORITY_RT);
 #endif
 
 #ifdef ENABLE_AERIAL
@@ -1438,7 +1439,7 @@ void *configure_nr_p7_vnf(void *ptr)
 #ifndef ENABLE_WLS
   // Start VNF autonomous timing thread
   pthread_t t;
-  threadCreate(&t, &vnf_timing_thread, p7_vnf, "vnf_timing", -1, OAI_PRIORITY_RT + 2);
+  threadCreate(&t, &vnf_timing_thread, p7_vnf, "vnf_timing", 15, OAI_PRIORITY_RT_MAX);
 #endif
   return 0;
 }
@@ -1487,7 +1488,7 @@ int pnf_nr_start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_pnf_st
 
   if(p7_vnf->thread_started == 0) {
     pthread_t vnf_p7_thread;
-    threadCreate(&vnf_p7_thread, &configure_nr_p7_vnf, p7_vnf, "vnf_p7_thread", -1, OAI_PRIORITY_RT);
+    threadCreate(&vnf_p7_thread, &configure_nr_p7_vnf, p7_vnf, "vnf_p7_thread", 14, OAI_PRIORITY_RT);
     p7_vnf->thread_started = 1;
   } else {
     // P7 thread already running.
