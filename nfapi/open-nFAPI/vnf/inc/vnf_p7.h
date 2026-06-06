@@ -17,8 +17,8 @@
  * DYNAMIC SLOT SLEEP TIMING CONTROL CONSTANTS
  * ============================================================================ */
 /* Dynamic Target Margin (adaptive to avoid late packets) */
-#define MARGIN_TOLERANCE_US     500    // Deadband zone: +/- MARGIN_TOLERANCE_US us
-#define MARGIN_TOLERANCE_LOCKED_US 500    // Wider deadband zone used after first sync lock
+#define MARGIN_TOLERANCE_US     100    // Target lock threshold
+#define MARGIN_TOLERANCE_LOCKED_US 500    // Smoothed drift unlock threshold
 #define SLOT_ARRAY_SIZE         20    // TDD cycle slot count (Reduced to 20 for faster convergence)
 
 typedef struct {

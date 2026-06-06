@@ -2811,7 +2811,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 			p7_info->sync_locked = 0;
 			p7_info->consecutive_drift_violations = 0;
 			NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Massive raw drift detected (%d us). Unlocking sync immediately.\n", total_correction);
-		} else if (p7_info->nr_offset_filtered <= -200 || p7_info->nr_offset_filtered >= 200) {
+		} else if (p7_info->nr_offset_filtered <= -MARGIN_TOLERANCE_LOCKED_US || p7_info->nr_offset_filtered >= MARGIN_TOLERANCE_LOCKED_US) {
 			// 2. Persistent smoothed drift: unlock after 3 consecutive samples
 			p7_info->consecutive_drift_violations++;
 			if (p7_info->consecutive_drift_violations >= 3) {
@@ -2829,9 +2829,9 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	}
 
 	if (!p7_info->sync_locked) {
-		// Lock when BOTH raw offset and smoothed offset are within lock tolerance (100 us)
-		if (total_correction >= -100 && total_correction <= 100 &&
-		    p7_info->nr_offset_filtered >= -100 && p7_info->nr_offset_filtered <= 100) {
+		// Lock when BOTH raw offset and smoothed offset are within lock tolerance
+		if (total_correction >= -MARGIN_TOLERANCE_US && total_correction <= MARGIN_TOLERANCE_US &&
+		    p7_info->nr_offset_filtered >= -MARGIN_TOLERANCE_US && p7_info->nr_offset_filtered <= MARGIN_TOLERANCE_US) {
 			p7_info->sync_locked = 1;
 			p7_info->consecutive_drift_violations = 0;
 			p7_info->total_advanced_us = p7_info->slot_ahead * p7_info->slot_duration_us;
