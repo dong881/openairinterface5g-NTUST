@@ -144,6 +144,7 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t estimated_dl_bytes_per_slot;
 	uint16_t last_timing_info_sfn;
 	uint16_t last_timing_info_slot;
+	int32_t nr_offset_filtered;
 } nfapi_vnf_p7_connection_info_t;
 
 typedef struct vnf_p7_s {

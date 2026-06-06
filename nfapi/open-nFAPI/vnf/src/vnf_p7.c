@@ -331,7 +331,7 @@ static void vnf_nr_delay_management(
 	);
 
 	bool is_high_load = p7_info->estimated_dl_bytes_per_slot > 1000;
-	int64_t max_s_ahead = (p7_info->timing_window / slot_duration_us)-1;
+	int64_t max_s_ahead = 8;
 
 	/*
 		* ============================================================
@@ -2785,23 +2785,43 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	                ((uint32_t)offset)));
 	
 	int32_t total_correction = offset;
+
+	// Update 5G NR filtered offset (EWMA with alpha = 1/8)
+	if (p7_info->nr_offset_filtered == 0) {
+		p7_info->nr_offset_filtered = total_correction;
+	} else {
+		p7_info->nr_offset_filtered = (p7_info->nr_offset_filtered * 7 + total_correction) / 8;
+	}
+
 	if (p7_info->sync_locked) {
-		// Proportional micro-steering even when locked to maintain phase stability.
-		// Use a very small gain of 1/32 to smoothly handle network jitter.
-		int32_t micro_adj = total_correction / 32;
+		// Proportional micro-steering.
+		// Use gain 1/16 if |total_correction| > 100 to converge faster.
+		// Use gain 1/32 if |total_correction| <= 100 for stability.
+		int32_t micro_adj = 0;
+		if (total_correction > 100 || total_correction < -100) {
+			micro_adj = total_correction / 16;
+		} else {
+			micro_adj = total_correction / 32;
+		}
 		p7_info->pending_us -= micro_adj;
 
-		// Drift Monitoring: If we are locked but the offset exceeds the locked tolerance,
-		// we must unlock and re-synchronize to avoid long-term instability.
-		if (total_correction <= -MARGIN_TOLERANCE_LOCKED_US || total_correction >= MARGIN_TOLERANCE_LOCKED_US) {
+		// Drift Monitoring
+		if (total_correction <= -1000 || total_correction >= 1000) {
+			// 1. Massive raw drift: unlock immediately
+			p7_info->sync_locked = 0;
+			p7_info->consecutive_drift_violations = 0;
+			NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Massive raw drift detected (%d us). Unlocking sync immediately.\n", total_correction);
+		} else if (p7_info->nr_offset_filtered <= -200 || p7_info->nr_offset_filtered >= 200) {
+			// 2. Persistent smoothed drift: unlock after 3 consecutive samples
 			p7_info->consecutive_drift_violations++;
-			int32_t max_violations = (p7_info->timing_info_period > 0) ? 30 : 3;
-			if (p7_info->consecutive_drift_violations >= max_violations) {
+			if (p7_info->consecutive_drift_violations >= 3) {
 				p7_info->sync_locked = 0;
 				p7_info->consecutive_drift_violations = 0;
-				NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Drift detected (%d us) for %d consecutive samples. Unlocking sync for re-calibration.\n", total_correction, max_violations);
+				NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Persistent smoothed drift detected (%d us, raw: %d us). Unlocking sync for re-calibration.\n",
+				            p7_info->nr_offset_filtered, total_correction);
 			} else {
-				NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Drift spike detected (%d us) (count: %d), ignoring spike.\n", total_correction, p7_info->consecutive_drift_violations);
+				NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Smoothed drift warning (%d us, raw: %d us) (count: %d), waiting to confirm.\n",
+				            p7_info->nr_offset_filtered, total_correction, p7_info->consecutive_drift_violations);
 			}
 		} else {
 			p7_info->consecutive_drift_violations = 0;
@@ -2809,29 +2829,30 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	}
 
 	if (!p7_info->sync_locked) {
-		if (total_correction >= -MARGIN_TOLERANCE_US && total_correction <= MARGIN_TOLERANCE_US) {
+		// Lock when BOTH raw offset and smoothed offset are within lock tolerance (100 us)
+		if (total_correction >= -100 && total_correction <= 100 &&
+		    p7_info->nr_offset_filtered >= -100 && p7_info->nr_offset_filtered <= 100) {
 			p7_info->sync_locked = 1;
 			p7_info->consecutive_drift_violations = 0;
-			p7_info->total_advanced_us = p7_info->slot_ahead * p7_info->slot_duration_us; // Account for initial phase offset!
+			p7_info->total_advanced_us = p7_info->slot_ahead * p7_info->slot_duration_us;
+			NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Sync locked successfully (offset: %d us, smoothed: %d us).\n",
+			            total_correction, p7_info->nr_offset_filtered);
 		} else {
 			int32_t s_adj = 0;
 			int32_t p_adj = 0;
 
-			// Symmetrically constrain massive synchronization jumps to prevent system crashes 
-			// from single-packet network jitter and to safely respect the MAC burst boundaries.
+			// Symmetrically constrain massive synchronization jumps to prevent system crashes
 			int32_t capped_correction = total_correction;
 			int32_t max_total_cap = 5 * (int32_t)p7_info->slot_duration_us;
 			if (capped_correction > max_total_cap) capped_correction = max_total_cap;
 			if (capped_correction < -max_total_cap) capped_correction = -max_total_cap;
 
-			// Check for both VNF being too fast AND too slow (the original code ignored positive s_adj)
 			if (capped_correction <= -(int32_t)p7_info->slot_duration_us || capped_correction >= (int32_t)p7_info->slot_duration_us) {
 				s_adj = capped_correction / (int32_t)p7_info->slot_duration_us;
 				p_adj = capped_correction - (s_adj * (int32_t)p7_info->slot_duration_us);
 			} else {
-				// Proportional control with fixed gain of 8 for stability
-				p_adj = capped_correction / 8;
-				// Ensure at least minimal adjustment to prevent settling with an offset
+				// Proportional control with gain of 4 for faster unlocked convergence (was 8)
+				p_adj = capped_correction / 4;
 				if (p_adj == 0 && capped_correction != 0) {
 					p_adj = (capped_correction > 0) ? 1 : -1;
 				}

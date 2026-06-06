@@ -964,7 +964,7 @@ static inline uint64_t pack_sfn_slot_value(uint16_t sfn, uint16_t slot, int32_t 
                       ((uint32_t)signed_value);
     return packed;
 }
-#define P7_SYNC_PERIOD_SLOTS_DEFAULT 2000
+#define P7_SYNC_PERIOD_SLOTS_DEFAULT 80
 #define P7_SYNC_MAX_CATCHUP_BURST 2
 int vnf_nr_build_send_dl_node_sync(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info);
 
@@ -973,6 +973,7 @@ static inline void p7_sync_init(nfapi_vnf_p7_connection_info_t *p7_info)
     p7_info->sync_slot_counter = 0;
     p7_info->sync_period_slots = P7_SYNC_PERIOD_SLOTS_DEFAULT;
     p7_info->consecutive_drift_violations = 0;
+    p7_info->nr_offset_filtered = 0;
     NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Initialized: period=%u slots\n",
                 p7_info->sync_period_slots);
 }
@@ -990,9 +991,12 @@ void *vnf_timing_thread(void *arg)
     if (nr_start_resp_received) {
       if (vnf_p7->p7_connections) {
         p7_info = vnf_p7->p7_connections;
+        LOG_I(NFAPI_VNF, "Timing thread: p7_connections active, RC.nrmac=%p\n", RC.nrmac);
         if (RC.nrmac && RC.nrmac[0]) {
           nfapi_nr_config_request_scf_t *req = &RC.nrmac[0]->config[0];
           const nfapi_uint8_tlv_t *scs = &req->ssb_config.scs_common;
+          LOG_I(NFAPI_VNF, "Timing thread: RC.nrmac[0]=%p, scs_common tag=%d (expected %d), value=%d\n",
+                RC.nrmac[0], scs->tl.tag, NFAPI_NR_CONFIG_SCS_COMMON_TAG, scs->value);
           if (scs && scs->tl.tag == NFAPI_NR_CONFIG_SCS_COMMON_TAG) {
             mu = scs->value;
           }
@@ -1002,6 +1006,8 @@ void *vnf_timing_thread(void *arg)
         }
         if (mu >= 0)
           break;
+      } else {
+        LOG_I(NFAPI_VNF, "Timing thread: nr_start_resp_received is 1 but vnf_p7->p7_connections is NULL\n");
       }
     }
     usleep(1000000);
