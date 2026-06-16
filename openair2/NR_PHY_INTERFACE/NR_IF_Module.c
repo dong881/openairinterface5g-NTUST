@@ -125,6 +125,75 @@ static bool crc_sfn_slot_matcher(void *wanted, void *candidate)
   return false;
 }
 
+/* Orphan-indication eviction.
+ *
+ * RX_DATA.indication and CRC.indication for the same PUSCH are two separate
+ * P7/UDP datagrams and can be lost independently. NR_UL_indication only
+ * consumes an rx_ind once its partner crc_ind (same SFN/slot) is present (and
+ * vice-versa), so a half-delivered pair leaves an orphan that is never
+ * matched. The gnb_rx_ind_queue / gnb_crc_ind_queue are fixed-size
+ * (MAX_QUEUE_SIZE) and have no age bound, so under any packet loss these
+ * orphans accumulate until put_queue() starts dropping *fresh* indications ->
+ * escalating UL loss -> link collapse. Evict anything older than a couple of
+ * frames (one frame = 10ms, far beyond any UL HARQ feedback timeline) so a
+ * lost partner costs a single DTX slot instead of the whole link. */
+#define NR_NUM_SFN 1024 /* NR system frame number range 0..1023 */
+#define STALE_INDICATION_FRAMES 2
+
+struct stale_ind_ctx {
+  int cur_sfn;
+  uint16_t msg_type;
+};
+
+static bool stale_ind_matcher(void *wanted, void *candidate)
+{
+  struct stale_ind_ctx *ctx = wanted;
+  int ind_sfn;
+  switch (ctx->msg_type) {
+    case NFAPI_NR_PHY_MSG_TYPE_RX_DATA_INDICATION:
+      ind_sfn = ((nfapi_nr_rx_data_indication_t *)candidate)->sfn;
+      break;
+    case NFAPI_NR_PHY_MSG_TYPE_CRC_INDICATION:
+      ind_sfn = ((nfapi_nr_crc_indication_t *)candidate)->sfn;
+      break;
+    default:
+      return false;
+  }
+  /* how many frames `candidate` is behind cur_sfn, accounting for SFN wrap */
+  int behind = ctx->cur_sfn - ind_sfn;
+  if (behind < 0)
+    behind += NR_NUM_SFN;
+  /* behind > NR_NUM_SFN/2 means the candidate is slightly *ahead* of us
+   * (in-flight / jitter), not stale */
+  return behind >= STALE_INDICATION_FRAMES && behind <= NR_NUM_SFN / 2;
+}
+
+/* Drain and free every indication on `q` (all of type `msg_type`) that is
+ * stale relative to `cur_sfn`. Returns the number evicted. */
+static int evict_stale_indications(queue_t *q, uint16_t msg_type, int cur_sfn)
+{
+  struct stale_ind_ctx ctx = {.cur_sfn = cur_sfn, .msg_type = msg_type};
+  int evicted = 0;
+  void *item;
+  while ((item = unqueue_matching(q, MAX_QUEUE_SIZE, stale_ind_matcher, &ctx)) != NULL) {
+    /* mirror free_unqueued_nfapi_indications() so the freeing stays identical
+     * to the normal consume path */
+    if (msg_type == NFAPI_NR_PHY_MSG_TYPE_RX_DATA_INDICATION) {
+      nfapi_nr_rx_data_indication_t *rx = item;
+      for (int i = 0; i < rx->number_of_pdus; ++i)
+        free_and_zero(rx->pdu_list[i].pdu);
+      free_and_zero(rx->pdu_list);
+      free_and_zero(rx);
+    } else { /* NFAPI_NR_PHY_MSG_TYPE_CRC_INDICATION */
+      nfapi_nr_crc_indication_t *crc = item;
+      free_and_zero(crc->crc_list);
+      free_and_zero(crc);
+    }
+    evicted++;
+  }
+  return evicted;
+}
+
 static void handle_nr_ulsch(NR_UL_IND_t *UL_info)
 {
   if(NFAPI_MODE == NFAPI_MODE_PNF) {
@@ -390,6 +459,21 @@ static void NR_UL_indication(NR_UL_IND_t *UL_info)
   nfapi_nr_crc_indication_t *crc_ind = NULL;
   if (NFAPI_MODE == NFAPI_MODE_VNF || NFAPI_MODE == NFAPI_MODE_AERIAL)
   {
+    /* P0 hardening: drop half-delivered (orphan) UL indications whose RX/CRC
+     * partner was lost on the P7 link, before they pile up and start forcing
+     * put_queue() to drop fresh indications. */
+    int evicted = evict_stale_indications(&gnb_rx_ind_queue,
+                                          NFAPI_NR_PHY_MSG_TYPE_RX_DATA_INDICATION,
+                                          UL_info->frame);
+    evicted += evict_stale_indications(&gnb_crc_ind_queue,
+                                       NFAPI_NR_PHY_MSG_TYPE_CRC_INDICATION,
+                                       UL_info->frame);
+    if (evicted > 0)
+      LOG_W(NR_MAC,
+            "%4d.%2d evicted %d stale UL indication(s) (lost RX/CRC partner on P7); rx_q=%zu crc_q=%zu\n",
+            UL_info->frame, UL_info->slot, evicted,
+            gnb_rx_ind_queue.num_items, gnb_crc_ind_queue.num_items);
+
     if (gnb_rach_ind_queue.num_items > 0) {
       LOG_D(NR_MAC, "gnb_rach_ind_queue size = %zu\n", gnb_rach_ind_queue.num_items);
       rach_ind = get_queue(&gnb_rach_ind_queue);
