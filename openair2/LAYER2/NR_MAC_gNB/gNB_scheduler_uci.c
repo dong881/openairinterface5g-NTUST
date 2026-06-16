@@ -366,10 +366,12 @@ static void handle_dl_harq(gNB_MAC_INST *mac, NR_UE_info_t * UE, int8_t harq_pid
   harq->feedback_slot = -1;
   harq->is_waiting = false;
   if (success) {
+    log_mmap_entry("vnf_dl_harq_round-count.bin", (uint64_t)(harq->round + 1));
     if (harq->sched_pdsch.action)
       harq->sched_pdsch.action(mac, UE);
     finish_nr_dl_harq(sched_ctrl, harq_pid);
   } else if (harq->round >= harq_round_max - 1) {
+    log_mmap_entry("vnf_dl_harq_round-count.bin", 5);
     abort_nr_dl_harq(UE, harq_pid);
     LOG_D(NR_MAC, "retransmission error for UE %04x (total %"PRIu64")\n", UE->rnti, UE->mac_stats.dl.errors);
   } else {
@@ -823,22 +825,54 @@ static void extract_pucch_csi_report(NR_CSI_MeasConfig_t *csi_MeasConfig,
     beam_switching_procedure(nrmac, UE, new_bf_index);
 }
 
-static NR_UE_harq_t *find_harq(frame_t frame, slot_t slot, NR_UE_info_t * UE, int harq_round_max)
+/*
+ * HARQ_FEEDBACK_LATE_TOLERANCE_SLOTS:
+ * At high throughput (900+ Mbps), the MAC scheduler may process slot_indications
+ * ~100us/slot late due to CPU load. After ~10 slots this accumulates to 1-2 slots
+ * of scheduling lag, causing false "HARQ feedback is in the past" errors that
+ * trigger a retransmission cascade → pucch0_DTX spike → scheduler freeze.
+ *
+ * Allow up to 2 slots of tolerance: 1-2 slot timing errors are absorbed and the
+ * actual received PUCCH ACK/NACK is still processed correctly. Genuine missed
+ * feedbacks (3+ slots late) still trigger the NACK cascade.
+ */
+#define HARQ_FEEDBACK_LATE_TOLERANCE_SLOTS 2
+
+static NR_UE_harq_t *find_harq(frame_t frame, slot_t slot, NR_UE_info_t *UE, int harq_round_max, int n_slots_frame)
 {
   /* In case of realtime problems: we can only identify a HARQ process by
    * timing. If the HARQ process's feedback_frame/feedback_slot is not the one we
    * expected, we assume that processing has been aborted and we need to
    * skip this HARQ process, which is what happens in the loop below.
    * Similarly, we might be "in advance", in which case we need to skip
-   * this result. */
+   * this result.
+   *
+   * Use absolute slot arithmetic across frame boundaries so that cross-frame
+   * 1-slot delays are handled correctly (e.g. feedback at frame F-1 slot 19,
+   * current at frame F slot 0: only 1 slot late, should not cascade).
+   */
   NR_UE_sched_ctrl_t *sched_ctrl = &UE->UE_sched_ctrl;
   int8_t pid = sched_ctrl->feedback_dl_harq.head;
   if (pid < 0)
     return NULL;
   NR_UE_harq_t *harq = &sched_ctrl->harq_processes[pid];
+
+  /* Hyperframe = 1024 frames × n_slots_frame slots */
+  const int hyper = 1024 * n_slots_frame;
+
   /* old feedbacks we missed: mark for retransmission */
-  while ((harq->feedback_frame - frame + 1024 ) % 1024 > 512 // harq->feedback_frame < frame, distance of 512 is boundary to decide if feedback_frame is in the past or future
-         || (harq->feedback_frame == frame && harq->feedback_slot < slot)) {
+  while (1) {
+    int abs_feedback = ((int)harq->feedback_frame * n_slots_frame + (int)harq->feedback_slot + hyper) % hyper;
+    int abs_current  = ((int)frame * n_slots_frame + (int)slot + hyper) % hyper;
+    /* late_by > 0: feedback is in the past; > hyper/2: wrapped (actually future) */
+    int late_by = (abs_current - abs_feedback + hyper) % hyper;
+
+    if (late_by > hyper / 2)
+      break; /* feedback is actually in the future */
+    if (late_by <= HARQ_FEEDBACK_LATE_TOLERANCE_SLOTS)
+      break; /* on time or within tolerance — proceed normally */
+
+    /* Feedback is more than TOLERANCE slots in the past → treat as missed */
     LOG_W(NR_MAC,
           "UE %04x expected HARQ pid %d feedback at %4d.%2d, but is at %4d.%2d instead (HARQ feedback is in the past)\n",
           UE->rnti,
@@ -854,20 +888,26 @@ static NR_UE_harq_t *find_harq(frame_t frame, slot_t slot, NR_UE_info_t * UE, in
       return NULL;
     harq = &sched_ctrl->harq_processes[pid];
   }
-  /* feedbacks that we wait for in the future: don't do anything */
-  if ((frame - harq->feedback_frame + 1024 ) % 1024 > 512 // harq->feedback_frame > frame, distance of 512 is boundary to decide if feedback_frame is in the past or future
-      || (harq->feedback_frame == frame && harq->feedback_slot > slot)) {
 
-    LOG_W(NR_MAC,
-          "UE %04x expected HARQ pid %d feedback at %4d.%2d, but is at %4d.%2d instead (HARQ feedback is in the future)\n",
-          UE->rnti,
-          pid,
-          harq->feedback_frame,
-          harq->feedback_slot,
-          frame,
-          slot);
-    return NULL;
+  /* feedbacks that we wait for in the future: don't do anything */
+  {
+    int abs_feedback = ((int)harq->feedback_frame * n_slots_frame + (int)harq->feedback_slot + hyper) % hyper;
+    int abs_current  = ((int)frame * n_slots_frame + (int)slot + hyper) % hyper;
+    int late_by = (abs_current - abs_feedback + hyper) % hyper;
+
+    if (late_by > hyper / 2) {
+      LOG_W(NR_MAC,
+            "UE %04x expected HARQ pid %d feedback at %4d.%2d, but is at %4d.%2d instead (HARQ feedback is in the future)\n",
+            UE->rnti,
+            pid,
+            harq->feedback_frame,
+            harq->feedback_slot,
+            frame,
+            slot);
+      return NULL;
+    }
   }
+
   return harq;
 }
 
@@ -893,7 +933,7 @@ void handle_nr_uci_pucch_0_1(module_id_t mod_id, frame_t frame, slot_t slot, con
     for (int harq_bit = 0; harq_bit < uci_01->harq.num_harq; harq_bit++) {
       const uint8_t harq_value = uci_01->harq.harq_list[harq_bit].harq_value;
       const uint8_t harq_confidence = uci_01->harq.harq_confidence_level;
-      NR_UE_harq_t *harq = find_harq(frame, slot, UE, nrmac->dl_bler.harq_round_max);
+      NR_UE_harq_t *harq = find_harq(frame, slot, UE, nrmac->dl_bler.harq_round_max, nrmac->frame_structure.numb_slots_frame);
       if (!harq) {
         LOG_E(NR_MAC, "UE %04x: Could not find a HARQ process at %4d.%2d!\n", UE->rnti, frame, slot);
         break;
@@ -994,7 +1034,7 @@ void handle_nr_uci_pucch_2_3_4(module_id_t mod_id, frame_t frame, slot_t slot, c
     // iterate over received harq bits
     for (int harq_bit = 0; harq_bit < uci_234->harq.harq_bit_len; harq_bit++) {
       const int acknack = ((uci_234->harq.harq_payload[harq_bit >> 3]) >> harq_bit) & 0x01;
-      NR_UE_harq_t *harq = find_harq(frame, slot, UE, RC.nrmac[mod_id]->dl_bler.harq_round_max);
+      NR_UE_harq_t *harq = find_harq(frame, slot, UE, RC.nrmac[mod_id]->dl_bler.harq_round_max, RC.nrmac[mod_id]->frame_structure.numb_slots_frame);
       if (!harq) {
         LOG_E(NR_MAC, "UE %04x: Could not find a HARQ process at %4d.%2d!\n", UE->rnti, frame, slot);
         break;
