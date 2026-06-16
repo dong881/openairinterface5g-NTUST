@@ -17,8 +17,8 @@
  * DYNAMIC SLOT SLEEP TIMING CONTROL CONSTANTS
  * ============================================================================ */
 /* Dynamic Target Margin (adaptive to avoid late packets) */
-#define MARGIN_TOLERANCE_US     20    // Deadband zone: +/- MARGIN_TOLERANCE_US us
-#define MARGIN_TOLERANCE_LOCKED_US 800    // Wider deadband zone used after first sync lock
+#define MARGIN_TOLERANCE_US     100    // Target lock threshold
+#define MARGIN_TOLERANCE_LOCKED_US 500    // Smoothed drift unlock threshold
 #define SLOT_ARRAY_SIZE         20    // TDD cycle slot count (Reduced to 20 for faster convergence)
 
 typedef struct {
@@ -82,9 +82,11 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t insync_minor_adjustment;
 	int32_t insync_minor_adjustment_duration;
 	uint8_t sync_locked;  // Flag: once offset converges within ±10, permanently stop adjusting
+	int32_t consecutive_drift_violations;
 	/* Periodic sync control */
 	uint32_t sync_slot_counter;                // Counter for periodic sync
 	uint32_t sync_period_slots;                // Period between syncs (configurable)
+	int32_t total_advanced_us; // Absolute cumulative phase shift relative to initial sync
 
 	uint32_t previous_t1;
 	uint32_t previous_t2;
@@ -135,6 +137,10 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t DM_EWMA_jitter_pressure_ahead_us;
 	int32_t DM_EWMA_jitter_pressure_hold_ahead_us;
 	int32_t DM_EWMA_jitter_pressure_hold_slots;
+	int32_t timing_info_accum_worst_late;
+	uint32_t timing_info_accum_count;
+	uint32_t timing_info_received_count;
+	int32_t nr_offset_filtered;
 } nfapi_vnf_p7_connection_info_t;
 
 typedef struct vnf_p7_s {
@@ -182,6 +188,7 @@ typedef struct {
   int32_t worst_early;
   uint32_t packet_slot;   // Computed packet slot index in SLOT_ARRAY_SIZE
   uint32_t pnf_reported_jitter; // Maximum jitter reported by PNF across message types
+  uint32_t tx_data_count; // Number of TX DATA samples in this report
 } vnf_timing_stats_t;
 
 /* Function Declaration */

@@ -27,6 +27,10 @@
 #endif
 #include "nr_fapi_p7_utils.h"
 
+static inline int64_t timehr_diff_us(uint32_t time_hr_a, uint32_t time_hr_b);
+
+extern void log_mmap_entry(const char *log_name, uint64_t value);
+
 #ifdef NDEBUG
 #  warning assert is disabled
 #endif
@@ -196,7 +200,8 @@ int vnf_nr_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 }
 
 static int32_t global_ewma_alpha_denom = 8;    // 1/8 default
-static int32_t global_ewma_beta_denom = 4;     // 1/4 default
+static int32_t global_ewma_beta_attack_denom = 4;     // 1/4 default (fast attack)
+static int32_t global_ewma_beta_release_denom = 1024;  // 1/1024 (slow release). A/B variable: user reports 1024 most stable; 0611 vs 0609 trace suggested 2048 — settle by experiment, do not assume.
 
 /*
  * Calculate the number of slots between two (SFN, slot) pairs.
@@ -219,24 +224,9 @@ static inline int32_t calculate_slot_distance(int32_t current_sfn, int32_t curre
 	return current_absolute - prev_absolute;
 }
 
-static int32_t ceil_div_pos_i32(int32_t num, int32_t den)
-{
-    if (den <= 0)
-        return 0;
-
-    if (num <= 0)
-        return 0;
-
-    return (num + den - 1) / den;
-}
-
 static int32_t abs_i32(int32_t v)
 {
     return v < 0 ? -v : v;
-}
-static inline int32_t p7_max_i32(int32_t a, int32_t b)
-{
-    return a > b ? a : b;
 }
 
 /*
@@ -270,840 +260,144 @@ static inline int32_t p7_ewma_step_i32(
     return cur + step;
 }
 
-/*
- * EWMA integer zero-resolution.
- *
- * Not a tunable threshold.
- * It is derived from integer EWMA alpha denominator.
- */
-static inline int p7_ewma_effectively_zero_i32(
-    int32_t value,
-    int32_t denom)
+static inline uint64_t pack_sfn_slot_value(uint16_t sfn, uint16_t slot, int32_t signed_value)
 {
-    if (value <= 0)
-        return 1;
-
-    if (denom <= 1)
-        return value == 0;
-
-    return value <= denom;
+    uint64_t packed = ((uint64_t)sfn << 48) |
+                      ((uint64_t)slot << 32) |
+                      ((uint32_t)signed_value);
+    return packed;
 }
 
+/*
+ * Delay Management v2 — Minimalist EWMA-based adaptive slot-ahead control.
+ *
+ * Step 1: EWMA pre-processing (RFC 6298 inspired)
+ *   TimingInfoEWMA[i] = (1-α) * TimingInfoEWMA[i-1] + α * TimingInfo[i]
+ *   TimingInfoDev[i]  = (1-β) * TimingInfoDev[i-1]  + β * |TimingInfo[i] - TimingInfoEWMA[i]|
+ *
+ * Step 2 (Late):  if TimingInfo > 0 or EWMA+Dev > 0 → increase ceil((EWMA+Dev)/slot_dur) slots
+ * Step 3 (Early): if EWMA < -4*Dev                  → decrease 1 slot
+ *
+ * Pacing: wait one timing_info_period between adjustments (= wait for fresh measurement).
+ */
 static void vnf_nr_delay_management(
     nfapi_vnf_p7_connection_info_t *p7_info,
     const vnf_timing_stats_t *stats)
 {
 	if (p7_info == NULL || stats == NULL)
-			return;
-
+		return;
 	if (p7_info->mu < 0 || p7_info->slot_duration_us <= 0)
 		return;
 
-	int slot_duration_us = p7_info->slot_duration_us;
-	int64_t max_s_ahead = (p7_info->timing_window / slot_duration_us)-1;
+	int sd = p7_info->slot_duration_us;
 
-	/*
-		* ============================================================
-		* Control pacing state
-		* ============================================================
-		*/
-	int32_t elapsed_slots = calculate_slot_distance(
-					p7_info->sfn,
-					p7_info->slot,
-					p7_info->last_adjustment_sfn,
-					p7_info->last_adjustment_slot,
-					10 << p7_info->mu);
+	/* --- Initialization: start from baseline (4 slots ahead) --- */
+	// if (p7_info->slot_ahead <= 0)
+	// 	p7_info->slot_ahead = 4;
 
-	int32_t required_wait_slots =
-					p7_info->last_adjustment_steps +
-				(int32_t)p7_info->timing_info_period;
 
-	if (required_wait_slots < 1)
-			required_wait_slots = 1;
-
-	bool pacing_gate_open =
-					elapsed_slots >= required_wait_slots;
-
-	/*
-		* ============================================================
-		* Single-input EWMA estimator
-		* ============================================================
-		*
-		* Do not return before EWMA update.
-		*/
 	if (p7_info->estimated_mean_late == 0) {
-			p7_info->estimated_mean_late = stats->worst_late;
-			p7_info->estimated_jitter_var = abs_i32(stats->worst_late) / 2;
-
-			p7_info->last_adjustment_sfn = p7_info->sfn;
-			p7_info->last_adjustment_slot = p7_info->slot;
+		p7_info->estimated_mean_late = stats->worst_late;
+		p7_info->estimated_jitter_var = abs_i32(stats->worst_late) / 2;
+		p7_info->last_adjustment_sfn = p7_info->sfn;
+		p7_info->last_adjustment_slot = p7_info->slot;
 	}
 
-	int32_t old_mean = p7_info->estimated_mean_late;
-	int32_t diff = stats->worst_late - old_mean;
+	/* ===== Step 1: EWMA Pre-processing ===== */
+	int32_t TimingInfo = stats->worst_late;
+
+	p7_info->estimated_mean_late = p7_ewma_step_i32(
+		p7_info->estimated_mean_late, TimingInfo, global_ewma_alpha_denom);
+
+	int32_t diff = TimingInfo - p7_info->estimated_mean_late;
 	int32_t abs_diff = abs_i32(diff);
 
-	p7_info->estimated_mean_late =
-					p7_ewma_step_i32(
-									p7_info->estimated_mean_late,
-									stats->worst_late,
-									global_ewma_alpha_denom);
-
-	if (diff > 0) {
-			p7_info->late_jitter =
-							p7_ewma_step_i32(
-											p7_info->late_jitter,
-											diff,
-											global_ewma_beta_denom);
+	if (abs_diff > p7_info->estimated_jitter_var) {
+		p7_info->estimated_jitter_var = p7_ewma_step_i32(
+			p7_info->estimated_jitter_var, abs_diff, global_ewma_beta_attack_denom);
 	} else {
-			p7_info->early_jitter =
-							p7_ewma_step_i32(
-											p7_info->early_jitter,
-											-diff,
-											global_ewma_beta_denom);
+		p7_info->estimated_jitter_var = p7_ewma_step_i32(
+			p7_info->estimated_jitter_var, abs_diff, global_ewma_beta_release_denom);
 	}
-
-	p7_info->estimated_jitter_var =
-					p7_ewma_step_i32(
-									p7_info->estimated_jitter_var,
-									abs_diff,
-									global_ewma_beta_denom);
 
 	if (p7_info->estimated_jitter_var < 0)
-			p7_info->estimated_jitter_var = 0;
-
-	if (p7_info->late_jitter < 0)
-			p7_info->late_jitter = 0;
-
-	if (p7_info->early_jitter < 0)
-			p7_info->early_jitter = 0;
-
-	int32_t closest_to_deadline_us =
-					stats->worst_late > p7_info->estimated_mean_late ?
-					stats->worst_late :
-					p7_info->estimated_mean_late;
-
-	int32_t late_side_uncertainty_us =
-					p7_info->late_jitter +
-					p7_info->estimated_jitter_var;
-
-	int32_t early_side_uncertainty_us =
-					p7_info->early_jitter +
-					p7_info->estimated_jitter_var;
-
-	if (late_side_uncertainty_us < 0)
-			late_side_uncertainty_us = 0;
-
-	if (early_side_uncertainty_us < 0)
-			early_side_uncertainty_us = 0;
-
-	int32_t timing_uncertainty_us =
-					late_side_uncertainty_us;
-
-	int64_t adaptive_jitter_guard_64 =
-					(int64_t)late_side_uncertainty_us +
-					(int64_t)early_side_uncertainty_us;
-
-	if (adaptive_jitter_guard_64 > INT32_MAX)
-			adaptive_jitter_guard_64 = INT32_MAX;
-
-	if (adaptive_jitter_guard_64 < 0)
-			adaptive_jitter_guard_64 = 0;
-
-	int32_t adaptive_jitter_guard_us =
-					(int32_t)adaptive_jitter_guard_64;
-
-	/*
-		* ============================================================
-		* Risk / debt / safe-margin model
-		* ============================================================
-		*/
-	int32_t predicted_risk_us =
-					closest_to_deadline_us +
-					timing_uncertainty_us;
-
-	if (predicted_risk_us < 0)
-			predicted_risk_us = 0;
-
-	bool hard_late =
-					stats->worst_late > 0 ||
-					closest_to_deadline_us > 0;
-
-	int32_t failure_sample_us = 0;
-
-	if (stats->worst_late > 0)
-			failure_sample_us = stats->worst_late;
-	else if (closest_to_deadline_us > 0)
-			failure_sample_us = closest_to_deadline_us;
-	else
-			failure_sample_us = 0;
-
-	if (failure_sample_us < 0)
-			failure_sample_us = 0;
-
-	int32_t safe_margin_sample_us =
-					-(closest_to_deadline_us + timing_uncertainty_us);
-
-	if (safe_margin_sample_us < 0)
-			safe_margin_sample_us = 0;
-
-	p7_info->DM_EWMA_failure_debt_us =
-					p7_ewma_step_i32(
-									p7_info->DM_EWMA_failure_debt_us,
-									failure_sample_us,
-									global_ewma_alpha_denom);
-
-	p7_info->DM_EWMA_risk_debt_us =
-					p7_ewma_step_i32(
-									p7_info->DM_EWMA_risk_debt_us,
-									predicted_risk_us,
-									global_ewma_alpha_denom);
-
-	p7_info->DM_EWMA_safe_margin_ewma_us =
-					p7_ewma_step_i32(
-									p7_info->DM_EWMA_safe_margin_ewma_us,
-									safe_margin_sample_us,
-									global_ewma_alpha_denom);
-
-	if (p7_info->DM_EWMA_failure_debt_us < 0)
-			p7_info->DM_EWMA_failure_debt_us = 0;
-
-	if (p7_info->DM_EWMA_risk_debt_us < 0)
-			p7_info->DM_EWMA_risk_debt_us = 0;
-
-	if (p7_info->DM_EWMA_safe_margin_ewma_us < 0)
-			p7_info->DM_EWMA_safe_margin_ewma_us = 0;
-
-	bool failure_debt_free =
-					p7_ewma_effectively_zero_i32(
-									p7_info->DM_EWMA_failure_debt_us,
-									global_ewma_alpha_denom);
-
-	bool risk_debt_free =
-					p7_ewma_effectively_zero_i32(
-									p7_info->DM_EWMA_risk_debt_us,
-									global_ewma_alpha_denom);
-
-	bool soft_risk =
-					!hard_late &&
-					predicted_risk_us > 0;
-
-	bool safe_sample =
-					!hard_late &&
-					predicted_risk_us == 0 &&
-					safe_margin_sample_us > 0;
-
-	bool debt_free =
-					failure_sample_us == 0 &&
-					predicted_risk_us == 0 &&
-					failure_debt_free &&
-					risk_debt_free;
-
-	/*
-		* ============================================================
-		* Critical-point jitter-to-deadline-distance mapping
-		* ============================================================
-		*/
-	int32_t jitter_gain_denom =
-					global_ewma_alpha_denom;
-
-	if (jitter_gain_denom < 1)
-			jitter_gain_denom = 1;
-
-	int32_t jitter_beta_denom =
-					global_ewma_beta_denom;
-
-	if (jitter_beta_denom < 1)
-			jitter_beta_denom = 1;
-
-	int32_t jitter_free_allowance_us =
-					slot_duration_us / jitter_beta_denom;
-
-	if (jitter_free_allowance_us < 0)
-			jitter_free_allowance_us = 0;
-
-	int32_t effective_jitter_guard_us =
-					adaptive_jitter_guard_us -
-					jitter_free_allowance_us;
-
-	if (effective_jitter_guard_us < 0)
-			effective_jitter_guard_us = 0;
-
-	int32_t persistent_failure_tail_us =
-					p7_max_i32(failure_sample_us,
-											p7_info->DM_EWMA_failure_debt_us);
-
-	int32_t persistent_risk_tail_us =
-					p7_max_i32(predicted_risk_us,
-											p7_info->DM_EWMA_risk_debt_us);
-
-	int64_t deadline_tail_risk_64 =
-					(int64_t)persistent_failure_tail_us +
-					(int64_t)persistent_risk_tail_us;
-
-	if (deadline_tail_risk_64 > INT32_MAX)
-			deadline_tail_risk_64 = INT32_MAX;
-
-	if (deadline_tail_risk_64 < 0)
-			deadline_tail_risk_64 = 0;
-
-	int32_t deadline_tail_risk_us =
-					(int32_t)deadline_tail_risk_64;
-
-	int64_t jitter_pressure_64 =
-					(int64_t)effective_jitter_guard_us +
-					(int64_t)deadline_tail_risk_us;
-
-	if (jitter_pressure_64 > INT32_MAX)
-			jitter_pressure_64 = INT32_MAX;
-
-	if (jitter_pressure_64 < 0)
-			jitter_pressure_64 = 0;
-
-	int32_t jitter_pressure_us =
-					(int32_t)jitter_pressure_64;
-
-	/*
-		* Low-jitter base region.
-		*/
-	int32_t jitter_base_slots =
-					1 + (effective_jitter_guard_us / slot_duration_us);
-
-	if (jitter_base_slots < 1)
-			jitter_base_slots = 1;
-
-	int32_t jitter_low_region_cap_slots =
-					jitter_beta_denom - 1;
-
-	if (jitter_low_region_cap_slots < 1)
-			jitter_low_region_cap_slots = 1;
-
-	if (jitter_low_region_cap_slots > max_s_ahead)
-			jitter_low_region_cap_slots = max_s_ahead;
-
-	if (jitter_base_slots > jitter_low_region_cap_slots)
-			jitter_base_slots = jitter_low_region_cap_slots;
-
-	/*
-		* Critical cliff region.
-		*/
-	int64_t jitter_critical_pressure_64 =
-					((int64_t)jitter_low_region_cap_slots *
-						(int64_t)slot_duration_us) +
-					((int64_t)slot_duration_us / 2);
-
-	if (jitter_critical_pressure_64 > INT32_MAX)
-			jitter_critical_pressure_64 = INT32_MAX;
-
-	int32_t jitter_critical_pressure_us =
-					(int32_t)jitter_critical_pressure_64;
-
-	int32_t jitter_cliff_excess_us =
-					jitter_pressure_us - jitter_critical_pressure_us;
-
-	if (jitter_cliff_excess_us < 0)
-			jitter_cliff_excess_us = 0;
-
-	int32_t jitter_cliff_tau_us =
-					slot_duration_us / jitter_gain_denom;
-
-	if (jitter_cliff_tau_us < 1)
-			jitter_cliff_tau_us = 1;
-
-	int32_t jitter_cliff_extra_max_slots =
-					jitter_beta_denom + 1;
-
-	if (jitter_cliff_extra_max_slots < 1)
-			jitter_cliff_extra_max_slots = 1;
-
-	if (jitter_cliff_extra_max_slots > max_s_ahead)
-			jitter_cliff_extra_max_slots = max_s_ahead;
-
-	int32_t jitter_cliff_extra_slots = 0;
-
-	if (jitter_cliff_excess_us > 0) {
-			int64_t cliff_num_64 =
-							(int64_t)jitter_cliff_extra_max_slots *
-							(int64_t)jitter_cliff_excess_us;
-
-			int64_t cliff_den_64 =
-							(int64_t)jitter_cliff_excess_us +
-							(int64_t)jitter_cliff_tau_us;
-
-			if (cliff_den_64 < 1)
-					cliff_den_64 = 1;
-
-			int64_t cliff_extra_64 =
-							(cliff_num_64 + cliff_den_64 - 1) /
-							cliff_den_64;
-
-			if (cliff_extra_64 > INT32_MAX)
-					cliff_extra_64 = INT32_MAX;
-
-			if (cliff_extra_64 < 0)
-					cliff_extra_64 = 0;
-
-			jitter_cliff_extra_slots =
-							(int32_t)cliff_extra_64;
+		p7_info->estimated_jitter_var = 0;
+
+	int32_t TimingInfoEWMA = p7_info->estimated_mean_late;
+	int32_t TimingInfoDev  = p7_info->estimated_jitter_var;
+
+	/* ===== Pacing gate: one timing_info_period between decisions ===== */
+	int32_t elapsed = calculate_slot_distance(
+		p7_info->sfn, p7_info->slot,
+		p7_info->last_adjustment_sfn, p7_info->last_adjustment_slot,
+		10 << p7_info->mu);
+
+	/* timing_info_period is in subframes; convert to slots */
+	int32_t period_slots = (int32_t)p7_info->timing_info_period * (1 << p7_info->mu);
+	if (period_slots < 1) period_slots = 1;
+	bool gate_open = (elapsed >= period_slots);
+
+	/* ===== Logging (always, before gating) ===== */
+	log_mmap_entry("vnf_timing_info_ewma-us.bin",
+		pack_sfn_slot_value(p7_info->sfn, p7_info->slot, TimingInfoEWMA));
+	log_mmap_entry("vnf_timing_info_dev-us.bin",
+		pack_sfn_slot_value(p7_info->sfn, p7_info->slot, TimingInfoDev));
+
+	if (!gate_open) {
+		log_mmap_entry("vnf_delay_mgmt_action.bin",
+			pack_sfn_slot_value(p7_info->sfn, p7_info->slot, p7_info->slot_ahead));
+		return;
 	}
 
-	int32_t jitter_instant_required_s_ahead =
-					jitter_base_slots +
-					jitter_cliff_extra_slots;
+	int32_t target = p7_info->slot_ahead;
 
-	if (jitter_instant_required_s_ahead < 1)
-			jitter_instant_required_s_ahead = 1;
-
-	if (jitter_instant_required_s_ahead > max_s_ahead)
-			jitter_instant_required_s_ahead = max_s_ahead;
-
-	int64_t jitter_instant_required_ahead_64 =
-					(int64_t)jitter_instant_required_s_ahead *
-					(int64_t)slot_duration_us;
-
-	if (jitter_instant_required_ahead_64 > INT32_MAX)
-			jitter_instant_required_ahead_64 = INT32_MAX;
-
-	int32_t jitter_instant_required_ahead_us =
-					(int32_t)jitter_instant_required_ahead_64;
-
-	/*
-		* ============================================================
-		* Cliff hold floor
-		* ============================================================
-		*/
-	int32_t jitter_pressure_hold_duration_slots =
-					10000000 / slot_duration_us;
-
-	if (jitter_pressure_hold_duration_slots < 1)
-			jitter_pressure_hold_duration_slots = 1;
-
-	if (p7_info->DM_EWMA_jitter_pressure_hold_slots > 0) {
-			int32_t hold_decay_slots =
-				(int32_t)p7_info->timing_info_period*10;
-
-			if (hold_decay_slots < 1)
-					hold_decay_slots = 1;
-
-			if (hold_decay_slots >=
-					p7_info->DM_EWMA_jitter_pressure_hold_slots) {
-					p7_info->DM_EWMA_jitter_pressure_hold_slots = 0;
-			} else {
-					p7_info->DM_EWMA_jitter_pressure_hold_slots -=
-									hold_decay_slots;
-			}
+	/* ===== Step 2: Late → Increase ===== */
+	if ((TimingInfoEWMA + TimingInfoDev) > 0) {
+		/*
+		 * E2: react to the SMOOTHED estimate (EWMA+Dev) only, not the raw
+		 * spike. max(EWMA+Dev, raw) reacted to every single late sample and
+		 * made slot_ahead oscillate (floor3<->ceil8 thrash in 0611-1047),
+		 * and the slot_ahead transitions themselves produce the late P7
+		 * packets that crossed the deadline -> collapse. EWMA+Dev alone is
+		 * far less oscillatory; Dev already carries a jitter safety margin.
+		 */
+		int32_t val = TimingInfoEWMA + TimingInfoDev;
+		int32_t inc = (val + sd - 1) / sd;
+		if (inc > 0) target += inc;
+	}
+	/* ===== Step 3: Early → Decrease 1 ===== */
+	else if (TimingInfoEWMA < -(sd + 4 * TimingInfoDev)) {
+		/*
+		 * Decrease only when there is enough margin to absorb both:
+		 *   (a) the +sd shift from reducing one slot ahead, AND
+		 *   (b) 4× jitter deviation as safety margin.
+		 *
+		 * After decrease, compensated EWMA becomes:
+		 *   EWMA' = EWMA + sd > -(4*Dev)
+		 * which still satisfies the "early" zone with margin.
+		 */
+		target -= 1;
 	}
 
-	/*
-		* Arm / refresh hold only when the nonlinear cliff really crossed.
-		*/
-	if (jitter_cliff_excess_us > 0 ||
-			jitter_cliff_extra_slots > 0) {
-			if (p7_info->DM_EWMA_jitter_pressure_hold_slots <
-					jitter_pressure_hold_duration_slots) {
-					p7_info->DM_EWMA_jitter_pressure_hold_slots =
-									jitter_pressure_hold_duration_slots;
-			}
+	/* Clamp to [3, max_ahead] */
+	int32_t max_ahead = (int32_t)(p7_info->timing_window / sd) - 1;
+	if (max_ahead > 8) max_ahead = 8;
+	if (max_ahead < 3) max_ahead = 3;
+	if (target > max_ahead) target = max_ahead;
+	if (target < 3) target = 3;
 
-			if (p7_info->DM_EWMA_jitter_pressure_hold_ahead_us <
-					jitter_instant_required_ahead_us) {
-					p7_info->DM_EWMA_jitter_pressure_hold_ahead_us =
-									jitter_instant_required_ahead_us;
-			}
+	log_mmap_entry("vnf_delay_mgmt_action.bin",
+		pack_sfn_slot_value(p7_info->sfn, p7_info->slot, target));
+
+	/* ===== Apply adjustment ===== */
+	if (target != p7_info->slot_ahead) {
+		int32_t delta = target - p7_info->slot_ahead;
+		/* Compensate EWMA mean for the shift in reference frame */
+		p7_info->estimated_mean_late -= delta * sd;
+		p7_info->slot_ahead = target;
+		p7_info->last_adjustment_sfn = p7_info->sfn;
+		p7_info->last_adjustment_slot = p7_info->slot;
 	}
-
-	bool jitter_pressure_hold_active =
-					p7_info->DM_EWMA_jitter_pressure_hold_slots > 0 &&
-					p7_info->DM_EWMA_jitter_pressure_hold_ahead_us >
-					slot_duration_us;
-
-	/*
-		* ============================================================
-		* Fast-attack / slow-release pressure memory
-		* ============================================================
-		*
-		* Key fix:
-		*   Hold active => EWMA pressure memory is not allowed to release.
-		*/
-	if (p7_info->DM_EWMA_jitter_pressure_ahead_us <= 0) {
-			p7_info->DM_EWMA_jitter_pressure_ahead_us =
-							jitter_instant_required_ahead_us;
-	} else if (jitter_instant_required_ahead_us >
-							p7_info->DM_EWMA_jitter_pressure_ahead_us) {
-			p7_info->DM_EWMA_jitter_pressure_ahead_us =
-							jitter_instant_required_ahead_us;
-	} else {
-			bool jitter_pressure_release_allowed =
-							safe_sample &&
-							debt_free &&
-							jitter_cliff_excess_us == 0 &&
-							!jitter_pressure_hold_active;
-
-			if (jitter_pressure_release_allowed) {
-					int64_t jitter_pressure_release_denom_64 =
-									(int64_t)global_ewma_alpha_denom *
-									(int64_t)p7_max_i32(p7_info->slot_ahead, 1);
-
-					if (jitter_pressure_release_denom_64 > INT32_MAX)
-							jitter_pressure_release_denom_64 = INT32_MAX;
-
-					if (jitter_pressure_release_denom_64 < 1)
-							jitter_pressure_release_denom_64 = 1;
-
-					p7_info->DM_EWMA_jitter_pressure_ahead_us =
-									p7_ewma_step_i32(
-													p7_info->DM_EWMA_jitter_pressure_ahead_us,
-													jitter_instant_required_ahead_us,
-													(int32_t)jitter_pressure_release_denom_64);
-			}
-	}
-
-	if (p7_info->DM_EWMA_jitter_pressure_ahead_us < slot_duration_us)
-			p7_info->DM_EWMA_jitter_pressure_ahead_us = slot_duration_us;
-
-	/*
-		* Release hold floor slowly after hold budget expires.
-		*/
-	if (!jitter_pressure_hold_active &&
-			p7_info->DM_EWMA_jitter_pressure_hold_ahead_us >
-			slot_duration_us) {
-			int64_t hold_release_denom_64 =
-							(int64_t)global_ewma_alpha_denom *
-							(int64_t)p7_max_i32(p7_info->slot_ahead, 1);
-
-			if (hold_release_denom_64 > INT32_MAX)
-					hold_release_denom_64 = INT32_MAX;
-
-			if (hold_release_denom_64 < 1)
-					hold_release_denom_64 = 1;
-
-			p7_info->DM_EWMA_jitter_pressure_hold_ahead_us =
-							p7_ewma_step_i32(
-											p7_info->DM_EWMA_jitter_pressure_hold_ahead_us,
-											slot_duration_us,
-											(int32_t)hold_release_denom_64);
-	}
-
-	if (p7_info->DM_EWMA_jitter_pressure_hold_ahead_us <
-			slot_duration_us) {
-			p7_info->DM_EWMA_jitter_pressure_hold_ahead_us =
-							slot_duration_us;
-	}
-
-	/*
-		* ============================================================
-		* Unified pressure floor
-		* ============================================================
-		*
-		* This value is shared by:
-		*
-		*   1. jitter_required_s_ahead
-		*   2. required_safe_margin_for_down
-		*   3. post_down_guarded_risk
-		*   4. down floor / down target clamp
-		*/
-	int32_t jitter_unified_pressure_ahead_us =
-					p7_max_i32(
-									p7_info->DM_EWMA_jitter_pressure_ahead_us,
-									p7_info->DM_EWMA_jitter_pressure_hold_ahead_us);
-
-	if (jitter_unified_pressure_ahead_us < slot_duration_us)
-			jitter_unified_pressure_ahead_us = slot_duration_us;
-
-	int32_t jitter_required_s_ahead =
-					ceil_div_pos_i32(
-									jitter_unified_pressure_ahead_us,
-									slot_duration_us);
-
-	if (jitter_required_s_ahead < 1)
-			jitter_required_s_ahead = 1;
-
-	if (jitter_required_s_ahead > max_s_ahead)
-			jitter_required_s_ahead = max_s_ahead;
-
-	int32_t jitter_unified_required_s_ahead =
-					jitter_required_s_ahead;
-
-	/*
-		* Compatibility name.
-		*
-		* Now this is the unified memory-backed deadline distance.
-		*/
-
-	bool jitter_up_required =
-					!hard_late &&
-					jitter_required_s_ahead > p7_info->slot_ahead;
-
-	/*
-		* ============================================================
-		* Fresh evidence counters
-		* ============================================================
-		*/
-	if (hard_late) {
-			p7_info->DM_EWMA_late_period_count++;
-			p7_info->DM_EWMA_safe_period_count = 0;
-			p7_info->DM_EWMA_risk_period_count = 0;
-	} else if (soft_risk || jitter_up_required) {
-			p7_info->DM_EWMA_risk_period_count++;
-			p7_info->DM_EWMA_safe_period_count = 0;
-			p7_info->DM_EWMA_late_period_count = 0;
-	} else if (safe_sample) {
-			p7_info->DM_EWMA_safe_period_count++;
-			p7_info->DM_EWMA_late_period_count = 0;
-			p7_info->DM_EWMA_risk_period_count = 0;
-	} else {
-			p7_info->DM_EWMA_safe_period_count = 0;
-			p7_info->DM_EWMA_late_period_count = 0;
-			p7_info->DM_EWMA_risk_period_count = 0;
-	}
-
-	int32_t required_safe_cnt_for_down =
-					global_ewma_alpha_denom;
-
-	if (p7_info->slot_ahead > 1) {
-			int64_t required_safe_cnt_64 =
-							(int64_t)p7_info->slot_ahead *
-							(int64_t)p7_info->slot_ahead *
-							(int64_t)global_ewma_alpha_denom;
-
-			if (required_safe_cnt_64 > INT32_MAX)
-					required_safe_cnt_64 = INT32_MAX;
-
-			if (required_safe_cnt_64 < global_ewma_alpha_denom)
-					required_safe_cnt_64 = global_ewma_alpha_denom;
-
-			required_safe_cnt_for_down =
-							(int32_t)required_safe_cnt_64;
-	}
-
-	bool enough_fresh_safe_evidence_for_down =
-					p7_info->DM_EWMA_safe_period_count >=
-					required_safe_cnt_for_down;
-
-	bool enough_fresh_risk_evidence_for_soft_up =
-					p7_info->DM_EWMA_risk_period_count >=
-					global_ewma_beta_denom;
-
-	/*
-		* ============================================================
-		* Decision model
-		* ============================================================
-		*/
-	bool hard_up_required =
-					hard_late;
-
-	bool soft_up_required =
-					!hard_late &&
-					predicted_risk_us > 0 &&
-					!risk_debt_free &&
-					enough_fresh_risk_evidence_for_soft_up;
-
-	bool jitter_soft_up_required =
-					!hard_late &&
-					jitter_required_s_ahead > p7_info->slot_ahead &&
-					enough_fresh_risk_evidence_for_soft_up;
-
-	bool up_required =
-					hard_up_required ||
-					soft_up_required ||
-					jitter_soft_up_required;
-
-	int32_t post_down_predicted_risk_us =
-					closest_to_deadline_us +
-					slot_duration_us +
-					timing_uncertainty_us;
-
-	bool down_safe_after_one_slot =
-					post_down_predicted_risk_us <= 0;
-
-	/*
-		* Down margin uses unified pressure.
-		*/
-	int64_t required_safe_margin_64 =
-					(int64_t)jitter_unified_pressure_ahead_us;
-
-	if (required_safe_margin_64 > INT32_MAX)
-			required_safe_margin_64 = INT32_MAX;
-
-	if (required_safe_margin_64 < 0)
-			required_safe_margin_64 = INT32_MAX;
-
-	int32_t required_safe_margin_for_down =
-					(int32_t)required_safe_margin_64;
-
-	bool enough_ewma_safe_margin_for_down =
-					p7_info->DM_EWMA_safe_margin_ewma_us >=
-					required_safe_margin_for_down;
-
-	/*
-		* Post-down guard also uses unified pressure.
-		*/
-	int64_t post_down_guarded_risk_64 =
-					(int64_t)post_down_predicted_risk_us +
-					(int64_t)jitter_unified_pressure_ahead_us;
-
-	if (post_down_guarded_risk_64 > INT32_MAX)
-			post_down_guarded_risk_64 = INT32_MAX;
-
-	if (post_down_guarded_risk_64 < INT32_MIN)
-			post_down_guarded_risk_64 = INT32_MIN;
-
-	int32_t post_down_guarded_risk_us =
-					(int32_t)post_down_guarded_risk_64;
-
-	bool post_down_guarded_safe =
-					post_down_guarded_risk_us <= 0;
-
-	bool above_jitter_floor =
-					p7_info->slot_ahead > jitter_unified_required_s_ahead;
-
-	bool jitter_pressure_allows_down =
-					p7_info->slot_ahead > jitter_unified_required_s_ahead;
-
-	/*
-		* If hold floor is active:
-		*
-		*   hold floor = 8
-		*   9 -> 8 allowed
-		*   8 -> 7 blocked
-		*/
-	bool jitter_hold_allows_down =
-					!jitter_pressure_hold_active ||
-					p7_info->slot_ahead > jitter_unified_required_s_ahead;
-
-	bool down_allowed =
-					!up_required &&
-					debt_free &&
-					enough_fresh_safe_evidence_for_down &&
-					enough_ewma_safe_margin_for_down &&
-					down_safe_after_one_slot &&
-					post_down_guarded_safe &&
-					above_jitter_floor &&
-					jitter_pressure_allows_down &&
-					jitter_hold_allows_down &&
-					p7_info->slot_ahead > 1;
-
-	/*
-		* ============================================================
-		* Safe-start model
-		* ============================================================
-		*/
-	int32_t startup_s_ahead =
-					global_ewma_beta_denom;
-
-	if (startup_s_ahead < 1)
-			startup_s_ahead = 1;
-
-	if (startup_s_ahead > max_s_ahead)
-			startup_s_ahead = max_s_ahead;
-
-	bool cold_start =
-					p7_info->DM_EWMA_last_target_s_ahead <= 0;
-
-	bool safe_start_required =
-					cold_start &&
-					p7_info->slot_ahead < startup_s_ahead;
-
-	int32_t target_s_ahead = p7_info->slot_ahead;
-
-	if (pacing_gate_open) {
-			if (safe_start_required) {
-					target_s_ahead = startup_s_ahead;
-			} else if (hard_up_required) {
-					target_s_ahead = jitter_required_s_ahead;
-
-					if (target_s_ahead <= p7_info->slot_ahead)
-							target_s_ahead = p7_info->slot_ahead + 1;
-			} else if (jitter_soft_up_required) {
-					target_s_ahead = jitter_required_s_ahead;
-			} else if (soft_up_required) {
-					target_s_ahead = p7_info->slot_ahead + 1;
-
-					if (target_s_ahead < jitter_required_s_ahead)
-							target_s_ahead = jitter_required_s_ahead;
-			} else if (down_allowed) {
-					target_s_ahead = p7_info->slot_ahead - 1;
-
-					/*
-						* Down target must not go below unified floor.
-						*/
-					if (target_s_ahead < jitter_unified_required_s_ahead)
-							target_s_ahead = jitter_unified_required_s_ahead;
-			}
-	}
-
-	if (target_s_ahead > max_s_ahead)
-			target_s_ahead = max_s_ahead;
-
-	if (target_s_ahead < 1)
-			target_s_ahead = 1;
-
-	/*
-		* ============================================================
-		* No movement path
-		* ============================================================
-		*/
-	if (target_s_ahead == p7_info->slot_ahead) {
-			return;
-	}
-
-	/*
-		* ============================================================
-		* Apply actuation
-		* ============================================================
-		*/
-	int32_t old_s_ahead = p7_info->slot_ahead;
-
-	int32_t delta_s_ahead =
-					target_s_ahead - old_s_ahead;
-
-	int64_t mean_shift_64 =
-					(int64_t)delta_s_ahead *
-					(int64_t)slot_duration_us;
-
-	int64_t compensated_mean_64 =
-					(int64_t)p7_info->estimated_mean_late -
-					mean_shift_64;
-
-	if (compensated_mean_64 > INT32_MAX)
-			compensated_mean_64 = INT32_MAX;
-
-	if (compensated_mean_64 < INT32_MIN)
-			compensated_mean_64 = INT32_MIN;
-
-	p7_info->estimated_mean_late =
-					(int32_t)compensated_mean_64;
-
-	/*
-		* Do not aggressively reset jitter estimators after actuation.
-		*/
-	int32_t lookahead_depth_slots =
-					p7_max_i32(old_s_ahead, target_s_ahead);
-
-	int64_t settle_steps_64 =
-					((int64_t)abs_i32(delta_s_ahead) +
-						(int64_t)lookahead_depth_slots) *
-					(int64_t)global_ewma_alpha_denom;
-
-	if (settle_steps_64 > INT32_MAX)
-			settle_steps_64 = INT32_MAX;
-
-	p7_info->last_adjustment_steps =
-					(int32_t)settle_steps_64;
-
-	if (p7_info->last_adjustment_steps < 1)
-			p7_info->last_adjustment_steps = 1;
-
-	p7_info->last_adjustment_sfn = p7_info->sfn;
-	p7_info->last_adjustment_slot = p7_info->slot;
-
-	p7_info->DM_EWMA_last_target_s_ahead =
-					target_s_ahead;
-	p7_info->DM_EWMA_safe_period_count = 0;
-	p7_info->DM_EWMA_late_period_count = 0;
-	p7_info->DM_EWMA_risk_period_count = 0;
-	p7_info->slot_ahead = target_s_ahead;
-	return;
 }
 
 void* vnf_p7_malloc(vnf_p7_t* vnf_p7, size_t size)
@@ -1299,7 +593,7 @@ void vnf_p7_rx_reassembly_queue_remove_old_msgs(vnf_p7_t* vnf_p7, vnf_p7_rx_reas
 
 	while(iterator != 0)
 	{
-		if(rx_hr_time - iterator->rx_hr_time > delta)
+		if(timehr_diff_us(rx_hr_time, iterator->rx_hr_time) > (int64_t)delta)
 		{
 			if(previous == 0)
 			{
@@ -2650,6 +1944,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "PHY instance not found for phy_id:%d\n", ind.header.phy_id);
 		return;
 	}
+	pthread_mutex_lock(&p7_info->mutex);
 	uint32_t t4 = calculate_nr_t4(now_time_hr, p7_info->mu, p7_info->sfn, p7_info->slot, vnf_p7->slot_start_time_hr);
 	/*
 	* Time Synchronization Algorithm
@@ -2672,25 +1967,91 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	while (diff2 > half_wrap) diff2 -= wrap_us;
 	while (diff2 < -half_wrap) diff2 += wrap_us;
 	int32_t offset = (int32_t)((diff1 - diff2) / 2);
+	log_mmap_entry("vnf_nr_ul_node_sync_offset-us.bin",
+	               (((uint64_t)p7_info->sfn << 48) |
+	                ((uint64_t)p7_info->slot << 32) |
+	                ((uint32_t)offset)));
 	
 	int32_t total_correction = offset;
-	pthread_mutex_lock(&p7_info->mutex);
+
+	// Update 5G NR filtered offset (EWMA with alpha = 1/8)
+	if (p7_info->nr_offset_filtered == 0) {
+		p7_info->nr_offset_filtered = total_correction;
+	} else {
+		p7_info->nr_offset_filtered = (p7_info->nr_offset_filtered * 7 + total_correction) / 8;
+	}
+
 	if (p7_info->sync_locked) {
-		// Drift Monitoring: If we are locked but the offset exceeds the locked tolerance,
-		// we must unlock and re-synchronize to avoid long-term instability.
-		if (total_correction < -MARGIN_TOLERANCE_LOCKED_US || total_correction > MARGIN_TOLERANCE_LOCKED_US) {
+		// Proportional micro-steering.
+		// Use gain 1/16 if |total_correction| > 100 to converge faster.
+		// Use gain 1/32 if |total_correction| <= 100 for stability.
+		int32_t micro_adj = 0;
+		if (total_correction > 100 || total_correction < -100) {
+			micro_adj = total_correction / 16;
+		} else {
+			micro_adj = total_correction / 32;
+		}
+		p7_info->pending_us -= micro_adj;
+
+		// Drift Monitoring
+		if (total_correction <= -1000 || total_correction >= 1000) {
+			// 1. Massive raw drift: unlock immediately
 			p7_info->sync_locked = 0;
+			p7_info->consecutive_drift_violations = 0;
+			NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Massive raw drift detected (%d us). Unlocking sync immediately.\n", total_correction);
+		} else if (p7_info->nr_offset_filtered <= -MARGIN_TOLERANCE_LOCKED_US || p7_info->nr_offset_filtered >= MARGIN_TOLERANCE_LOCKED_US) {
+			// 2. Persistent smoothed drift: unlock after 3 consecutive samples
+			p7_info->consecutive_drift_violations++;
+			if (p7_info->consecutive_drift_violations >= 3) {
+				p7_info->sync_locked = 0;
+				p7_info->consecutive_drift_violations = 0;
+				NFAPI_TRACE(NFAPI_TRACE_WARN, "[P7_SYNC] Persistent smoothed drift detected (%d us, raw: %d us). Unlocking sync for re-calibration.\n",
+				            p7_info->nr_offset_filtered, total_correction);
+			} else {
+				NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Smoothed drift warning (%d us, raw: %d us) (count: %d), waiting to confirm.\n",
+				            p7_info->nr_offset_filtered, total_correction, p7_info->consecutive_drift_violations);
+			}
+		} else {
+			p7_info->consecutive_drift_violations = 0;
 		}
 	}
 
 	if (!p7_info->sync_locked) {
-		if (total_correction >= -MARGIN_TOLERANCE_US && total_correction <= MARGIN_TOLERANCE_US) {
+		// Lock when BOTH raw offset and smoothed offset are within lock tolerance
+		if (total_correction >= -MARGIN_TOLERANCE_US && total_correction <= MARGIN_TOLERANCE_US &&
+		    p7_info->nr_offset_filtered >= -MARGIN_TOLERANCE_US && p7_info->nr_offset_filtered <= MARGIN_TOLERANCE_US) {
 			p7_info->sync_locked = 1;
+			p7_info->consecutive_drift_violations = 0;
+			p7_info->total_advanced_us = p7_info->slot_ahead * p7_info->slot_duration_us;
+			NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Sync locked successfully (offset: %d us, smoothed: %d us).\n",
+			            total_correction, p7_info->nr_offset_filtered);
 		} else {
-			int32_t slot_adj = total_correction / (int32_t)p7_info->slot_duration_us;
-			int32_t us_adj = total_correction % (int32_t)p7_info->slot_duration_us;
-			p7_info->slot_adjustment += slot_adj;
-			p7_info->us_adjustment -= us_adj;
+			int32_t s_adj = 0;
+			int32_t p_adj = 0;
+
+			// Symmetrically constrain massive synchronization jumps to prevent system crashes
+			int32_t capped_correction = total_correction;
+			int32_t max_total_cap = 5 * (int32_t)p7_info->slot_duration_us;
+			if (capped_correction > max_total_cap) capped_correction = max_total_cap;
+			if (capped_correction < -max_total_cap) capped_correction = -max_total_cap;
+
+			if (capped_correction <= -(int32_t)p7_info->slot_duration_us || capped_correction >= (int32_t)p7_info->slot_duration_us) {
+				s_adj = capped_correction / (int32_t)p7_info->slot_duration_us;
+				p_adj = capped_correction - (s_adj * (int32_t)p7_info->slot_duration_us);
+			} else {
+				// Proportional control with gain of 4 for faster unlocked convergence (was 8)
+				p_adj = capped_correction / 4;
+				if (p_adj == 0 && capped_correction != 0) {
+					p_adj = (capped_correction > 0) ? 1 : -1;
+				}
+			}
+
+			int32_t max_p_adj = 10 * p7_info->slot_duration_us;
+			if (p_adj > max_p_adj) p_adj = max_p_adj;
+			if (p_adj < -max_p_adj) p_adj = -max_p_adj;
+
+			p7_info->slot_adjustment += s_adj;
+			p7_info->pending_us -= p_adj;
 		}
 	}
 	pthread_mutex_unlock(&p7_info->mutex);
@@ -2736,6 +2097,8 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		return;
 	}
 
+	nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
+
 	nfapi_nr_timing_info_t ind;
 	const bool result = vnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, &ind, sizeof(ind), &vnf_p7->_public.codec_config);
 	if(!result)
@@ -2743,7 +2106,6 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to unpack timing_info\n");
 		return;
 	}
-	nfapi_vnf_p7_connection_info_t *p7_con = &vnf_p7->p7_connections[0];
 
 	pthread_mutex_lock(&p7_con->mutex);
 	if (!p7_con->initial_timinginfo_received) {
@@ -2759,7 +2121,19 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	if (count <= 0) {
 		return;
 	}
-	vnf_nr_delay_management(p7_con, &out_stats);
+
+	bool run_delay_mgmt = false;
+	vnf_timing_stats_t aggregated_stats = out_stats;
+
+	pthread_mutex_lock(&p7_con->mutex);
+	p7_con->timing_info_accum_count = 0;
+	p7_con->timing_info_accum_worst_late = INT32_MIN;
+	run_delay_mgmt = true;
+	pthread_mutex_unlock(&p7_con->mutex);
+
+	if (run_delay_mgmt) {
+		vnf_nr_delay_management(p7_con, &aggregated_stats);
+	}
 }
 
 void vnf_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)

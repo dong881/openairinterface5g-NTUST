@@ -26,6 +26,15 @@
 #include <SCHED_NR/phy_frame_config_nr.h>
 
 extern int sf_ahead;
+extern void log_mmap_entry(const char *log_name, uint64_t value);
+
+static inline uint64_t pack_sfn_slot_value(uint16_t sfn, uint16_t slot, int32_t signed_value)
+{
+    uint64_t packed = ((uint64_t)sfn << 48) |
+                      ((uint64_t)slot << 32) |
+                      ((uint32_t)signed_value);
+    return packed;
+}
 // Used by the RFC3550 jitter calculation (defined later in this file)
 static inline int64_t timehr_diff_us(uint32_t time_hr_a, uint32_t time_hr_b);
 
@@ -555,7 +564,7 @@ void pnf_p7_rx_reassembly_queue_remove_old_msgs(pnf_p7_t* pnf_p7, pnf_p7_rx_reas
 
 	while(iterator != 0)
 	{
-		if(rx_hr_time - iterator->rx_hr_time > delta)
+		if(timehr_diff_us(rx_hr_time, iterator->rx_hr_time) > (int64_t)delta)
 		{
 			if(previous == 0)
 			{
@@ -673,14 +682,17 @@ static bool check_nr_p7_timing(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_t msg_
 	// Negative Value: Earlier than acceptable (EARLY)
 	int64_t offset = -margin;
 
-	// Update Latest Delay (Max Positive Offset)
-	if (offset > *latest_delay) {
-		*latest_delay = (int32_t)offset;
-	}
+	if (diff_slots >= -4 && diff_slots <= 40) {
+		// Log margin value for analysis (packed with frame/slot in top bits)
+		log_mmap_entry("pnf_timing_window-us.bin", pack_sfn_slot_value(msg_sfn, msg_slot, (int32_t)margin));
+		if (offset > *latest_delay) {
+			*latest_delay = (int32_t)offset;
+		}
 
-	// Update Earliest Arrival (Min Negative Offset)
-	if (offset < *earliest_arrival) {
-		*earliest_arrival = (int32_t)offset;
+		// Update Earliest Arrival (Min Negative Offset)
+		if (offset < *earliest_arrival) {
+			*earliest_arrival = (int32_t)offset;
+		}
 	}
 
 	if (margin < 0 || margin > (int64_t)pnf_p7->timing_window) {
@@ -1509,6 +1521,7 @@ void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       const bool result = pnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, req, sizeof(*req), &(pnf_p7->_public.codec_config));
       if (!result)
         NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to unpack request\n");
+    } else {
       pnf_p7->nr_stats.dl_tti.late++;
     }
     if (pthread_mutex_unlock(&(pnf_p7->mutex)) != 0) {
@@ -1653,6 +1666,7 @@ void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       const bool result = pnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, req, sizeof(*req), &(pnf_p7->_public.codec_config));
       if (!result)
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "failed to unpack UL_TTI.request\n");
+    } else {
       pnf_p7->nr_stats.ul_tti.late++;
     }
 
@@ -1779,6 +1793,7 @@ void pnf_handle_ul_dci_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       const bool result = pnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, req, sizeof(*req), &(pnf_p7->_public.codec_config));
       if (!result)
         NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to unpack request\n");
+    } else {
       pnf_p7->nr_stats.ul_dci.late++;
     }
 
@@ -1912,6 +1927,7 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
       } else {
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "failed to unpack TX_data.request\n");
       }
+    } else {
       pnf_p7->nr_stats.tx_data.late++;
     }
 
@@ -2643,6 +2659,25 @@ int pnf_p7_message_pump(pnf_p7_t* pnf_p7)
 		return -1;
 	}	
 
+  if (pnf_p7->rx_message_buffer == NULL) {
+    pnf_p7->rx_message_buffer_size = PNF_P7_RX_MESSAGE_BUFFER_MAX_SIZE;
+    pnf_p7->rx_message_buffer = malloc(pnf_p7->rx_message_buffer_size);
+    if (pnf_p7->rx_message_buffer == NULL) {
+      NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to allocate PNF_P7 rx message buffer\n");
+      return -1;
+    }
+  }
+
+  if (pnf_p7->reassemby_buffer == NULL) {
+    pnf_p7->reassemby_buffer_size = PNF_P7_REASSEMBLY_BUFFER_MAX_SIZE;
+    pnf_p7->reassemby_buffer = pnf_p7_malloc(pnf_p7, pnf_p7->reassemby_buffer_size);
+    if (pnf_p7->reassemby_buffer == NULL) {
+      NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to allocate PNF_P7 reassembly buffer\n");
+      return -1;
+    }
+    memset(pnf_p7->reassemby_buffer, 0, pnf_p7->reassemby_buffer_size);
+  }
+
 	// create the pnf p7 socket
 	if ((pnf_p7->p7_sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0)
 	{
@@ -2668,7 +2703,7 @@ int pnf_p7_message_pump(pnf_p7_t* pnf_p7)
 	}
 */
 		
-	int iptos_value = 0;
+	int iptos_value = 184;
 	if (setsockopt(pnf_p7->p7_sock, IPPROTO_IP, IP_TOS, &iptos_value, sizeof(iptos_value)) < 0)
 	{
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "PNF P7 setsockopt (IPPROTO_IP, IP_TOS) failed errno: %d\n", errno);
