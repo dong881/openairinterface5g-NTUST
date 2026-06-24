@@ -277,7 +277,7 @@ void oai_xran_fh_rx_prach_callback(void *pCallbackTag, xran_status_t status
             AssertFatal(pRbMap != NULL, "(%d:%d:%d)pRbMapPrach == NULL. Aborting.\n", cc_id, tti % XRAN_N_FE_BUF_LEN, ant_id);
             for (uint32_t sym_id = 0; sym_id < XRAN_NUM_OF_SYMBOL_PER_SLOT; sym_id++) {
               if (pRbMap->sFrontHaulRxPacketCtrl[sym_id].nRxPkt > 1) {
-                LOG_W(HW, "PRACH segmentation detected: nRxPkt = %d\n", pRbMap->sFrontHaulRxPacketCtrl[sym_id].nRxPkt);
+                LOG_D(HW, "PRACH segmentation detected: nRxPkt = %d\n", pRbMap->sFrontHaulRxPacketCtrl[sym_id].nRxPkt);
               }
               info->nRxPkt[cc_id][ant_id][sym_id] = pRbMap->sFrontHaulRxPacketCtrl[sym_id].nRxPkt;
               pRbMap->sFrontHaulRxPacketCtrl[sym_id].nRxPkt = 0;
@@ -424,22 +424,63 @@ int xran_fh_rx_prach_read_slot(PHY_VARS_gNB *gNB, ru_info_t *ru, int *frame, int
           LOG_D(HW, "read_prach %d.%d.%d saa = %d: nRxPkt = 0!\n", *frame, *slot, sym_idx, aa);
           memset(&dst[sym_idx], 0, N_ZC * 2 * sizeof(*dst));
           continue;
-        } else if (nRxPkt > 1) { // protection
-          LOG_E(HW, "read_prach %d.%d.%d saa = %d: nRxPkt = %d!\n", *frame, *slot, sym_idx, aa, nRxPkt);
-          memset(&dst[sym_idx], 0, N_ZC * 2 * sizeof(*dst));
-          continue;
-        } else {
-          src = (int16_t *)p_rx_packet_ctl->pData[0];
-          if (src == NULL) { // protection
-            LOG_E(HW, "read_prach %d.%d.%d saa = %d:  src = NULL!!\n", *frame, *slot, sym_idx, aa);
-            memset(&dst[sym_idx], 0, N_ZC * 2 * sizeof(*dst));
+        }
+
+        int num_total_prbs = 0;
+        for (int i = 0; i < nRxPkt; i++) {
+          num_total_prbs += p_rx_packet_ctl->nRBSize[i];
+        }
+        int16_t local_dst[num_total_prbs * 2 * N_SC_PER_PRB] __attribute__((aligned(64)));
+        memset(local_dst, 0, sizeof(local_dst));
+
+        for (int pkt_idx = 0; pkt_idx < nRxPkt; pkt_idx++) {
+          src = (int16_t *)p_rx_packet_ctl->pData[pkt_idx];
+          if (src == NULL) {
+            LOG_E(HW, "read_prach %d.%d.%d saa = %d: src[%d] = NULL!!\n", *frame, *slot, sym_idx, aa, pkt_idx);
             continue;
           }
+          int num_prbu_local = p_rx_packet_ctl->nRBSize[pkt_idx];
+          int start_prbu = p_rx_packet_ctl->nRBStart[pkt_idx];
+          int16_t *decom_dst = local_dst + (start_prbu - p_rx_packet_ctl->nRBStart[0]) * N_SC_PER_PRB * 2;
+
+          if (ru_conf->compMeth_PRACH == XRAN_COMPMETHOD_NONE) {
+            for (idx = 0; idx < num_prbu_local * N_SC_PER_PRB * 2; idx++) {
+              decom_dst[idx] = ((int16_t)ntohs(src[idx]));
+            }
+          } else if (ru_conf->compMeth_PRACH == XRAN_COMPMETHOD_BLKFLOAT) {
+#if defined(__i386__) || defined(__x86_64__)
+            struct xranlib_decompress_request bfp_decom_req = {};
+            struct xranlib_decompress_response bfp_decom_rsp = {};
+            int payload_len = (3 * ru_conf->iqWidth_PRACH + 1) * num_prbu_local;
+
+            bfp_decom_req.data_in = (int8_t *)src;
+            bfp_decom_req.numRBs = num_prbu_local;
+            bfp_decom_req.len = payload_len;
+            bfp_decom_req.compMethod = XRAN_COMPMETHOD_BLKFLOAT;
+            bfp_decom_req.iqWidth = ru_conf->iqWidth_PRACH;
+
+            bfp_decom_rsp.data_out = decom_dst;
+            bfp_decom_rsp.len = 0;
+            xranlib_decompress_avx512(&bfp_decom_req, &bfp_decom_rsp);
+#elif defined(__arm__) || defined(__aarch64__)
+            armral_bfp_decompression(ru_conf->iqWidth_PRACH, num_prbu_local, (int8_t *)src, decom_dst);
+#else
+            AssertFatal(1 == 0, "BFP decompression not supported on this architecture");
+#endif
+          }
         }
-        num_prbu = p_rx_packet_ctl->nRBSize[0];
+
+        if (sym_idx == prach_start_sym) {
+          for (idx = 0; idx < (N_ZC * 2); idx++) {
+            dst[idx] = local_dst[idx + g_kbar];
+          }
+        } else {
+          for (idx = 0; idx < (N_ZC * 2); idx++) {
+            dst[idx] += (local_dst[idx + g_kbar]);
+          }
+        }
 #elif defined F_RELEASE
         src = (int16_t *)bufs->prachdstdecomp[aa % nb_rx_per_ru][tti % XRAN_N_FE_BUF_LEN].pBuffers[sym_idx].pData;
-#endif
         /* convert Network order to host order */
         if (ru_conf->compMeth_PRACH == XRAN_COMPMETHOD_NONE) {
           if (sym_idx == prach_start_sym) {
@@ -481,6 +522,7 @@ int xran_fh_rx_prach_read_slot(PHY_VARS_gNB *gNB, ru_info_t *ru, int *frame, int
             for (idx = 0; idx < (N_ZC * 2); idx++)
               dst[idx] += (local_dst[idx + g_kbar]);
         } // COMPMETHOD_BLKFLOAT
+#endif
       } // sym_idx
     } // aa
   } // cc_id
