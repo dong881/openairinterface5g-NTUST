@@ -27,8 +27,6 @@
 #endif
 #include "nr_fapi_p7_utils.h"
 
-static inline int64_t timehr_diff_us(uint32_t time_hr_a, uint32_t time_hr_b);
-
 extern void log_mmap_entry(const char *log_name, uint64_t value);
 
 #ifdef NDEBUG
@@ -201,7 +199,7 @@ int vnf_nr_extract_timing_info(const nfapi_nr_timing_info_t *ind,
 
 static int32_t global_ewma_alpha_denom = 8;    // 1/8 default
 static int32_t global_ewma_beta_attack_denom = 4;     // 1/4 default (fast attack)
-static int32_t global_ewma_beta_release_denom = 1024;  // 1/1024 (slow release). A/B variable: user reports 1024 most stable; 0611 vs 0609 trace suggested 2048 — settle by experiment, do not assume.
+static int32_t global_ewma_beta_release_denom = 2048;  // 1/2048 default (slow release)
 
 /*
  * Calculate the number of slots between two (SFN, slot) pairs.
@@ -224,9 +222,24 @@ static inline int32_t calculate_slot_distance(int32_t current_sfn, int32_t curre
 	return current_absolute - prev_absolute;
 }
 
+static int32_t ceil_div_pos_i32(int32_t num, int32_t den)
+{
+    if (den <= 0)
+        return 0;
+
+    if (num <= 0)
+        return 0;
+
+    return (num + den - 1) / den;
+}
+
 static int32_t abs_i32(int32_t v)
 {
     return v < 0 ? -v : v;
+}
+static inline int32_t p7_max_i32(int32_t a, int32_t b)
+{
+    return a > b ? a : b;
 }
 
 /*
@@ -258,6 +271,25 @@ static inline int32_t p7_ewma_step_i32(
         step = diff > 0 ? 1 : -1;
 
     return cur + step;
+}
+
+/*
+ * EWMA integer zero-resolution.
+ *
+ * Not a tunable threshold.
+ * It is derived from integer EWMA alpha denominator.
+ */
+static inline int p7_ewma_effectively_zero_i32(
+    int32_t value,
+    int32_t denom)
+{
+    if (value <= 0)
+        return 1;
+
+    if (denom <= 1)
+        return value == 0;
+
+    return value <= denom;
 }
 
 static inline uint64_t pack_sfn_slot_value(uint16_t sfn, uint16_t slot, int32_t signed_value)
@@ -292,8 +324,8 @@ static void vnf_nr_delay_management(
 	int sd = p7_info->slot_duration_us;
 
 	/* --- Initialization: start from baseline (4 slots ahead) --- */
-	// if (p7_info->slot_ahead <= 0)
-	// 	p7_info->slot_ahead = 4;
+	if (p7_info->slot_ahead <= 0)
+		p7_info->slot_ahead = 4;
 
 
 	if (p7_info->estimated_mean_late == 0) {
@@ -352,18 +384,15 @@ static void vnf_nr_delay_management(
 	int32_t target = p7_info->slot_ahead;
 
 	/* ===== Step 2: Late → Increase ===== */
-	if ((TimingInfoEWMA + TimingInfoDev) > 0) {
-		/*
-		 * E2: react to the SMOOTHED estimate (EWMA+Dev) only, not the raw
-		 * spike. max(EWMA+Dev, raw) reacted to every single late sample and
-		 * made slot_ahead oscillate (floor3<->ceil8 thrash in 0611-1047),
-		 * and the slot_ahead transitions themselves produce the late P7
-		 * packets that crossed the deadline -> collapse. EWMA+Dev alone is
-		 * far less oscillatory; Dev already carries a jitter safety margin.
-		 */
+	if (TimingInfo > 0 || (TimingInfoEWMA + TimingInfoDev) > 0) {
 		int32_t val = TimingInfoEWMA + TimingInfoDev;
-		int32_t inc = (val + sd - 1) / sd;
-		if (inc > 0) target += inc;
+		if (val > 0) {
+			int32_t inc = (val + sd - 1) / sd;
+			target += inc;
+		} else {
+			/* raw TimingInfo > 0 but EWMA hasn't caught up yet */
+			target += 1;
+		}
 	}
 	/* ===== Step 3: Early → Decrease 1 ===== */
 	else if (TimingInfoEWMA < -(sd + 4 * TimingInfoDev)) {
@@ -379,12 +408,12 @@ static void vnf_nr_delay_management(
 		target -= 1;
 	}
 
-	/* Clamp to [3, max_ahead] */
+	/* Clamp to [2, max_ahead] */
 	int32_t max_ahead = (int32_t)(p7_info->timing_window / sd) - 1;
 	if (max_ahead > 8) max_ahead = 8;
-	if (max_ahead < 3) max_ahead = 3;
+	if (max_ahead < 2) max_ahead = 2;
 	if (target > max_ahead) target = max_ahead;
-	if (target < 3) target = 3;
+	if (target < 2) target = 2;
 
 	log_mmap_entry("vnf_delay_mgmt_action.bin",
 		pack_sfn_slot_value(p7_info->sfn, p7_info->slot, target));
@@ -593,7 +622,7 @@ void vnf_p7_rx_reassembly_queue_remove_old_msgs(vnf_p7_t* vnf_p7, vnf_p7_rx_reas
 
 	while(iterator != 0)
 	{
-		if(timehr_diff_us(rx_hr_time, iterator->rx_hr_time) > (int64_t)delta)
+		if(rx_hr_time - iterator->rx_hr_time > delta)
 		{
 			if(previous == 0)
 			{
