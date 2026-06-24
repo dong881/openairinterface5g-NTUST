@@ -2651,15 +2651,15 @@ void pnf_nfapi_p7_read_dispatch_message(pnf_p7_t* pnf_p7, uint32_t now_hr_time)
 	while(recvfrom_result > 0);
 }
 
-int pnf_p7_message_pump(pnf_p7_t* pnf_p7)
+int pnf_p7_message_pump(pnf_p7_t *pnf_p7)
 {
+  pnf_p7->slot_start_time_hr = 0;
 
-	// initialize the mutex lock
-	if(pthread_mutex_init(&(pnf_p7->mutex), NULL) != 0)
-	{
-		NFAPI_TRACE(NFAPI_TRACE_ERROR, "After P7 mutex init: %d\n", errno);
-		return -1;
-	}
+  // initialize the mutex lock
+  if (pthread_mutex_init(&(pnf_p7->mutex), NULL) != 0) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "After P7 mutex init: %d\n", errno);
+    return -1;
+  }
 	
 	if(pthread_mutex_init(&(pnf_p7->pack_mutex), NULL) != 0)
 	{
