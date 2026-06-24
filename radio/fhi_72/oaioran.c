@@ -276,7 +276,9 @@ void oai_xran_fh_rx_prach_callback(void *pCallbackTag, xran_status_t status
             struct xran_prb_map *pRbMap = (struct xran_prb_map *)bufs->prachdstdecomp[ant_id][tti % XRAN_N_FE_BUF_LEN].pBuffers->pData;
             AssertFatal(pRbMap != NULL, "(%d:%d:%d)pRbMapPrach == NULL. Aborting.\n", cc_id, tti % XRAN_N_FE_BUF_LEN, ant_id);
             for (uint32_t sym_id = 0; sym_id < XRAN_NUM_OF_SYMBOL_PER_SLOT; sym_id++) {
-              AssertFatal(pRbMap->sFrontHaulRxPacketCtrl[sym_id].nRxPkt <= 1, "PRACH segmentation is not supported\n");
+              if (pRbMap->sFrontHaulRxPacketCtrl[sym_id].nRxPkt > 1) {
+                LOG_W(HW, "PRACH segmentation detected: nRxPkt = %d\n", pRbMap->sFrontHaulRxPacketCtrl[sym_id].nRxPkt);
+              }
               info->nRxPkt[cc_id][ant_id][sym_id] = pRbMap->sFrontHaulRxPacketCtrl[sym_id].nRxPkt;
               pRbMap->sFrontHaulRxPacketCtrl[sym_id].nRxPkt = 0;
             }
