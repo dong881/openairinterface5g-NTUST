@@ -676,19 +676,23 @@ struct timespec timespec_delta(struct timespec start, struct timespec end)
  */
 static inline int64_t timehr_diff_us(uint32_t time_hr_a, uint32_t time_hr_b)
 {
-    // Extract seconds and microseconds
-    int32_t sec_a = TIMEHR_SEC(time_hr_a);
-    int32_t sec_b = TIMEHR_SEC(time_hr_b);
-    int32_t usec_a = TIMEHR_USEC(time_hr_a);
-    int32_t usec_b = TIMEHR_USEC(time_hr_b);
+  // Extract seconds and microseconds
+  int32_t sec_a = TIMEHR_SEC(time_hr_a);
+  int32_t sec_b = TIMEHR_SEC(time_hr_b);
+  int32_t usec_a = TIMEHR_USEC(time_hr_a);
+  int32_t usec_b = TIMEHR_USEC(time_hr_b);
 
-    // Handle 12-bit second wrap-around
-    // sec_a - sec_b should be in range [-2048, 2047] for valid comparisons
-    int32_t sec_diff = sec_a - sec_b;
-    if (sec_diff > 2048) sec_diff -= 4096;   // sec_a wrapped, sec_b didn't
-    if (sec_diff < -2048) sec_diff += 4096;  // sec_b wrapped, sec_a didn't
+  // Handle 12-bit second wrap-around
+  // sec_a - sec_b should be in range [-2048, 2047] for valid comparisons
+  int32_t sec_diff = sec_a - sec_b;
+  if (sec_diff > 2047) {
+    sec_diff -= 4096; // sec_a wrapped, sec_b didn't
+  }
+  if (sec_diff < -2048) {
+    sec_diff += 4096; // sec_b wrapped, sec_a didn't
+  }
 
-    return (int64_t)sec_diff * 1000000 + (usec_a - usec_b);
+  return (int64_t)sec_diff * 1000000 + (usec_a - usec_b);
 }
 
 static uint32_t get_sf_time(uint32_t now_hr, uint32_t sf_start_hr)

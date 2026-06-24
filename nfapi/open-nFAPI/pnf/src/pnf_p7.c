@@ -605,19 +605,23 @@ void pnf_p7_rx_reassembly_queue_remove_old_msgs(pnf_p7_t* pnf_p7, pnf_p7_rx_reas
  */
 static inline int64_t timehr_diff_us(uint32_t time_hr_a, uint32_t time_hr_b)
 {
-	// Extract seconds and microseconds
-	int32_t sec_a = TIMEHR_SEC(time_hr_a);
-	int32_t sec_b = TIMEHR_SEC(time_hr_b);
-	int32_t usec_a = TIMEHR_USEC(time_hr_a);
-	int32_t usec_b = TIMEHR_USEC(time_hr_b);
-	
-	// Handle 12-bit second wrap-around
-	// sec_a - sec_b should be in range [-2048, 2047] for valid comparisons
-	int32_t sec_diff = sec_a - sec_b;
-	if (sec_diff > 2048) sec_diff -= 4096;   // sec_a wrapped, sec_b didn't
-	if (sec_diff < -2048) sec_diff += 4096;  // sec_b wrapped, sec_a didn't
-	
-	return (int64_t)sec_diff * 1000000 + (usec_a - usec_b);
+  // Extract seconds and microseconds
+  int32_t sec_a = TIMEHR_SEC(time_hr_a);
+  int32_t sec_b = TIMEHR_SEC(time_hr_b);
+  int32_t usec_a = TIMEHR_USEC(time_hr_a);
+  int32_t usec_b = TIMEHR_USEC(time_hr_b);
+
+  // Handle 12-bit second wrap-around
+  // sec_a - sec_b should be in range [-2048, 2047] for valid comparisons
+  int32_t sec_diff = sec_a - sec_b;
+  if (sec_diff > 2047) {
+    sec_diff -= 4096; // sec_a wrapped, sec_b didn't
+  }
+  if (sec_diff < -2048) {
+    sec_diff += 4096; // sec_b wrapped, sec_a didn't
+  }
+
+  return (int64_t)sec_diff * 1000000 + (usec_a - usec_b);
 }
 
 static uint32_t get_slot_time(uint32_t now_hr, uint32_t slot_start_hr)
@@ -664,13 +668,17 @@ static inline int32_t calc_slot_diff(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_
 // Forward declaration
 void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7);
 
-static bool check_nr_p7_timing(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_t msg_slot, 
-                               const char* name, uint32_t recv_time_hr, 
-                               uint32_t timing_offset, int32_t* latest_delay, int32_t* earliest_arrival)
+static bool check_nr_p7_timing(pnf_p7_t *pnf_p7, uint16_t msg_sfn, uint16_t msg_slot, 
+                               const char *name, uint32_t recv_time_hr, 
+                               uint32_t timing_offset, int32_t *latest_delay, int32_t *earliest_arrival)
 {
-	// Calculate difference in slots (handling wrap-around)
-	int32_t diff_slots = calc_slot_diff(pnf_p7, msg_sfn, msg_slot);
-	int64_t slot_len_us = 10000 / NFAPI_SLOTNUM(pnf_p7->mu);
+  if (pnf_p7->slot_start_time_hr == 0) {
+    return true;
+  }
+
+  // Calculate difference in slots (handling wrap-around)
+  int32_t diff_slots = calc_slot_diff(pnf_p7, msg_sfn, msg_slot);
+  int64_t slot_len_us = 10000 / NFAPI_SLOTNUM(pnf_p7->mu);
 
 	// Calculate margin: Time remaining until deadline
 	int64_t time_since_slot_start = timehr_diff_us(recv_time_hr, pnf_p7->slot_start_time_hr);
