@@ -341,7 +341,6 @@ int xran_fh_rx_prach_read_slot(PHY_VARS_gNB *gNB, ru_info_t *ru, int *frame, int
     }
     info = NotifiedFifoData(res);
     LOG_W(HW, "PRACH TTI processing delay detected, skipping %4d.%2d => %4d.%2d\n", old_f, old_sl, info->f, info->sl);
-    DevAssert(xran_queue_prach_length == 0);
   }
 
   *slot = info->sl;
@@ -581,7 +580,6 @@ int xran_fh_rx_read_slot(ru_info_t *ru, int *frame, int *slot)
     }
     info = NotifiedFifoData(res);
     LOG_W(HW, "TTI processing delay detected, skipping %4d.%2d => %4d.%2d\n", old_f, old_sl, info->f, info->sl);
-    DevAssert(xran_queue_length == 0);
   }
 
   *slot = info->sl;
