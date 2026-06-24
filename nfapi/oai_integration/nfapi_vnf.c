@@ -921,10 +921,6 @@ int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
       oai_fapi_send_end_request(ind->sfn, ind->slot);
     }
 #else
-  /* Send TX_DATA first: the payload message is large; on a remote/high-jitter
-   * split it otherwise arrives after DL_TTI and misses the slot deadline,
-   * leaving DL_TTI with "no corresponding tx_data" -> empty PDSCH -> NACK
-   * storm -> RLF. Giving the big message a head start closes that gap. */
   if (sched_response.TX_req.Number_of_PDUs > 0)
     oai_nfapi_tx_data_req(&sched_response.TX_req);
 
