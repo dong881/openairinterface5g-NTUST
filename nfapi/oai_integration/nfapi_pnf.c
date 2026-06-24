@@ -1725,7 +1725,7 @@ int nr_start_request(nfapi_pnf_config_t *config, nfapi_pnf_phy_config_t *phy, nf
   p7_config->send_p7_msg = &pnf_nr_send_p7_message;
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] Creating P7 thread %s\n", __FUNCTION__);
   pthread_t p7_thread;
-  threadCreate(&p7_thread, &pnf_nr_p7_thread_start, p7_config, "pnf_p7_thread", 12, OAI_PRIORITY_RT);
+  threadCreate(&p7_thread, &pnf_nr_p7_thread_start, p7_config, "pnf_p7_thread", -1, OAI_PRIORITY_RT);
 #endif
 
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[PNF] Calling l1_north_init_eNB() %s\n", __FUNCTION__);
