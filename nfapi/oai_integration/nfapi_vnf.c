@@ -1405,7 +1405,7 @@ void *configure_nr_p7_vnf(void *ptr)
   p7_vnf->config->pack_func = &nfapi_nr_p7_message_pack;
   p7_vnf->config->send_p7_msg = &vnf_nr_send_p7_msg;
   NFAPI_TRACE(NFAPI_TRACE_INFO, "[VNF] Creating VNF NFAPI P7 start thread %s\n", __FUNCTION__);
-  threadCreate(&vnf_p7_start_pthread, &vnf_nr_start_p7_thread, p7_vnf->config, "vnf_p7_thread", -1, OAI_PRIORITY_RT);
+  threadCreate(&vnf_p7_start_pthread, &vnf_nr_start_p7_thread, p7_vnf->config, "vnf_p7_thread", 14, OAI_PRIORITY_RT);
 #endif
 
 #ifdef ENABLE_AERIAL
@@ -1417,7 +1417,7 @@ void *configure_nr_p7_vnf(void *ptr)
 #ifndef ENABLE_WLS
   // Start VNF autonomous timing thread
   pthread_t t;
-  threadCreate(&t, &vnf_timing_thread, p7_vnf, "vnf_timing", -1, OAI_PRIORITY_RT);
+  threadCreate(&t, &vnf_timing_thread, p7_vnf, "vnf_timing", 15, OAI_PRIORITY_RT_MAX);
 #endif
   return 0;
 }
@@ -1466,7 +1466,7 @@ int pnf_nr_start_resp_cb(nfapi_vnf_config_t *config, int p5_idx, nfapi_nr_pnf_st
 
   if(p7_vnf->thread_started == 0) {
     pthread_t vnf_p7_thread;
-    threadCreate(&vnf_p7_thread, &configure_nr_p7_vnf, p7_vnf, "vnf_p7_thread", -1, OAI_PRIORITY_RT);
+    threadCreate(&vnf_p7_thread, &configure_nr_p7_vnf, p7_vnf, "vnf_p7_thread", 14, OAI_PRIORITY_RT);
     p7_vnf->thread_started = 1;
   } else {
     // P7 thread already running.
@@ -1868,7 +1868,7 @@ void configure_nr_nfapi_vnf(eth_params_t params)
 #endif
   vnf_info *vnf = calloc(1, sizeof(vnf_info));
   memset(vnf->p7_vnfs, 0, sizeof(vnf->p7_vnfs));
-  vnf->p7_vnfs[0].timing_window = 4500;
+  vnf->p7_vnfs[0].timing_window = 6500;
   vnf->p7_vnfs[0].dl_tti_timing_offset = 0;
   vnf->p7_vnfs[0].ul_tti_timing_offset = 0;
   vnf->p7_vnfs[0].ul_dci_timing_offset = 0;

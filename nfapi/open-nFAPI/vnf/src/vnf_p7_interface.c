@@ -112,7 +112,7 @@ int nfapi_vnf_p7_start(nfapi_vnf_p7_config_t* config)
 	NFAPI_TRACE(NFAPI_TRACE_INFO, "VNF P7 socket created...\n");
 
 	// configure the UDP socket options
-	int iptos_value = 0;
+	int iptos_value = 184;
 	if (setsockopt(vnf_p7->socket, IPPROTO_IP, IP_TOS, &iptos_value, sizeof(iptos_value)) < 0)
 	{
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "After setsockopt (IP_TOS) errno: %d\n", errno);
@@ -440,7 +440,7 @@ int nfapi_vnf_p7_add_pnf(nfapi_vnf_p7_config_t* config, const char* pnf_p7_addr,
   node->slot = 0;
 	node->min_sync_cycle_count = 8;
   node->mu = mu;
-  node->timing_window = 4500;
+  node->timing_window = 6500;
   node->timing_info_period = 1;
   pthread_mutex_init(&node->mutex, NULL);
   pthread_cond_init(&node->initial_timinginfo_cond, NULL);
@@ -537,7 +537,18 @@ bool nfapi_vnf_p7_tx_data_req(nfapi_vnf_p7_config_t* config, nfapi_nr_tx_data_re
 		return -1;
 
 	vnf_p7_t* vnf_p7 = (vnf_p7_t*)config;
-  AssertFatal(config->send_p7_msg, "Function pointer must be configured|");
+	
+	nfapi_vnf_p7_connection_info_t* p7_info = vnf_p7->p7_connections;
+	while (p7_info != NULL) {
+		if (p7_info->phy_id == req->header.phy_id) {
+			break;
+		}
+		p7_info = p7_info->next;
+	}
+	if (p7_info == NULL) {
+		p7_info = vnf_p7->p7_connections;
+	}
+	AssertFatal(config->send_p7_msg, "Function pointer must be configured|");
 	return config->send_p7_msg(vnf_p7, &req->header);
 }
 int nfapi_vnf_p7_tx_req(nfapi_vnf_p7_config_t* config, nfapi_tx_request_t* req)
