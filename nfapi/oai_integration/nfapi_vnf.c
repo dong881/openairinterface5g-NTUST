@@ -53,6 +53,7 @@
 #endif
 
 #define TEST
+extern void log_mmap_entry(const char *log_name, uint64_t value);
 static nfapi_vnf_config_t *config;
 extern RAN_CONTEXT_t RC;
 extern UL_RCC_IND_t  UL_RCC_INFO;
@@ -980,7 +981,6 @@ static inline void p7_sync_init(nfapi_vnf_p7_connection_info_t *p7_info)
 
 void *vnf_timing_thread(void *arg)
 {
-  LOG_I(NFAPI_VNF, "Starting VNF autonomous timing thread\n");
   vnf_p7_info *p7_vnf = (vnf_p7_info *)arg;
   vnf_p7_t *vnf_p7 = (vnf_p7_t *)p7_vnf->config;
 
@@ -991,12 +991,9 @@ void *vnf_timing_thread(void *arg)
     if (nr_start_resp_received) {
       if (vnf_p7->p7_connections) {
         p7_info = vnf_p7->p7_connections;
-        LOG_I(NFAPI_VNF, "Timing thread: p7_connections active, RC.nrmac=%p\n", RC.nrmac);
         if (RC.nrmac && RC.nrmac[0]) {
           nfapi_nr_config_request_scf_t *req = &RC.nrmac[0]->config[0];
           const nfapi_uint8_tlv_t *scs = &req->ssb_config.scs_common;
-          LOG_I(NFAPI_VNF, "Timing thread: RC.nrmac[0]=%p, scs_common tag=%d (expected %d), value=%d\n",
-                RC.nrmac[0], scs->tl.tag, NFAPI_NR_CONFIG_SCS_COMMON_TAG, scs->value);
           if (scs && scs->tl.tag == NFAPI_NR_CONFIG_SCS_COMMON_TAG) {
             mu = scs->value;
           }
@@ -1004,23 +1001,22 @@ void *vnf_timing_thread(void *arg)
         if (mu < 0 && RC.gNB && RC.gNB[0] && RC.gNB[0]->configured && RC.gNB[0]->frame_parms.numerology_index >= 0) {
           mu = RC.gNB[0]->frame_parms.numerology_index;
         }
-        if (mu >= 0)
+        if (mu >= 0) {
           break;
-      } else {
-        LOG_I(NFAPI_VNF, "Timing thread: nr_start_resp_received is 1 but vnf_p7->p7_connections is NULL\n");
+        }
       }
     }
     usleep(1000000);
-    LOG_I(NFAPI_VNF, "Waiting for gNB or NFAPI NR configuration... mu:%d start_resp:%d\n", mu, nr_start_resp_received);
   }
   pthread_mutex_lock(&p7_info->mutex);
   while (!p7_info->initial_timinginfo_received) {
     pthread_cond_wait(&p7_info->initial_timinginfo_cond, &p7_info->mutex);
   }
   pthread_mutex_unlock(&p7_info->mutex);
-  AssertFatal(mu >= 0 && mu <= 5, "Invalid mu %d\n", mu);
+  DevAssert(mu >= 0 && mu <= 5);
   p7_info->mu = mu;
   p7_info->slot_duration_us = 1000 >> p7_info->mu;
+  LOG_I(NFAPI_VNF, "Starting VNF autonomous timing thread: mu = %d, slot duration = %d us\n", mu, p7_info->slot_duration_us);
   if (p7_info->initial_timinginfo_received) {
     int sfnslot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, p7_info->sfn, p7_info->slot);
     sfnslot_dec = (sfnslot_dec + 1) % NFAPI_MAX_SFNSLOTDEC(p7_info->mu);
@@ -1043,7 +1039,6 @@ void *vnf_timing_thread(void *arg)
   vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
 
   const int max_sfnslotdec = NFAPI_MAX_SFNSLOTDEC(p7_info->mu);
-  const int extreme_gap_threshold = max_sfnslotdec / 4;
   int last_mac_ind_dec = -1;
 
   int sfnslot_dec = NFAPI_SFNSLOT2DEC(p7_info->mu, p7_info->sfn, p7_info->slot);
@@ -1067,8 +1062,9 @@ void *vnf_timing_thread(void *arg)
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     int64_t diff_ns = (p7_info->next_slot_time.tv_sec - now.tv_sec) * 1000000000LL + (p7_info->next_slot_time.tv_nsec - now.tv_nsec);
-    if (diff_ns < -5000000LL) {
-      // next_slot_time is in the past by more than 5ms!
+    const int64_t extreme_lag_threshold_ns = (int64_t)p7_info->slot_duration_us * 5 * 1000LL;
+    if (diff_ns < -extreme_lag_threshold_ns) {
+      // next_slot_time is in the past by more than 5 slots!
       // Yield CPU to prevent starvation of the SCTP/UDP network thread under extreme lag.
       sched_yield();
     }
@@ -1095,11 +1091,11 @@ void *vnf_timing_thread(void *arg)
     int diff_mac = (target_ind_dec - last_mac_ind_dec + max_sfnslotdec) % max_sfnslotdec;
     if (diff_mac > 0 && diff_mac < max_sfnslotdec / 2) {
       // NEVER skip slots! Skipping slots breaks MAC scheduling (e.g. RACH, HARQ timing assertions) and drops UE.
-      // Catch up in smooth bursts up to MAX_BURST. If a huge drift happens during iperf CPU starvation, 
+      // Catch up in smooth bursts up to max_burst. If a huge drift happens during iperf CPU starvation, 
       // generating backlog sequentially is much safer than jumping.
       int burst_counter = 0;
-      const int MAX_BURST = 20; // Allow a larger burst to recover efficiently
-      while (last_mac_ind_dec != target_ind_dec && burst_counter < MAX_BURST) {
+      const int max_burst = 10 << p7_info->mu;
+      while (last_mac_ind_dec != target_ind_dec && burst_counter < max_burst) {
         last_mac_ind_dec = (last_mac_ind_dec + 1) % max_sfnslotdec;
         nfapi_nr_slot_indication_scf_t ind = {0};
         ind.sfn = NFAPI_SFNSLOTDEC2SFN(p7_info->mu, last_mac_ind_dec);

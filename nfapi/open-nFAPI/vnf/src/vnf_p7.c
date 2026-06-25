@@ -2154,19 +2154,13 @@ void vnf_nr_handle_timing_info(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
 	if (count <= 0) {
 		return;
 	}
-
-	bool run_delay_mgmt = false;
 	vnf_timing_stats_t aggregated_stats = out_stats;
-
 	pthread_mutex_lock(&p7_con->mutex);
 	p7_con->timing_info_accum_count = 0;
 	p7_con->timing_info_accum_worst_late = INT32_MIN;
-	run_delay_mgmt = true;
 	pthread_mutex_unlock(&p7_con->mutex);
 
-	if (run_delay_mgmt) {
-		vnf_nr_delay_management(p7_con, &aggregated_stats);
-	}
+	vnf_nr_delay_management(p7_con, &aggregated_stats);
 }
 
 void vnf_dispatch_p7_message(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7)
