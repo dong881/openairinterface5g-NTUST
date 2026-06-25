@@ -2027,7 +2027,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 		p7_info->pending_us -= micro_adj;
 
 		// Drift Monitoring
-		if (total_correction <= -1000 || total_correction >= 1000) {
+		if (total_correction <= -2500 || total_correction >= 2500) {
 			// 1. Massive raw drift: unlock immediately
 			p7_info->sync_locked = 0;
 			p7_info->consecutive_drift_violations = 0;
