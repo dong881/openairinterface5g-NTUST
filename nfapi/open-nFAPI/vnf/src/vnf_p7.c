@@ -27,6 +27,7 @@
 #endif
 #include "nr_fapi_p7_utils.h"
 
+extern void log_mmap_entry(const char *log_name, uint64_t value);
 
 #ifdef NDEBUG
 #  warning assert is disabled
@@ -291,6 +292,13 @@ static inline int p7_ewma_effectively_zero_i32(
     return value <= denom;
 }
 
+static inline uint64_t pack_sfn_slot_value(uint16_t sfn, uint16_t slot, int32_t signed_value)
+{
+    uint64_t packed = ((uint64_t)sfn << 48) |
+                      ((uint64_t)slot << 32) |
+                      ((uint32_t)signed_value);
+    return packed;
+}
 
 /*
  * Delay Management v2 — Minimalist EWMA-based adaptive slot-ahead control.
@@ -361,8 +369,15 @@ static void vnf_nr_delay_management(
 	if (period_slots < 1) period_slots = 1;
 	bool gate_open = (elapsed >= period_slots);
 
+	/* ===== Logging (always, before gating) ===== */
+	log_mmap_entry("vnf_timing_info_ewma-us.bin",
+		pack_sfn_slot_value(p7_info->sfn, p7_info->slot, TimingInfoEWMA));
+	log_mmap_entry("vnf_timing_info_dev-us.bin",
+		pack_sfn_slot_value(p7_info->sfn, p7_info->slot, TimingInfoDev));
 
 	if (!gate_open) {
+		log_mmap_entry("vnf_delay_mgmt_action.bin",
+			pack_sfn_slot_value(p7_info->sfn, p7_info->slot, p7_info->slot_ahead));
 		return;
 	}
 
@@ -400,6 +415,8 @@ static void vnf_nr_delay_management(
 	if (target > max_ahead) target = max_ahead;
 	if (target < 2) target = 2;
 
+	log_mmap_entry("vnf_delay_mgmt_action.bin",
+		pack_sfn_slot_value(p7_info->sfn, p7_info->slot, target));
 
 	/* ===== Apply adjustment ===== */
 	if (target != p7_info->slot_ahead) {
@@ -1983,6 +2000,10 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 	while (diff2 > half_wrap) diff2 -= wrap_us;
 	while (diff2 < -half_wrap) diff2 += wrap_us;
 	int32_t offset = (int32_t)((diff1 - diff2) / 2);
+	log_mmap_entry("vnf_nr_ul_node_sync_offset-us.bin",
+	               (((uint64_t)p7_info->sfn << 48) |
+	                ((uint64_t)p7_info->slot << 32) |
+	                ((uint32_t)offset)));
 	
 	int32_t total_correction = offset;
 
@@ -2034,6 +2055,7 @@ void vnf_nr_handle_ul_node_sync(void *pRecvMsg, int recvMsgLen, vnf_p7_t* vnf_p7
 		    p7_info->nr_offset_filtered >= -MARGIN_TOLERANCE_US && p7_info->nr_offset_filtered <= MARGIN_TOLERANCE_US) {
 			p7_info->sync_locked = 1;
 			p7_info->consecutive_drift_violations = 0;
+			p7_info->total_advanced_us = p7_info->slot_ahead * p7_info->slot_duration_us;
 			NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Sync locked successfully (offset: %d us, smoothed: %d us).\n",
 			            total_correction, p7_info->nr_offset_filtered);
 		} else {

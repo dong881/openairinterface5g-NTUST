@@ -53,6 +53,7 @@
 #endif
 
 #define TEST
+extern void log_mmap_entry(const char *log_name, uint64_t value);
 static nfapi_vnf_config_t *config;
 extern RAN_CONTEXT_t RC;
 extern UL_RCC_IND_t  UL_RCC_INFO;
@@ -957,6 +958,13 @@ static inline void timespec_add_us(struct timespec *t, long us)
     t->tv_nsec += sec_diff * 1000000000;
   }
 }
+static inline uint64_t pack_sfn_slot_value(uint16_t sfn, uint16_t slot, int32_t signed_value)
+{
+    uint64_t packed = ((uint64_t)sfn << 48) |
+                      ((uint64_t)slot << 32) |
+                      ((uint32_t)signed_value);
+    return packed;
+}
 #define P7_SYNC_PERIOD_SLOTS_DEFAULT 80
 #define P7_SYNC_MAX_CATCHUP_BURST 2
 int vnf_nr_build_send_dl_node_sync(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info);
@@ -1019,6 +1027,14 @@ void *vnf_timing_thread(void *arg)
   p7_info->thread = pthread_self();
   p7_sync_init(p7_info);
   clock_gettime(CLOCK_MONOTONIC, &p7_info->next_slot_time);
+  char *env_offset = getenv("OAI_INITIAL_OFFSET_US");
+  if (env_offset) {
+    int32_t initial_offset_us = atoi(env_offset);
+    timespec_add_us(&p7_info->next_slot_time, initial_offset_us);
+    if (initial_offset_us > 0) {
+      usleep(initial_offset_us);
+    }
+  }
   vnf_p7->slot_start_time_hr = vnf_get_current_time_hr();
   vnf_nr_build_send_dl_node_sync(vnf_p7, p7_info);
 
@@ -1029,11 +1045,16 @@ void *vnf_timing_thread(void *arg)
 
   while (p7_info->running) {
     pthread_mutex_lock(&p7_info->mutex);
+    p7_info->total_advanced_us = p7_info->slot_ahead * p7_info->slot_duration_us;
     if (p7_info->slot_adjustment != 0) {
       sfnslot_dec = (sfnslot_dec + p7_info->slot_adjustment + max_sfnslotdec) % max_sfnslotdec;
+      if (p7_info->sync_locked) p7_info->total_advanced_us += p7_info->slot_adjustment * p7_info->slot_duration_us;
       p7_info->slot_adjustment = 0;
     }
     int32_t current_pending_us = p7_info->pending_us;
+    if (p7_info->sync_locked) {
+      p7_info->total_advanced_us -= current_pending_us;
+    }
     p7_info->pending_us = 0;
     pthread_mutex_unlock(&p7_info->mutex);
 
@@ -1083,6 +1104,9 @@ void *vnf_timing_thread(void *arg)
         phy_nr_slot_indication(&ind);
         burst_counter++;
       }
+    }
+    if (p7_info->sync_locked) {
+      log_mmap_entry("vnf_advance_time-us.bin", pack_sfn_slot_value(p7_info->sfn, p7_info->slot, p7_info->total_advanced_us));
     }
     sfnslot_dec = (sfnslot_dec + 1) % max_sfnslotdec;
   }
@@ -1873,9 +1897,20 @@ void configure_nr_nfapi_vnf(eth_params_t params)
   vnf->p7_vnfs[0].ul_tti_timing_offset = 0;
   vnf->p7_vnfs[0].ul_dci_timing_offset = 0;
   vnf->p7_vnfs[0].tx_data_timing_offset = 0;
-  vnf->p7_vnfs[0].periodic_timing_enabled = 1;
-  vnf->p7_vnfs[0].aperiodic_timing_enabled = 0;
-  vnf->p7_vnfs[0].periodic_timing_period = 1;
+  char *env_aperiodic = getenv("OAI_APERIODIC_TIMING_ENABLED");
+  if (env_aperiodic != NULL && atoi(env_aperiodic) > 0) {
+    vnf->p7_vnfs[0].periodic_timing_enabled = 0;
+    vnf->p7_vnfs[0].aperiodic_timing_enabled = 1;
+  } else {
+    vnf->p7_vnfs[0].periodic_timing_enabled = 1;
+    vnf->p7_vnfs[0].aperiodic_timing_enabled = 0;
+  }
+  char *env_period = getenv("OAI_PERIODIC_TIMING_PERIOD");
+  if (env_period != NULL) {
+    vnf->p7_vnfs[0].periodic_timing_period = atoi(env_period);
+  } else {
+    vnf->p7_vnfs[0].periodic_timing_period = 1;
+  }
   vnf->p7_vnfs[0].config = nfapi_vnf_p7_config_create();
   AssertFatal(params.remote_portc == 0 && params.remote_portd == 0, "remote ports not used, use 0\n");
 #ifndef ENABLE_AERIAL
@@ -1997,8 +2032,14 @@ void configure_nfapi_vnf(char *vnf_addr, int vnf_p5_port, char *pnf_ip_addr, int
   vnf_info *vnf = calloc(1, sizeof(vnf_info));
   memset(vnf->p7_vnfs, 0, sizeof(vnf->p7_vnfs));
   vnf->p7_vnfs[0].timing_window = 32;
-  vnf->p7_vnfs[0].periodic_timing_enabled = 1;
-  vnf->p7_vnfs[0].aperiodic_timing_enabled = 0;
+  char *env_aperiodic = getenv("OAI_APERIODIC_TIMING_ENABLED");
+  if (env_aperiodic != NULL && atoi(env_aperiodic) > 0) {
+    vnf->p7_vnfs[0].periodic_timing_enabled = 0;
+    vnf->p7_vnfs[0].aperiodic_timing_enabled = 1;
+  } else {
+    vnf->p7_vnfs[0].periodic_timing_enabled = 1;
+    vnf->p7_vnfs[0].aperiodic_timing_enabled = 0;
+  }
   vnf->p7_vnfs[0].periodic_timing_period = 10;
   vnf->p7_vnfs[0].config = nfapi_vnf_p7_config_create();
   NFAPI_TRACE(NFAPI_TRACE_INFO,
