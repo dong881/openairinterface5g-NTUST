@@ -957,8 +957,7 @@ static inline void timespec_add_us(struct timespec *t, long us)
     t->tv_nsec += sec_diff * 1000000000;
   }
 }
-
-#define P7_SYNC_PERIOD_SLOTS_DEFAULT 2000
+#define P7_SYNC_PERIOD_SLOTS_DEFAULT 80
 #define P7_SYNC_MAX_CATCHUP_BURST 2
 int vnf_nr_build_send_dl_node_sync(vnf_p7_t* vnf_p7, nfapi_vnf_p7_connection_info_t* p7_info);
 
@@ -966,6 +965,8 @@ static inline void p7_sync_init(nfapi_vnf_p7_connection_info_t *p7_info)
 {
     p7_info->sync_slot_counter = 0;
     p7_info->sync_period_slots = P7_SYNC_PERIOD_SLOTS_DEFAULT;
+    p7_info->consecutive_drift_violations = 0;
+    p7_info->nr_offset_filtered = 0;
     NFAPI_TRACE(NFAPI_TRACE_INFO, "[P7_SYNC] Initialized: period=%u slots\n",
                 p7_info->sync_period_slots);
 }

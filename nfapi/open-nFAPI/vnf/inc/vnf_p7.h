@@ -17,8 +17,8 @@
  * DYNAMIC SLOT SLEEP TIMING CONTROL CONSTANTS
  * ============================================================================ */
 /* Dynamic Target Margin (adaptive to avoid late packets) */
-#define MARGIN_TOLERANCE_US     20    // Deadband zone: +/- MARGIN_TOLERANCE_US us
-#define MARGIN_TOLERANCE_LOCKED_US 800    // Wider deadband zone used after first sync lock
+#define MARGIN_TOLERANCE_US     100    // Target lock threshold
+#define MARGIN_TOLERANCE_LOCKED_US 500    // Smoothed drift unlock threshold
 #define SLOT_ARRAY_SIZE         20    // TDD cycle slot count (Reduced to 20 for faster convergence)
 
 typedef struct {
@@ -82,6 +82,7 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t insync_minor_adjustment;
 	int32_t insync_minor_adjustment_duration;
 	uint8_t sync_locked;  // Flag: once offset converges within ±10, permanently stop adjusting
+	int32_t consecutive_drift_violations;
 	/* Periodic sync control */
 	uint32_t sync_slot_counter;                // Counter for periodic sync
 	uint32_t sync_period_slots;                // Period between syncs (configurable)
