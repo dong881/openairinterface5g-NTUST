@@ -72,16 +72,18 @@ int nfapi_pnf_p7_start(nfapi_pnf_p7_config_t* config)
 
 
 
-int nfapi_pnf_p7_stop(nfapi_pnf_p7_config_t* config)
+int nfapi_pnf_p7_stop(nfapi_pnf_p7_config_t *config)
 {
-	// Verify that config is not null
-	if(config == 0)
-		return -1;
+  // Verify that config is not null
+  if (config == 0) {
+    return -1;
+  }
 
-	pnf_p7_t* _this = (pnf_p7_t*)(config);
-	_this->terminate = 1;
+  pnf_p7_t *_this = (pnf_p7_t *)(config);
+  _this->terminate = 1;
+  _this->slot_start_time_hr = 0;
 
-	return 0;
+  return 0;
 }
 
 int nfapi_pnf_p7_get_msgs(nfapi_pnf_p7_config_t* config,

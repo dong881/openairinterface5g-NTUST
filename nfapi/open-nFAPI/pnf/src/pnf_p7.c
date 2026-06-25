@@ -26,6 +26,7 @@
 #include <SCHED_NR/phy_frame_config_nr.h>
 
 extern int sf_ahead;
+
 // Used by the RFC3550 jitter calculation (defined later in this file)
 static inline int64_t timehr_diff_us(uint32_t time_hr_a, uint32_t time_hr_b);
 
@@ -655,13 +656,17 @@ static inline int32_t calc_slot_diff(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_
 // Forward declaration
 void pnf_nr_pack_and_send_timing_info(pnf_p7_t* pnf_p7);
 
-static bool check_nr_p7_timing(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_t msg_slot, 
-                               const char* name, uint32_t recv_time_hr, 
-                               uint32_t timing_offset, int32_t* latest_delay, int32_t* earliest_arrival)
+static bool check_nr_p7_timing(pnf_p7_t *pnf_p7, uint16_t msg_sfn, uint16_t msg_slot, 
+                               const char *name, uint32_t recv_time_hr, 
+                               uint32_t timing_offset, int32_t *latest_delay, int32_t *earliest_arrival)
 {
-	// Calculate difference in slots (handling wrap-around)
-	int32_t diff_slots = calc_slot_diff(pnf_p7, msg_sfn, msg_slot);
-	int64_t slot_len_us = 10000 / NFAPI_SLOTNUM(pnf_p7->mu);
+  if (pnf_p7->slot_start_time_hr == 0) {
+    return true;
+  }
+
+  // Calculate difference in slots (handling wrap-around)
+  int32_t diff_slots = calc_slot_diff(pnf_p7, msg_sfn, msg_slot);
+  int64_t slot_len_us = 10000 / NFAPI_SLOTNUM(pnf_p7->mu);
 
 	// Calculate margin: Time remaining until deadline
 	int64_t time_since_slot_start = timehr_diff_us(recv_time_hr, pnf_p7->slot_start_time_hr);
@@ -673,14 +678,15 @@ static bool check_nr_p7_timing(pnf_p7_t* pnf_p7, uint16_t msg_sfn, uint16_t msg_
 	// Negative Value: Earlier than acceptable (EARLY)
 	int64_t offset = -margin;
 
-	// Update Latest Delay (Max Positive Offset)
-	if (offset > *latest_delay) {
-		*latest_delay = (int32_t)offset;
-	}
+	if (diff_slots >= -4 && diff_slots <= 40) {
+		if (offset > *latest_delay) {
+			*latest_delay = (int32_t)offset;
+		}
 
-	// Update Earliest Arrival (Min Negative Offset)
-	if (offset < *earliest_arrival) {
-		*earliest_arrival = (int32_t)offset;
+		// Update Earliest Arrival (Min Negative Offset)
+		if (offset < *earliest_arrival) {
+			*earliest_arrival = (int32_t)offset;
+		}
 	}
 
 	if (margin < 0 || margin > (int64_t)pnf_p7->timing_window) {
@@ -1509,6 +1515,7 @@ void pnf_handle_dl_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       const bool result = pnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, req, sizeof(*req), &(pnf_p7->_public.codec_config));
       if (!result)
         NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to unpack request\n");
+    } else {
       pnf_p7->nr_stats.dl_tti.late++;
     }
     if (pthread_mutex_unlock(&(pnf_p7->mutex)) != 0) {
@@ -1653,6 +1660,7 @@ void pnf_handle_ul_tti_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       const bool result = pnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, req, sizeof(*req), &(pnf_p7->_public.codec_config));
       if (!result)
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "failed to unpack UL_TTI.request\n");
+    } else {
       pnf_p7->nr_stats.ul_tti.late++;
     }
 
@@ -1779,6 +1787,7 @@ void pnf_handle_ul_dci_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7)
       const bool result = pnf_p7->_public.unpack_func(pRecvMsg, recvMsgLen, req, sizeof(*req), &(pnf_p7->_public.codec_config));
       if (!result)
         NFAPI_TRACE(NFAPI_TRACE_INFO, "failed to unpack request\n");
+    } else {
       pnf_p7->nr_stats.ul_dci.late++;
     }
 
@@ -1912,6 +1921,7 @@ void pnf_handle_tx_data_request(void* pRecvMsg, int recvMsgLen, pnf_p7_t* pnf_p7
       } else {
         NFAPI_TRACE(NFAPI_TRACE_ERROR, "failed to unpack TX_data.request\n");
       }
+    } else {
       pnf_p7->nr_stats.tx_data.late++;
     }
 
@@ -2629,6 +2639,7 @@ void pnf_nfapi_p7_read_dispatch_message(pnf_p7_t* pnf_p7, uint32_t now_hr_time)
 
 int pnf_p7_message_pump(pnf_p7_t* pnf_p7)
 {
+  pnf_p7->slot_start_time_hr = 0;
 
 	// initialize the mutex lock
 	if(pthread_mutex_init(&(pnf_p7->mutex), NULL) != 0)
