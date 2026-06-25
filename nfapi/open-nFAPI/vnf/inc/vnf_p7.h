@@ -135,6 +135,10 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int32_t DM_EWMA_jitter_pressure_ahead_us;
 	int32_t DM_EWMA_jitter_pressure_hold_ahead_us;
 	int32_t DM_EWMA_jitter_pressure_hold_slots;
+	int32_t timing_info_accum_worst_late;
+	uint32_t timing_info_accum_count;
+	uint32_t timing_info_received_count;
+	int32_t nr_offset_filtered;
 } nfapi_vnf_p7_connection_info_t;
 
 typedef struct vnf_p7_s {
@@ -182,6 +186,7 @@ typedef struct {
   int32_t worst_early;
   uint32_t packet_slot;   // Computed packet slot index in SLOT_ARRAY_SIZE
   uint32_t pnf_reported_jitter; // Maximum jitter reported by PNF across message types
+  uint32_t tx_data_count; // Number of TX DATA samples in this report
 } vnf_timing_stats_t;
 
 /* Function Declaration */
