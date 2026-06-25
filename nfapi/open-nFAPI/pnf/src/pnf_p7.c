@@ -556,7 +556,7 @@ void pnf_p7_rx_reassembly_queue_remove_old_msgs(pnf_p7_t* pnf_p7, pnf_p7_rx_reas
 
 	while(iterator != 0)
 	{
-		if(rx_hr_time - iterator->rx_hr_time > delta)
+		if(timehr_diff_us(rx_hr_time, iterator->rx_hr_time) > (int64_t)delta)
 		{
 			if(previous == 0)
 			{
@@ -597,19 +597,23 @@ void pnf_p7_rx_reassembly_queue_remove_old_msgs(pnf_p7_t* pnf_p7, pnf_p7_rx_reas
  */
 static inline int64_t timehr_diff_us(uint32_t time_hr_a, uint32_t time_hr_b)
 {
-	// Extract seconds and microseconds
-	int32_t sec_a = TIMEHR_SEC(time_hr_a);
-	int32_t sec_b = TIMEHR_SEC(time_hr_b);
-	int32_t usec_a = TIMEHR_USEC(time_hr_a);
-	int32_t usec_b = TIMEHR_USEC(time_hr_b);
-	
-	// Handle 12-bit second wrap-around
-	// sec_a - sec_b should be in range [-2048, 2047] for valid comparisons
-	int32_t sec_diff = sec_a - sec_b;
-	if (sec_diff > 2048) sec_diff -= 4096;   // sec_a wrapped, sec_b didn't
-	if (sec_diff < -2048) sec_diff += 4096;  // sec_b wrapped, sec_a didn't
-	
-	return (int64_t)sec_diff * 1000000 + (usec_a - usec_b);
+  // Extract seconds and microseconds
+  int32_t sec_a = TIMEHR_SEC(time_hr_a);
+  int32_t sec_b = TIMEHR_SEC(time_hr_b);
+  int32_t usec_a = TIMEHR_USEC(time_hr_a);
+  int32_t usec_b = TIMEHR_USEC(time_hr_b);
+
+  // Handle 12-bit second wrap-around
+  // sec_a - sec_b should be in range [-2048, 2047] for valid comparisons
+  int32_t sec_diff = sec_a - sec_b;
+  if (sec_diff > 2047) {
+    sec_diff -= 4096; // sec_a wrapped, sec_b didn't
+  }
+  if (sec_diff < -2048) {
+    sec_diff += 4096; // sec_b wrapped, sec_a didn't
+  }
+
+  return (int64_t)sec_diff * 1000000 + (usec_a - usec_b);
 }
 
 static uint32_t get_slot_time(uint32_t now_hr, uint32_t slot_start_hr)
@@ -2637,22 +2641,40 @@ void pnf_nfapi_p7_read_dispatch_message(pnf_p7_t* pnf_p7, uint32_t now_hr_time)
 	while(recvfrom_result > 0);
 }
 
-int pnf_p7_message_pump(pnf_p7_t* pnf_p7)
+int pnf_p7_message_pump(pnf_p7_t *pnf_p7)
 {
   pnf_p7->slot_start_time_hr = 0;
 
-	// initialize the mutex lock
-	if(pthread_mutex_init(&(pnf_p7->mutex), NULL) != 0)
-	{
-		NFAPI_TRACE(NFAPI_TRACE_ERROR, "After P7 mutex init: %d\n", errno);
-		return -1;
-	}
+  // initialize the mutex lock
+  if (pthread_mutex_init(&(pnf_p7->mutex), NULL) != 0) {
+    NFAPI_TRACE(NFAPI_TRACE_ERROR, "After P7 mutex init: %d\n", errno);
+    return -1;
+  }
 	
 	if(pthread_mutex_init(&(pnf_p7->pack_mutex), NULL) != 0)
 	{
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "After P7 mutex init: %d\n", errno);
 		return -1;
 	}	
+
+  if (pnf_p7->rx_message_buffer == NULL) {
+    pnf_p7->rx_message_buffer_size = PNF_P7_RX_MESSAGE_BUFFER_MAX_SIZE;
+    pnf_p7->rx_message_buffer = malloc(pnf_p7->rx_message_buffer_size);
+    if (pnf_p7->rx_message_buffer == NULL) {
+      NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to allocate PNF_P7 rx message buffer\n");
+      return -1;
+    }
+  }
+
+  if (pnf_p7->reassemby_buffer == NULL) {
+    pnf_p7->reassemby_buffer_size = PNF_P7_REASSEMBLY_BUFFER_MAX_SIZE;
+    pnf_p7->reassemby_buffer = pnf_p7_malloc(pnf_p7, pnf_p7->reassemby_buffer_size);
+    if (pnf_p7->reassemby_buffer == NULL) {
+      NFAPI_TRACE(NFAPI_TRACE_ERROR, "Failed to allocate PNF_P7 reassembly buffer\n");
+      return -1;
+    }
+    memset(pnf_p7->reassemby_buffer, 0, pnf_p7->reassemby_buffer_size);
+  }
 
 	// create the pnf p7 socket
 	if ((pnf_p7->p7_sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP)) < 0)
@@ -2679,7 +2701,7 @@ int pnf_p7_message_pump(pnf_p7_t* pnf_p7)
 	}
 */
 		
-	int iptos_value = 0;
+	int iptos_value = 184;
 	if (setsockopt(pnf_p7->p7_sock, IPPROTO_IP, IP_TOS, &iptos_value, sizeof(iptos_value)) < 0)
 	{
 		NFAPI_TRACE(NFAPI_TRACE_ERROR, "PNF P7 setsockopt (IPPROTO_IP, IP_TOS) failed errno: %d\n", errno);
