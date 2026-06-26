@@ -370,10 +370,12 @@ static void handle_dl_harq(gNB_MAC_INST *mac, NR_UE_info_t * UE, int8_t harq_pid
   harq->feedback_slot = -1;
   harq->is_waiting = false;
   if (success) {
+    log_mmap_entry("vnf_dl_harq_round-count.bin", (uint64_t)(harq->round + 1));
     if (harq->sched_pdsch.action)
       harq->sched_pdsch.action(mac, UE);
     finish_nr_dl_harq(sched_ctrl, harq_pid);
   } else if (harq->round >= harq_round_max - 1) {
+    log_mmap_entry("vnf_dl_harq_round-count.bin", 5);
     abort_nr_dl_harq(UE, harq_pid);
     LOG_D(NR_MAC, "retransmission error for UE %04x (total %"PRIu64")\n", UE->rnti, UE->mac_stats.dl.errors);
   } else {

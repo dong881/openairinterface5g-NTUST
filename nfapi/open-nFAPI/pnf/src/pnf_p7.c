@@ -26,7 +26,15 @@
 #include <SCHED_NR/phy_frame_config_nr.h>
 
 extern int sf_ahead;
+extern void log_mmap_entry(const char *log_name, uint64_t value);
 
+static inline uint64_t pack_sfn_slot_value(uint16_t sfn, uint16_t slot, int32_t signed_value)
+{
+    uint64_t packed = ((uint64_t)sfn << 48) |
+                      ((uint64_t)slot << 32) |
+                      ((uint32_t)signed_value);
+    return packed;
+}
 // Used by the RFC3550 jitter calculation (defined later in this file)
 static inline int64_t timehr_diff_us(uint32_t time_hr_a, uint32_t time_hr_b);
 
@@ -684,6 +692,8 @@ static bool check_nr_p7_timing(pnf_p7_t *pnf_p7, uint16_t msg_sfn, uint16_t msg_
 	int64_t offset = -margin;
 
 	if (diff_slots >= -4 && diff_slots <= 40) {
+		// Log margin value for analysis (packed with frame/slot in top bits)
+		log_mmap_entry("pnf_timing_window-us.bin", pack_sfn_slot_value(msg_sfn, msg_slot, (int32_t)margin));
 		if (offset > *latest_delay) {
 			*latest_delay = (int32_t)offset;
 		}
@@ -1031,7 +1041,7 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
     ret_dl_tti->dl_tti_request_body.nPDUs = 0;
     nfapi_nr_dl_tti_request_t* dl_tti_req = &tx_slot_buffer->dl_tti_req;
     if (dl_tti_req->SFN == sfn && dl_tti_req->Slot == slot) {
-      copy_dl_tti_request(dl_tti_req, ret_dl_tti);
+          copy_dl_tti_request(dl_tti_req, ret_dl_tti);
       tx_slot_buffer->dl_tti_req.SFN = -1;
       tx_slot_buffer->dl_tti_req.Slot = -1;
     }
@@ -1041,7 +1051,7 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
     ret_tx_data->Number_of_PDUs = 0;
     nfapi_nr_tx_data_request_t* txd = &tx_slot_buffer->tx_data_req;
     if (txd->SFN == sfn && txd->Slot == slot) {
-      copy_tx_data_request(txd, ret_tx_data);
+          copy_tx_data_request(txd, ret_tx_data);
       tx_slot_buffer->tx_data_req.SFN = -1;
       tx_slot_buffer->tx_data_req.Slot = -1;
     }
@@ -1050,7 +1060,7 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
     ret_ul_tti->Slot = slot;
     ret_ul_tti->n_pdus = 0;
     if (tx_slot_buffer->ul_tti_req.SFN == sfn && tx_slot_buffer->ul_tti_req.Slot == slot) {
-      copy_ul_tti_request(&tx_slot_buffer->ul_tti_req, ret_ul_tti);
+          copy_ul_tti_request(&tx_slot_buffer->ul_tti_req, ret_ul_tti);
       tx_slot_buffer->ul_tti_req.SFN = -1;
       tx_slot_buffer->ul_tti_req.Slot = -1;
     }
@@ -1059,7 +1069,7 @@ int nr_pnf_p7_get_msgs(pnf_p7_t* pnf_p7,
     ret_ul_dci->Slot = slot;
     ret_ul_dci->numPdus = 0;
     if (tx_slot_buffer->ul_dci_req.SFN == sfn && tx_slot_buffer->ul_dci_req.Slot == slot) {
-      copy_ul_dci_request(&tx_slot_buffer->ul_dci_req, ret_ul_dci);
+          copy_ul_dci_request(&tx_slot_buffer->ul_dci_req, ret_ul_dci);
       tx_slot_buffer->ul_dci_req.SFN = -1;
       tx_slot_buffer->ul_dci_req.Slot = -1;
     }

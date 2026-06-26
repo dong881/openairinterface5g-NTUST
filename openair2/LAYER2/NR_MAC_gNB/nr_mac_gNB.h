@@ -539,6 +539,7 @@ typedef struct NR_UE_harq {
   byte_array_t transportBlock;
   uint32_t tb_size;  // size of currently stored TB
   bool start_tci_timer;
+  uint64_t rtt_start_time;
   /// sched_pdsch keeps information on MCS etc used for the initial transmission
   NR_sched_pdsch_t sched_pdsch;
 } NR_UE_harq_t;

@@ -347,6 +347,12 @@ void finish_nr_dl_harq(NR_UE_sched_ctrl_t *sched_ctrl, int harq_pid)
 {
   NR_UE_harq_t *harq = &sched_ctrl->harq_processes[harq_pid];
 
+  if (harq->rtt_start_time > 0) {
+    uint64_t end_time = rdtsc_oai();
+    long diff_us = (long)((end_time - harq->rtt_start_time) / (cpuf * 1000.0));
+    log_mmap_entry("vnf_harq_rtt-us.bin", diff_us);
+    harq->rtt_start_time = 0;
+  }
   harq->ndi ^= 1;
   harq->round = 0;
 
@@ -533,9 +539,16 @@ static int collect_dl_candidates(gNB_MAC_INST *mac,
         continue;
 
       update_dlsch_buffer(frame, slot, UE);
+      int available_dl_harq_count = 0;
+      for (int i = sched_ctrl->available_dl_harq.head; i >= 0; i = sched_ctrl->available_dl_harq.next[i]) {
+        available_dl_harq_count++;
+      }
+      bool to_schedule = dlsch_to_schedule(sched_ctrl);
 
-      if (!dlsch_to_schedule(sched_ctrl))
+      if (!to_schedule)
         continue;
+      else
+        log_mmap_entry("vnf_dl_harq_available-count.bin", available_dl_harq_count);
 
       /* Update BLER stats; MCS adaptation is done by dl_mcs_select for all candidates. */
       bool bler_updated = update_bler_stats(bo, stats, &sched_ctrl->dl_bler_stats, frame);
@@ -989,14 +1002,17 @@ static NR_UE_harq_t *setup_dl_harq_process(NR_UE_sched_ctrl_t *sched_ctrl, NR_sc
     AssertFatal(current_harq_pid >= 0, "no free HARQ process available for UE %04x\n", rnti);
     remove_front_nr_list(&sched_ctrl->available_dl_harq);
     sched_pdsch->dl_harq_pid = current_harq_pid;
+    sched_ctrl->harq_processes[current_harq_pid].rtt_start_time = rdtsc_oai();
   } else {
     /* PP selected a specific HARQ process. Check whether it will be a new
      * transmission or a retransmission, and remove from the corresponding
      * list */
-    if (sched_ctrl->harq_processes[current_harq_pid].round == 0)
+    if (sched_ctrl->harq_processes[current_harq_pid].round == 0) {
       remove_nr_list(&sched_ctrl->available_dl_harq, current_harq_pid);
-    else
+      sched_ctrl->harq_processes[current_harq_pid].rtt_start_time = rdtsc_oai();
+    } else {
       remove_nr_list(&sched_ctrl->retrans_dl_harq, current_harq_pid);
+    }
   }
 
   NR_UE_harq_t *harq = &sched_ctrl->harq_processes[current_harq_pid];
