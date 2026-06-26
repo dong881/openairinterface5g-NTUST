@@ -9,6 +9,7 @@
 #define _VNF_P7_H_
 
 #include "nfapi_vnf_interface.h"
+#include <stdatomic.h>
 #define TIMEHR_SEC(_time_hr) ((uint32_t)(_time_hr) >> 20)
 #define TIMEHR_USEC(_time_hr) ((uint32_t)(_time_hr) & 0xFFFFF)
 #define TIME2TIMEHR(_time) (((uint32_t)(_time.tv_sec) & 0xFFF) << 20 | ((uint32_t)(_time.tv_usec) & 0xFFFFF))
@@ -77,6 +78,7 @@ typedef struct nfapi_vnf_p7_connection_info {
 	uint32_t previous_t2;
 	int32_t previous_sf_offset_filtered;
 	int32_t previous_slot_offset_filtered;
+	uint8_t initial_timinginfo_received;
 	int sfn_sf;
 	int sfn;
 	int slot;
@@ -137,5 +139,19 @@ int vnf_p7_pack_and_send_p7_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* hea
 void vnf_p7_release_msg(vnf_p7_t* vnf_p7, nfapi_p7_message_header_t* header);
 void vnf_p7_release_pdu(vnf_p7_t* vnf_p7, void* pdu);
 
+typedef struct {
+  int32_t worst_late;
+  int32_t worst_early;
+  uint32_t packet_slot;   // Computed packet slot index in SLOT_ARRAY_SIZE
+  uint32_t pnf_reported_jitter; // Maximum jitter reported by PNF across message types
+  uint32_t tx_data_count; // Number of TX DATA samples in this report
+} vnf_timing_stats_t;
+
+/* Function Declaration */
+// Extract timing info points from a timing_info message
+// Returns 1 if at least one valid timing sample was extracted, 0 otherwise.
+int vnf_nr_extract_timing_info(const nfapi_nr_timing_info_t *ind,
+                               nfapi_vnf_p7_connection_info_t *p7_info,
+                               vnf_timing_stats_t *out_stats);
 
 #endif // _VNF_P7_H_
