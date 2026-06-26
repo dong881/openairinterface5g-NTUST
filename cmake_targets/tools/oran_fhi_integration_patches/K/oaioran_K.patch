@@ -1,0 +1,1228 @@
+diff --git a/fhi_lib/app/src/common.h b/fhi_lib/app/src/common.h
+index 3819d8e..e7bfaa9 100644
+--- a/fhi_lib/app/src/common.h
++++ b/fhi_lib/app/src/common.h
+@@ -28,7 +28,7 @@
+ #include <rte_common.h>
+ #include <rte_mbuf.h>
+ 
+-#define VERSIONX                "#DIRTY#"
++#define VERSIONX                "oran_k_release_v1.1"
+ 
+ #define APP_O_DU  0
+ #define APP_O_RU  1
+diff --git a/fhi_lib/lib/Makefile b/fhi_lib/lib/Makefile
+index d0c238c..d20c44f 100644
+--- a/fhi_lib/lib/Makefile
++++ b/fhi_lib/lib/Makefile
+@@ -23,20 +23,41 @@ MYCUSTOMSPACE1='------------------------------------------------------------'
+ ##############################################################
+ #  Tools configuration
+ ##############################################################
+-ifeq ($(WIRELESS_SDK_TOOLCHAIN),icc)
+-    CC  := icc
+-    CPP := icpc
+-    AS := as
+-    AR := ar
+-    LD := icc
+-else ifeq ($(WIRELESS_SDK_TOOLCHAIN),icx)
+-    CC  := icx
+-    CPP := icpx
+-    AS  := as
+-    AR  := llvm-ar
+-    LD  := icx
++
++# Default target architecture and compiler
++TARGET ?= x86
++
++# Architecture and compiler-specific tools and flags
++ifeq ($(TARGET), x86)
++    ifeq ($(WIRELESS_SDK_TOOLCHAIN),gcc)
++        CC  := gcc
++        CPP := g++
++        AS := as
++        AR := ar
++        LD := gcc
++    else ifeq ($(WIRELESS_SDK_TOOLCHAIN),icc)
++        CC  := icc
++        CPP := icpc
++        AS := as
++        AR := ar
++        LD := icc
++    else ifeq ($(WIRELESS_SDK_TOOLCHAIN),icx)
++        CC  := icx
++        CPP := icpx
++        AS  := as
++        AR  := llvm-ar
++        LD  := icx
++    else
++        $(error "Please define WIRELESS_SDK_TOOLCHAIN environment variable")
++    endif
++else ifeq ($(TARGET), armv8) # aarch64
++    CC := gcc
++    CPP := g++
++    LD := gcc
++    CFLAGS += -march=armv8-a
++    LDFLAGS +=
+ else
+-    $(error "Please define WIRELESS_SDK_TOOLCHAIN environment variable")
++    $(error Unsupported target architecture: $(TARGET))
+ endif
+ 
+ ifeq ($(WIRELESS_SDK_TARGET_ISA),avx512)
+@@ -79,7 +100,7 @@ ifeq ($(RTE_SDK),)
+ endif
+ 
+ RTE_TARGET ?= x86_64-native-linux-icc
+-RTE_INC := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH):/usr/lib64/pkgconfig:$(RTE_SDK)/build/meson-uninstalled pkgconf --cflags-only-I libdpdk)
++RTE_INC := $(shell PKG_CONFIG_PATH=$(PKG_CONFIG_PATH):/usr/lib64/pkgconfig:$(RTE_SDK)/build/meson-uninstalled pkg-config --cflags-only-I libdpdk)
+ 
+ API_DIR := $(PROJECT_DIR)/api
+ SRC_DIR := $(PROJECT_DIR)/src
+@@ -110,22 +131,23 @@ CC_SRC = $(ETH_DIR)/xran_ethdi.c \
+ 	$(SRC_DIR)/xran_main.c \
+ 	$(SRC_DIR)/xran_delay_measurement.c
+ 
+-CPP_SRC = $(SRC_DIR)/xran_compression.cpp \
+-	$(SRC_DIR)/xran_bfp_ref.cpp \
+-	$(SRC_DIR)/xran_bfp_cplane8.cpp \
+-	$(SRC_DIR)/xran_bfp_cplane16.cpp \
+-	$(SRC_DIR)/xran_bfp_cplane32.cpp \
+-	$(SRC_DIR)/xran_bfp_cplane64.cpp \
+-	$(SRC_DIR)/xran_bfp_uplane.cpp \
+-	$(SRC_DIR)/xran_mod_compression.cpp
+-
+-CPP_SRC_SNC = $(SRC_DIR)/xran_compression_snc.cpp \
+-	$(SRC_DIR)/xran_bfp_cplane8_snc.cpp \
+-	$(SRC_DIR)/xran_bfp_cplane16_snc.cpp \
+-	$(SRC_DIR)/xran_bfp_cplane32_snc.cpp \
+-	$(SRC_DIR)/xran_bfp_cplane64_snc.cpp \
+-	$(SRC_DIR)/xran_bfp_uplane_snc.cpp \
+-	$(SRC_DIR)/xran_bfp_uplane_spr.cpp
++ifeq ($(TARGET), x86)
++    CPP_SRC = $(SRC_DIR)/xran_compression.cpp \
++              $(SRC_DIR)/xran_bfp_ref.cpp \
++              $(SRC_DIR)/xran_bfp_cplane8.cpp \
++              $(SRC_DIR)/xran_bfp_cplane16.cpp \
++              $(SRC_DIR)/xran_bfp_cplane32.cpp \
++              $(SRC_DIR)/xran_bfp_cplane64.cpp \
++              $(SRC_DIR)/xran_bfp_uplane.cpp
++
++    CPP_SRC_SNC = $(SRC_DIR)/xran_compression_snc.cpp \
++                  $(SRC_DIR)/xran_bfp_cplane8_snc.cpp \
++                  $(SRC_DIR)/xran_bfp_cplane16_snc.cpp \
++                  $(SRC_DIR)/xran_bfp_cplane32_snc.cpp \
++                  $(SRC_DIR)/xran_bfp_cplane64_snc.cpp \
++                  $(SRC_DIR)/xran_bfp_uplane_snc.cpp \
++                  $(SRC_DIR)/xran_bfp_uplane_spr.cpp
++endif
+ 
+ CC_FLAGS += -std=gnu11 -Wall -Wno-deprecated-declarations  \
+ 	-fdata-sections \
+@@ -134,7 +156,11 @@ CC_FLAGS += -std=gnu11 -Wall -Wno-deprecated-declarations  \
+ 	-fPIC \
+ 	-Wall \
+ 	-Wimplicit-function-declaration \
+-	-g -O3 -mcmodel=large
++	-g -O
++
++ifeq ($(TARGET), x86)
++CC_FLAGS += -mavx512bw -march=skylake-avx512 -mtune=skylake-avx512
++endif
+ 
+ ifeq ($(WIRELESS_SDK_TOOLCHAIN),icc)
+ CC_FLAGS += -wd1786 -restrict
+@@ -148,9 +174,15 @@ ifeq ($(WIRELESS_SDK_TARGET_ISA),spr)
+     CC_FLAGS += -D_BBLIB_SPR_ -qopt-zmm-usage=high
+ endif
+ 
+-CPP_FLAGS := -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -D_GNU_SOURCE -D_REENTRANT -pipe \
+-                  -falign-functions=16 \
+-        -Werror -Wno-unused-variable -std=c++14 -mcmodel=large -fPIC
++ifeq ($(TARGET), x86)
++    CPP_FLAGS := -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -D_GNU_SOURCE -D_REENTRANT -pipe \
++                 -fPIC \
++                 -falign-functions=16  \
++                 -Werror -Wno-unused-variable -std=c++14 -mcmodel=large -mavx512bw -march=skylake-avx512 -mtune=skylake-avx512
++else ifeq ($(TARGET), armv8)
++    CPP_FLAGS := -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -D_GNU_SOURCE -D_REENTRANT -pipe \
++                 -Werror -Wno-unused-variable -std=c++14
++endif
+ 
+ ifeq ($(WIRELESS_SDK_TOOLCHAIN),icc)
+ CPP_FLAGS +=  -fp-model fast=2 -no-prec-div -no-prec-sqrt -fast-transcendentals -restrict
+@@ -164,7 +196,7 @@ ifeq ($(WIRELESS_SDK_TARGET_ISA),spr)
+     CPP_FLAGS += -D_BBLIB_SPR_ -qopt-zmm-usage=high
+ endif
+ 
+-INC :=  -I$(API_DIR) -I$(ETH_DIR) -I$(SRC_DIR) -I$(RTE_INC)
++INC :=  -I$(API_DIR) -I$(ETH_DIR) -I$(SRC_DIR) $(RTE_INC)
+ DEF :=
+ ifeq ($(MLOG),1)
+ 	INC  += -I$(MLOG_DIR)/source
+@@ -210,8 +242,13 @@ CPP_SNC_OBJTARGETS := $(addprefix $(PROJECT_OBJ_DIR)/,$(CPP_OBJS_SNC))
+ 
+ AS_OBJTARGETS := $(addprefix $(PROJECT_OBJ_DIR)/,$(AS_OBJS))
+ #-qopt-report=5 -qopt-matmul -qopt-report-phase=all
+-CPP_COMP       := -O3 -DNDEBUG  -fPIE -fasm-blocks
+-CPP_COMP_SNC   := -O3 -DNDEBUG -fPIE -fasm-blocks
++ifeq ($(TARGET), x86)
++    CPP_COMP       := -O3 -DNDEBUG  -fPIE
++    CPP_COMP_SNC   := -O3 -DNDEBUG -march=icelake-server -fPIE
++else ifeq ($(TARGET), armv8)
++    CPP_COMP       := -O3 -DNDEBUG -fPIE -Wrestrict
++    CPP_COMP_SNC   := -O3 -DNDEBUG -march=icelake-server -fPIE -Wrestrict
++endif
+ CC_FLAGS_FULL  := $(CC_FLAGS)  $(INC) $(DEF)
+ CPP_FLAGS_FULL := $(CPP_FLAGS) $(CPP_COMP) $(INC) $(DEF)
+ CPP_FLAGS_FULL_SNC := $(CPP_FLAGS) $(CPP_COMP_SNC) $(INC) $(DEF)
+diff --git a/fhi_lib/lib/api/xran_fh_o_du.h b/fhi_lib/lib/api/xran_fh_o_du.h
+index 1261fa0..5318a86 100644
+--- a/fhi_lib/lib/api/xran_fh_o_du.h
++++ b/fhi_lib/lib/api/xran_fh_o_du.h
+@@ -158,7 +158,7 @@ extern "C" {
+ #define XRAN_SSB_MAX_NUM_SC          (240)  /**< 3GPP TS 38.211 - 7.4.3.1 Time-frequency structure of an SS/PBCH block */
+ #define XRAN_SSB_MAX_NUM_PRB         (XRAN_SSB_MAX_NUM_SC /  XRAN_NUM_OF_SC_PER_RB)
+ 
+-#define XRAN_MAX_FRAGMENT            (2)   /**< Max number of fragmentations in single symbol */
++#define XRAN_MAX_FRAGMENT            (7)   /**< Max number of fragmentations in single symbol */
+ #define XRAN_MAX_RX_PKT_PER_SYM      (32)   /**< Max number of packets received in single symbol */
+ #define XRAN_MAX_SET_BFWS            (64)  /**< Assumed 64Ant, BFP 9bit with 9K jumbo frame */
+ 
+@@ -1800,7 +1800,7 @@ int32_t xran_start(void *pHandle);
+  * @return
+  *   0 - on success
+  */
+-int32_t xran_activate_cc(int32_t port_id, int32_t cc_id);
++int32_t xran_activate_cc(void *pHandle, int32_t cc_id);
+ 
+ /**
+  * @ingroup xran
+@@ -1816,7 +1816,7 @@ int32_t xran_activate_cc(int32_t port_id, int32_t cc_id);
+  * @return
+  *   0 - on success
+  */
+-int32_t xran_deactivate_cc(int32_t port_id, int32_t cc_id);
++int32_t xran_deactivate_cc(void *pHandle, int32_t cc_id);
+ 
+ /**
+  * @ingroup xran
+diff --git a/fhi_lib/lib/api/xran_pkt_cp.h b/fhi_lib/lib/api/xran_pkt_cp.h
+index 0c690a1..8b67b67 100644
+--- a/fhi_lib/lib/api/xran_pkt_cp.h
++++ b/fhi_lib/lib/api/xran_pkt_cp.h
+@@ -33,6 +33,14 @@
+ extern "C" {
+ #endif
+ 
++#include <stdint.h>
++#if defined(__arm__) || defined(__aarch64__)
++#include <arm_neon.h>
++typedef int32x4_t simd_data_t;
++#else
++#include <xmmintrin.h>
++typedef __m128i simd_data_t;
++#endif
+ 
+ /**********************************************************************
+  * Common structures for C/U-plane
+@@ -256,7 +264,7 @@ union xran_cp_radioapp_section_ext3_first {
+     }all_bits;
+ 
+     struct{
+-        __m128i     data_field1;
++        simd_data_t data_field1;
+     }data_field;
+     } __attribute__((__packed__));
+ 
+diff --git a/fhi_lib/lib/api/xran_timer.h b/fhi_lib/lib/api/xran_timer.h
+index 2efb9dc..fa628a8 100644
+--- a/fhi_lib/lib/api/xran_timer.h
++++ b/fhi_lib/lib/api/xran_timer.h
+@@ -119,12 +119,30 @@ inline unsigned long get_ticks_diff(unsigned long curr_tick, unsigned long last_
+       return (unsigned long)(0xFFFFFFFFFFFFFFFF - last_tick + curr_tick);
+ }
+ 
++#if defined(__x86_64__)
+ inline uint64_t xran_tick(void)
+ {
+     uint32_t hi, lo;
+     __asm volatile ("rdtsc" : "=a"(lo), "=d"(hi));
+     return ( (uint64_t)lo)|( ((uint64_t)hi)<<32 );
+ }
++#elif defined(__aarch64__)
++#include <sys/time.h>
++inline uint64_t xran_tick(void) {
++    struct timeval tv;
++    gettimeofday(&tv, NULL);
++    return (uint64_t)tv.tv_sec * 1000000 + tv.tv_usec;
++}
++#elif defined(__arm__)
++#include <time.h>
++inline uint64_t xran_tick(void) {
++    struct timespec ts;
++    clock_gettime(CLOCK_MONOTONIC, &ts);
++    return (uint64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
++}
++#else
++#error "Unsupported architecture"
++#endif
+ 
+ int xran_timingsource_set_gpsoffset(int64_t offset_sec, int64_t offset_nsec);
+ //uint32_t xran_timingsource_get_coreid(void);
+diff --git a/fhi_lib/lib/api/xran_up_api.h b/fhi_lib/lib/api/xran_up_api.h
+index 28dfb89..c267278 100644
+--- a/fhi_lib/lib/api/xran_up_api.h
++++ b/fhi_lib/lib/api/xran_up_api.h
+@@ -80,6 +80,7 @@ int32_t xran_extract_iq_samples(struct rte_mbuf *mbuf,
+     uint8_t *subframe_id,
+     uint8_t *slot_id,
+     uint8_t *symb_id,
++    uint8_t *filter_id,
+     union ecpri_seq_id *seq_id,
+     uint16_t *num_prbu,
+     uint16_t *start_prbu,
+@@ -90,7 +91,8 @@ int32_t xran_extract_iq_samples(struct rte_mbuf *mbuf,
+     enum xran_comp_hdr_type staticComp,
+     uint8_t *compMeth,
+     uint8_t *iqWidth,
+-    uint8_t oxu_port_id); 
++    uint8_t oxu_port_id,
++    uint8_t *is_prach);
+ 
+ int32_t xran_extract_iq_samples_dataheader(struct rte_mbuf *mbuf,
+     void **iq_data_start,
+diff --git a/fhi_lib/lib/ethernet/xran_ethdi.c b/fhi_lib/lib/ethernet/xran_ethdi.c
+index a4f4f0d..04028d2 100644
+--- a/fhi_lib/lib/ethernet/xran_ethdi.c
++++ b/fhi_lib/lib/ethernet/xran_ethdi.c
+@@ -37,7 +37,10 @@
+ #include <sys/time.h>
+ #include <time.h>
+ #include <unistd.h>
++#if defined(__arm__) || defined(__aarch64__)
++#else
+ #include <immintrin.h>
++#endif
+ #include <numa.h>
+ #include <rte_config.h>
+ #include <rte_common.h>
+@@ -371,8 +374,8 @@ int32_t xran_ethdi_init_dpdk(char *name, char *vfio_name, struct xran_io_cfg *io
+     char bbdev_vdev_aux[XRAN_MAX_AUX_BBDEV_NUM][32];
+     char vfio_token[64]   = "";
+     char iova_mode[32]    = "--iova-mode=pa";
+-    char socket_mem[32]   = "--socket-mem=8192";
+-    char socket_limit[32] = "--socket-limit=8192";
++    char socket_mem[32]   = "--socket-mem=0";
++    char socket_limit[32] = "--socket-limit=0";
+     uint32_t cpu = 0;
+     uint32_t node = 0;
+ 
+@@ -488,8 +491,11 @@ int32_t xran_ethdi_init_dpdk(char *name, char *vfio_name, struct xran_io_cfg *io
+     }
+     printf("\n");
+ 
++#if defined(__arm__) || defined(__aarch64__)
++#else
+     if(rte_vect_set_max_simd_bitwidth(RTE_VECT_SIMD_512) < 0)
+         rte_panic("Cannot init RTE_VECT_SIMD_512: %s\n", rte_strerror(rte_errno));
++#endif
+ 
+     /* This will return on system_core, which is not necessarily the
+      * one we're on right now. */
+@@ -567,11 +573,13 @@ int32_t xran_ethdi_init_dpdk_ports(struct xran_io_cfg *io_cfg,
+                 ctx->tx_ring[i] = rte_ring_create(ring_name, NUM_MBUFS_RING_TRX,
+                     rte_lcore_to_socket_id(*lcore_id), RING_F_SC_DEQ);
+                 PANIC_ON(ctx->tx_ring[i] == NULL, "failed to allocate rx ring");
++                printf("Created ring %s on core %d\n", ring_name, *lcore_id);
+                 for(qi = 0; qi < io_cfg->num_rxq; qi++) {
+                     snprintf(ring_name, RTE_DIM(ring_name), "%s_%d_%d_%d", "rx_ring_cp", i, qi, port[i]);
+                     ctx->rx_ring[i][qi] = rte_ring_create(ring_name, NUM_MBUFS_RING_TRX,
+                         rte_lcore_to_socket_id(*lcore_id), RING_F_SP_ENQ);
+                     PANIC_ON(ctx->rx_ring[i][qi] == NULL, "failed to allocate rx ring");
++                    printf("Created ring %s on core %d\n",ring_name,*lcore_id);
+                 }
+             }
+         } else {
+@@ -640,7 +648,7 @@ int32_t xran_ethdi_init_dpdk_ports(struct xran_io_cfg *io_cfg,
+         snprintf(ring_name, RTE_DIM(ring_name), "%s_%d_%d", "dl_gen_ring_up", i,io_cfg->nDpdkProcessID);
+         ctx->up_dl_pkt_gen_ring[i] = rte_ring_create(ring_name, NUM_MBUFS_RING, rte_lcore_to_socket_id(*lcore_id), /*RING_F_SC_DEQ*/0);
+         PANIC_ON(ctx->up_dl_pkt_gen_ring[i] == NULL, "failed to allocate dl gen ring");
+-        printf("created %s\n", ring_name);
++        printf("created %s on core %d\n", ring_name, *lcore_id);
+     }
+ 
+     return 1;
+diff --git a/fhi_lib/lib/ethernet/xran_ethernet.c b/fhi_lib/lib/ethernet/xran_ethernet.c
+index b8ce4ee..05857f7 100644
+--- a/fhi_lib/lib/ethernet/xran_ethernet.c
++++ b/fhi_lib/lib/ethernet/xran_ethernet.c
+@@ -37,7 +37,10 @@
+ #include <sys/types.h>
+ #include <stdlib.h>
+ #include <math.h>
++#if defined(__arm__) || defined(__aarch64__)
++#else
+ #include <immintrin.h>
++#endif
+ 
+ #include <rte_config.h>
+ #include <rte_common.h>
+diff --git a/fhi_lib/lib/src/xran_bfp_byte_packing_utils.hpp b/fhi_lib/lib/src/xran_bfp_byte_packing_utils.hpp
+index 483efb3..bf170a2 100644
+--- a/fhi_lib/lib/src/xran_bfp_byte_packing_utils.hpp
++++ b/fhi_lib/lib/src/xran_bfp_byte_packing_utils.hpp
+@@ -894,7 +894,7 @@ namespace BlockFloatCompander
+ 
+     /// Mask to zero unwanted bits
+     const __m256i k_expMask = _mm256_set1_epi16(0xFFFC);
+-    return _mm256_and_epi64(compDataCombined, k_expMask);
++    return _mm256_and_si256(compDataCombined, k_expMask);
+   }
+ 
+ }
+diff --git a/fhi_lib/lib/src/xran_bfp_uplane.cpp b/fhi_lib/lib/src/xran_bfp_uplane.cpp
+index 7b70bf2..f412868 100644
+--- a/fhi_lib/lib/src/xran_bfp_uplane.cpp
++++ b/fhi_lib/lib/src/xran_bfp_uplane.cpp
+@@ -89,7 +89,7 @@ namespace BFP_UPlane
+   {
+     const __m512i* rawData = reinterpret_cast<const __m512i*>(dataIn.dataExpanded);
+     /// Abs
+-    const auto rawDataAbs = _mm512_abs_epi16(rawData[0]);
++    const auto rawDataAbs = _mm512_abs_epi16(_mm512_loadu_epi16(rawData));
+     /// No need to do a full horizontal max operation here, just do a max IQ step,
+     /// compute the exponents and then use a reduce max over all exponent values. This
+     /// is the fastest way to handle a single RB.
+@@ -431,4 +431,4 @@ BlockFloatCompander::BFPExpandUserPlaneAvx512(const CompressedData& dataIn, Expa
+     BFP_UPlane::expandByAllocN<BlockFloatCompander::networkByteUnpack12b>(dataIn, dataOut, k_totNumBytesPerRB12, k_maxExpShift12);
+     break;
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/fhi_lib/lib/src/xran_cb_proc.c b/fhi_lib/lib/src/xran_cb_proc.c
+index 56db2bf..9ebe16d 100644
+--- a/fhi_lib/lib/src/xran_cb_proc.c
++++ b/fhi_lib/lib/src/xran_cb_proc.c
+@@ -25,7 +25,10 @@
+ 
+ #include <unistd.h>
+ #include <stdio.h>
++#if defined(__arm__) || defined(__aarch64__)
++#else
+ #include <immintrin.h>
++#endif
+ #include <rte_common.h>
+ #include <rte_eal.h>
+ #include <rte_errno.h>
+@@ -103,6 +106,12 @@ void xran_timer_arm_for_deadline(struct rte_timer *tim, void* arg,  void *p_dev_
+            + nSubframeIdx*SLOTNUM_PER_SUBFRAME(xran_fs_get_tti_interval(mu))
+            + nSlotIdx;
+ 
++    /* correction to rx_tti for Ta4 values larger than a TTI */
++    rx_tti -= p_xran_dev_ctx->perMu[mu].offset_num_slots_up_ul;
++    if (rx_tti < 0) {
++        rx_tti += (SUBFRAMES_PER_SYSTEMFRAME*SLOTNUM_PER_SUBFRAME(xran_fs_get_tti_interval(mu))*1024);
++    }
++
+     p_xran_dev_ctx->perMu[mu].cb_timer_ctx[p_xran_dev_ctx->perMu[mu].timer_put %  MAX_CB_TIMER_CTX].tti_to_process = rx_tti;
+     p_xran_dev_ctx->perMu[mu].timer_get = p_xran_dev_ctx->perMu[mu].timer_put;
+     p_xran_dev_ctx->perMu[mu].timer_put = (p_xran_dev_ctx->perMu[mu].timer_put + 1) %  MAX_CB_TIMER_CTX;
+@@ -241,6 +250,7 @@ int32_t xran_timing_create_cbs(void *args)
+                 max_dl_delay_offset += interval_us_local;
+                 numSlots++;
+             }
++            p_dev_ctx->perMu[mu].offset_num_slots_cp_dl = numSlots;
+ 
+             /* Delay from start of 'a' slot */
+             delay_cp_dl_max = max_dl_delay_offset - p_dev_ctx->fh_cfg.perMu[mu].T1a_max_cp_dl;
+@@ -278,7 +288,7 @@ int32_t xran_timing_create_cbs(void *args)
+                 ul_delay_offset += interval_us_local;
+                 numSlots++;
+             }
+-
++            p_dev_ctx->perMu[mu].offset_num_slots_cp_ul = numSlots;
+             delay_cp_ul = ul_delay_offset - p_dev_ctx->fh_cfg.perMu[mu].T1a_max_cp_ul;
+             sym_cp_ul = (delay_cp_ul*1000/(interval_us_local*1000/N_SYM_PER_SLOT)+1);
+             p_dev_ctx->perMu[mu].ulCpSlotOffset = numSlots;
+@@ -295,8 +305,18 @@ int32_t xran_timing_create_cbs(void *args)
+ 
+             delay_up    = p_dev_ctx->fh_cfg.perMu[mu].T1a_max_up;
+             time_diff_us = p_dev_ctx->fh_cfg.perMu[mu].Ta4_max;
++            uint32_t ul_up_delay_offset=interval_us_local;
++            numSlots=0;
++            while(time_diff_us > ul_up_delay_offset) {
++                ul_up_delay_offset += interval_us_local;
++                numSlots++;
++            }
++            p_dev_ctx->perMu[mu].offset_num_slots_up_ul = numSlots;
++
++            printf("offset_num_slots_cp_dl=%d, offset_num_slots_cp_ul=%d, offset_num_slots_up_ul=%d\n", p_dev_ctx->perMu[mu].offset_num_slots_cp_dl, p_dev_ctx->perMu[mu].offset_num_slots_cp_ul, p_dev_ctx->perMu[mu].offset_num_slots_up_ul);
++
+             lower_bound_window=(p_dev_ctx->fh_cfg.perMu[mu].Ta3_min>p_dev_ctx->fh_cfg.perMu[mu].Ta4_min?p_dev_ctx->fh_cfg.perMu[mu].Ta3_min:p_dev_ctx->fh_cfg.perMu[mu].Ta4_min);
+-            delay_cp2up = delay_up-delay_cp_dl_max;
++            delay_cp2up = p_dev_ctx->fh_cfg.perMu[mu].T1a_max_cp_dl - p_dev_ctx->fh_cfg.perMu[mu].T1a_max_up;
+ 
+             time_diff_nSymb = time_diff_us*1000/(interval_us_local*1000/N_SYM_PER_SLOT);
+             p_dev_ctx->perMu[mu].sym_up       = sym_up = -(delay_up*1000/(interval_us_local*1000/N_SYM_PER_SLOT));
+diff --git a/fhi_lib/lib/src/xran_common.c b/fhi_lib/lib/src/xran_common.c
+index 5613646..f1d0f87 100644
+--- a/fhi_lib/lib/src/xran_common.c
++++ b/fhi_lib/lib/src/xran_common.c
+@@ -31,7 +31,10 @@
+ #include <sys/time.h>
+ #include <time.h>
+ #include <pthread.h>
++#if defined(__arm__) || defined(__aarch64__)
++#else
+ #include <immintrin.h>
++#endif
+ #include <rte_mbuf.h>
+ #include <stdio.h>
+ #include <stdbool.h>
+@@ -967,11 +970,14 @@ int32_t process_mbuf(struct rte_mbuf *pkt, void* handle, struct xran_eaxc_info *
+     uint8_t compMeth = 0;
+     uint8_t iqWidth = 0;
+ 
++    uint8_t is_prach = 0;
++
+     int ret = MBUF_FREE;
+     uint32_t mb_free = 0;
+     int32_t valid_res = 0;
+     int expect_comp  = (p_dev_ctx->fh_cfg.ru_conf.compMeth != XRAN_COMPMETHOD_NONE);
+     enum xran_comp_hdr_type staticComp = p_dev_ctx->fh_cfg.ru_conf.xranCompHdrType;
++    uint8_t filter_id;
+ 
+ #ifdef POLL_EBBU_OFFLOAD
+     PXRAN_TIMER_CTX pCtx = xran_timer_get_ctx_ebbu_offload();
+@@ -991,9 +997,9 @@ int32_t process_mbuf(struct rte_mbuf *pkt, void* handle, struct xran_eaxc_info *
+         return MBUF_FREE;
+ 
+     num_bytes = xran_extract_iq_samples(pkt, &iq_samp_buf,
+-                                &CC_ID, &Ant_ID, &frame_id, &subframe_id, &slot_id, &symb_id, &seq,
++                                &CC_ID, &Ant_ID, &frame_id, &subframe_id, &slot_id, &symb_id, &filter_id, &seq,
+                                 &num_prbu, &start_prbu, &sym_inc, &rb, &sect_id,
+-                                expect_comp, staticComp, &compMeth, &iqWidth, XRAN_GET_OXU_PORT_ID(p_dev_ctx));
++                                expect_comp, staticComp, &compMeth, &iqWidth, XRAN_GET_OXU_PORT_ID(p_dev_ctx), &is_prach);
+     if (unlikely(num_bytes <= 0))
+     {
+         print_err("num_bytes is wrong [%d]\n", num_bytes);
+@@ -1128,6 +1134,9 @@ int32_t process_mbuf(struct rte_mbuf *pkt, void* handle, struct xran_eaxc_info *
+     } /* else if (Ant_ID >= p_dev_ctx->srs_cfg.srsEaxcOffset ...... */
+     else
+     {
++        pCnt->rx_counter++;
++        pCnt->Rx_on_time++;
++        pCnt->Total_msgs_rcvd++;
+         struct xran_prach_cp_config *PrachCfg = NULL;
+ 
+         if(p_dev_ctx->dssEnable)
+@@ -1143,9 +1152,7 @@ int32_t process_mbuf(struct rte_mbuf *pkt, void* handle, struct xran_eaxc_info *
+             PrachCfg = &(p_dev_ctx->perMu[mu].PrachCPConfig);
+         }
+ 
+-        if (Ant_ID >= PrachCfg->prachEaxcOffset
+-                && Ant_ID < (PrachCfg->prachEaxcOffset +xran_get_num_eAxc(p_dev_ctx))
+-                && p_dev_ctx->fh_cfg.perMu[mu].prachEnable)
++        if (p_dev_ctx->fh_cfg.perMu[mu].prachEnable && is_prach)
+         {
+             if(p_dev_ctx->fh_cfg.ru_conf.xranTech == XRAN_RAN_5GNR)
+             {
+@@ -1992,8 +1999,7 @@ int32_t ring_processing_func(void* args)
+                 rte_timer_manage();
+ #endif
+ 
+-                if (process_ring(ctx->rx_ring[i][qi], i, qi))
+-                    return 0;
++                process_ring(ctx->rx_ring[i][qi], i, qi);
+             }
+         // }
+     }
+diff --git a/fhi_lib/lib/src/xran_compression.cpp b/fhi_lib/lib/src/xran_compression.cpp
+index c35f7cd..437326b 100644
+--- a/fhi_lib/lib/src/xran_compression.cpp
++++ b/fhi_lib/lib/src/xran_compression.cpp
+@@ -52,16 +52,7 @@ struct xran_lib_compander_for_isa
+ {
+     xran_lib_compander_for_isa() {
+         if (gCpuCapability == -1) {
+-#ifdef _BBLIB_SPR_
+-            if (_may_i_use_cpu_feature(_FEATURE_F16C)) {
+-                gCpuCapability = 2;
+-            } else 
+-#endif
+-            if (_may_i_use_cpu_feature(_FEATURE_AVX512IFMA52)) {
+-                gCpuCapability = 1;
+-            } else {
+-                gCpuCapability = 0;
+-            }
++            gCpuCapability = 0;
+         }
+ 
+         printf("xran_lib_compander_for_isa: %d\n", gCpuCapability);
+@@ -89,11 +80,7 @@ xranlib_compress(const struct xranlib_compress_request *request,
+         return xranlib_5gnr_mod_compression(&mod_request, &mod_response);
+     }
+     else{
+-        if(XRANLIB_COMPAND_CHECK_CPU_CAPABILITY()) {
+-            return xranlib_compress_avxsnc(request,response);
+-        } else {
+-            return xranlib_compress_avx512(request,response);
+-        }
++        return xranlib_compress_avx512(request,response);
+     }
+ }
+ 
+@@ -118,8 +105,6 @@ xranlib_decompress(const struct xranlib_decompress_request *request,
+     else{
+         if((gCpuCapability == 2)&&(request->SprEnable == 1)) {
+             return xranlib_decompress_5gisa(request,response);
+-        } else if(XRANLIB_COMPAND_CHECK_CPU_CAPABILITY()) {
+-            return xranlib_decompress_avxsnc(request,response);
+         } else {
+             return xranlib_decompress_avx512(request,response);
+         }
+@@ -191,22 +176,14 @@ int32_t
+ xranlib_compress_bfw(const struct xranlib_compress_request *request,
+                         struct xranlib_compress_response *response)
+ {
+-    if(XRANLIB_COMPAND_CHECK_CPU_CAPABILITY()) {
+-        return xranlib_compress_avxsnc_bfw(request,response);
+-    } else {
+-        return xranlib_compress_avx512_bfw(request,response);
+-    }
++    return xranlib_compress_avx512_bfw(request,response);
+ }
+ 
+ int32_t
+ xranlib_decompress_bfw(const struct xranlib_decompress_request *request,
+     struct xranlib_decompress_response *response)
+ {
+-    if(XRANLIB_COMPAND_CHECK_CPU_CAPABILITY()) {
+-        return xranlib_decompress_avxsnc_bfw(request,response);
+-    } else {
+-        return xranlib_decompress_avx512_bfw(request,response);
+-    }
++    return xranlib_decompress_avx512_bfw(request,response);
+ }
+ 
+ int32_t
+diff --git a/fhi_lib/lib/src/xran_cp_api.c b/fhi_lib/lib/src/xran_cp_api.c
+index 92a1edf..47e4afb 100644
+--- a/fhi_lib/lib/src/xran_cp_api.c
++++ b/fhi_lib/lib/src/xran_cp_api.c
+@@ -25,7 +25,11 @@
+  * @author Intel Corporation
+  *
+  **/
++#if defined(__arm__) || defined(__aarch64__)
++#include <arm_neon.h>
++#else
+ #include <immintrin.h>
++#endif
+ #include <rte_branch_prediction.h>
+ #include <rte_malloc.h>
+ 
+@@ -839,7 +843,11 @@ xran_prepare_sectionext_3(struct rte_mbuf *mbuf, struct xran_sectionext3_info *p
+                          | (params->layerId << xran_cp_radioapp_sec_ext3_LayerId)
+                          | (params->numLayers << xran_cp_radioapp_sec_ext3_NumLayers);
+         data_fourth_byte  = params->beamIdAP1;
++#if defined(__arm__) || defined(__aarch64__)
++        ext3_f->data_field.data_field1 = (int32x4_t){data_first_byte, data_second_byte, data_third_byte, data_fourth_byte};
++#else
+         ext3_f->data_field.data_field1 = _mm_set_epi32(data_fourth_byte, data_third_byte, data_second_byte, data_first_byte);
++#endif
+ 
+         /* convert byte order */
+         tmp = (uint64_t *)ext3_f;
+diff --git a/fhi_lib/lib/src/xran_cp_proc.c b/fhi_lib/lib/src/xran_cp_proc.c
+index 52c9e72..d1e7dad 100644
+--- a/fhi_lib/lib/src/xran_cp_proc.c
++++ b/fhi_lib/lib/src/xran_cp_proc.c
+@@ -35,7 +35,10 @@
+ #include <stdio.h>
+ #include <pthread.h>
+ #include <malloc.h>
++#if defined(__arm__) || defined(__aarch64__)
++#else
+ #include <immintrin.h>
++#endif
+ 
+ #include <rte_common.h>
+ #include <rte_eal.h>
+@@ -640,7 +643,7 @@ int generate_cpmsg_prach(void *pHandle, struct xran_cp_gen_params *params, struc
+     if(XRAN_FILTERINDEX_PRACH_ABC == pPrachCPConfig->filterIdx)
+     {
+         timeOffset = timeOffset >> nNumerology; //original number is Tc, convert to Ts based on mu
+-        if ((slot_id == 0) || (slot_id == (SLOTNUM_PER_SUBFRAME(xran_fs_get_tti_interval(mu)) >> 1)))
++        if (startSymId > 0 && ((slot_id == 0) || (slot_id == (SLOTNUM_PER_SUBFRAME(xran_fs_get_tti_interval(mu)) >> 1))))
+             timeOffset += 16;
+     }
+     else
+diff --git a/fhi_lib/lib/src/xran_delay_measurement.c b/fhi_lib/lib/src/xran_delay_measurement.c
+index d8ffe60..b7b4c41 100644
+--- a/fhi_lib/lib/src/xran_delay_measurement.c
++++ b/fhi_lib/lib/src/xran_delay_measurement.c
+@@ -23,7 +23,10 @@
+  * @author Intel Corporation
+  **/
+ #define _GNU_SOURCE
++#if defined(__arm__) || defined(__aarch64__)
++#else
+ #include <immintrin.h>
++#endif
+ #include <assert.h>
+ #include <err.h>
+ #include <arpa/inet.h>
+diff --git a/fhi_lib/lib/src/xran_dev.c b/fhi_lib/lib/src/xran_dev.c
+index 5956ca4..675328d 100644
+--- a/fhi_lib/lib/src/xran_dev.c
++++ b/fhi_lib/lib/src/xran_dev.c
+@@ -35,7 +35,10 @@
+ #include <stdio.h>
+ #include <pthread.h>
+ #include <malloc.h>
++#if defined(__arm__) || defined(__aarch64__)
++#else
+ #include <immintrin.h>
++#endif
+ #include <rte_common.h>
+ #include <rte_eal.h>
+ #include <rte_ethdev.h>
+diff --git a/fhi_lib/lib/src/xran_dev.h b/fhi_lib/lib/src/xran_dev.h
+index 5dad6a2..8048fb0 100644
+--- a/fhi_lib/lib/src/xran_dev.h
++++ b/fhi_lib/lib/src/xran_dev.h
+@@ -264,6 +264,11 @@ typedef struct xran_device_per_mu_fields
+     int32_t sym_up_ul_ub;
+     int32_t sym_up_ul_lb;
+ 
++    /* used to support large T1a/Ta4 values */
++    int32_t offset_num_slots_cp_dl;
++    int32_t offset_num_slots_cp_ul;
++    int32_t offset_num_slots_up_ul;
++
+     int32_t ruRxSymUpMin;
+     int32_t ruRxSymUpMax;
+ 
+diff --git a/fhi_lib/lib/src/xran_main.c b/fhi_lib/lib/src/xran_main.c
+index 256fa1d..1ec3aa5 100644
+--- a/fhi_lib/lib/src/xran_main.c
++++ b/fhi_lib/lib/src/xran_main.c
+@@ -36,7 +36,11 @@
+ #include <stdio.h>
+ #include <pthread.h>
+ #include <malloc.h>
++#if defined(__arm__) || defined(__aarch64__)
++#include <arm_neon.h>
++#else
+ #include <immintrin.h>
++#endif
+ #include <numa.h>
+ #include <rte_common.h>
+ #include <rte_eal.h>
+@@ -122,6 +126,25 @@ int32_t xran_pkt_gen_desc_free(struct cp_up_tx_desc *p_desc);
+ int32_t xran_pkt_gen_process_ring(struct rte_ring *r);
+ int32_t xran_dl_pkt_ring_processing_func(void* args);
+ 
++void *mm_allocate_handle(size_t size, size_t alignment) {
++  void *ptr = NULL;
++#if defined(__arm__) || defined(__aarch64__)
++  // ARM-specific memory allocation
++  if (posix_memalign(&ptr, alignment, size) != 0) {
++    fprintf(stderr, "posix_memalign: allocation error\n");
++    return NULL;
++  }
++#else
++  // Intel-specific memory allocation
++  ptr = _mm_malloc(size, alignment);
++  if (ptr == NULL) {
++    fprintf(stderr, "_mm_malloc: allocation error\n");
++    return NULL;
++  }
++#endif
++  return ptr;
++}
++
+ void
+ xran_updateSfnSecStart(void)
+ {
+@@ -334,8 +357,8 @@ int32_t xran_init_prach_lte(struct xran_fh_config* pConf, struct xran_device_ctx
+             pDevCtx->prach_start_symbol[0], pDevCtx->prach_last_symbol[0]);
+     }
+ 
+-    pPrachCPConfig->prachEaxcOffset = xran_get_num_eAxc(pDevCtx);
+-    print_dbg("PRACH: eAxC_offset %d\n",  pPrachCPConfig->prachEaxcOffset);
++    pPrachCPConfig->prachEaxcOffset = pPRACHConfig->prachEaxcOffset;
++    print_dbg("PRACH: prachEaxcOffset %d\n",  pPrachCPConfig->prachEaxcOffset);
+     /* Save some configs for app */
+     pPRACHConfig->startSymId    = pPrachCPConfig->startSymId;
+     pPRACHConfig->lastSymId     = pPrachCPConfig->startSymId + pPrachCPConfig->numSymbol * pPrachCPConfig->occassionsInPrachSlot - 1;
+@@ -501,20 +524,7 @@ xran_init_prach(struct xran_fh_config* pConf, struct xran_device_ctx * pDevCtx,
+         printf("PRACH start symbol %u lastsymbol %u\n", pDevCtx->prach_start_symbol[0], pDevCtx->prach_last_symbol[0]);
+     }
+ 
+-    /* match the RU sample-app prachEaxcOffset with DU in case of numerology-3 */
+-    if(mu == 3)
+-        pPRACHConfig->prachEaxcOffset = RTE_MAX(xran_get_num_eAxc(pDevCtx), 4);
+-
+-    if(pPRACHConfig->prachEaxcOffset==0)
+-    {
+-        pPrachCPConfig->prachEaxcOffset = pDevCtx->fh_cfg.perMu[mu].eaxcOffset + xran_get_num_eAxc(pDevCtx);
+-        pPRACHConfig->prachEaxcOffset = pPrachCPConfig->prachEaxcOffset;
+-    }
+-    else
+-    {
+-        pPrachCPConfig->prachEaxcOffset = pPRACHConfig->prachEaxcOffset;
+-    }
+-
++    pPrachCPConfig->prachEaxcOffset = pPRACHConfig->prachEaxcOffset;
+     print_dbg("PRACH eAxC_offset %d\n",  pPrachCPConfig->prachEaxcOffset);
+ 
+     /* Save some configs for app */
+@@ -611,6 +621,11 @@ void xran_process_nbiot_prach_cp(struct xran_device_ctx * pDevCtx, uint8_t mu)
+                         uint8_t seqid = xran_get_cp_seqid(pDevCtx, XRAN_DIR_UL, ccId, portId);
+ 
+                         uint16_t beam_id = xran_get_beamid(pDevCtx, XRAN_DIR_UL, ccId, portId, 0);
++                        uint8_t bufId = tti % XRAN_N_FE_BUF_LEN;
++                        struct xran_buffer_list *pBufList = &(pDevCtx->perMu[mu].sFrontHaulRxPrbMapBbuIoBufCtrl[bufId][ccId][antId].sBufferList);
++                        struct xran_prb_map *prbMap = (struct xran_prb_map *)pBufList->pBuffers->pData;
++                        struct xran_prb_elm *pPrbElm = &prbMap->prbMap[0]; //mjoang
++                        beam_id = pPrbElm->nBeamIndex;
+                         ret = generate_cpmsg_prach(pDevCtx, &params, sect_geninfo, mbuf, pDevCtx,
+                                 frameId, sfId, 0, tti,
+                                 beam_id, ccId, portId, 0, seqid, mu, sym_id);
+@@ -1173,6 +1188,8 @@ xran_prepare_cp_dl_slot(uint16_t xran_port_id, uint32_t nSlotIdx,  uint32_t nCcS
+     return ret;
+ }
+ 
++uint32_t prev_dl_tti = -1;
++
+ void tx_cp_dl_cb(struct rte_timer *tim, void *arg)
+ {
+     long t1 = MLogXRANTick();
+@@ -1233,7 +1250,7 @@ void tx_cp_dl_cb(struct rte_timer *tim, void *arg)
+     if(first_call && pDevCtx->enableCP)
+     {
+ #ifndef POLL_EBBU_OFFLOAD
+-        tti = pTCtx[(xran_lib_ota_tti_mu[PortId][mu] & 1) ^ 1].tti_to_process;
++        tti = pTCtx[(xran_lib_ota_tti_mu[PortId][mu] & 1) ^ 1].tti_to_process + pDevCtx->perMu[mu].offset_num_slots_cp_dl;
+ #else
+         tti = pTCtx[(pCtx->ebbu_offload_ota_tti_cnt_mu[PortId][mu] & 1) ^ 1].tti_to_process;
+ #endif
+@@ -1262,6 +1279,16 @@ void tx_cp_dl_cb(struct rte_timer *tim, void *arg)
+             {
+                 /* Wrap around to next second */
+                 frameId = (frameId + NUM_OF_FRAMES_PER_SECOND) & 0x3ff;
++                prev_dl_tti = -1;
++            }
++	    else if (pDevCtx->perMu[mu].offset_num_slots_cp_dl > 0 && prev_dl_tti == xran_fs_get_max_slot(PortId) - 1 + pDevCtx->perMu[mu].offset_num_slots_cp_dl)
++            {
++                prev_dl_tti = tti;
++                tti = xran_fs_get_max_slot(PortId) + pDevCtx->perMu[mu].offset_num_slots_cp_dl;
++            }
++	    else
++            {
++                prev_dl_tti = tti;
+             }
+ 
+             ctxId      = cp_dl_tti % XRAN_MAX_SECTIONDB_CTX;
+@@ -1880,6 +1907,10 @@ xran_prepare_cp_ul_slot(uint16_t xran_port_id, uint32_t nSlotIdx,  uint32_t nCcS
+                                 uint8_t seqid = xran_get_cp_seqid(pHandle, XRAN_DIR_UL, ccId, portId);
+ 
+                                 beam_id = xran_get_beamid(pHandle, XRAN_DIR_UL, ccId, portId, slotId);
++                                pBufList = &(pDevCtx->perMu[mu].sFrontHaulRxPrbMapBbuIoBufCtrl[bufId][ccId][antId].sBufferList);
++                                struct xran_prb_map *prbMap = (struct xran_prb_map *)pBufList->pBuffers->pData;
++                                struct xran_prb_elm *pPrbElm = &prbMap->prbMap[0]; //mjoang
++                                beam_id = pPrbElm->nBeamIndex;
+                                 ret = generate_cpmsg_prach(pHandle, &params, sect_geninfo, mbuf, pDevCtx,
+                                             frameId, sfId, slotId, tti,
+                                             beam_id, ccId, portId, occasionid, seqid, mu, 0);
+@@ -1935,6 +1966,7 @@ xran_prepare_cp_ul_slot(uint16_t xran_port_id, uint32_t nSlotIdx,  uint32_t nCcS
+     return ret;
+ }
+ 
++uint32_t prev_ul_tti = -1;
+ 
+ void tx_cp_ul_cb(struct rte_timer *tim, void *arg)
+ {
+@@ -1991,7 +2023,7 @@ void tx_cp_ul_cb(struct rte_timer *tim, void *arg)
+         interval    = xran_fs_get_tti_interval(mu);
+         PortId      = pDevCtx->xran_port_id;
+ #ifndef POLL_EBBU_OFFLOAD
+-        tti         = pTCtx[(xran_lib_ota_tti_mu[PortId][mu] & 1) ^ 1].tti_to_process;
++        tti         = pTCtx[(xran_lib_ota_tti_mu[PortId][mu] & 1) ^ 1].tti_to_process + pDevCtx->perMu[mu].offset_num_slots_cp_ul;
+ #else
+         tti         = pTCtx[(pCtx->ebbu_offload_ota_tti_cnt_mu[PortId][mu] & 1) ^ 1].tti_to_process;
+ #endif
+@@ -2038,7 +2070,19 @@ void tx_cp_ul_cb(struct rte_timer *tim, void *arg)
+ 
+         /* Wrap around to next second */
+         if(tti == 0)
++        {
+             frameId = (frameId + NUM_OF_FRAMES_PER_SECOND) & 0x3ff;
++            prev_ul_tti = tti;
++        }
++        else if (pDevCtx->perMu[mu].offset_num_slots_cp_ul > 0 && prev_ul_tti == xran_fs_get_max_slot(PortId) - 1 + pDevCtx->perMu[mu].offset_num_slots_cp_ul)
++        {
++            prev_ul_tti = tti;
++            tti = xran_fs_get_max_slot(PortId) + pDevCtx->perMu[mu].offset_num_slots_cp_ul;
++        }
++        else
++        {
++            prev_ul_tti = tti;
++        }
+ 
+         num_eAxc = xran_get_num_eAxcUl(pHandle);
+         num_CCPorts = xran_get_num_cc(pHandle);
+@@ -2128,6 +2172,10 @@ void tx_cp_ul_cb(struct rte_timer *tim, void *arg)
+                             uint8_t seqid = xran_get_cp_seqid(pHandle, XRAN_DIR_UL, ccId, portId);
+ 
+                             beam_id = xran_get_beamid(pHandle, XRAN_DIR_UL, ccId, portId, slotId);
++                            pBufList = &(pDevCtx->perMu[mu].sFrontHaulRxPrbMapBbuIoBufCtrl[bufId][ccId][antId].sBufferList);
++                            struct xran_prb_map *prbMap = (struct xran_prb_map *)pBufList->pBuffers->pData;
++                            struct xran_prb_elm *pPrbElm = &prbMap->prbMap[0]; //mjoang
++                            beam_id = pPrbElm->nBeamIndex;
+                             ret = generate_cpmsg_prach(pHandle, &params, sect_geninfo, mbuf, pDevCtx,
+                                     frameId, sfId, slotId, tti,
+                                     beam_id, ccId, portId, occasionid, seqid, mu, 0);
+@@ -2309,16 +2357,21 @@ int32_t xran_handle_rx_pkts(struct rte_mbuf* pkt_q[], uint16_t xport_id, struct
+                     // ECPRI payload validation
+                     if(likely(sysCfg->rru_workaround == 0))
+                     {
+-                        if(unlikely(expected_ecpri_payload != (rte_pktmbuf_pkt_len(pkt) - sizeof(union xran_ecpri_cmn_hdr))))
+-                        {
+-                            ++p_dev_ctx->fh_counters.rx_err_ecpri;
+-                            ++p_dev_ctx->fh_counters.rx_err_drop;
+-                            ++p_dev_ctx->fh_counters.rx_counter;
+-                            rte_pktmbuf_free(pkt);
+-                            continue;
++                        uint16_t size_tail = (rte_pktmbuf_pkt_len(pkt) - sizeof(union xran_ecpri_cmn_hdr)) - expected_ecpri_payload;
++                        if(size_tail > 0) {
++                          int trim_ret = rte_pktmbuf_trim(pkt, size_tail);
++                          if(unlikely(trim_ret != 0))
++                              {
++                                  ++p_dev_ctx->fh_counters.rx_err_ecpri;
++                                  ++p_dev_ctx->fh_counters.rx_err_drop;
++                                  ++p_dev_ctx->fh_counters.rx_counter;
++                                  rte_pktmbuf_free(pkt);
++                                  continue;
++                              }
+                         }
+                     }
+                     pkt_data[num_data++] = pkt;
++                    uint8_t *pkt_bytes = rte_pktmbuf_mtod(pkt, uint8_t*);
+                     break;
+                 // For RU emulation
+                 case ECPRI_RT_CONTROL_DATA:
+@@ -3663,8 +3716,7 @@ ring_processing_func_per_port(void* args)
+     for (i = 0; i < ctx->io_cfg.num_vfs && i < XRAN_VF_MAX; i = i+1) {
+         if (ctx->vf2xran_port[i] == portId) {
+             for(qi = 0; qi < ctx->rxq_per_port[portId]; qi++){
+-                if (process_ring(ctx->rx_ring[i][qi], i, qi))
+-                    return 0;
++                process_ring(ctx->rx_ring[i][qi], i, qi);
+             }
+         }
+     }
+@@ -3708,7 +3760,7 @@ xran_status_t xran_update_worker_info(struct xran_worker_info_s *p_worker_info,
+             continue;
+         }
+ 
+-        pThCtx = (struct xran_worker_th_ctx*) _mm_malloc(sizeof(struct xran_worker_th_ctx), 64);
++        pThCtx = (struct xran_worker_th_ctx*) mm_allocate_handle(sizeof(struct xran_worker_th_ctx), 64);
+         if(pThCtx == NULL)
+         {
+             print_err("pThCtx allocation error\n");
+@@ -3838,8 +3890,6 @@ int32_t xran_spawn_workers(void)
+         }
+     }
+ 
+-    icx_cpu = _may_i_use_cpu_feature(_FEATURE_AVX512IFMA52);
+-
+     printf("ORAN operating mode: O-%s\n", (xran_get_syscfg_appmode() == ID_O_DU) ?"DU":"RU");
+     printf("  Num of configured cores: %d%s\n", total_num_cores, icx_cpu?" (Xeon SP Gen3 or later)":"");
+     printf("  Num of configured RUs  : %d\n", numRUs);
+@@ -5018,14 +5068,13 @@ int32_t xran_start(void *pHandle)
+     return 0;
+ }
+ 
+-int32_t xran_activate_cc(int32_t port_id, int32_t cc_id)
++int32_t xran_activate_cc(void *pHandle, int32_t cc_id)
+ {
+-    struct xran_device_ctx *pDevCtx;
++    struct xran_device_ctx *pDevCtx = (struct xran_device_ctx *)pHandle;
+ 
+     if(cc_id >= XRAN_MAX_SECTOR_NR)
+         return(-1);
+ 
+-    pDevCtx = xran_dev_get_ctx_by_id(port_id);
+     if(pDevCtx)
+     {
+         rte_spinlock_lock(&pDevCtx->spinLock);
+@@ -5040,6 +5089,7 @@ int32_t xran_activate_cc(int32_t port_id, int32_t cc_id)
+     }
+     else
+     {
++        int32_t port_id = pDevCtx->xran_port_id;
+         printf("Invalid port(RU) index - %d\n", port_id);
+         return(-1);
+     }
+@@ -5048,14 +5098,13 @@ int32_t xran_activate_cc(int32_t port_id, int32_t cc_id)
+     return(0);
+ }
+ 
+-int32_t xran_deactivate_cc(int32_t port_id, int32_t cc_id)
++int32_t xran_deactivate_cc(void *pHandle, int32_t cc_id)
+ {
+-    struct xran_device_ctx *pDevCtx;
++    struct xran_device_ctx *pDevCtx = (struct xran_device_ctx *)pHandle;
+ 
+     if(cc_id >= XRAN_MAX_SECTOR_NR)
+         return(-1);
+ 
+-    pDevCtx = xran_dev_get_ctx_by_id(port_id);
+     if(pDevCtx)
+     {
+         rte_spinlock_lock(&pDevCtx->spinLock);
+@@ -5070,6 +5119,7 @@ int32_t xran_deactivate_cc(int32_t port_id, int32_t cc_id)
+     }
+     else
+     {
++        int32_t port_id = pDevCtx->xran_port_id;
+         printf("Invalid port(RU) index - %d\n", port_id);
+         return(-1);
+     }
+@@ -5568,27 +5618,23 @@ int32_t xran_init_PrbMap_by_symbol_from_cfg(struct xran_prb_map* p_PrbMapIn, str
+ 
+     for(; i < XRAN_NUM_OF_SYMBOL_PER_SLOT; i++)
+     {
+-        if((nRBStart == prbMapTemp[i].nRBStart) && (nRBSize == prbMapTemp[i].nRBSize))
+-        {
+-                prbMapTemp[nPrbElm].numSymb++;
+-        }
+-        else
+-        {
+-            nPrbElm++;
+-            prbMapTemp[nPrbElm].nStartSymb = prbMapTemp[i].nStartSymb;
+-            prbMapTemp[nPrbElm].nRBStart = prbMapTemp[i].nRBStart;
+-            prbMapTemp[nPrbElm].nRBSize = prbMapTemp[i].nRBSize;
+-            prbMapTemp[nPrbElm].nBeamIndex = prbMapTemp[i].nBeamIndex;
+-            prbMapTemp[nPrbElm].bf_weight_update = prbMapTemp[i].bf_weight_update;
+-            prbMapTemp[nPrbElm].compMethod = prbMapTemp[i].compMethod;
+-            prbMapTemp[nPrbElm].iqWidth = prbMapTemp[i].iqWidth;
+-            prbMapTemp[nPrbElm].ScaleFactor = prbMapTemp[i].ScaleFactor;
+-            prbMapTemp[nPrbElm].reMask = prbMapTemp[i].reMask;
+-            prbMapTemp[nPrbElm].BeamFormingType = prbMapTemp[i].BeamFormingType;
+-
+-            nRBStart = prbMapTemp[i].nRBStart;
+-            nRBSize = prbMapTemp[i].nRBSize;
+-        }
++        /* force using a separate section for each symbol in one multisection CP (both DL and UL) message;
++         * when generating DL UP, symbol index should be within nStartSymb and (nStartSymb + numSymb);
++         * nPrbElm doesn't have any affect on UL UP */
++        nPrbElm++;
++        prbMapTemp[nPrbElm].nStartSymb = prbMapTemp[i].nStartSymb;
++        prbMapTemp[nPrbElm].nRBStart = prbMapTemp[i].nRBStart;
++        prbMapTemp[nPrbElm].nRBSize = prbMapTemp[i].nRBSize;
++        prbMapTemp[nPrbElm].nBeamIndex = prbMapTemp[i].nBeamIndex;
++        prbMapTemp[nPrbElm].bf_weight_update = prbMapTemp[i].bf_weight_update;
++        prbMapTemp[nPrbElm].compMethod = prbMapTemp[i].compMethod;
++        prbMapTemp[nPrbElm].iqWidth = prbMapTemp[i].iqWidth;
++        prbMapTemp[nPrbElm].ScaleFactor = prbMapTemp[i].ScaleFactor;
++        prbMapTemp[nPrbElm].reMask = prbMapTemp[i].reMask;
++        prbMapTemp[nPrbElm].BeamFormingType = prbMapTemp[i].BeamFormingType;
++
++        nRBStart = prbMapTemp[i].nRBStart;
++        nRBSize = prbMapTemp[i].nRBSize;
+     }
+ 
+     for(i = 0; i < nPrbElm; i++)
+diff --git a/fhi_lib/lib/src/xran_mem_mgr.c b/fhi_lib/lib/src/xran_mem_mgr.c
+index 83d43e8..ff2321d 100644
+--- a/fhi_lib/lib/src/xran_mem_mgr.c
++++ b/fhi_lib/lib/src/xran_mem_mgr.c
+@@ -35,7 +35,11 @@
+ #include <stdio.h>
+ #include <pthread.h>
+ #include <malloc.h>
++#if defined(__arm__) || defined(__aarch64__)
++#include <arm_neon.h>
++#else
+ #include <immintrin.h>
++#endif
+ 
+ #include <rte_common.h>
+ #include <rte_eal.h>
+diff --git a/fhi_lib/lib/src/xran_mod_compression.cpp b/fhi_lib/lib/src/xran_mod_compression.cpp
+index c313beb..8408a42 100644
+--- a/fhi_lib/lib/src/xran_mod_compression.cpp
++++ b/fhi_lib/lib/src/xran_mod_compression.cpp
+@@ -749,10 +749,7 @@ int xranlib_5gnr_mod_compression(const struct xranlib_5gnr_mod_compression_reque
+ #ifdef C_Module_Used
+     return (xranlib_5gnr_mod_compression_c(request, response));
+ #else
+-    if(XRANLIB_COMPAND_CHECK_CPU_CAPABILITY())
+-        return (xranlib_5gnr_mod_compression_snc(request, response));
+-    else
+-        return (xranlib_5gnr_mod_compression_avx512(request, response));
++    return (xranlib_5gnr_mod_compression_avx512(request, response));
+ #endif
+ }
+ 
+diff --git a/fhi_lib/lib/src/xran_rx_proc.c b/fhi_lib/lib/src/xran_rx_proc.c
+index 4ccd00e..bdc58f6 100644
+--- a/fhi_lib/lib/src/xran_rx_proc.c
++++ b/fhi_lib/lib/src/xran_rx_proc.c
+@@ -35,7 +35,11 @@
+ #include <stdio.h>
+ #include <pthread.h>
+ #include <malloc.h>
++#if defined(__arm__) || defined(__aarch64__)
++#include <arm_neon.h>
++#else
+ #include <immintrin.h>
++#endif
+ 
+ #include <rte_common.h>
+ #include <rte_eal.h>
+@@ -532,6 +536,9 @@ int32_t xran_process_rx_sym(void *arg,
+         pRbMap = (struct xran_prb_map *) p_xran_dev_ctx->perMu[mu].sFrontHaulRxPrbMapBbuIoBufCtrl[tti % XRAN_N_FE_BUF_LEN][CC_ID][Ant_ID].sBufferList.pBuffers->pData;
+         if(likely(pRbMap))
+         {
++            if (p_xran_dev_ctx->RunSlotPrbMapBySymbolEnable) {
++              sect_id = (pRbMap->nPrbElm == XRAN_NUM_OF_SYMBOL_PER_SLOT) ? symb_id : symb_id - (XRAN_NUM_OF_SYMBOL_PER_SLOT - pRbMap->nPrbElm);
++            }
+             /** Get the prb_elem_id */
+             for(i=0 ; i < pRbMap->nPrbElm ; i++)
+             {
+diff --git a/fhi_lib/lib/src/xran_timer.c b/fhi_lib/lib/src/xran_timer.c
+index 387cef8..f4a566f 100644
+--- a/fhi_lib/lib/src/xran_timer.c
++++ b/fhi_lib/lib/src/xran_timer.c
+@@ -32,7 +32,11 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <stdint.h>
++#if defined(__arm__) || defined(__aarch64__)
++#include <arm_neon.h>
++#else
+ #include <immintrin.h>
++#endif
+ 
+ #include "xran_timer.h"
+ #include "xran_main.h"
+diff --git a/fhi_lib/lib/src/xran_transport.c b/fhi_lib/lib/src/xran_transport.c
+index 70337d6..645b2ef 100644
+--- a/fhi_lib/lib/src/xran_transport.c
++++ b/fhi_lib/lib/src/xran_transport.c
+@@ -27,7 +27,10 @@
+ 
+ #include <stdint.h>
+ #include <endian.h>
++#if defined(__arm__) || defined(__aarch64__)
++#else
+ #include <immintrin.h>
++#endif
+ #include <rte_common.h>
+ #include <rte_config.h>
+ 
+diff --git a/fhi_lib/lib/src/xran_tx_proc.c b/fhi_lib/lib/src/xran_tx_proc.c
+index 2d05893..3b14be5 100644
+--- a/fhi_lib/lib/src/xran_tx_proc.c
++++ b/fhi_lib/lib/src/xran_tx_proc.c
+@@ -35,7 +35,11 @@
+ #include <stdio.h>
+ #include <pthread.h>
+ #include <malloc.h>
++#if defined(__arm__) || defined(__aarch64__)
++#include <arm_neon.h>
++#else
+ #include <immintrin.h>
++#endif
+ 
+ #include <rte_common.h>
+ #include <rte_eal.h>
+@@ -1539,6 +1543,12 @@ int32_t xran_process_tx_sym_cp_on_opt(void* pHandle, uint8_t ctx_id, uint32_t tt
+ 
+             if(0!=ptr_sect_elm->cur_index)
+             {
++                /* prevent xran from sending DL U-plane packets when it should not */
++                if(eth_ctx->io_cfg.id == O_DU && xran_fs_get_slot_type(xran_port_id, 0, tti, XRAN_SLOT_TYPE_DL, mu) != 1)
++                {
++                    return 0;
++                }
++
+                 num_sections = ptr_sect_elm->cur_index;
+                 /* iterate C-Plane configuration to generate corresponding U-Plane */
+                 // here
+@@ -1632,15 +1642,11 @@ int32_t xran_process_tx_sym_cp_on_opt(void* pHandle, uint8_t ctx_id, uint32_t tt
+                         p_share_data->free_cb = extbuf_free_callback;
+                         p_share_data->fcb_opaque = NULL;
+                         rte_mbuf_ext_refcnt_set(p_share_data, 1);
+-                        ext_buff = (char*) (xran_add_hdr_offset((uint8_t*)temp_buff, compMeth));
++                        ext_buff = temp_buff + sectinfo->sec_desc[sym_id].iq_buffer_offset;
+ 
+                         /* Create ethernet + eCPRI + radio app header */
+-                        iq_offset = xran_get_iqdata_len(sectinfo->numPrbc, iqWidth, compMeth);
+-                        ext_buff_len = iq_offset;
+-                        temp_buff = ext_buff + iq_offset;
+-
++                        ext_buff_len = sectinfo->sec_desc[sym_id].iq_buffer_len;
+                         ext_buff -= total_header_size;
+-
+                         ext_buff_len += (total_header_size + 18);
+ 
+                         if (comp_head_upd)
+diff --git a/fhi_lib/lib/src/xran_up_api.c b/fhi_lib/lib/src/xran_up_api.c
+index f3b846e..3eda2de 100644
+--- a/fhi_lib/lib/src/xran_up_api.c
++++ b/fhi_lib/lib/src/xran_up_api.c
+@@ -25,7 +25,10 @@
+  *
+  **/
+ #include <inttypes.h>
++#if defined(__arm__) || defined(__aarch64__)
++#else
+ #include <immintrin.h>
++#endif
+ #include <rte_mbuf.h>
+ 
+ #include "xran_fh_o_du.h"
+@@ -318,6 +321,7 @@ int32_t xran_extract_iq_samples(struct rte_mbuf *mbuf,
+     uint8_t *subframe_id,
+     uint8_t *slot_id,
+     uint8_t *symb_id,
++    uint8_t *filter_id,
+     union ecpri_seq_id *seq_id,
+     uint16_t *num_prbu,
+     uint16_t *start_prbu,
+@@ -328,7 +332,8 @@ int32_t xran_extract_iq_samples(struct rte_mbuf *mbuf,
+     enum xran_comp_hdr_type staticComp,
+     uint8_t *compMeth,
+     uint8_t *iqWidth,
+-    uint8_t oxu_port_id)
++    uint8_t oxu_port_id,
++    uint8_t *is_prach)
+ {
+ #if XRAN_MLOG_VAR
+     uint32_t mlogVar[10];
+@@ -362,6 +367,7 @@ int32_t xran_extract_iq_samples(struct rte_mbuf *mbuf,
+         return 0;       /* packet too short */
+ 
+     radio_hdr->sf_slot_sym.value = rte_be_to_cpu_16(radio_hdr->sf_slot_sym.value);
++    *is_prach = (radio_hdr->data_feature.filter_id > 0);
+ 
+     if (frame_id)
+         *frame_id    = radio_hdr->frame_id;
+@@ -375,6 +381,9 @@ int32_t xran_extract_iq_samples(struct rte_mbuf *mbuf,
+     if (symb_id)
+         *symb_id = radio_hdr->sf_slot_sym.symb_id;
+ 
++    if (filter_id)
++        *filter_id = radio_hdr->data_feature.filter_id;
++
+     /* Process data section hdr */
+     struct data_section_hdr *data_hdr =
+         (void *)rte_pktmbuf_adj(mbuf, sizeof(*radio_hdr));
