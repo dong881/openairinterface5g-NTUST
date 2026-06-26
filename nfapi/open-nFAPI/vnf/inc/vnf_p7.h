@@ -97,7 +97,15 @@ typedef struct nfapi_vnf_p7_connection_info {
 	int slot;
   int mu; // some 5G slot calculations need the numerology to know the number
           // of slots
-
+	int slot_ahead;
+	uint16_t timing_window;
+	uint8_t timing_info_period;
+	struct timespec next_slot_time;
+	uint32_t slot_duration_us;
+	uint8_t running;
+	pthread_t thread;
+	pthread_mutex_t mutex;
+	pthread_cond_t  initial_timinginfo_cond;
 	int socket;
 	struct sockaddr_in local_addr;
 	struct sockaddr_in remote_addr;
@@ -110,6 +118,28 @@ typedef struct nfapi_vnf_p7_connection_info {
 
 	struct nfapi_vnf_p7_connection_info* next;
 
+	int32_t pending_us;             // Accumulated borrowed time (us) to be repaid incrementally
+	int32_t estimated_mean_late;      // estimated mean delay
+	int32_t estimated_jitter_var;     // estimated jitter variance
+	int32_t late_jitter;            // Separate EWMA for late jitter
+	int32_t early_jitter;           // Separate EWMA for early jitter
+	int32_t last_adjustment_steps;  // How many slots we increased in last adjustment
+	int32_t last_adjustment_sfn;    // SFN when we made the last upward adjustment
+	int32_t last_adjustment_slot;   // Slot when we made the last upward adjustment
+	int32_t DM_EWMA_safe_period_count;
+	int32_t DM_EWMA_late_period_count;
+	int32_t DM_EWMA_risk_period_count;
+	int32_t DM_EWMA_last_target_s_ahead;
+	int32_t DM_EWMA_failure_debt_us;
+	int32_t DM_EWMA_risk_debt_us;
+	int32_t DM_EWMA_safe_margin_ewma_us;
+	int32_t DM_EWMA_jitter_pressure_ahead_us;
+	int32_t DM_EWMA_jitter_pressure_hold_ahead_us;
+	int32_t DM_EWMA_jitter_pressure_hold_slots;
+	int32_t timing_info_accum_worst_late;
+	uint32_t timing_info_accum_count;
+	uint32_t timing_info_received_count;
+	int32_t nr_offset_filtered;
 } nfapi_vnf_p7_connection_info_t;
 
 typedef struct vnf_p7_s {
