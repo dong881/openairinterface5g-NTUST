@@ -254,7 +254,7 @@ if (selectRetval==-1 && errno == 22)
 {
   NFAPI_TRACE(NFAPI_TRACE_ERROR, "INVAL: pselect_timeout:%ld.%ld adj[dur:%d adj:%d], sf_dur:%ld.%ld\n",
   pselect_timeout.tv_sec, pselect_timeout.tv_nsec,
-  phy->insync_minor_adjustment_duration, phy->insync_minor_adjustment,
+  phy ? phy->insync_minor_adjustment_duration : 0, phy ? phy->insync_minor_adjustment : 0,
   sf_duration.tv_sec, sf_duration.tv_nsec);
 }
 			if(selectRetval == 0)
