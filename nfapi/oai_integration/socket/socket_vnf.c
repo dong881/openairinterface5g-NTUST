@@ -377,7 +377,13 @@ static int nfapi_nr_vnf_p5_start(nfapi_vnf_config_t *config)
     NFAPI_TRACE(NFAPI_TRACE_INFO, "IPV4 binding to port %d\n", config->vnf_p5_port);
     addr.sin_family = AF_INET;
     addr.sin_port = htons(config->vnf_p5_port);
-    addr.sin_addr.s_addr = INADDR_ANY;
+    vnf_info *vnf_inf = (vnf_info *)(config->user_data);
+    if (vnf_inf && vnf_inf->p7_vnfs[0].local_addr[0] != '\0') {
+      addr.sin_addr.s_addr = inet_addr(vnf_inf->p7_vnfs[0].local_addr);
+      NFAPI_TRACE(NFAPI_TRACE_INFO, "Binding VNF P5 to local address %s\n", vnf_inf->p7_vnfs[0].local_addr);
+    } else {
+      addr.sin_addr.s_addr = INADDR_ANY;
+    }
 
     // bind to the configured address and port
     if (bind(p5ListenSock, (struct sockaddr *)&addr, sizeof(struct sockaddr_in)) < 0) {
