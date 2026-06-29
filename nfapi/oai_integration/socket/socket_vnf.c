@@ -317,6 +317,10 @@ static int nfapi_nr_vnf_p5_start(nfapi_vnf_config_t *config)
       return 0;
     }
     NFAPI_TRACE(NFAPI_TRACE_INFO, "P5 socket created... %d\n", p5ListenSock);
+    int reuse = 1;
+    if (setsockopt(p5ListenSock, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
+      NFAPI_TRACE(NFAPI_TRACE_ERROR, "setsockopt(SO_REUSEADDR) failed errno: %d\n", errno);
+    }
   }
 
   if (vnf->sctp) {
