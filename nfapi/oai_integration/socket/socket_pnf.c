@@ -3,6 +3,7 @@
  */
 #include "socket_pnf.h"
 #include "nfapi.h"
+#include "nfapi_vnf.h"
 static nfapi_pnf_config_t *config;
 void socket_nfapi_nr_pnf_stop()
 {
@@ -268,6 +269,19 @@ int pnf_connect_socket(pnf_t *pnf)
     }
 
     NFAPI_TRACE(NFAPI_TRACE_INFO, "P5 socket created...\n");
+    if (pnf->sctp) {
+      pnf_info *pnf_inf = (pnf_info *)(pnf->_public.user_data);
+      if (pnf_inf && pnf_inf->phys[0].local_addr[0] != '\0') {
+        struct sockaddr_in local_addr = {0};
+        local_addr.sin_family = AF_INET;
+        local_addr.sin_port = 0; // Let the kernel assign ephemeral port
+        local_addr.sin_addr.s_addr = inet_addr(pnf_inf->phys[0].local_addr);
+        NFAPI_TRACE(NFAPI_TRACE_INFO, "Binding PNF P5 client socket to local address %s\n", pnf_inf->phys[0].local_addr);
+        if (bind(pnf->p5_sock, (struct sockaddr *)&local_addr, sizeof(local_addr)) < 0) {
+          NFAPI_TRACE(NFAPI_TRACE_ERROR, "PNF P5 bind error errno: %d\n", errno);
+        }
+      }
+    }
 
     if (connect(pnf->p5_sock, p->ai_addr, p->ai_addrlen) < 0) {
       NFAPI_TRACE(NFAPI_TRACE_ERROR,
