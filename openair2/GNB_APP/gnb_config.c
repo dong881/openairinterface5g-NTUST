@@ -1693,6 +1693,8 @@ void RCconfig_nr_macrlc(configmodule_interface_t *cfg)
           .my_portd = *gpd(params, np, MACRLC_LOCAL_S_PORTD)->iptr,
           .remote_portd = 0, // not used
         };
+        RC.nrmac[j]->vnf_p7_thread_core = *gpd(params, np, MACRLC_VNF_P7_THREAD_CORE)->i8ptr;
+        RC.nrmac[j]->vnf_timing_thread_core = *gpd(params, np, MACRLC_VNF_TIMING_THREAD_CORE)->i8ptr;
         configure_nr_nfapi_vnf(p);
       } else if(strcmp(*gpd(params, np, MACRLC_TRANSPORT_S_PREFERENCE)->strptr, "aerial") == 0){
 #ifdef ENABLE_AERIAL

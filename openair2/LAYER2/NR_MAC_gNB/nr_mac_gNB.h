@@ -1173,6 +1173,10 @@ typedef struct gNB_MAC_INST_s {
   char *f1u_addr;
   /// Nvipc parameters for FAPI interface with Aerial
   nvipc_params_t nvipc_params_s;
+  /// CPU core to pin the nFAPI VNF P7 thread to (-1 = do not pin)
+  int8_t vnf_p7_thread_core;
+  /// CPU core to pin the nFAPI VNF timing thread to (-1 = do not pin)
+  int8_t vnf_timing_thread_core;
   /// Module
   module_id_t                     Mod_id;
   /// timing advance group

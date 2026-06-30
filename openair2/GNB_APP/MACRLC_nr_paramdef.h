@@ -24,6 +24,8 @@
 #define MACRLC_TRANSPORT_S_PREFERENCE        "tr_s_preference"
 #define MACRLC_TRANSPORT_S_SHM_PREFIX "tr_s_shm_prefix"
 #define MACRLC_TRANSPORT_S_POLL_CORE "tr_s_poll_core"
+#define MACRLC_VNF_P7_THREAD_CORE "vnf_p7_thread_core"
+#define MACRLC_VNF_TIMING_THREAD_CORE "vnf_timing_thread_core"
 #define MACRLC_LOCAL_S_ADDRESS               "local_s_address"
 #define MACRLC_REMOTE_S_ADDRESS              "remote_s_address"
 #define MACRLC_LOCAL_S_PORTC                 "local_s_portc"
@@ -115,6 +117,8 @@
   {MACRLC_LOCAL_N_ADDRESS_F1U,         NULL,                     0, .strptr=NULL, .defstrval=NULL,            TYPE_STRING,  0}, \
   {MACRLC_TRANSPORT_S_SHM_PREFIX,      NULL,                     0, .strptr=NULL, .defstrval="nvipc",         TYPE_STRING,  0}, \
   {MACRLC_TRANSPORT_S_POLL_CORE,       NULL,                     0, .i8ptr=NULL,  .defintval=-1,              TYPE_INT8,    0}, \
+  {MACRLC_VNF_P7_THREAD_CORE,          NULL,                     0, .i8ptr=NULL,  .defintval=-1,              TYPE_INT8,    0}, \
+  {MACRLC_VNF_TIMING_THREAD_CORE,      NULL,                     0, .i8ptr=NULL,  .defintval=-1,              TYPE_INT8,    0}, \
   {MACRLC_ANALOG_BEAMFORMING,          HLP_MACRLC_AB,            0, .strptr=NULL, .defstrval="none",          TYPE_STRING,  0}, \
   {MACRLC_BEAM_DURATION,               HLP_MACRLC_BEAM_DURATION, 0, .u8ptr=NULL,  .defintval=1,               TYPE_UINT8,   0}, \
   {MACRLC_BEAMS_PERIOD,                HLP_MACRLC_BEAMS_PERIOD,  0, .u8ptr=NULL,  .defintval=1,               TYPE_UINT8,   0}, \
@@ -162,6 +166,8 @@
   { .s5 = { NULL } }, \
   { .s5 = { NULL } }, \
   { .s2 = { NULL } }, \
+  { .s5 = { NULL } }, /* VNF P7 thread core */ \
+  { .s5 = { NULL } }, /* VNF timing thread core */ \
   { .s3a = { config_checkstr_assign_integer, \
              {"none", "preconfigured", "lophy"}, \
              {NO_BEAM_MODE, PRECONFIGURED_BEAM_IDX, LOPHY_BEAM_IDX}, \
