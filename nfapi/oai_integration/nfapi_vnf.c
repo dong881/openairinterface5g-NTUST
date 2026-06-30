@@ -945,6 +945,19 @@ int phy_nr_slot_indication(nfapi_nr_slot_indication_scf_t *ind)
       oai_fapi_send_end_request(ind->sfn, ind->slot);
     }
 #else
+  /* Split (socket) transport: send TX_DATA.request BEFORE DL_TTI.request.
+   *
+   * SCF222/225 define the FAPI message order (DL_TTI, UL_TTI, then TX_DATA) for
+   * a co-located PHY where the messages are delivered in-process within the same
+   * slot. Over the nFAPI P7 socket the PNF/PHY consumes the DL payload carried by
+   * TX_DATA.request when it processes DL_TTI.request: if TX_DATA arrives after
+   * DL_TTI on a real (latency-bearing) link, the payload is not yet buffered when
+   * the slot is assembled. Under high downlink load (~900 Mbps) this produces a
+   * storm of "late" P7 messages and the link collapses. Sending TX_DATA first
+   * guarantees the data is present before the control that references it.
+   *
+   * The co-located/Aerial path above keeps the spec order on purpose, since there
+   * is no inter-message transport delay there. */
   if (sched_response.TX_req.Number_of_PDUs > 0)
     oai_nfapi_tx_data_req(&sched_response.TX_req);
 
